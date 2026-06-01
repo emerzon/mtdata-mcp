@@ -1,5 +1,8 @@
 """Comprehensive tests for mtdata.utils.denoise module."""
 
+import math
+from types import SimpleNamespace
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -16,8 +19,9 @@ from mtdata.utils.denoise import (
 )
 from mtdata.utils.denoise import api as denoise_api
 from mtdata.utils.denoise.api import _run_denoise_handler
-from mtdata.utils.denoise.filters import specialized as specialized_filters
 from mtdata.utils.denoise.filters import adaptive as adaptive_filters
+from mtdata.utils.denoise.filters import specialized as specialized_filters
+from mtdata.utils.denoise.filters import wavelet as wavelet_mod
 from mtdata.utils.denoise.filters.adaptive import (
     _adaptive_lms_filter,
     _adaptive_rls_filter,
@@ -1514,6 +1518,57 @@ class TestWaveletPacketDenoise:
         y = _wavelet_packet_denoise(NOISY_SIGNAL, wavelet="INVALID_WAVELET", level=2,
                                     threshold="auto", mode="soft")
         np.testing.assert_array_equal(y, NOISY_SIGNAL)
+
+    def test_auto_threshold_uses_finest_detail_coefficients(self, monkeypatch):
+        class FakeNode:
+            def __init__(self, data):
+                self.data = np.asarray(data, dtype=float)
+
+        terminal_nodes = [FakeNode([40.0, 45.0]), FakeNode([60.0, 65.0])]
+        finest_detail = FakeNode([0.0, 1.0, -1.0, 0.5])
+        thresholds = []
+
+        class FakeWaveletPacket:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            def get_level(self, level, order="freq"):
+                return terminal_nodes
+
+            def __getitem__(self, key):
+                if key == "d":
+                    return finest_detail
+                raise KeyError(key)
+
+            def reconstruct(self, update=False):
+                return NOISY_SIGNAL.copy()
+
+        fake_pywt = SimpleNamespace(
+            Wavelet=lambda wavelet: SimpleNamespace(dec_len=2),
+            dwt_max_level=lambda n, dec_len: 2,
+            WaveletPacket=FakeWaveletPacket,
+            threshold=lambda data, thr, mode: thresholds.append(thr) or np.asarray(data, dtype=float),
+        )
+        monkeypatch.setattr(wavelet_mod, "_pywt", fake_pywt)
+
+        y = _wavelet_packet_denoise(
+            NOISY_SIGNAL,
+            wavelet="db4",
+            level=2,
+            threshold="auto",
+            mode="soft",
+            threshold_scale=None,
+        )
+
+        expected_sigma = np.median(np.abs(finest_detail.data)) / 0.6745
+        expected_thr = float(expected_sigma * math.sqrt(2.0 * math.log(len(NOISY_SIGNAL))))
+        all_terminal_sigma = np.median(np.abs(np.concatenate([node.data for node in terminal_nodes]))) / 0.6745
+        all_terminal_thr = float(all_terminal_sigma * math.sqrt(2.0 * math.log(len(NOISY_SIGNAL))))
+
+        _check_basic(y, N)
+        assert thresholds
+        assert thresholds[0] == pytest.approx(expected_thr)
+        assert thresholds[0] != pytest.approx(all_terminal_thr)
 
 
 class TestModeIndexCoercion:

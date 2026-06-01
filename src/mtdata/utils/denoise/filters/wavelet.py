@@ -12,6 +12,32 @@ except Exception:
 from ..base import _series_like, register_filter
 
 
+def _estimate_wavelet_packet_sigma(
+    wp: Any,
+    nodes: list[Any],
+    x: np.ndarray,
+) -> float:
+    coeffs = np.array([], dtype=float)
+    try:
+        coeffs = np.asarray(wp["d"].data, dtype=float).ravel()
+    except Exception:
+        coeffs = np.array([], dtype=float)
+
+    coeffs = coeffs[np.isfinite(coeffs)]
+    if coeffs.size:
+        return float(np.median(np.abs(coeffs)) / 0.6745)
+
+    try:
+        coeffs = np.asarray(nodes[-1].data, dtype=float).ravel()
+    except Exception:
+        coeffs = np.array([], dtype=float)
+
+    coeffs = coeffs[np.isfinite(coeffs)]
+    if coeffs.size:
+        return float(np.median(np.abs(coeffs)) / 0.6745)
+    return float(np.std(x))
+
+
 def _wavelet_packet_denoise(
     x: np.ndarray,
     wavelet: str,
@@ -38,8 +64,7 @@ def _wavelet_packet_denoise(
     nodes = wp.get_level(level_val, order="freq")
     if not nodes:
         return x
-    coeffs = np.concatenate([node.data.ravel() for node in nodes])
-    sigma = np.median(np.abs(coeffs)) / 0.6745 if coeffs.size else float(np.std(x))
+    sigma = _estimate_wavelet_packet_sigma(wp, nodes, x)
     thr = threshold
     if threshold_scale == "auto":
         denom = float(np.std(x)) + 1e-12
