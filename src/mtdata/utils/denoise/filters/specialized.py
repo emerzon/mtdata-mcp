@@ -19,19 +19,22 @@ def _kalman_filter_1d(
     initial_state: Optional[float] = None,
     initial_cov: Optional[float] = None,
 ) -> np.ndarray:
-    n = len(x)
-    xhat = np.zeros(n, dtype=float)
-    p = np.zeros(n, dtype=float)
+    x_arr = np.asarray(x, dtype=float)
+    n = len(x_arr)
+    if n == 0:
+        return np.zeros(0, dtype=float)
+    xhat = np.empty(n, dtype=float)
     meas = max(float(measurement_var), 1e-12)
     proc = max(float(process_var), 1e-12)
-    xhat[0] = float(initial_state) if initial_state is not None else float(x[0])
-    p[0] = float(initial_cov) if initial_cov is not None else meas
+    state = float(initial_state) if initial_state is not None else float(x_arr[0])
+    cov = float(initial_cov) if initial_cov is not None else meas
+    xhat[0] = state
     for t in range(1, n):
-        x_pred = xhat[t - 1]
-        p_pred = p[t - 1] + proc
-        k = p_pred / (p_pred + meas)
-        xhat[t] = x_pred + k * (x[t] - x_pred)
-        p[t] = (1 - k) * p_pred
+        pred_cov = cov + proc
+        gain = pred_cov / (pred_cov + meas)
+        state = state + gain * (x_arr[t] - state)
+        cov = (1.0 - gain) * pred_cov
+        xhat[t] = state
     return xhat
 
 

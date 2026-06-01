@@ -1184,6 +1184,11 @@ class TestKalmanFilter1d:
         _check_basic(y, N)
         assert _smoothness(y) < _smoothness(NOISY_SIGNAL)
 
+    def test_empty_input(self):
+        y = _kalman_filter_1d(np.array([], dtype=float), process_var=0.01, measurement_var=1.0)
+
+        assert y.shape == (0,)
+
     def test_with_initial_state(self):
         y = _kalman_filter_1d(NOISY_SIGNAL, process_var=0.01, measurement_var=1.0,
                               initial_state=0.0, initial_cov=1.0)
