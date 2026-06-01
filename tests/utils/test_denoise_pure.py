@@ -17,6 +17,7 @@ from mtdata.utils.denoise import (
 from mtdata.utils.denoise import api as denoise_api
 from mtdata.utils.denoise.api import _run_denoise_handler
 from mtdata.utils.denoise.filters import specialized as specialized_filters
+from mtdata.utils.denoise.filters import adaptive as adaptive_filters
 from mtdata.utils.denoise.filters.adaptive import (
     _adaptive_lms_filter,
     _adaptive_rls_filter,
@@ -1373,6 +1374,30 @@ class TestAdaptiveLmsFilter:
         y = _adaptive_lms_filter(NOISY_SIGNAL, order=5, mu=0.5, leak=0.01)
         _check_basic(y, N)
 
+    def test_uses_accelerated_path_when_available(self, monkeypatch):
+        x = np.linspace(0.0, 1.0, 8)
+
+        def fake_accel(values, order, mu, eps, leak, use_bias):
+            assert order == 3
+            assert mu == 0.2
+            assert eps == 1e-6
+            assert leak == 0.1
+            assert use_bias is False
+            return np.full_like(values, 42.0)
+
+        monkeypatch.setattr(adaptive_filters, "_adaptive_lms_filter_numba", fake_accel)
+
+        result = adaptive_filters._adaptive_lms_filter(
+            x,
+            order=3,
+            mu=0.2,
+            eps=1e-6,
+            leak=0.1,
+            use_bias=False,
+        )
+
+        np.testing.assert_array_equal(result, np.full_like(x, 42.0))
+
 
 class TestAdaptiveRlsFilter:
     def test_basic(self):
@@ -1386,6 +1411,28 @@ class TestAdaptiveRlsFilter:
     def test_invalid_lambda_returns_input(self):
         y = _adaptive_rls_filter(NOISY_SIGNAL, order=5, lam=1.5, delta=1.0)
         np.testing.assert_array_equal(y, NOISY_SIGNAL)
+
+    def test_uses_accelerated_path_when_available(self, monkeypatch):
+        x = np.linspace(-1.0, 1.0, 8)
+
+        def fake_accel(values, order, lam, delta, use_bias):
+            assert order == 4
+            assert lam == 0.95
+            assert delta == 0.5
+            assert use_bias is True
+            return np.full_like(values, -3.0)
+
+        monkeypatch.setattr(adaptive_filters, "_adaptive_rls_filter_numba", fake_accel)
+
+        result = adaptive_filters._adaptive_rls_filter(
+            x,
+            order=4,
+            lam=0.95,
+            delta=0.5,
+            use_bias=True,
+        )
+
+        np.testing.assert_array_equal(result, np.full_like(x, -3.0))
 
 
 class TestSsaDenoise:
