@@ -387,7 +387,65 @@ class ARIMAMethod(ETSArimaMethod):
         exog_future: Optional[pd.DataFrame] = None,
         **kwargs
     ) -> ForecastResult:
+        if self._should_use_auto_arima(params):
+            auto_result = self._forecast_with_auto_arima(
+                series=series,
+                horizon=horizon,
+                seasonality=seasonality,
+                params=params,
+                exog_future=exog_future,
+                **kwargs,
+            )
+            if auto_result is not None:
+                return auto_result
         return self._forecast_sarimax(series, horizon, seasonality, params, seasonal=False, exog_future=exog_future, **kwargs)
+
+    @staticmethod
+    def _should_use_auto_arima(params: Dict[str, Any]) -> bool:
+        manual_keys = {"order", "p", "d", "q"}
+        return not any(params.get(key) is not None for key in manual_keys)
+
+    def _forecast_with_auto_arima(
+        self,
+        *,
+        series: pd.Series,
+        horizon: int,
+        seasonality: int,
+        params: Dict[str, Any],
+        exog_future: Optional[pd.DataFrame] = None,
+        **kwargs: Any,
+    ) -> Optional[ForecastResult]:
+        try:
+            from .statsforecast import GenericStatsForecastMethod
+        except Exception:
+            return None
+
+        sf_params = dict(params or {})
+        sf_params["model_name"] = "AutoARIMA"
+        if int(seasonality or 0) > 1:
+            sf_params.setdefault("season_length", int(seasonality))
+        try:
+            result = GenericStatsForecastMethod().forecast(
+                series,
+                horizon,
+                seasonality,
+                sf_params,
+                exog_future=exog_future,
+                **kwargs,
+            )
+        except Exception:
+            return None
+
+        params_used = dict(result.params_used or {})
+        params_used["model_name"] = "AutoARIMA"
+        params_used["backend"] = "statsforecast"
+        params_used["auto_selected"] = True
+        return ForecastResult(
+            forecast=np.asarray(result.forecast, dtype=float),
+            ci_values=result.ci_values,
+            params_used=params_used,
+            metadata=result.metadata,
+        )
 
     def _forecast_sarimax(self, series, horizon, seasonality, params, seasonal, exog_future=None, **kwargs):
         if not _SM_SARIMAX_AVAILABLE:
@@ -535,6 +593,5 @@ class SARIMAMethod(ARIMAMethod):
         **kwargs
     ) -> ForecastResult:
         return self._forecast_sarimax(series, horizon, seasonality, params, seasonal=True, exog_future=exog_future, **kwargs)
-
 
 

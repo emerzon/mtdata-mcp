@@ -285,7 +285,38 @@ def test_ets_forecast_rejects_insufficient_history_for_seasonal_fit(monkeypatch)
 def test_arima_requires_statsmodels(monkeypatch):
     monkeypatch.setattr(ea, "_SM_SARIMAX_AVAILABLE", False)
     with pytest.raises(RuntimeError, match="requires statsmodels"):
-        ea.ARIMAMethod().forecast(pd.Series([1.0, 2.0]), horizon=1, seasonality=0, params={})
+        ea.ARIMAMethod().forecast(
+            pd.Series([1.0, 2.0]),
+            horizon=1,
+            seasonality=0,
+            params={"p": 1, "d": 1, "q": 1},
+        )
+
+
+def test_arima_prefers_auto_arima_when_no_order_supplied(monkeypatch):
+    def _fake_forecast(self, series, horizon, seasonality, params, exog_future=None, **kwargs):
+        assert params["model_name"] == "AutoARIMA"
+        return ForecastResult(
+            forecast=np.array([21.0, 22.0], dtype=float),
+            params_used={"seasonality": seasonality},
+        )
+
+    monkeypatch.setattr(
+        "mtdata.forecast.methods.statsforecast.GenericStatsForecastMethod.forecast",
+        _fake_forecast,
+    )
+
+    out = ea.ARIMAMethod().forecast(
+        pd.Series([10.0, 11.0, 12.0]),
+        horizon=2,
+        seasonality=0,
+        params={},
+    )
+
+    assert np.allclose(out.forecast, [21.0, 22.0])
+    assert out.params_used["model_name"] == "AutoARIMA"
+    assert out.params_used["backend"] == "statsforecast"
+    assert out.params_used["auto_selected"] is True
 
 
 def test_arima_builds_orders_ci_and_exog_metadata(monkeypatch):
@@ -405,6 +436,10 @@ def test_arima_conf_int_errors_are_reported_in_metadata(monkeypatch):
 
     monkeypatch.setattr(ea, "_SM_SARIMAX_AVAILABLE", True)
     monkeypatch.setattr(ea, "_SARIMAX", FakeSarimax)
+    monkeypatch.setattr(
+        "mtdata.forecast.methods.statsforecast.GenericStatsForecastMethod.forecast",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("auto unavailable")),
+    )
 
     out = ea.ARIMAMethod().forecast(pd.Series([1.0, 2.0, 3.0]), horizon=1, seasonality=0, params={})
     assert np.allclose(out.forecast, [3.0])
