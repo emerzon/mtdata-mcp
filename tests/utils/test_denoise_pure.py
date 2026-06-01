@@ -33,7 +33,7 @@ from mtdata.utils.denoise.filters.specialized import (
     _kalman_rts_smoother_1d,
     _tv_denoise_1d,
 )
-from mtdata.utils.denoise.filters.spectral import _butterworth_filter
+from mtdata.utils.denoise.filters.spectral import _butterworth_filter, _lowpass_fft_weights
 from mtdata.utils.denoise.filters.trend import (
     _beta_irls_mean,
     _beta_smooth,
@@ -409,6 +409,32 @@ class TestDenoiseSeriesDispatch:
         )
         _check_basic(result.values, N)
         assert _smoothness(result.values) < _smoothness(NOISY_SIGNAL)
+
+    def test_lowpass_fft_reduces_step_ringing_vs_brick_wall(self):
+        step = np.concatenate([np.zeros(128), np.ones(128)])
+        s = _make_series(step)
+
+        tapered = _denoise_series(s, method="lowpass_fft", params={"cutoff_ratio": 0.1}).to_numpy()
+
+        spectrum = np.fft.rfft(step)
+        brick = np.zeros_like(spectrum)
+        keep = max(1, int(len(spectrum) * 0.1))
+        brick[:keep] = spectrum[:keep]
+        brick_wall = np.fft.irfft(brick, n=len(step))
+
+        tapered_ringing = max(0.0, float(np.max(tapered) - 1.0)) + max(0.0, float(-np.min(tapered)))
+        brick_ringing = max(0.0, float(np.max(brick_wall) - 1.0)) + max(0.0, float(-np.min(brick_wall)))
+
+        assert tapered_ringing < brick_ringing
+
+    def test_lowpass_fft_weights_taper_after_cutoff(self):
+        weights = _lowpass_fft_weights(32, 0.25)
+
+        assert weights[0] == pytest.approx(1.0)
+        np.testing.assert_allclose(weights[:8], np.ones(8))
+        assert np.all((weights >= 0.0) & (weights <= 1.0))
+        assert np.all(np.diff(weights[8:]) <= 1e-12)
+        assert np.any((weights[8:] > 0.0) & (weights[8:] < 1.0))
 
     def test_hp(self):
         s = _make_series(NOISY_SIGNAL)

@@ -16,6 +16,32 @@ except Exception:
 from ..base import _series_like, register_filter
 
 
+def _lowpass_fft_weights(n_bins: int, cutoff_ratio: float) -> np.ndarray:
+    if n_bins <= 0:
+        return np.zeros(0, dtype=float)
+    try:
+        cutoff = float(cutoff_ratio)
+    except Exception:
+        cutoff = 0.1
+    if cutoff <= 0:
+        weights = np.zeros(n_bins, dtype=float)
+        weights[0] = 1.0
+        return weights
+    if cutoff >= 1:
+        return np.ones(n_bins, dtype=float)
+    cutoff_bins = max(1, min(n_bins, int(n_bins * cutoff)))
+    if cutoff_bins >= n_bins:
+        return np.ones(n_bins, dtype=float)
+    transition_bins = min(n_bins - cutoff_bins, max(1, int(np.ceil(cutoff_bins * 0.25))))
+    weights = np.zeros(n_bins, dtype=float)
+    weights[:cutoff_bins] = 1.0
+    if transition_bins <= 0:
+        return weights
+    taper = 0.5 * (1.0 + np.cos(np.pi * np.arange(1, transition_bins + 1) / float(transition_bins + 1)))
+    weights[cutoff_bins : cutoff_bins + transition_bins] = taper
+    return weights
+
+
 @register_filter('lowpass_fft')
 def _denoise_lowpass_fft_series(
     s: pd.Series,
@@ -24,11 +50,12 @@ def _denoise_lowpass_fft_series(
     causality: str,
 ) -> pd.Series:
     del causality
+    if len(x) == 0:
+        return _series_like(s, x)
     cutoff_ratio = float(params.get('cutoff_ratio', 0.1))
     X = np.fft.rfft(x)
-    kmax = int(len(X) * cutoff_ratio)
-    Y = np.zeros_like(X)
-    Y[:max(1, kmax)] = X[:max(1, kmax)]
+    weights = _lowpass_fft_weights(len(X), cutoff_ratio)
+    Y = X * weights
     y = np.fft.irfft(Y, n=len(x))
     return _series_like(s, y)
 
