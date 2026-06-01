@@ -67,6 +67,59 @@ class TestMonteCarloSimulationCoherence(unittest.TestCase):
         self.assertEqual(result.params_used["target"], "return")
         self.assertAlmostEqual(result.params_used["sigma"], expected_sigma)
 
+    def test_monte_carlo_registry_return_target_uses_default_rng(self) -> None:
+        rets = np.array([0.01, 0.04, -0.02, 0.03, 0.00, 0.02], dtype=float)
+        method = ForecastRegistry.get("mc_gbm")
+        captured = {}
+
+        class FakeGenerator:
+            def normal(self, loc: float, scale: float, size: tuple[int, int]) -> np.ndarray:
+                captured["loc"] = loc
+                captured["scale"] = scale
+                captured["size"] = size
+                return np.full(size, loc, dtype=float)
+
+        def fake_default_rng(seed: int) -> FakeGenerator:
+            captured["seed"] = seed
+            return FakeGenerator()
+
+        with patch("mtdata.forecast.methods.monte_carlo.np.random.default_rng", side_effect=fake_default_rng):
+            result = method.forecast(
+                series=pd.Series(rets),
+                horizon=4,
+                seasonality=1,
+                params={"n_sims": 7, "seed": 11, "quantity": "return"},
+            )
+
+        self.assertEqual(captured["seed"], 11)
+        self.assertEqual(captured["size"], (7, 4))
+        self.assertTrue(np.allclose(result.forecast, np.full(4, captured["loc"], dtype=float)))
+
+    def test_monte_carlo_registry_return_target_is_reproducible_with_seed(self) -> None:
+        rets = np.array([0.01, 0.04, -0.02, 0.03, 0.00, 0.02], dtype=float)
+        method = ForecastRegistry.get("mc_gbm")
+
+        first = method.forecast(
+            series=pd.Series(rets),
+            horizon=5,
+            seasonality=1,
+            params={"n_sims": 50, "seed": 17, "quantity": "return", "ci_alpha": 0.1},
+        )
+        second = method.forecast(
+            series=pd.Series(rets),
+            horizon=5,
+            seasonality=1,
+            params={"n_sims": 50, "seed": 17, "quantity": "return", "ci_alpha": 0.1},
+        )
+
+        self.assertTrue(np.allclose(first.forecast, second.forecast))
+        self.assertIsNotNone(first.ci_values)
+        self.assertIsNotNone(second.ci_values)
+        assert first.ci_values is not None
+        assert second.ci_values is not None
+        self.assertTrue(np.allclose(first.ci_values[0], second.ci_values[0]))
+        self.assertTrue(np.allclose(first.ci_values[1], second.ci_values[1]))
+
     def test_monte_carlo_registry_method_routes_overrides_through_shared_simulator(self) -> None:
         series = np.linspace(100.0, 120.0, 200)
         fake_sim = {
