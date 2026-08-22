@@ -11,6 +11,7 @@ from .capabilities import (
     PERFORMANCE,
     RESEARCH_CAPABILITIES,
     SCREENER,
+    ResearchSourcePin,
 )
 from .errors import capability_unsupported_error, source_unavailable_error
 from .payload import stamp_provider
@@ -23,6 +24,7 @@ __all__ = [
     "NEWS",
     "PERFORMANCE",
     "RESEARCH_CAPABILITIES",
+    "ResearchSourcePin",
     "SCREENER",
     "CalendarRequest",
     "CalendarSource",

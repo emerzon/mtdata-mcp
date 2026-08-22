@@ -7,7 +7,7 @@ from typing import Annotated, Any, Dict, Literal, Optional
 
 from pydantic import Field
 
-from ..services.research.capabilities import CALENDAR
+from ..services.research.capabilities import CALENDAR, ResearchSourcePin
 from ..services.research.errors import finviz_only_source_error
 from ..services.research.payload import stamp_provider
 from ..services.research.protocols import CalendarRequest
@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 
 CalendarKind = Literal["economic", "earnings", "dividends"]
 CalendarView = Literal["range", "period"]
-ResearchSourcePin = Literal["auto", "finviz", "mt5"]
 
 
 def _fetch_finviz_calendar(request: CalendarRequest) -> Dict[str, Any]:

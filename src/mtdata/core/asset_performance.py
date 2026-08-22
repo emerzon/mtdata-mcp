@@ -7,7 +7,7 @@ from typing import Annotated, Any, Dict, Literal, Optional
 
 from pydantic import Field
 
-from ..services.research.capabilities import PERFORMANCE
+from ..services.research.capabilities import PERFORMANCE, ResearchSourcePin
 from ..services.research.errors import finviz_only_source_error
 from ..services.research.payload import stamp_provider
 from ..shared.schema import DetailLiteral
@@ -17,7 +17,6 @@ from .execution_logging import run_logged_operation
 
 logger = logging.getLogger(__name__)
 
-ResearchSourcePin = Literal["auto", "finviz", "mt5"]
 PerformanceUniverse = Literal["forex", "crypto", "futures", "insider"]
 
 
