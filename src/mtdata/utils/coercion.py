@@ -134,6 +134,19 @@ def parse_bool_like(value: Any, *, allow_none: bool = False) -> Any:
     return UNPARSED_BOOL
 
 
+def coerce_optional_bool(value: Any) -> Optional[bool]:
+    """Return bool/numeric broker flags as booleans, otherwise ``None``."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        return bool(numeric) if math.isfinite(numeric) else None
+    return None
+
+
 def coerce_finite_float(value: Any) -> Optional[float]:
     """Best-effort float coercion that rejects missing and non-finite values."""
     if value is None:

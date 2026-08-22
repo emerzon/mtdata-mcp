@@ -1273,16 +1273,6 @@ def _normalize_minutes_back(minutes_back: Any) -> Tuple[Optional[int], Optional[
     return minutes, None
 
 
-def _coerce_optional_bool(value: Any) -> Optional[bool]:
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)) and not isinstance(value, bool):
-        if not math.isfinite(float(value)):
-            return None
-        return bool(value)
-    return None
-
-
 def _safe_int_ticket(value: Any) -> Optional[int]:
     """Best-effort exact conversion for positive MT5 ticket values."""
     try:

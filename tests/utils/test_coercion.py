@@ -1,12 +1,21 @@
 from mtdata.utils.coercion import (
     UNPARSED_BOOL,
     coerce_finite_float,
+    coerce_optional_bool,
     is_explicit_false,
     parse_bool_like,
     round_finite,
     safe_float,
     split_top_level_csv,
 )
+
+
+def test_coerce_optional_bool_accepts_only_finite_bool_and_numeric_flags() -> None:
+    assert coerce_optional_bool(True) is True
+    assert coerce_optional_bool(0) is False
+    assert coerce_optional_bool(1.0) is True
+    assert coerce_optional_bool(float("nan")) is None
+    assert coerce_optional_bool("false") is None
 
 
 def test_parse_bool_like_accepts_canonical_boolean_values():

@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from ...bootstrap.settings import mt5_config
 from ...shared.schema import DetailLiteral
-from ...utils.coercion import round_finite
+from ...utils.coercion import coerce_optional_bool, round_finite
 from ...utils.freshness import is_standard_weekend_closure
 from ...utils.mt5 import (
     MT5ConnectionError,
@@ -1200,7 +1200,7 @@ def trade_account_info(
             terminal_info=terminal_info,
         )
         margin_stress = safety.assess_margin_stress(info)
-        broker_trade_allowed = validation._coerce_optional_bool(
+        broker_trade_allowed = coerce_optional_bool(
             getattr(info, "trade_allowed", None)
         )
         strict_execution_ready = preflight.get("execution_ready_strict")

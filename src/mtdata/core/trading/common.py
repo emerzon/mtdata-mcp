@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Literal, Optional
 
+from ...utils.coercion import coerce_optional_bool
 from ...utils.market_metadata import build_tick_freshness_context
 from ...utils.quote import (
     enforce_quote_execution_readiness,
@@ -211,11 +212,11 @@ def _build_trade_preflight(mt5: Any, account_info: Any = None, terminal_info: An
         except Exception:
             term = None
 
-    account_trade_allowed = validation._coerce_optional_bool(getattr(info, "trade_allowed", None)) if info is not None else None
-    account_trade_expert = validation._coerce_optional_bool(getattr(info, "trade_expert", None)) if info is not None else None
-    terminal_trade_allowed = validation._coerce_optional_bool(getattr(term, "trade_allowed", None)) if term is not None else None
-    terminal_tradeapi_disabled = validation._coerce_optional_bool(getattr(term, "tradeapi_disabled", None)) if term is not None else None
-    terminal_connected = validation._coerce_optional_bool(getattr(term, "connected", None)) if term is not None else None
+    account_trade_allowed = coerce_optional_bool(getattr(info, "trade_allowed", None)) if info is not None else None
+    account_trade_expert = coerce_optional_bool(getattr(info, "trade_expert", None)) if info is not None else None
+    terminal_trade_allowed = coerce_optional_bool(getattr(term, "trade_allowed", None)) if term is not None else None
+    terminal_tradeapi_disabled = coerce_optional_bool(getattr(term, "tradeapi_disabled", None)) if term is not None else None
+    terminal_connected = coerce_optional_bool(getattr(term, "connected", None)) if term is not None else None
 
     hard_blockers: List[str] = []
     soft_blockers: List[str] = []
@@ -250,7 +251,7 @@ def _build_trade_preflight(mt5: Any, account_info: Any = None, terminal_info: An
         "terminal_trade_allowed": terminal_trade_allowed,
         "terminal_tradeapi_disabled": terminal_tradeapi_disabled,
         "terminal_connected": terminal_connected,
-        "community_account": validation._coerce_optional_bool(getattr(term, "community_account", None)) if term is not None else None,
+        "community_account": coerce_optional_bool(getattr(term, "community_account", None)) if term is not None else None,
         "auto_trading_enabled": auto_trading_enabled,
         "execution_ready": len(hard_blockers) == 0,
         "execution_ready_strict": len(all_blockers) == 0,
