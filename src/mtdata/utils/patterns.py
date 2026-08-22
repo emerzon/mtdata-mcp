@@ -29,7 +29,7 @@ from .denoise import (
 )
 from .dimred import DimReducer as _DimReducer
 from .dimred import create_reducer as _create_reducer
-from .dtw import _get_ts_dtw, dtw_distance
+from .dtw import dtw_distance
 from .mt5 import _mt5_copy_rates_from, _rates_to_df
 from .utils import align_finite
 
@@ -365,35 +365,21 @@ class PatternIndex:
                 # Optional penalty to discourage extreme scaling
                 score = rmse + float(affine_penalty) * abs(float(alpha) - 1.0)
             elif sm in ('dtw', 'softdtw'):
-                # Compute DTW/Soft-DTW distance; fallback to simple DP if libs unavailable
+                # Compute DTW/Soft-DTW distance with the required tslearn backend.
                 n = a.size
                 band = None
                 if dtw_band_frac is not None and dtw_band_frac > 0:
                     band = max(1, int(round(float(dtw_band_frac) * n)))
                 if sm == 'dtw':
-                    try:
-                        ts_dtw = _get_ts_dtw()
-                        if band:
-                            score = float(ts_dtw(a, w, global_constraint="sakoe_chiba", sakoe_chiba_radius=int(band)))
-                        else:
-                            score = float(ts_dtw(a, w))
-                    except Exception:
-                        score = dtw_distance(
-                            a,
-                            w,
-                            sakoe_chiba_radius=int(band) if band else None,
-                        )
+                    score = dtw_distance(
+                        a,
+                        w,
+                        sakoe_chiba_radius=int(band) if band else None,
+                    )
                 else:  # softdtw
-                    try:
-                        ts_soft_dtw = _get_ts_soft_dtw()
-                        gamma = float(soft_dtw_gamma) if (soft_dtw_gamma is not None and soft_dtw_gamma > 0) else 1.0
-                        score = float(ts_soft_dtw(a.reshape(1, -1), w.reshape(1, -1), gamma=gamma))
-                    except Exception:
-                        score = dtw_distance(
-                            a,
-                            w,
-                            sakoe_chiba_radius=int(band) if band else None,
-                        )
+                    ts_soft_dtw = _get_ts_soft_dtw()
+                    gamma = float(soft_dtw_gamma) if (soft_dtw_gamma is not None and soft_dtw_gamma > 0) else 1.0
+                    score = float(ts_soft_dtw(a.reshape(1, -1), w.reshape(1, -1), gamma=gamma))
             else:
                 # Fallback to euclidean on scaled windows
                 diff = a - w

@@ -189,16 +189,6 @@ class TestDtwDistance:
         d = _dtw_distance(a, b)
         assert d > 0.0
 
-    def test_fallback_when_tslearn_runtime_fails(self, monkeypatch):
-        def _raise():
-            raise RuntimeError("backend unavailable")
-
-        monkeypatch.setattr(utils_mod, "_get_ts_dtw", _raise)
-        a = np.array([1.0, 2.0, 3.0])
-        d = _dtw_distance(a, a)
-        assert d == 0.0
-
-
 class TestTemplateHs:
     def test_length(self):
         t = _template_hs(80)

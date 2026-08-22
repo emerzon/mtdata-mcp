@@ -1,5 +1,7 @@
 import numpy as np
+import pytest
 
+import mtdata.utils.dtw as dtw_mod
 from mtdata.utils.dtw import dtw_distance
 
 
@@ -29,3 +31,13 @@ def test_dtw_distance_supports_sakoe_chiba_radius() -> None:
 
     assert np.isfinite(distance)
     assert distance > 0.0
+
+
+def test_dtw_distance_surfaces_backend_failures(monkeypatch) -> None:
+    def _raise():
+        raise RuntimeError("backend unavailable")
+
+    monkeypatch.setattr(dtw_mod, "_get_ts_dtw", _raise)
+
+    with pytest.raises(RuntimeError, match="backend unavailable"):
+        dtw_distance(np.array([1.0]), np.array([1.0]))

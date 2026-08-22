@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from math import sqrt
 from typing import Optional
 
 import numpy as np
@@ -36,29 +35,14 @@ def dtw_distance(
     if sakoe_chiba_radius is not None:
         radius = max(int(sakoe_chiba_radius), abs(int(x.size) - int(y.size)))
 
-    prev = np.full(y.size + 1, np.inf, dtype=float)
-    prev[0] = 0.0
-
-    for i in range(1, x.size + 1):
-        curr = np.full(y.size + 1, np.inf, dtype=float)
-        if radius is None:
-            j_start = 1
-            j_end = y.size
-        else:
-            j_start = max(1, i - radius)
-            j_end = min(y.size, i + radius)
-            if j_start > j_end:
-                prev = curr
-                continue
-
-        xi = float(x[i - 1])
-        for j in range(j_start, j_end + 1):
-            diff = xi - float(y[j - 1])
-            cost = diff * diff
-            curr[j] = cost + min(prev[j], curr[j - 1], prev[j - 1])
-        prev = curr
-
-    distance = float(prev[y.size])
-    if not np.isfinite(distance):
-        return float("inf")
-    return float(sqrt(max(distance, 0.0)))
+    ts_dtw = _get_ts_dtw()
+    if radius is None:
+        return float(ts_dtw(x, y))
+    return float(
+        ts_dtw(
+            x,
+            y,
+            global_constraint="sakoe_chiba",
+            sakoe_chiba_radius=radius,
+        )
+    )
