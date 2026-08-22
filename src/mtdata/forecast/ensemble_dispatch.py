@@ -15,12 +15,17 @@ def dispatch_registered_forecast(
     horizon: int,
     seasonality: Optional[int],
     params: Optional[Dict[str, Any]],
+    *,
+    registry: Any = None,
 ) -> Tuple[Optional["np.ndarray"], Optional[Dict[str, Any]]]:
     method_l = str(method_name).lower().strip()
     try:
-        from .forecast_registry import ForecastRegistry
+        if registry is None:
+            from .forecast_registry import ForecastRegistry
 
-        forecaster = ForecastRegistry.get(method_l)
+            registry = ForecastRegistry
+
+        forecaster = registry.get(method_l)
         result = forecaster.forecast(
             series,
             horizon,

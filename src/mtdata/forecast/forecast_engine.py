@@ -173,6 +173,7 @@ def _ensemble_dispatch_method(
         horizon,
         seasonality,
         params,
+        registry=ForecastRegistry,
     )
     return forecast
 
@@ -192,6 +193,7 @@ def _ensemble_dispatch_with_error(
         horizon,
         seasonality,
         params,
+        registry=ForecastRegistry,
     )
 
 
