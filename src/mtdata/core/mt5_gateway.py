@@ -196,6 +196,8 @@ def create_mt5_gateway(
 
 def mt5_connection_error(
     gateway: Optional[Any] = None,
+    *,
+    operation: str = "mt5_ensure_connection",
 ) -> Optional[Dict[str, Any]]:
     try:
         mt5_gateway = gateway if gateway is not None else create_mt5_gateway()
@@ -204,6 +206,6 @@ def mt5_connection_error(
         return build_error_payload(
             str(exc),
             code="mt5_connection_error",
-            operation="mt5_ensure_connection",
+            operation=operation,
         )
     return None
