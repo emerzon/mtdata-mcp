@@ -8,7 +8,7 @@ from typing import Any, Dict, Iterator, List, Literal, Optional
 import numpy as np
 import pandas as pd
 
-from ..services.data_service.candles import _is_last_bar_forming
+from ..services.data_service.candles import fetch_history_frame
 from ..shared.constants import CALENDAR_TIMEFRAMES, TIMEFRAME_MAP, TIMEFRAME_SECONDS
 from ..shared.schema import DenoiseSpec, DetailLiteral, TimeframeLiteral
 from ..shared.validators import (
@@ -21,22 +21,9 @@ from ..utils.denoise import normalize_denoise_spec as _normalize_denoise_spec
 from ..utils.freshness import (
     completed_bar_freshness_fields,
 )
-from ..utils.mt5 import (
-    _ensure_symbol_ready,
-    _mt5_copy_rates_from,
-    _mt5_copy_rates_range,
-    mt5,
-)
+from ..utils.mt5 import mt5  # noqa: F401 - retained for test patch compatibility
 from ..utils.time import _format_time_minimal, bar_close_epoch
 from ..utils.utils import _parse_end_datetime, _parse_start_datetime, parse_kv_or_json
-from .common import (
-    _parse_as_of_bound,
-    describe_forecast_calendar_treatment,
-    future_as_of_error,
-    next_times_from_last,
-    uses_exchange_intraday_projection,
-    uses_standard_weekend_projection,
-)
 from .common import (
     annualization_context as _annualization_context,
 )
@@ -44,10 +31,17 @@ from .common import (
     default_seasonality as _default_seasonality_period,
 )
 from .common import (
-    log_returns_from_prices as _log_returns_from_prices,
+    describe_forecast_calendar_treatment,
+    next_times_from_last,
+    uses_exchange_intraday_projection,
+    uses_standard_weekend_projection,
 )
 from .common import (
-    pd_freq_from_timeframe as _pd_freq_from_timeframe,
+    log_returns_from_prices as _log_returns_from_prices,
+)
+from .forecast_registry import (
+    ForecastRegistry,
+    get_forecast_method_availability_snapshot,
 )
 
 _VOLATILITY_METHOD_HINTS = (
@@ -89,24 +83,6 @@ def volatility_rates_cache() -> Iterator[None]:
         _RATES_CACHE.reset(token)
 
 
-# Optional availability flags (match server discovery)
-try:
-    from statsmodels.tsa.holtwinters import ExponentialSmoothing as _ETS  # type: ignore
-    _SM_ETS_AVAILABLE = True
-except Exception:
-    _SM_ETS_AVAILABLE = False
-try:
-    from statsmodels.tsa.statespace.sarimax import SARIMAX as _SARIMAX  # type: ignore
-    _SM_SARIMAX_AVAILABLE = True
-except Exception:
-    _SM_SARIMAX_AVAILABLE = False
-try:
-    import importlib.util as _importlib_util
-    _NF_AVAILABLE = _importlib_util.find_spec("neuralforecast") is not None
-    _MLF_AVAILABLE = _importlib_util.find_spec("mlforecast") is not None
-except Exception:
-    _NF_AVAILABLE = False
-    _MLF_AVAILABLE = False
 try:
     from arch import arch_model as _arch_model  # type: ignore
     _ARCH_AVAILABLE = True
@@ -120,6 +96,7 @@ except Exception:
 def get_volatility_methods_data() -> Dict[str, Any]:
     """Return metadata about available volatility forecasting methods and their parameters."""
     methods: List[Dict[str, Any]] = []
+    forecast_availability = get_forecast_method_availability_snapshot()
 
     methods.append({
         "method": "ewma",
@@ -203,47 +180,26 @@ def get_volatility_methods_data() -> Dict[str, Any]:
         _garch_entry("figarch", "Fractionally integrated FIGARCH volatility model."),
     ])
 
-    methods.append({
-        "method": "arima",
-        "available": _SM_SARIMAX_AVAILABLE,
-        "requires": [] if _SM_SARIMAX_AVAILABLE else ["statsmodels"],
-        "description": "ARIMA model fitted to the volatility proxy series.",
-        "params": [
-            {"name": "p", "type": "int", "default": 1, "description": "Non-seasonal AR order."},
-            {"name": "d", "type": "int", "default": 0, "description": "Non-seasonal differencing order."},
-            {"name": "q", "type": "int", "default": 1, "description": "Non-seasonal MA order."},
-        ],
-    })
-    methods.append({
-        "method": "sarima",
-        "available": _SM_SARIMAX_AVAILABLE,
-        "requires": [] if _SM_SARIMAX_AVAILABLE else ["statsmodels"],
-        "description": "Seasonal ARIMA on the volatility proxy with automatic seasonal period by timeframe.",
-        "params": [
-            {"name": "p", "type": "int", "default": 1, "description": "AR order."},
-            {"name": "d", "type": "int", "default": 0, "description": "Differencing order."},
-            {"name": "q", "type": "int", "default": 1, "description": "MA order."},
-            {"name": "P", "type": "int", "default": 0, "description": "Seasonal AR order."},
-            {"name": "D", "type": "int", "default": 0, "description": "Seasonal differencing order."},
-            {"name": "Q", "type": "int", "default": 0, "description": "Seasonal MA order."},
-        ],
-    })
-    methods.append({
-        "method": "ets",
-        "available": _SM_ETS_AVAILABLE,
-        "requires": [] if _SM_ETS_AVAILABLE else ["statsmodels"],
-        "description": "Exponential smoothing (ETS) on the volatility proxy.",
-        "params": [],
-    })
-    methods.append({
-        "method": "theta",
-        "available": True,
-        "requires": [],
-        "description": "Theta method applied to the volatility proxy.",
-        "params": [
-            {"name": "alpha", "type": "float", "default": 0.2, "description": "SES smoothing factor blended with the Theta trend."},
-        ],
-    })
+    for method_name, description in (
+        ("arima", "ARIMA model fitted to the volatility proxy series."),
+        (
+            "sarima",
+            "Seasonal ARIMA on the volatility proxy with the canonical seasonal period.",
+        ),
+        ("ets", "Canonical exponential smoothing on the volatility proxy."),
+        ("theta", "Canonical Theta method applied to the volatility proxy."),
+    ):
+        method = ForecastRegistry.get(method_name)
+        available = bool(forecast_availability.get(method_name, False))
+        methods.append(
+            {
+                "method": method_name,
+                "available": available,
+                "requires": [] if available else list(method.required_packages),
+                "description": description,
+                "params": list(getattr(method, "PARAMS", []) or []),
+            }
+        )
 
     methods.append({
         "method": "ensemble",
@@ -954,10 +910,7 @@ def _fetch_mt5_rates_guarded(
 ) -> tuple[Optional[Any], Optional[str]]:
     if as_of and (start or end):
         return None, "as_of cannot be combined with start/end."
-    future_error = future_as_of_error(as_of)
-    if future_error:
-        return None, future_error
-    start_dt, end_dt, range_error = _volatility_range_bounds(start, end)
+    _start_dt, _end_dt, range_error = _volatility_range_bounds(start, end)
     if range_error:
         return None, range_error
     requested_count = int(count)
@@ -982,64 +935,19 @@ def _fetch_mt5_rates_guarded(
         if cache is not None and rates is not None:
             cache[cache_key] = (requested_count, rates)
         return rates
-
-    def _closed_at(rates: Any, cutoff: Optional[datetime]) -> Any:
-        if rates is None or cutoff is None or not timeframe:
-            return rates
-        cutoff_utc = cutoff.replace(tzinfo=timezone.utc) if cutoff.tzinfo is None else cutoff
-        cutoff_epoch = cutoff_utc.timestamp()
-        try:
-            eligible = np.asarray(
-                [bar_close_epoch(row["time"], timeframe) <= cutoff_epoch for row in rates],
-                dtype=bool,
-            )
-            filtered = rates[eligible]
-        except (IndexError, KeyError, TypeError, ValueError):
-            return rates
-        if len(filtered) > requested_count:
-            filtered = filtered[-requested_count:]
-        return filtered
-
-    info_before = mt5.symbol_info(symbol)
-    was_visible = bool(info_before.visible) if info_before is not None else None
     try:
-        err = _ensure_symbol_ready(symbol)
-        if err:
-            return None, str(err)
-        if start_dt is not None:
-            rates = _mt5_copy_rates_range(symbol, mt5_timeframe, start_dt, end_dt)
-            rates = _closed_at(rates, end_dt)
-            return _remember(rates), None
-        if end_dt is not None:
-            rates = _mt5_copy_rates_from(
-                symbol, mt5_timeframe, end_dt, requested_count + 1
-            )
-            return _remember(_closed_at(rates, end_dt)), None
-        if as_of:
-            to_dt = _parse_as_of_bound(as_of, timeframe=timeframe)
-            if not to_dt:
-                return None, "Invalid as_of time."
-            rates = _mt5_copy_rates_from(
-                symbol, mt5_timeframe, to_dt, requested_count + 1
-            )
-            return _remember(_closed_at(rates, to_dt)), None
-
-        tick = mt5.symbol_info_tick(symbol)
-        if tick is not None and getattr(tick, "time", None):
-            t_utc = float(tick.time)
-            server_now_dt = datetime.fromtimestamp(t_utc, tz=timezone.utc)
-        else:
-            server_now_dt = datetime.now(timezone.utc)
-        rates = _mt5_copy_rates_from(
-            symbol, mt5_timeframe, server_now_dt, requested_count
+        rates = fetch_history_frame(
+            symbol,
+            str(timeframe),
+            requested_count,
+            as_of,
+            start=start,
+            end=end,
+            include_incomplete=False,
         )
         return _remember(rates), None
-    finally:
-        if was_visible is False:
-            try:
-                mt5.symbol_select(symbol, False)
-            except Exception:
-                pass
+    except (RuntimeError, ValueError) as exc:
+        return None, str(exc)
 
 
 def _volatility_range_bounds(
@@ -1109,18 +1017,6 @@ def _requested_timeframe_grid_anchor(
             "observation cutoff."
         )
     return float(completed.iloc[-1]), None
-
-
-def _drop_forming_live_bar(
-    frame: pd.DataFrame,
-    rates: Any,
-    *,
-    timeframe: str,
-    live_window: bool,
-) -> pd.DataFrame:
-    if live_window and len(frame) >= 2 and _is_last_bar_forming(rates, timeframe):
-        return frame.iloc[:-1]
-    return frame
 
 
 def _volatility_fetch_error_payload(
@@ -1498,12 +1394,6 @@ def forecast_volatility(  # noqa: C901
                     data_timeframe=timeframe,
                 )
             df = pd.DataFrame(rates)
-            df = _drop_forming_live_bar(
-                df,
-                rates,
-                timeframe=timeframe,
-                live_window=True,
-            )
             if len(df) < 5:
                 return {"error": "Not enough closed bars"}
             bpy, _ = _volatility_annualization_context(
@@ -1533,135 +1423,18 @@ def forecast_volatility(  # noqa: C901
                 return {"error": f"Unsupported proxy: {proxy}"}
             y = y[np.isfinite(y)]
             fh = int(horizon)
-            # Fit general model
-            if method_l in {'arima','sarima'}:
-                if not _SM_SARIMAX_AVAILABLE:
-                    return {"error": "ARIMA/SARIMA require statsmodels"}
-                ord_p = int(p.get('p',1)); ord_d = int(p.get('d',0)); ord_q = int(p.get('q',1))
-                if method_l == 'sarima':
-                    m = _default_seasonality_period(timeframe)
-                    seas = (int(p.get('P',0)), int(p.get('D',0)), int(p.get('Q',0)), int(m) if m>=2 else 0)
-                else:
-                    seas = (0,0,0,0)
-                try:
-                    endog = pd.Series(y.astype(float))
-                    model = _SARIMAX(endog, order=(ord_p,ord_d,ord_q), seasonal_order=seas, enforce_stationarity=True, enforce_invertibility=True)
-                    res = model.fit(method='lbfgs', disp=False, maxiter=100)
-                    fit_details = getattr(res, "mle_retvals", None)
-                    if (
-                        isinstance(fit_details, dict)
-                        and fit_details.get("converged") is False
-                    ):
-                        return {
-                            "success": False,
-                            "error": (
-                                f"{method_l.upper()} maximum-likelihood fit did not converge; "
-                                "no volatility forecast was returned. Adjust the order or use "
-                                "a more stable volatility method."
-                            ),
-                            "error_code": "fit_nonconvergence",
-                            "fit_status": "failed",
-                            "converged": False,
-                            "method": method_l,
-                        }
-                    yhat = res.get_forecast(steps=fh).predicted_mean.to_numpy()
-                except Exception as ex:
-                    return {"error": f"SARIMAX error: {ex}"}
-            elif method_l == 'ets':
-                if not _SM_ETS_AVAILABLE:
-                    return {"error": "ETS requires statsmodels"}
-                try:
-                    res = _ETS(y.astype(float), trend=None, seasonal=None, initialization_method='heuristic').fit(optimized=True)
-                    yhat = np.asarray(res.forecast(fh), dtype=float)
-                except Exception as ex:
-                    return {"error": f"ETS error: {ex}"}
-            elif method_l == 'theta':  # theta on proxy
-                yy = y.astype(float); n=yy.size; tt=np.arange(1,n+1,dtype=float)
-                A=np.vstack([np.ones(n),tt]).T; coef,_a,_b,_c = np.linalg.lstsq(A, yy, rcond=None); a=float(coef[0]); b=float(coef[1])
-                trend_future = a + b * (tt[-1] + np.arange(1, fh+1, dtype=float))
-                alpha = float(p.get('alpha', 0.2)); level=float(yy[0])
-                for v in yy[1:]: level = alpha*float(v) + (1.0-alpha)*level
-                yhat = 0.5*(trend_future + np.full(fh, level, dtype=float))
-            elif method_l == 'mlf_rf':
-                if not _MLF_AVAILABLE:
-                    return {"error": "mlf_rf requires 'mlforecast' and 'scikit-learn'"}
-                try:
-                    import pandas as _pd
-                    from mlforecast import MLForecast as _MLForecast  # type: ignore
-                    from sklearn.ensemble import (
-                        RandomForestRegressor as _RF,  # type: ignore
-                    )
-                except Exception as ex:
-                    return {"error": f"Failed to import mlforecast/sklearn: {ex}"}
-                try:
-                    ts = _pd.to_datetime(df['time'].iloc[1:].astype(float), unit='s', utc=True) if r.size == (len(df)-1) else _pd.date_range(periods=len(y), freq=_pd_freq_from_timeframe(timeframe))
-                except Exception:
-                    import pandas as _pd
-                    ts = _pd.date_range(periods=len(y), freq=_pd_freq_from_timeframe(timeframe))
-                Y_df = _pd.DataFrame({'unique_id': ['ts']*int(len(y)), 'ds': _pd.Index(ts).to_pydatetime(), 'y': y.astype(float)})
-                lags = p.get('lags') or [1,2,3,4,5]
-                try:
-                    lags = [int(v) for v in lags]
-                except Exception:
-                    lags = [1,2,3,4,5]
-                rf = _RF(n_estimators=int(p.get('n_estimators', 200)), random_state=42)
-                try:
-                    mlf = _MLForecast(models=[rf], freq=_pd_freq_from_timeframe(timeframe)).add_lags(lags)
-                    mlf.fit(Y_df)
-                    Yf = mlf.predict(h=int(fh))
-                    try:
-                        Yf = Yf[Yf['unique_id']=='ts']
-                    except Exception:
-                        pass
-                    yhat = np.asarray((Yf['y'] if 'y' in Yf.columns else Yf.iloc[:, -1]).to_numpy(), dtype=float)
-                except Exception as ex:
-                    return {"error": f"mlf_rf error: {ex}"}
-            elif method_l == 'nhits':
-                if not _NF_AVAILABLE:
-                    return {"error": "nhits requires 'neuralforecast[torch]'"}
-                try:
-                    import pandas as _pd
-                    from neuralforecast import (
-                        NeuralForecast as _NeuralForecast,  # type: ignore
-                    )
-                    from neuralforecast.models import NHITS as _NF_NHITS  # type: ignore
-                except Exception as ex:
-                    return {"error": f"Failed to import neuralforecast: {ex}"}
-                max_epochs = int(p.get('max_epochs', 30))
-                batch_size = int(p.get('batch_size', 32))
-                if p.get('input_size') is not None:
-                    input_size = int(p['input_size'])
-                else:
-                    base = max(64, 96)
-                    input_size = int(min(len(y), base))
-                try:
-                    ts = _pd.to_datetime(df['time'].iloc[1:].astype(float), unit='s', utc=True) if r.size == (len(df)-1) else _pd.date_range(periods=len(y), freq=_pd_freq_from_timeframe(timeframe))
-                except Exception:
-                    import pandas as _pd
-                    ts = _pd.date_range(periods=len(y), freq=_pd_freq_from_timeframe(timeframe))
-                Y_df = _pd.DataFrame({'unique_id': ['ts']*int(len(y)), 'ds': _pd.Index(ts).to_pydatetime(), 'y': y.astype(float)})
-                model = _NF_NHITS(h=int(fh), input_size=int(input_size), max_epochs=int(max_epochs), batch_size=int(batch_size))
-                try:
-                    nf = _NeuralForecast(models=[model], freq=_pd_freq_from_timeframe(timeframe))
-                    nf.fit(df=Y_df, verbose=False)
-                    Yf = nf.predict()
-                    try:
-                        Yf = Yf[Yf['unique_id']=='ts']
-                    except Exception:
-                        pass
-                    pred_col = None
-                    for c in list(Yf.columns):
-                        if c not in ('unique_id','ds','y'):
-                            pred_col = c
-                            if c == 'y_hat':
-                                break
-                    if pred_col is None:
-                        return {"error": "nhits prediction columns not found"}
-                    yhat = np.asarray(Yf[pred_col].to_numpy(), dtype=float)
-                except Exception as ex:
-                    return {"error": f"nhits error: {ex}"}
-            else:
-                return {"error": f"Unsupported general method for volatility proxy: {method_l}"}
+            try:
+                forecast_result = ForecastRegistry.get(method_l).forecast(
+                    pd.Series(y.astype(float)),
+                    horizon=fh,
+                    seasonality=_default_seasonality_period(timeframe),
+                    params=dict(p),
+                    timeframe=timeframe,
+                )
+                yhat = np.asarray(forecast_result.forecast, dtype=float)
+                model_params_used = dict(forecast_result.params_used or {})
+            except Exception as exc:
+                return {"error": f"{method_l.upper()} proxy forecast error: {exc}"}
             # Back-transform to per-step sigma and aggregate horizon
             if back == 'sqrt':
                 sig = np.sqrt(np.clip(yhat, 0.0, None))
@@ -1683,7 +1456,7 @@ def forecast_volatility(  # noqa: C901
                  "horizon": int(horizon), "volatility_per_bar": sbar, "volatility_annualized": float(sbar*math.sqrt(bpy)),
                  "volatility_horizon": hsig, "volatility_horizon_annualized": _annualize_horizon_sigma(hsig, bpy, int(horizon)),
                  "params_used": {
-                     **p,
+                     **model_params_used,
                      "per_bar_volatility_basis": "forecast_horizon_rms",
                      **(
                          {"log_r2_smearing_factor": log_r2_smearing_factor}
@@ -1747,12 +1520,6 @@ def forecast_volatility(  # noqa: C901
                         data_timeframe=rv_tf,
                     )
                 dfrv = pd.DataFrame(rates_rv)
-                dfrv = _drop_forming_live_bar(
-                    dfrv,
-                    rates_rv,
-                    timeframe=rv_tf,
-                    live_window=True,
-                )
                 if dn_spec_used:
                     try:
                         apply_denoise(dfrv, dn_spec_used, default_when='pre_ti')
@@ -1911,12 +1678,6 @@ def forecast_volatility(  # noqa: C901
             )
 
         df = pd.DataFrame(rates)
-        df = _drop_forming_live_bar(
-            df,
-            rates,
-            timeframe=timeframe,
-            live_window=True,
-        )
         requested_history_lookback = p.get("lookback")
         if requested_history_lookback is not None:
             history_bars = int(requested_history_lookback)

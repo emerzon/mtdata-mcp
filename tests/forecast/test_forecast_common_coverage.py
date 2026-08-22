@@ -438,100 +438,41 @@ class TestPdFreqFromTimeframe:
 
 
 # ===================================================================
-# 8. fetch_history (mocked MT5)
+# 8. fetch_history gateway wrapper
 # ===================================================================
 class TestFetchHistory:
-    @patch("mtdata.forecast.common._mt5_copy_rates_from_pos")
-    @patch("mtdata.forecast.common._ensure_symbol_ready", return_value=None)
-    @patch("mtdata.forecast.common.get_symbol_info_cached")
-    def test_basic_fetch(self, mock_info, mock_ensure, mock_rates):
-        mock_info.return_value = MagicMock(visible=True)
-        times = np.arange(1000, 1060, 1, dtype=float)
-        mock_rates.return_value = np.array(
-            [(t, 1.1, 1.2, 1.0, 1.15, 100, 0, 0) for t in times],
-            dtype=[("time", "f8"), ("open", "f8"), ("high", "f8"), ("low", "f8"),
-                   ("close", "f8"), ("tick_volume", "i8"), ("spread", "i4"), ("real_volume", "i8")],
+    def test_forwards_all_options(self):
+        expected = pd.DataFrame({"time": [1000.0], "close": [1.15]})
+        with patch(
+            "mtdata.forecast.common.fetch_history_frame",
+            return_value=expected,
+        ) as gateway:
+            actual = fetch_history(
+                "EURUSD",
+                "H1",
+                10,
+                as_of="2026-08-20T10:00:00Z",
+                drop_last_live=False,
+            )
+
+        assert actual is expected
+        gateway.assert_called_once_with(
+            "EURUSD",
+            "H1",
+            10,
+            "2026-08-20T10:00:00Z",
+            start=None,
+            end=None,
+            include_incomplete=True,
         )
-        from mtdata.forecast.common import fetch_history
-        df = fetch_history("EURUSD", "H1", 50)
-        assert isinstance(df, pd.DataFrame)
-        # Closed historical bars are retained, then trimmed to the requested need.
-        assert len(df) == 50
 
-    @patch("mtdata.forecast.common._mt5_copy_rates_from_pos")
-    @patch("mtdata.forecast.common._ensure_symbol_ready", return_value=None)
-    @patch("mtdata.forecast.common.get_symbol_info_cached")
-    def test_fetch_no_drop_last(self, mock_info, mock_ensure, mock_rates):
-        mock_info.return_value = MagicMock(visible=True)
-        times = np.arange(1000, 1010, 1, dtype=float)
-        mock_rates.return_value = np.array(
-            [(t, 1.1, 1.2, 1.0, 1.15, 100, 0, 0) for t in times],
-            dtype=[("time", "f8"), ("open", "f8"), ("high", "f8"), ("low", "f8"),
-                   ("close", "f8"), ("tick_volume", "i8"), ("spread", "i4"), ("real_volume", "i8")],
-        )
-        from mtdata.forecast.common import fetch_history
-        df = fetch_history("EURUSD", "H1", 10, drop_last_live=False)
-        assert len(df) == 10
-
-    def test_invalid_timeframe_raises(self):
-        from mtdata.forecast.common import fetch_history
-        with pytest.raises(RuntimeError, match="Invalid timeframe"):
-            fetch_history("EURUSD", "INVALID_TF", 50)
-
-    @patch("mtdata.forecast.common._mt5_copy_rates_from_pos", return_value=None)
-    @patch("mtdata.forecast.common._ensure_symbol_ready", return_value=None)
-    @patch("mtdata.forecast.common.get_symbol_info_cached")
-    @patch("mtdata.forecast.common.mt5")
-    def test_fetch_no_data_raises(self, mock_mt5, mock_info, mock_ensure, mock_rates):
-        mock_info.return_value = MagicMock(visible=True)
-        mock_mt5.last_error.return_value = (0, "No data")
-        from mtdata.forecast.common import fetch_history
-        with pytest.raises(RuntimeError, match="Failed to get rates"):
-            fetch_history("EURUSD", "H1", 50)
-
-
-    @patch("mtdata.forecast.common._ensure_symbol_ready", return_value="symbol error")
-    @patch("mtdata.forecast.common.get_symbol_info_cached", return_value=None)
-    def test_ensure_error_raises(self, mock_info, mock_ensure):
-        with pytest.raises(RuntimeError, match="symbol error"):
-            fetch_history("BAD", "H1", 100)
-
-    @patch("mtdata.forecast.common.mt5")
-    @patch("mtdata.forecast.common._mt5_copy_rates_from")
-    @patch("mtdata.forecast.common._ensure_symbol_ready", return_value=None)
-    @patch("mtdata.forecast.common.get_symbol_info_cached")
-    @patch("mtdata.forecast.common._parse_start_datetime")
-    @patch("mtdata.forecast.common._utc_epoch_seconds", return_value=36000.0)
-    def test_as_of_fetch(self, mock_utc, mock_parse, mock_info, mock_ensure, mock_copy, mock_mt5):
-        from datetime import datetime, timezone
-
-        mock_parse.return_value = datetime(2024, 1, 1, tzinfo=timezone.utc)
-        mock_info.return_value = MagicMock(visible=True)
-        times = np.arange(1000, 1020, 1, dtype=float)
-        mock_copy.return_value = np.array(
-            [(t, 1.1, 1.2, 1.0, 1.15, 100, 0, 0) for t in times],
-            dtype=[("time", "f8"), ("open", "f8"), ("high", "f8"), ("low", "f8"),
-                   ("close", "f8"), ("tick_volume", "i8"), ("spread", "i4"), ("real_volume", "i8")],
-        )
-        df = fetch_history("EURUSD", "H1", 10, as_of="2024-01-01T10:00:00")
-        assert isinstance(df, pd.DataFrame)
-        assert not df.empty
-
-    @patch("mtdata.forecast.common.mt5")
-    @patch("mtdata.forecast.common._mt5_copy_rates_from_pos")
-    @patch("mtdata.forecast.common._ensure_symbol_ready", return_value=None)
-    @patch("mtdata.forecast.common.get_symbol_info_cached")
-    def test_restores_invisible_symbol(self, mock_info, mock_ensure, mock_rates, mock_mt5):
-        mock_info.return_value = MagicMock(visible=False)
-        times = np.arange(1000, 1005, 1, dtype=float)
-        mock_rates.return_value = np.array(
-            [(t, 1.1, 1.2, 1.0, 1.15, 100, 0, 0) for t in times],
-            dtype=[("time", "f8"), ("open", "f8"), ("high", "f8"), ("low", "f8"),
-                   ("close", "f8"), ("tick_volume", "i8"), ("spread", "i4"), ("real_volume", "i8")],
-        )
-        df = fetch_history("EURUSD", "H1", 5)
-        assert isinstance(df, pd.DataFrame)
-        mock_mt5.symbol_select.assert_called_with("EURUSD", False)
+    def test_propagates_gateway_error(self):
+        with patch(
+            "mtdata.forecast.common.fetch_history_frame",
+            side_effect=ValueError("No data is available"),
+        ):
+            with pytest.raises(ValueError, match="No data is available"):
+                fetch_history("EURUSD", "H1", 10)
 
 
 # ===================================================================

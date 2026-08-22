@@ -1721,6 +1721,186 @@ def _public_simplify_meta(meta: Any) -> Optional[Dict[str, Any]]:
     return out or None
 
 
+def _history_spacing_quality(
+    df: pd.DataFrame,
+    *,
+    timeframe: str,
+) -> Optional[Dict[str, Any]]:
+    """Detect a materially coarser provider cadence before analysis."""
+    expected = float(TIMEFRAME_SECONDS.get(str(timeframe).upper(), 0) or 0)
+    if expected <= 0 or "time" not in df.columns or len(df) < 6:
+        return None
+    epochs = pd.to_numeric(df["time"], errors="coerce")
+    diffs = epochs.diff().dropna()
+    diffs = diffs[diffs > 0]
+    if len(diffs) < 5:
+        return None
+    median_seconds = float(diffs.median())
+    matching_pct = round(
+        float(diffs.between(expected * 0.75, expected * 1.5).mean()) * 100.0,
+        2,
+    )
+    return {
+        "requested_bar_seconds": int(expected),
+        "observed_median_bar_seconds": round(median_seconds, 3),
+        "matching_interval_pct": matching_pct,
+        "intervals_checked": int(len(diffs)),
+        "spacing_matches_timeframe": not (
+            median_seconds > expected * 1.5 and matching_pct < 20.0
+        ),
+    }
+
+
+def fetch_history_frame(
+    symbol: str,
+    timeframe: str,
+    count: int,
+    as_of: Optional[str] = None,
+    *,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    include_incomplete: bool = False,
+    retry: bool = True,
+) -> pd.DataFrame:
+    """Return analysis-ready MT5 candles with native UTC epoch timestamps."""
+    if timeframe not in TIMEFRAME_MAP:
+        raise RuntimeError(f"Invalid timeframe: {timeframe}")
+    if as_of and (start or end):
+        raise RuntimeError("as_of cannot be combined with start/end.")
+    requested_count = max(1, int(count))
+    if as_of:
+        parsed_as_of = _parse_start_datetime(as_of)
+        if parsed_as_of is None:
+            raise RuntimeError("Invalid as_of time.")
+        parsed_as_of = (
+            parsed_as_of.replace(tzinfo=dt_timezone.utc)
+            if parsed_as_of.tzinfo is None
+            else parsed_as_of.astimezone(dt_timezone.utc)
+        )
+        if parsed_as_of.timestamp() > time.time() + 1.0:
+            raise RuntimeError("as_of must not be in the future.")
+
+    resolved_symbol = resolve_broker_symbol_name(symbol)
+    resolved_end = as_of or end
+    fetch_count = requested_count
+    if start and resolved_end:
+        parsed_start, start_error = _parse_fetch_datetime_arg(
+            start,
+            timeframe=timeframe,
+        )
+        parsed_end, end_error = _parse_fetch_datetime_arg(
+            resolved_end,
+            end_bound=True,
+            timeframe=timeframe,
+        )
+        if start_error or end_error or parsed_start is None or parsed_end is None:
+            raise RuntimeError(start_error or end_error or "Invalid history range.")
+        span_seconds = max(0.0, (parsed_end - parsed_start).total_seconds())
+        seconds_per_bar = int(TIMEFRAME_SECONDS[timeframe])
+        fetch_count = max(
+            requested_count,
+            int(math.ceil(span_seconds / max(1, seconds_per_bar))) + 2,
+        )
+
+    info_before = get_symbol_info_cached(resolved_symbol)
+    with _symbol_ready_guard(resolved_symbol, info_before=info_before) as (error, _info):
+        if error:
+            raise RuntimeError(error)
+        rates, rates_error = _fetch_rates_with_warmup(
+            resolved_symbol,
+            TIMEFRAME_MAP[timeframe],
+            timeframe,
+            fetch_count,
+            0,
+            start,
+            resolved_end,
+            include_incomplete=include_incomplete,
+            retry=retry,
+            sanity_check=False,
+        )
+    if rates_error:
+        raise RuntimeError(rates_error)
+    if rates is None:
+        raise RuntimeError(
+            _describe_rate_fetch_error(resolved_symbol, info_before=info_before)
+        )
+    if len(rates) < 1:
+        raise ValueError(
+            f"No data is available for {resolved_symbol} {timeframe} in the "
+            "requested range. Widen or correct the historical range."
+        )
+
+    df = _rates_to_df(rates)
+    if "volume" not in df.columns and "tick_volume" in df.columns:
+        df["volume"] = df["tick_volume"]
+    df["time"] = pd.to_numeric(df["time"], errors="coerce")
+    df = df.loc[df["time"].notna()].copy()
+
+    calendar_bounds = bool(
+        timeframe in CALENDAR_TIMEFRAMES
+        and (
+            _is_calendar_query_bound(start)
+            or _is_calendar_query_bound(resolved_end)
+        )
+    )
+    if calendar_bounds:
+        df = _trim_calendar_bars_to_session_dates(
+            df,
+            start_datetime=start,
+            end_datetime=resolved_end,
+            timeframe=timeframe,
+        )
+    else:
+        if start:
+            parsed_start, start_error = _parse_fetch_datetime_arg(
+                start,
+                timeframe=timeframe,
+            )
+            if start_error or parsed_start is None:
+                raise RuntimeError(start_error or "Invalid start time.")
+            df = df.loc[df["time"] >= _utc_epoch_seconds(parsed_start)]
+        if resolved_end:
+            parsed_end, end_error = _parse_fetch_datetime_arg(
+                resolved_end,
+                end_bound=True,
+                timeframe=timeframe,
+            )
+            if end_error or parsed_end is None:
+                raise RuntimeError(end_error or "Invalid end time.")
+            cutoff = _utc_epoch_seconds(parsed_end)
+            if include_incomplete:
+                df = df.loc[df["time"] <= cutoff]
+            else:
+                completion_cutoff = min(cutoff, time.time())
+                df = df.loc[
+                    df["time"].map(
+                        lambda value: bar_close_epoch(value, timeframe)
+                        <= completion_cutoff
+                    )
+                ]
+
+    if not include_incomplete and not resolved_end:
+        df, _trimmed = _drop_incomplete_tail_df(df, timeframe)
+
+    if start and not resolved_end and len(df) > requested_count:
+        df = df.iloc[:requested_count]
+    elif not start and len(df) > requested_count:
+        df = df.iloc[-requested_count:]
+    df = df.reset_index(drop=True)
+
+    spacing = _history_spacing_quality(df, timeframe=timeframe)
+    if spacing is not None and not spacing["spacing_matches_timeframe"]:
+        raise RuntimeError(
+            "Observed candle cadence does not match the requested timeframe: "
+            f"requested_bar_seconds={spacing['requested_bar_seconds']}, "
+            f"observed_median_bar_seconds={spacing['observed_median_bar_seconds']}, "
+            f"matching_interval_pct={spacing['matching_interval_pct']}. "
+            "The broker returned materially coarser history; retry with the "
+            "observed timeframe or verify the symbol/timeframe feed."
+        )
+    return df
+
+
 def fetch_candles(  # noqa: C901
     symbol: str,
     timeframe: TimeframeLiteral = "H1",

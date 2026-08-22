@@ -6,7 +6,6 @@ from unittest.mock import MagicMock
 # MUST mock MetaTrader5 before any project imports
 sys.modules["MetaTrader5"] = MagicMock()
 
-import importlib
 import math
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -18,6 +17,7 @@ import pytest
 
 import mtdata.forecast.volatility as vol_mod
 from mtdata.forecast.common import bars_per_year as _bars_per_year
+from mtdata.forecast.interface import ForecastResult
 from mtdata.forecast.volatility import (
     _fetch_mt5_rates_guarded,
     _garman_klass_sigma_sq,
@@ -71,27 +71,25 @@ _SENTINEL = object()
 @contextmanager
 def _mock_vol_env(n_bars=2000, ensure_err=None, rates_return=_SENTINEL,
                   rates_side_effect=None):
-    """Patch MT5 utilities for forecast_volatility tests."""
+    """Patch the canonical history gateway for forecast_volatility tests."""
     rates = _make_rates(n_bars) if rates_return is _SENTINEL else rates_return
-    mock_info = MagicMock(visible=True)
-    mock_tick = MagicMock()
-    mock_tick.time = 1704067200.0
-
-    copy_kw = ({"side_effect": rates_side_effect} if rates_side_effect
-               else {"return_value": rates})
+    if ensure_err is not None:
+        copy_kw = {"side_effect": RuntimeError(str(ensure_err))}
+    else:
+        copy_kw = ({"side_effect": rates_side_effect} if rates_side_effect
+                   else {"return_value": rates})
 
     with (
-        patch(f"{MOD}._ensure_symbol_ready", return_value=ensure_err) as m_ensure,
-        patch(f"{MOD}._mt5_copy_rates_from", **copy_kw) as m_copy,
+        patch(f"{MOD}.fetch_history_frame", **copy_kw) as m_copy,
         patch("mtdata.utils.mt5._mt5_epoch_to_utc", return_value=1704067200.0),
         patch(f"{MOD}._parse_start_datetime",
               return_value=datetime(2024, 6, 1, tzinfo=timezone.utc)),
-        patch(f"{MOD}.mt5") as m_mt5,
     ):
-        m_mt5.symbol_info.return_value = mock_info
-        m_mt5.symbol_info_tick.return_value = mock_tick
-        m_mt5.last_error.return_value = (-1, "mock error")
-        yield {"mt5": m_mt5, "copy_rates": m_copy, "ensure": m_ensure}
+        yield {
+            "mt5": MagicMock(),
+            "copy_rates": m_copy,
+            "ensure": MagicMock(return_value=ensure_err),
+        }
 
 
 # ===================================================================
@@ -800,12 +798,12 @@ class TestForecastVolatilityGeneral:
             assert result["proxy"] == "log_r2"
             assert result["params_used"]["log_r2_smearing_factor"] > 1.0
 
-    def test_theta_custom_alpha(self):
+    def test_theta_rejects_removed_custom_alpha(self):
         with _mock_vol_env():
             result = forecast_volatility(
                 "EURUSD", "H1", 5, method="theta",
                 proxy="squared_return", params={"alpha": 0.5})
-            assert result.get("success") is True
+            assert result["error_code"] == "unknown_parameter"
 
     def test_theta_output_structure(self):
         with _mock_vol_env():
@@ -823,30 +821,6 @@ class TestForecastVolatilityGeneral:
             assert result["params_used"]["per_bar_volatility_basis"] == (
                 "forecast_horizon_rms"
             )
-
-    def test_arima_without_statsmodels(self):
-        with _mock_vol_env():
-            with patch(f"{MOD}._SM_SARIMAX_AVAILABLE", False):
-                result = forecast_volatility(
-                    "EURUSD", "H1", 5, method="arima",
-                    proxy="squared_return")
-                assert "error" in result
-
-    def test_sarima_without_statsmodels(self):
-        with _mock_vol_env():
-            with patch(f"{MOD}._SM_SARIMAX_AVAILABLE", False):
-                result = forecast_volatility(
-                    "EURUSD", "H1", 5, method="sarima",
-                    proxy="squared_return")
-                assert "error" in result
-
-    def test_ets_without_statsmodels(self):
-        with _mock_vol_env():
-            with patch(f"{MOD}._SM_ETS_AVAILABLE", False):
-                result = forecast_volatility(
-                    "EURUSD", "H1", 5, method="ets",
-                    proxy="squared_return")
-                assert "error" in result
 
     def test_general_insufficient_data(self):
         with _mock_vol_env(rates_return=_make_rates(4)):
@@ -902,7 +876,10 @@ class TestForecastVolatilityParamsParsing:
 
 class TestForecastVolatilityAsOf:
     def test_future_as_of_is_rejected_before_provider_call(self):
-        with patch(f"{MOD}._mt5_copy_rates_from") as fetch:
+        with patch(
+            f"{MOD}.fetch_history_frame",
+            side_effect=ValueError("as_of must not be in the future."),
+        ) as fetch:
             eligible, error = _fetch_mt5_rates_guarded(
                 "EURUSD",
                 60,
@@ -913,7 +890,7 @@ class TestForecastVolatilityAsOf:
 
         assert eligible is None
         assert error == "as_of must not be in the future."
-        fetch.assert_not_called()
+        fetch.assert_called_once()
 
     @pytest.mark.parametrize(
         ("start", "end", "expected_bound"),
@@ -929,7 +906,7 @@ class TestForecastVolatilityAsOf:
         end,
         expected_bound,
     ):
-        with patch(f"{MOD}._ensure_symbol_ready") as ensure_symbol:
+        with patch(f"{MOD}.fetch_history_frame") as fetch:
             result = forecast_volatility(
                 "EURUSD",
                 "H1",
@@ -944,7 +921,7 @@ class TestForecastVolatilityAsOf:
         assert result["error"] == f"{expected_bound} must not be in the future."
         assert result["requested_range"] == {"start": start, "end": end}
         assert "time range/timezone" in result["remediation"]
-        ensure_symbol.assert_not_called()
+        fetch.assert_not_called()
 
     def test_empty_successful_mt5_range_has_typed_no_data_error(self):
         with (
@@ -970,16 +947,12 @@ class TestForecastVolatilityAsOf:
         }
         assert "Success" not in result["error"]
 
-    def test_as_of_inside_bar_excludes_that_bar(self):
+    def test_as_of_uses_closed_history_gateway(self):
         base = int(datetime(2024, 6, 1, 10, 0, tzinfo=timezone.utc).timestamp())
         rates = _make_rates(3)
         rates["time"] = [base, base + 3600, base + 7200]
 
-        with (
-            patch(f"{MOD}._ensure_symbol_ready", return_value=None),
-            patch(f"{MOD}._mt5_copy_rates_from", return_value=rates),
-            patch(f"{MOD}.mt5.symbol_info", return_value=MagicMock(visible=True)),
-        ):
+        with patch(f"{MOD}.fetch_history_frame", return_value=rates[:2]) as fetch:
             eligible, error = _fetch_mt5_rates_guarded(
                 "EURUSD",
                 60,
@@ -990,6 +963,7 @@ class TestForecastVolatilityAsOf:
 
         assert error is None
         assert eligible["time"].tolist() == [base, base + 3600]
+        assert fetch.call_args.kwargs["include_incomplete"] is False
 
     def test_as_of_valid(self):
         with _mock_vol_env():
@@ -1059,15 +1033,6 @@ class TestForecastVolatilityTimeframes:
 # ===================================================================
 
 class TestForecastVolatilityVisibility:
-    def test_invisible_symbol_restored(self):
-        """If symbol was not visible before, it should be hidden again."""
-        mock_info = MagicMock(visible=False)
-        with _mock_vol_env() as env:
-            env["mt5"].symbol_info.return_value = mock_info
-            result = forecast_volatility("EURUSD", "H1", 1, method="ewma")
-            # symbol_select(symbol, False) should have been called
-            assert env["mt5"].symbol_select.called
-
     def test_visible_symbol_not_hidden(self):
         """If symbol was already visible, don't hide it."""
         mock_info = MagicMock(visible=True)
@@ -1232,8 +1197,10 @@ def _mock_env(
 
     copy_kw = ({"side_effect": rates_side_effect}
                if rates_side_effect is not None else {"return_value": rates})
-    ensure_kw = ({"side_effect": ensure_side_effect}
-                 if ensure_side_effect is not None else {"return_value": ensure_err})
+    if ensure_side_effect is not None:
+        copy_kw = {"side_effect": ensure_side_effect}
+    elif ensure_err is not None:
+        copy_kw = {"side_effect": RuntimeError(str(ensure_err))}
 
     def test_grid_anchor(*_args, **kwargs):
         timeframe = str(kwargs["timeframe"])
@@ -1242,8 +1209,7 @@ def _mock_env(
         return math.floor(observed / seconds) * seconds, None
 
     with (
-        patch(f"{MOD}._ensure_symbol_ready", **ensure_kw) as m_ensure,
-        patch(f"{MOD}._mt5_copy_rates_from", **copy_kw) as m_copy,
+        patch(f"{MOD}.fetch_history_frame", **copy_kw) as m_copy,
         patch("mtdata.utils.mt5._mt5_epoch_to_utc", return_value=1_704_067_200.0),
         patch(f"{MOD}._parse_start_datetime", return_value=parse_dt_return),
         patch(
@@ -1260,77 +1226,9 @@ def _mock_env(
         yield {
             "mt5": m_mt5,
             "copy_rates": m_copy,
-            "ensure": m_ensure,
+            "ensure": m_copy,
             "grid_anchor": m_grid_anchor,
         }
-
-
-# ===================================================================
-# 1. Import fallbacks  (lines 24-25, 29-30, 35-37, 41-42)
-# ===================================================================
-
-class TestImportFallbacks:
-    """Reload the module with blocked optional packages to exercise except branches."""
-
-    def _block_and_reload(self, block_keys):
-        # Remove ALL submodule entries for blocked packages so cached refs
-        # don't bypass the block.
-        prefixes = {k.split(".")[0] for k in block_keys}
-        all_remove = [k for k in list(sys.modules)
-                      if any(k == p or k.startswith(p + ".") for p in prefixes)]
-        saved = {}
-        for k in all_remove:
-            saved[k] = sys.modules.pop(k)
-        for k in block_keys:
-            sys.modules[k] = None          # triggers ImportError on import
-        try:
-            importlib.reload(vol_mod)
-            # Capture flags *before* finally restores modules
-            flags = {
-                "_SM_ETS_AVAILABLE": vol_mod._SM_ETS_AVAILABLE,
-                "_SM_SARIMAX_AVAILABLE": vol_mod._SM_SARIMAX_AVAILABLE,
-                "_ARCH_AVAILABLE": vol_mod._ARCH_AVAILABLE,
-                "_NF_AVAILABLE": vol_mod._NF_AVAILABLE,
-                "_MLF_AVAILABLE": vol_mod._MLF_AVAILABLE,
-            }
-            return flags
-        finally:
-            for k in block_keys:
-                sys.modules.pop(k, None)
-            for k, v in saved.items():
-                sys.modules[k] = v
-            importlib.reload(vol_mod)      # restore original state
-
-    def test_statsmodels_ets_unavailable(self):
-        """Lines 24-25: _SM_ETS_AVAILABLE = False."""
-        flags = self._block_and_reload([
-            "statsmodels", "statsmodels.tsa",
-            "statsmodels.tsa.holtwinters",
-        ])
-        assert flags["_SM_ETS_AVAILABLE"] is False
-
-    def test_statsmodels_sarimax_unavailable(self):
-        """Lines 29-30: _SM_SARIMAX_AVAILABLE = False."""
-        flags = self._block_and_reload([
-            "statsmodels", "statsmodels.tsa",
-            "statsmodels.tsa.statespace",
-            "statsmodels.tsa.statespace.sarimax",
-        ])
-        assert flags["_SM_SARIMAX_AVAILABLE"] is False
-
-    def test_arch_unavailable(self):
-        """Lines 41-42: _ARCH_AVAILABLE = False."""
-        flags = self._block_and_reload(["arch"])
-        assert flags["_ARCH_AVAILABLE"] is False
-
-    def test_importlib_util_find_spec_raises(self):
-        """Lines 35-37: _NF_AVAILABLE = _MLF_AVAILABLE = False on exception."""
-        orig = importlib.util.find_spec
-        with patch("importlib.util.find_spec", side_effect=Exception("boom")):
-            importlib.reload(vol_mod)
-            assert vol_mod._NF_AVAILABLE is False
-            assert vol_mod._MLF_AVAILABLE is False
-        importlib.reload(vol_mod)          # restore
 
 
 # ===================================================================
@@ -1432,16 +1330,8 @@ class TestGeneralMethodErrors:
                                     proxy="squared_return")
             assert "error" in r and "Symbol not available" in r["error"]
 
-    def test_ensure_error_restores_hidden_symbol_visibility(self):
-        with _mock_env(ensure_err="Symbol not available", info_visible=False) as env:
-            r = forecast_volatility("EURUSD", "H1", 5, method="theta",
-                                    proxy="squared_return")
-            assert "error" in r and "Symbol not available" in r["error"]
-            env["mt5"].symbol_select.assert_called_once_with("EURUSD", False)
-
     def test_invalid_as_of(self):
-        """Lines 404-406: _parse_start_datetime returns None."""
-        with _mock_env(parse_dt_return=None):
+        with _mock_env(ensure_err="Invalid as_of time."):
             r = forecast_volatility("EURUSD", "H1", 5, method="theta",
                                     proxy="squared_return", as_of="bad")
             assert "error" in r and "as_of" in r["error"].lower()
@@ -1510,22 +1400,21 @@ class TestGeneralMethodErrors:
 
 class TestFetchMt5RatesGuarded:
 
-    def test_invalid_as_of_restores_symbol_visibility(self):
-        with _mock_env(info_visible=False, parse_dt_return=None) as env:
+    def test_invalid_as_of_is_returned_from_history_gateway(self):
+        with _mock_env(ensure_err="Invalid as_of time.") as env:
             rates, err = vol_mod._fetch_mt5_rates_guarded("EURUSD", object(), 25, as_of="bad-date")
 
         assert rates is None
         assert err == "Invalid as_of time."
-        env["copy_rates"].assert_not_called()
-        env["mt5"].symbol_select.assert_not_called()
+        env["copy_rates"].assert_called_once()
 
-    def test_ensure_error_short_circuits_before_copy(self):
+    def test_provider_readiness_error_is_returned(self):
         with _mock_env(ensure_err="Symbol not available") as env:
             rates, err = vol_mod._fetch_mt5_rates_guarded("EURUSD", object(), 25)
 
         assert rates is None
         assert err == "Symbol not available"
-        env["copy_rates"].assert_not_called()
+        env["copy_rates"].assert_called_once()
 
     def test_live_fetch_preserves_native_utc_epochs(self):
         with _mock_env(n_bars=5) as env:
@@ -1568,125 +1457,37 @@ class TestGeneralMethodProxy:
 # 7. ARIMA / SARIMA  (lines 451-466)
 # ===================================================================
 
-class TestArimaSarima:
-    def _mock_sarimax(self, yhat_size=5):
-        mock_fc = MagicMock()
-        mock_fc.predicted_mean.to_numpy.return_value = np.ones(yhat_size) * 0.001
-        mock_res = MagicMock()
-        mock_res.get_forecast.return_value = mock_fc
-        mock_model = MagicMock()
-        mock_model.fit.return_value = mock_res
-        return mock_model
+class TestRegistryGeneralMethods:
+    @pytest.mark.parametrize("method", ["arima", "sarima", "ets"])
+    def test_delegates_proxy_forecast_to_registry(self, method):
+        forecaster = MagicMock()
+        forecaster.forecast.return_value = ForecastResult(
+            forecast=np.full(5, 0.001),
+            params_used={"canonical": True},
+        )
+        with _mock_env(), patch.object(
+            vol_mod.ForecastRegistry, "get", return_value=forecaster
+        ) as get_method:
+            result = forecast_volatility(
+                "EURUSD", "H1", 5, method=method, proxy="squared_return"
+            )
 
-    def test_arima_unavailable(self):
-        """Line 452-453: SARIMAX not available."""
-        with _mock_env():
-            with patch.object(vol_mod, "_SM_SARIMAX_AVAILABLE", False):
-                r = forecast_volatility("EURUSD", "H1", 5, method="arima",
-                                        proxy="squared_return")
-                assert "error" in r and "statsmodels" in r["error"]
+        assert result["success"] is True
+        assert result["params_used"]["canonical"] is True
+        assert get_method.call_args.args == (method,)
+        forecaster.forecast.assert_called_once()
 
-    def test_arima_success(self):
-        """Lines 454-464: ARIMA happy path."""
-        model = self._mock_sarimax()
-        with _mock_env():
-            with patch.object(vol_mod, "_SM_SARIMAX_AVAILABLE", True), \
-                 patch.object(vol_mod, "_SARIMAX", return_value=model):
-                r = forecast_volatility("EURUSD", "H1", 5, method="arima",
-                                        proxy="squared_return")
-                assert r.get("success") is True
+    def test_registry_forecast_error_is_returned(self):
+        forecaster = MagicMock()
+        forecaster.forecast.side_effect = RuntimeError("singular")
+        with _mock_env(), patch.object(
+            vol_mod.ForecastRegistry, "get", return_value=forecaster
+        ):
+            result = forecast_volatility(
+                "EURUSD", "H1", 5, method="arima", proxy="squared_return"
+            )
 
-    def test_arima_fit_error(self):
-        """Lines 465-466: SARIMAX raises during fit."""
-        mock_model = MagicMock()
-        mock_model.fit.side_effect = ValueError("singular")
-        with _mock_env():
-            with patch.object(vol_mod, "_SM_SARIMAX_AVAILABLE", True), \
-                 patch.object(vol_mod, "_SARIMAX", return_value=mock_model):
-                r = forecast_volatility("EURUSD", "H1", 5, method="arima",
-                                        proxy="squared_return")
-                assert "error" in r and "SARIMAX" in r["error"]
-
-    def test_arima_nonconvergence_returns_structured_failure(self):
-        model = self._mock_sarimax()
-        model.fit.return_value.mle_retvals = {"converged": False}
-        with _mock_env():
-            with patch.object(vol_mod, "_SM_SARIMAX_AVAILABLE", True), \
-                 patch.object(vol_mod, "_SARIMAX", return_value=model):
-                result = forecast_volatility(
-                    "EURUSD",
-                    "H1",
-                    5,
-                    method="arima",
-                    proxy="squared_return",
-                )
-
-        assert result["success"] is False
-        assert result["error_code"] == "fit_nonconvergence"
-        assert result["fit_status"] == "failed"
-        assert result["converged"] is False
-        assert "volatility_forecast" not in result
-
-    def test_sarima_seasonal(self):
-        """Lines 455-459: SARIMA with seasonal order."""
-        model = self._mock_sarimax()
-        with _mock_env():
-            with patch.object(vol_mod, "_SM_SARIMAX_AVAILABLE", True), \
-                 patch.object(vol_mod, "_SARIMAX", return_value=model):
-                r = forecast_volatility("EURUSD", "H1", 5, method="sarima",
-                                        proxy="squared_return",
-                                        params={"P": 1, "D": 0, "Q": 1})
-                assert r.get("success") is True
-
-    @pytest.mark.parametrize("p,d,q", [(2, 0, 1), (1, 1, 0), (0, 0, 2)])
-    def test_arima_order_variants(self, p, d, q):
-        """Line 454: various (p,d,q) orders."""
-        model = self._mock_sarimax()
-        with _mock_env():
-            with patch.object(vol_mod, "_SM_SARIMAX_AVAILABLE", True), \
-                 patch.object(vol_mod, "_SARIMAX", return_value=model):
-                r = forecast_volatility("EURUSD", "H1", 5, method="arima",
-                                        proxy="squared_return",
-                                        params={"p": p, "d": d, "q": q})
-                assert r.get("success") is True
-
-
-# ===================================================================
-# 8. ETS  (lines 467-474)
-# ===================================================================
-
-class TestEts:
-    def test_ets_unavailable(self):
-        """Lines 468-469: ETS not available."""
-        with _mock_env():
-            with patch.object(vol_mod, "_SM_ETS_AVAILABLE", False):
-                r = forecast_volatility("EURUSD", "H1", 5, method="ets",
-                                        proxy="squared_return")
-                assert "error" in r and "statsmodels" in r["error"].lower()
-
-    def test_ets_success(self):
-        """Lines 470-472: ETS happy path."""
-        mock_res = MagicMock()
-        mock_res.forecast.return_value = np.ones(5) * 0.001
-        mock_ets_cls = MagicMock()
-        mock_ets_cls.return_value.fit.return_value = mock_res
-        with _mock_env():
-            with patch.object(vol_mod, "_SM_ETS_AVAILABLE", True), \
-                 patch.object(vol_mod, "_ETS", mock_ets_cls):
-                r = forecast_volatility("EURUSD", "H1", 5, method="ets",
-                                        proxy="squared_return")
-                assert r.get("success") is True
-
-    def test_ets_error(self):
-        """Lines 473-474: ETS raises during fit."""
-        mock_ets_cls = MagicMock()
-        mock_ets_cls.return_value.fit.side_effect = RuntimeError("bad")
-        with _mock_env():
-            with patch.object(vol_mod, "_SM_ETS_AVAILABLE", True), \
-                 patch.object(vol_mod, "_ETS", mock_ets_cls):
-                r = forecast_volatility("EURUSD", "H1", 5, method="ets",
-                                        proxy="squared_return")
-                assert "error" in r and "ETS" in r["error"]
+        assert "ARIMA proxy forecast error: singular" in result["error"]
 
 
 # ===================================================================
@@ -1701,13 +1502,12 @@ class TestTheta:
                                     proxy="squared_return")
             assert r.get("success") is True
 
-    def test_theta_custom_alpha(self):
-        """Line 479: alpha=0.5 from params."""
+    def test_theta_custom_alpha_is_rejected(self):
         with _mock_env():
             r = forecast_volatility("EURUSD", "H1", 5, method="theta",
                                     proxy="squared_return",
                                     params={"alpha": 0.5})
-            assert r.get("success") is True
+            assert r["error_code"] == "unknown_parameter"
 
     def test_theta_large_horizon(self):
         """Lines 477-478: trend_future with large horizon."""
@@ -1759,8 +1559,7 @@ class TestHarRvSecondSection:
             assert r.get("success") is True or "error" in r
 
     def test_second_section_invalid_as_of(self):
-        """_parse_start_datetime returning None yields an error response."""
-        with _mock_env(parse_dt_return=None):
+        with _mock_env(ensure_err="Invalid as_of time."):
             r = forecast_volatility("EURUSD", "H1", 5, method="har_rv",
                                     as_of="bad-date")
             assert "error" in r
@@ -1772,14 +1571,6 @@ class TestHarRvSecondSection:
                        rates_side_effect=[intraday]):
             r = forecast_volatility("EURUSD", "H1", 5, method="har_rv")
             assert r.get("success") is True or "error" in r
-
-    def test_second_section_visibility_restore(self):
-        """When symbol was not visible, symbol_select is called to restore state."""
-        intraday = _make_rates_ext(15000, bar_secs=300, seed=99)
-        with _mock_env(info_visible=False,
-                       rates_side_effect=[intraday]) as env:
-            r = forecast_volatility("EURUSD", "H1", 5, method="har_rv")
-            assert env["mt5"].symbol_select.called
 
     def test_second_section_visibility_restore_exc(self):
         """An exception from symbol_select during visibility restore is silently ignored."""
@@ -1990,13 +1781,10 @@ class TestHarRvBlock:
             assert r.get("success") is True or "error" in r
 
     def test_invalid_as_of_intraday(self):
-        """Lines 1105-1106: invalid as_of returns error in intraday fetch."""
-        intraday = _make_rates_ext(15000, bar_secs=300, seed=99)
-        with _mock_env(rates_side_effect=[intraday]):
-            with patch(f"{MOD}._parse_as_of_bound", return_value=None):
-                r = forecast_volatility("EURUSD", "H1", 5, method="har_rv",
-                                        as_of="2024-03-01")
-                assert "error" in r
+        with _mock_env(ensure_err="Invalid as_of time."):
+            r = forecast_volatility("EURUSD", "H1", 5, method="har_rv",
+                                    as_of="bad-date")
+            assert "error" in r
 
     def test_tick_no_time_intraday(self):
         """Line 1114: tick.time None during intraday fetch."""
@@ -2004,13 +1792,6 @@ class TestHarRvBlock:
                        rates_side_effect=self._har_rv_side_effect()):
             r = forecast_volatility("EURUSD", "H1", 5, method="har_rv")
             assert r.get("success") is True or "error" in r
-
-    def test_visibility_restore_intraday(self):
-        """Lines 1117-1121: visibility restore in intraday fetch block."""
-        with _mock_env(info_visible=False,
-                       rates_side_effect=self._har_rv_side_effect()) as env:
-            r = forecast_volatility("EURUSD", "H1", 5, method="har_rv")
-            assert env["mt5"].symbol_select.called
 
     def test_visibility_restore_exc_intraday(self):
         """Lines 1118-1121: except pass in intraday visibility restore."""
@@ -2290,35 +2071,19 @@ class TestScatteredBranches:
 
     @pytest.mark.parametrize("method", ["arima", "sarima", "ets", "theta"])
     def test_general_method_result_fields(self, method):
-        """Lines 569-572: successful general method returns expected keys."""
-        if method in ("arima", "sarima"):
-            mock_fc = MagicMock()
-            mock_fc.predicted_mean.to_numpy.return_value = np.ones(5) * 0.001
-            mock_res = MagicMock()
-            mock_res.get_forecast.return_value = mock_fc
-            mock_model = MagicMock()
-            mock_model.fit.return_value = mock_res
-            ctx = [patch.object(vol_mod, "_SM_SARIMAX_AVAILABLE", True),
-                   patch.object(vol_mod, "_SARIMAX", return_value=mock_model)]
-        elif method == "ets":
-            mock_res = MagicMock()
-            mock_res.forecast.return_value = np.ones(5) * 0.001
-            mock_cls = MagicMock()
-            mock_cls.return_value.fit.return_value = mock_res
-            ctx = [patch.object(vol_mod, "_SM_ETS_AVAILABLE", True),
-                   patch.object(vol_mod, "_ETS", mock_cls)]
-        else:
-            ctx = []
+        forecaster = MagicMock()
+        forecaster.forecast.return_value = ForecastResult(
+            forecast=np.full(5, 0.001), params_used={}
+        )
+        with _mock_env(), patch.object(
+            vol_mod.ForecastRegistry, "get", return_value=forecaster
+        ):
+            r = forecast_volatility(
+                "EURUSD", "H1", 5, method=method, proxy="squared_return"
+            )
 
-        with _mock_env():
-            from contextlib import ExitStack
-            with ExitStack() as stack:
-                for c in ctx:
-                    stack.enter_context(c)
-                r = forecast_volatility("EURUSD", "H1", 5, method=method,
-                                        proxy="squared_return")
-                assert r.get("success") is True
-                for key in ("symbol", "timeframe", "method", "horizon",
-                            "volatility_per_bar", "volatility_annualized"):
-                    assert key in r, f"Missing key {key}"
+        assert r.get("success") is True
+        for key in ("symbol", "timeframe", "method", "horizon",
+                    "volatility_per_bar", "volatility_annualized"):
+            assert key in r, f"Missing key {key}"
 

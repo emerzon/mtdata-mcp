@@ -12,9 +12,8 @@ import numpy as np
 import pandas as pd
 
 from ..services.data_service.candles import (
-    _is_last_bar_forming,
     _parse_candle_calendar_bound,
-    _trim_calendar_bars_to_session_dates,
+    fetch_history_frame,
 )
 
 
@@ -32,7 +31,7 @@ def _calendar_bound_or_raise(
         )
     except ValueError as exc:
         raise RuntimeError(str(exc)) from exc
-from ..shared.constants import CALENDAR_TIMEFRAMES, TIMEFRAME_MAP, TIMEFRAME_SECONDS
+from ..shared.constants import CALENDAR_TIMEFRAMES, TIMEFRAME_SECONDS
 from ..shared.market_sessions import (
     exchange_holidays,
     is_early_close_session,
@@ -44,16 +43,8 @@ from ..shared.symbols import (
     is_probably_forex_symbol,
 )
 from ..utils.freshness import is_standard_weekend_closure, standard_weekend_window
-from ..utils.mt5 import (
-    _ensure_symbol_ready,
-    _mt5_copy_rates_from,
-    _mt5_copy_rates_from_pos,
-    _mt5_copy_rates_range,
-    get_symbol_info_cached,
-    mt5,
-)
 from ..utils.time import bar_close_epoch
-from ..utils.utils import _parse_end_datetime, _parse_start_datetime, _utc_epoch_seconds
+from ..utils.utils import _parse_end_datetime, _parse_start_datetime
 
 _FORECAST_RESERVED_COLUMNS = {"unique_id", "ds", "y"}
 _FORECAST_PREFERRED_COLUMNS = ("y_hat", "mean", "median", "pred", "forecast")
@@ -1146,157 +1137,16 @@ def fetch_history(
     end: Optional[str] = None,
     drop_last_live: bool = True,
 ) -> pd.DataFrame:
-    """Fetch the last `need` bars with MT5's native UTC epoch seconds.
-
-    - as_of: optional date/time string. If provided, fetch bars ending at that time. Else uses server time.
-    - start/end: optional date/time range. If start is provided, returns the full range.
-    - drop_last_live: when as_of is None, drop the forming last bar.
-    Raises RuntimeError on MT5 errors.
-    """
-    if timeframe not in TIMEFRAME_MAP:
-        raise RuntimeError(f"Invalid timeframe: {timeframe}")
-    if as_of and (start or end):
-        raise RuntimeError("as_of cannot be combined with start/end.")
-    future_error = future_as_of_error(as_of)
-    if future_error:
-        raise RuntimeError(future_error)
-    mt5_tf = TIMEFRAME_MAP[timeframe]
-    # Ensure symbol visibility and restore later
-    info_before = get_symbol_info_cached(symbol)
-    was_visible = bool(info_before.visible) if info_before is not None else None
-    err = _ensure_symbol_ready(symbol)
-    if err:
-        raise RuntimeError(err)
-    try:
-        if start:
-            calendar_from = _calendar_bound_or_raise(
-                start,
-                timeframe=timeframe,
-                end_bound=False,
-            )
-            from_dt = calendar_from or _parse_start_datetime(start)
-            if not from_dt:
-                raise RuntimeError("Invalid start time.")
-            calendar_to = _calendar_bound_or_raise(
-                end,
-                timeframe=timeframe,
-                end_bound=True,
-            )
-            to_dt = (
-                calendar_to
-                or (_parse_end_datetime(end) if end else None)
-                or datetime.now(timezone.utc).replace(tzinfo=None)
-            )
-            if not to_dt:
-                raise RuntimeError("Invalid end time.")
-            if _utc_epoch_seconds(from_dt) > _utc_epoch_seconds(to_dt):
-                raise RuntimeError("start must be before or equal to end.")
-            rates = _mt5_copy_rates_range(symbol, mt5_tf, from_dt, to_dt)
-        elif as_of or end:
-            to_dt = _parse_as_of_bound(as_of, timeframe=timeframe) if as_of else (
-                _calendar_bound_or_raise(
-                    end,
-                    timeframe=timeframe,
-                    end_bound=True,
-                )
-                or _parse_end_datetime(end or "")
-            )
-            if not to_dt:
-                raise RuntimeError("Invalid as_of time." if as_of else "Invalid end time.")
-
-            # Anchor directly at as_of to avoid missing older historical windows.
-            fetch_count = max(int(need), 1) + 2
-            rates = _mt5_copy_rates_from(symbol, mt5_tf, to_dt, fetch_count)
-        else:
-            # Use position-based fetch for "latest" to avoid TZ issues and ensure open candle
-            # start_pos=0 includes the current forming bar
-            fetch_count = int(need) + (1 if drop_last_live else 0)
-            rates = _mt5_copy_rates_from_pos(symbol, mt5_tf, 0, max(fetch_count, 1))
-    finally:
-        if was_visible is False:
-            try:
-                mt5.symbol_select(symbol, False)
-            except Exception:
-                pass
-    if rates is None:
-        raise RuntimeError(f"Failed to get rates for {symbol}: {mt5.last_error()}")
-    if len(rates) < 1:
-        raise ValueError(
-            f"No data is available for {symbol} {timeframe} in the requested range. "
-            "Widen or correct the historical range."
-        )
-    df = pd.DataFrame(rates)
-    # MT5 rate epochs are already UTC.
-
-    # Manual truncation if an upper bound was provided.
-    if (as_of or end) and not df.empty and 'time' in df.columns:
-        to_dt = _parse_as_of_bound(as_of, timeframe=timeframe) if as_of else (
-            _calendar_bound_or_raise(
-                end,
-                timeframe=timeframe,
-                end_bound=True,
-            )
-            or _parse_end_datetime(end or "")
-        )
-        if to_dt:
-            cutoff = _utc_epoch_seconds(to_dt)
-            bound_value = as_of or end
-            date_only_calendar_bound = bool(
-                timeframe in CALENDAR_TIMEFRAMES
-                and isinstance(bound_value, str)
-                and re.fullmatch(r"\d{4}-\d{2}-\d{2}", bound_value.strip())
-            )
-            if date_only_calendar_bound:
-                wall_clock_cutoff = datetime.now(timezone.utc).timestamp()
-                completed = (
-                    (df["time"] <= cutoff)
-                    & df["time"].map(
-                        lambda value: bar_close_epoch(value, timeframe)
-                        <= wall_clock_cutoff
-                    )
-                )
-                df = df[completed]
-            elif as_of or drop_last_live:
-                # Analysis defaults to closed bars. An as-of anchor is always
-                # information-available-at-instant; bounded ranges apply the
-                # same rule unless the caller explicitly requests live bars.
-                wall_clock_cutoff = datetime.now(timezone.utc).timestamp()
-                completed = df['time'].map(
-                    lambda value: bar_close_epoch(value, timeframe)
-                    <= min(cutoff, wall_clock_cutoff)
-                )
-                df = df[completed]
-            else:
-                df = df[df['time'] <= cutoff]
-            # Bounded ranges keep the full requested window; end-only mirrors as_of.
-            if not start and len(df) > need:
-                df = df.iloc[-int(need):]
-
-    if timeframe in CALENDAR_TIMEFRAMES and (start or end):
-        df = _trim_calendar_bars_to_session_dates(
-            df,
-            start_datetime=start,
-            end_datetime=end,
-            timeframe=timeframe,
-        )
-
-    if as_of is None and end is None and drop_last_live and len(df) >= 2:
-        if _is_last_bar_forming(rates, timeframe):
-            df = df.iloc[:-1]
-        if not start and len(df) > need:
-            df = df.iloc[-int(need):]
-    df = df.reset_index(drop=True)
-    spacing = _history_spacing_quality(df, timeframe=timeframe)
-    if spacing is not None and not spacing["spacing_matches_timeframe"]:
-        raise RuntimeError(
-            "Observed candle cadence does not match the requested timeframe: "
-            f"requested_bar_seconds={spacing['requested_bar_seconds']}, "
-            f"observed_median_bar_seconds={spacing['observed_median_bar_seconds']}, "
-            f"matching_interval_pct={spacing['matching_interval_pct']}. "
-            "The broker returned materially coarser history; retry with the "
-            "observed timeframe or verify the symbol/timeframe feed."
-        )
-    return df
+    """Fetch analysis history through the canonical market-data gateway."""
+    return fetch_history_frame(
+        symbol,
+        timeframe,
+        need,
+        as_of,
+        start=start,
+        end=end,
+        include_incomplete=not drop_last_live,
+    )
 
 
 def _parse_as_of_bound(
@@ -1316,37 +1166,6 @@ def _parse_as_of_bound(
         if calendar_bound is not None:
             return calendar_bound
     return _parse_end_datetime(value)
-
-
-def _history_spacing_quality(
-    df: pd.DataFrame,
-    *,
-    timeframe: str,
-) -> Optional[Dict[str, Any]]:
-    """Detect a strongly coarser provider cadence before forecast calculations."""
-    expected = float(TIMEFRAME_SECONDS.get(str(timeframe).upper(), 0) or 0)
-    if expected <= 0 or "time" not in df.columns or len(df) < 6:
-        return None
-    epochs = pd.to_numeric(df["time"], errors="coerce")
-    diffs = epochs.diff().dropna()
-    diffs = diffs[diffs > 0]
-    if len(diffs) < 5:
-        return None
-    median_seconds = float(diffs.median())
-    matching_pct = round(
-        float(diffs.between(expected * 0.75, expected * 1.5).mean()) * 100.0,
-        2,
-    )
-    matches = not (
-        median_seconds > expected * 1.5 and matching_pct < 20.0
-    )
-    return {
-        "requested_bar_seconds": int(expected),
-        "observed_median_bar_seconds": round(median_seconds, 3),
-        "matching_interval_pct": matching_pct,
-        "intervals_checked": int(len(diffs)),
-        "spacing_matches_timeframe": matches,
-    }
 
 
 def future_as_of_error(

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import numpy as np
 import pandas as pd
@@ -267,243 +268,61 @@ def test_default_seasonality_uses_observed_session_bar_count() -> None:
     assert fc.pd_freq_from_timeframe("x") == "D"
 
 
-def test_fetch_history_validates_inputs_and_symbol_readiness(monkeypatch):
-    monkeypatch.setattr(fc, "TIMEFRAME_MAP", {"H1": 1})
-    monkeypatch.setattr(fc, "get_symbol_info_cached", lambda _symbol: None)
-    monkeypatch.setattr(fc, "_ensure_symbol_ready", lambda _symbol: "symbol error")
+def test_fetch_history_delegates_to_canonical_gateway(monkeypatch):
+    expected = pd.DataFrame({"time": [100.0], "close": [1.2]})
+    gateway = MagicMock(return_value=expected)
+    monkeypatch.setattr(fc, "fetch_history_frame", gateway)
 
-    with pytest.raises(RuntimeError, match="symbol error"):
-        fc.fetch_history("EURUSD", "H1", need=5)
-
-    with pytest.raises(RuntimeError, match="Invalid timeframe"):
-        fc.fetch_history("EURUSD", "BAD", need=5)
-
-
-def test_fetch_history_rejects_materially_coarser_provider_cadence(monkeypatch):
-    monkeypatch.setattr(fc, "TIMEFRAME_MAP", {"H1": 1})
-    monkeypatch.setattr(fc, "_ensure_symbol_ready", lambda _symbol: None)
-    monkeypatch.setattr(
-        fc,
-        "get_symbol_info_cached",
-        lambda _symbol: SimpleNamespace(visible=True),
-    )
-    monkeypatch.setattr(fc.mt5, "last_error", lambda: (1, "err"))
-    monkeypatch.setattr(
-        fc,
-        "_mt5_copy_rates_from_pos",
-        lambda symbol, tf, start, count: [
-            {"time": index * 86400.0, "open": float(index)}
-            for index in range(8)
-        ],
-    )
-
-    with pytest.raises(RuntimeError, match="observed_median_bar_seconds=86400.0"):
-        fc.fetch_history("EURUSD", "H1", need=8, drop_last_live=False)
-
-
-def test_fetch_history_as_of_and_drop_last_live_paths(monkeypatch):
-    monkeypatch.setattr(fc, "TIMEFRAME_MAP", {"H1": 1})
-    monkeypatch.setattr(fc, "_ensure_symbol_ready", lambda _symbol: None)
-    monkeypatch.setattr(fc, "get_symbol_info_cached", lambda _symbol: SimpleNamespace(visible=False))
-
-    symbol_select_calls = []
-    monkeypatch.setattr(fc.mt5, "symbol_select", lambda symbol, visible: symbol_select_calls.append((symbol, visible)) or True)
-    monkeypatch.setattr(fc.mt5, "last_error", lambda: (1, "err"))
-
-    rates = [
-        {"time": 100.0, "open": 1.0},
-        {"time": 3700.0, "open": 2.0},
-        {"time": 7300.0, "open": 3.0},
-        {"time": 10900.0, "open": 4.0},
-    ]
-
-    monkeypatch.setattr(fc, "_mt5_copy_rates_from", lambda symbol, tf, to_dt, count: rates)
-    monkeypatch.setattr(fc, "_mt5_copy_rates_from_pos", lambda symbol, tf, start, count: rates)
-    monkeypatch.setattr(fc, "_parse_start_datetime", lambda _as_of: datetime(2024, 1, 1))
-    monkeypatch.setattr(fc, "_utc_epoch_seconds", lambda _dt: 7300.0)
-
-    out = fc.fetch_history("EURUSD", "H1", need=2, as_of="2024-01-01")
-    assert out["time"].tolist() == [100.0, 3700.0]
-    assert ("EURUSD", False) in symbol_select_calls
-
-    monkeypatch.setattr(fc, "_is_last_bar_forming", lambda rates, timeframe: True)
-    out = fc.fetch_history("EURUSD", "H1", need=4, as_of=None, drop_last_live=True)
-    assert out["time"].tolist() == [100.0, 3700.0, 7300.0]
-
-
-def test_fetch_history_as_of_anchors_directly_not_latest_window(monkeypatch):
-    monkeypatch.setattr(fc, "TIMEFRAME_MAP", {"H1": 1})
-    monkeypatch.setattr(fc, "_ensure_symbol_ready", lambda _symbol: None)
-    monkeypatch.setattr(fc, "get_symbol_info_cached", lambda _symbol: SimpleNamespace(visible=True))
-    monkeypatch.setattr(fc.mt5, "last_error", lambda: (1, "err"))
-
-    # Would be returned by a latest-window fetch, but should not be used for old as_of.
-    newest_rates = [{"time": 9000.0, "open": 9.0}, {"time": 9100.0, "open": 9.1}]
-    asof_rates = [{"time": 100.0, "open": 1.0}, {"time": 200.0, "open": 2.0}]
-
-    monkeypatch.setattr(fc, "_mt5_copy_rates_from_pos", lambda symbol, tf, start, count: newest_rates)
-    monkeypatch.setattr(fc, "_mt5_copy_rates_from", lambda symbol, tf, to_dt, count: asof_rates)
-    monkeypatch.setattr(fc, "_parse_start_datetime", lambda _as_of: datetime(2020, 1, 1))
-    monkeypatch.setattr(fc, "_utc_epoch_seconds", lambda _dt: 3800.0)
-
-    out = fc.fetch_history("EURUSD", "H1", need=2, as_of="2020-01-01")
-    assert out["time"].tolist() == [100.0, 200.0]
-
-
-def test_fetch_history_start_end_uses_range_without_lookback_trim(monkeypatch):
-    monkeypatch.setattr(fc, "TIMEFRAME_MAP", {"H1": 1})
-    monkeypatch.setattr(fc, "_ensure_symbol_ready", lambda _symbol: None)
-    monkeypatch.setattr(fc, "get_symbol_info_cached", lambda _symbol: SimpleNamespace(visible=True))
-    monkeypatch.setattr(fc.mt5, "last_error", lambda: (1, "err"))
-
-    rates = [
-        {"time": 100.0, "open": 1.0},
-        {"time": 200.0, "open": 2.0},
-        {"time": 300.0, "open": 3.0},
-        {"time": 400.0, "open": 4.0},
-    ]
-    captured = {}
-
-    def fake_range(symbol, tf, from_dt, to_dt):
-        captured.update({"symbol": symbol, "tf": tf, "from_dt": from_dt, "to_dt": to_dt})
-        return rates
-
-    monkeypatch.setattr(fc, "_mt5_copy_rates_range", fake_range)
-    monkeypatch.setattr(
-        fc,
-        "_parse_start_datetime",
-        lambda value: datetime(2024, 1, 1) if value == "2024-01-01" else datetime(2024, 1, 2),
-    )
-    monkeypatch.setattr(fc, "_utc_epoch_seconds", lambda _dt: 3950.0)
-
-    out = fc.fetch_history(
+    actual = fc.fetch_history(
         "EURUSD",
         "H1",
-        need=2,
-        start="2024-01-01",
-        end="2024-01-02",
-    )
-
-    assert captured["symbol"] == "EURUSD"
-    assert captured["tf"] == 1
-    assert out["time"].tolist() == [100.0, 200.0, 300.0]
-
-
-def test_fetch_history_end_bound_excludes_bar_not_closed_by_cutoff(monkeypatch):
-    monkeypatch.setattr(fc, "TIMEFRAME_MAP", {"H1": 1})
-    monkeypatch.setattr(fc, "_ensure_symbol_ready", lambda _symbol: None)
-    monkeypatch.setattr(
-        fc,
-        "get_symbol_info_cached",
-        lambda _symbol: SimpleNamespace(visible=True),
-    )
-    monkeypatch.setattr(fc.mt5, "last_error", lambda: (1, "err"))
-    rates = [
-        {"time": 100.0, "open": 1.0},
-        {"time": 3700.0, "open": 2.0},
-        {"time": 7300.0, "open": 3.0},
-    ]
-    monkeypatch.setattr(
-        fc,
-        "_mt5_copy_rates_from",
-        lambda symbol, tf, to_dt, count: rates,
-    )
-    monkeypatch.setattr(fc, "_parse_end_datetime", lambda _end: datetime(2024, 1, 1))
-    monkeypatch.setattr(fc, "_utc_epoch_seconds", lambda _dt: 7300.0)
-
-    closed = fc.fetch_history("EURUSD", "H1", need=3, end="2024-01-01T02:00:00Z")
-    including_live = fc.fetch_history(
-        "EURUSD",
-        "H1",
-        need=3,
-        end="2024-01-01T02:00:00Z",
+        need=25,
+        as_of="2026-08-20T12:00:00Z",
         drop_last_live=False,
     )
 
-    assert closed["time"].tolist() == [100.0, 3700.0]
-    assert including_live["time"].tolist() == [100.0, 3700.0, 7300.0]
-
-
-def test_fetch_history_daily_dates_use_broker_sessions_and_wall_clock(monkeypatch):
-    fixed_now = datetime(2026, 8, 13, 14, 0, tzinfo=timezone.utc)
-
-    class FixedDateTime(datetime):
-        @classmethod
-        def now(cls, tz=None):
-            return fixed_now.replace(tzinfo=None) if tz is None else fixed_now.astimezone(tz)
-
-    rates = [
-        {
-            "time": pd.Timestamp(value, tz="UTC").timestamp(),
-            "close": close,
-        }
-        for value, close in (
-            ("2026-08-09 21:00", 1.10),
-            ("2026-08-10 21:00", 1.11),
-            ("2026-08-11 21:00", 1.12),
-            ("2026-08-12 21:00", 1.13),
-        )
-    ]
-    captured = {}
-
-    def fake_range(_symbol, _tf, start_dt, end_dt):
-        captured.update(start=start_dt, end=end_dt)
-        return rates
-
-    monkeypatch.setattr(fc, "datetime", FixedDateTime)
-    monkeypatch.setattr(fc, "_ensure_symbol_ready", lambda _symbol: None)
-    monkeypatch.setattr(fc, "get_symbol_info_cached", lambda _symbol: SimpleNamespace(visible=True))
-    monkeypatch.setattr(fc, "_mt5_copy_rates_range", fake_range)
-    monkeypatch.setattr(fc.mt5, "last_error", lambda: (0, "ok"))
-    monkeypatch.setattr(
-        "mtdata.services.data_service.candles.mt5_config.get_server_tz",
-        lambda: __import__("zoneinfo").ZoneInfo("Europe/Nicosia"),
-    )
-
-    out = fc.fetch_history(
+    assert actual is expected
+    gateway.assert_called_once_with(
         "EURUSD",
-        "D1",
-        need=10,
-        start="2026-08-10",
-        end="2026-08-13",
+        "H1",
+        25,
+        "2026-08-20T12:00:00Z",
+        start=None,
+        end=None,
+        include_incomplete=True,
     )
 
-    assert captured["start"] == datetime(2026, 8, 9, 21, tzinfo=timezone.utc)
-    assert captured["end"] == datetime(
-        2026, 8, 13, 20, 59, 59, 999999, tzinfo=timezone.utc
+
+def test_fetch_history_delegates_ranges_and_closed_bar_policy(monkeypatch):
+    expected = pd.DataFrame({"time": [100.0, 200.0]})
+    gateway = MagicMock(return_value=expected)
+    monkeypatch.setattr(fc, "fetch_history_frame", gateway)
+
+    actual = fc.fetch_history(
+        "EURUSD",
+        "H4",
+        need=50,
+        start="2026-08-01",
+        end="2026-08-10",
     )
-    assert out["close"].tolist() == [1.10, 1.11, 1.12]
 
-
-def test_fetch_history_preserves_live_native_utc_epochs(monkeypatch):
-    monkeypatch.setattr(fc, "TIMEFRAME_MAP", {"H1": 1})
-    monkeypatch.setattr(fc, "_ensure_symbol_ready", lambda _symbol: None)
-    monkeypatch.setattr(fc, "get_symbol_info_cached", lambda _symbol: SimpleNamespace(visible=True))
-    monkeypatch.setattr(fc.mt5, "last_error", lambda: (1, "err"))
-    monkeypatch.setattr(
-        fc,
-        "_mt5_copy_rates_from_pos",
-        lambda symbol, tf, start, count: [
-            {"time": 100.0, "open": 1.0},
-            {"time": 200.0, "open": 2.0},
-            {"time": 300.0, "open": 3.0},
-        ],
+    assert actual is expected
+    gateway.assert_called_once_with(
+        "EURUSD",
+        "H4",
+        50,
+        None,
+        start="2026-08-01",
+        end="2026-08-10",
+        include_incomplete=False,
     )
-    out = fc.fetch_history("EURUSD", "H1", need=3, as_of=None, drop_last_live=False)
-    assert out["time"].tolist() == [100.0, 200.0, 300.0]
 
 
-def test_fetch_history_handles_invalid_as_of_and_empty_rates(monkeypatch):
-    monkeypatch.setattr(fc, "TIMEFRAME_MAP", {"H1": 1})
-    monkeypatch.setattr(fc, "_ensure_symbol_ready", lambda _symbol: None)
-    monkeypatch.setattr(fc, "get_symbol_info_cached", lambda _symbol: SimpleNamespace(visible=True))
-    monkeypatch.setattr(fc.mt5, "last_error", lambda: (500, "no data"))
+def test_fetch_history_preserves_gateway_errors(monkeypatch):
+    def fail(*_args, **_kwargs):
+        raise RuntimeError("Invalid as_of time.")
 
-    monkeypatch.setattr(fc, "_parse_start_datetime", lambda _as_of: None)
+    monkeypatch.setattr(fc, "fetch_history_frame", fail)
+
     with pytest.raises(RuntimeError, match="Invalid as_of time"):
         fc.fetch_history("EURUSD", "H1", need=2, as_of="bad")
-
-    monkeypatch.setattr(fc, "_parse_start_datetime", lambda _as_of: datetime(2024, 1, 1))
-    monkeypatch.setattr(fc, "_mt5_copy_rates_from_pos", lambda symbol, tf, start, count: [])
-    with pytest.raises(ValueError, match="No data is available"):
-        fc.fetch_history("EURUSD", "H1", need=2)

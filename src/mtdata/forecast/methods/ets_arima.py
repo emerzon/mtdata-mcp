@@ -447,6 +447,15 @@ class ARIMAMethod(ETSArimaMethod):
                 exog=exog_u
             )
             res = model.fit(method='lbfgs', disp=False, maxiter=100)
+            fit_details = getattr(res, "mle_retvals", None)
+            if (
+                isinstance(fit_details, dict)
+                and fit_details.get("converged") is False
+            ):
+                raise RuntimeError(
+                    f"{self.name.upper()} maximum-likelihood fit did not converge; "
+                    "adjust the order or use a more stable forecast method."
+                )
             
             if exog_f is not None:
                 pred = res.get_forecast(steps=int(horizon), exog=exog_f)
