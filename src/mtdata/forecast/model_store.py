@@ -796,22 +796,7 @@ class ModelStore:
     @staticmethod
     def _atomic_write_text(target: Path, text: str) -> None:
         """Write *text* atomically via temp file + ``os.replace``."""
-        fd, tmp_path = tempfile.mkstemp(
-            dir=str(target.parent), suffix=".tmp",
-        )
-        try:
-            os.write(fd, text.encode("utf-8"))
-            os.close(fd)
-            fd = -1
-            ModelStore._replace_with_retry(tmp_path, target)
-        except BaseException:
-            if fd >= 0:
-                os.close(fd)
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
+        ModelStore._atomic_write_bytes(target, text.encode("utf-8"))
 
     def _remove_dir(self, path: Path) -> bool:
         try:
