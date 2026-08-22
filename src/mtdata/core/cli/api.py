@@ -60,8 +60,7 @@ from .formatting import (
 )
 from .output_format import (
     CLI_FORMAT_JSON,
-    CLI_OUTPUT_FORMAT_CHOICES,
-    CLI_OUTPUT_FORMAT_ENV,
+    _invalid_output_format_payload,
     resolve_cli_output_format_env,
 )
 from .parsing.discovery import (
@@ -754,32 +753,11 @@ def _json_parse_errors_requested() -> bool:
 
 
 def _invalid_output_format_status(argv: Sequence[str]) -> Optional[int]:
-    if "--json" in argv:
+    payload = _invalid_output_format_payload(argv)
+    if payload is None:
         return None
-    try:
-        resolve_cli_output_format_env()
-    except ValueError as exc:
-        _write_cli_text(
-            json.dumps(
-                build_error_payload(
-                    str(exc),
-                    code="cli_invalid_output_format",
-                    operation="cli",
-                    remediation=(
-                        f"Set {CLI_OUTPUT_FORMAT_ENV} to "
-                        f"{' or '.join(CLI_OUTPUT_FORMAT_CHOICES)}, or unset it."
-                    ),
-                    valid_values={
-                        CLI_OUTPUT_FORMAT_ENV: list(CLI_OUTPUT_FORMAT_CHOICES)
-                    },
-                    documentation="docs/ENV_VARS.md",
-                ),
-                ensure_ascii=False,
-                indent=2,
-            )
-        )
-        return 2
-    return None
+    _write_cli_text(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 2
 
 
 class _CLIArgumentParser(argparse.ArgumentParser):

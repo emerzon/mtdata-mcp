@@ -17,8 +17,7 @@ from .catalog_cache import (
 )
 from .output_format import (
     CLI_FORMAT_JSON,
-    CLI_OUTPUT_FORMAT_CHOICES,
-    CLI_OUTPUT_FORMAT_ENV,
+    _invalid_output_format_payload,
     resolve_cli_output_format_env,
 )
 from .version import cli_version
@@ -37,30 +36,11 @@ def _json_output_requested(argv: Sequence[str]) -> bool:
 
 
 def _invalid_output_format_status(argv: Sequence[str]) -> Optional[int]:
-    if "--json" in argv:
+    payload = _invalid_output_format_payload(argv)
+    if payload is None:
         return None
-    try:
-        resolve_cli_output_format_env()
-    except ValueError as exc:
-        print(
-            json.dumps(
-                build_error_payload(
-                    str(exc),
-                    code="cli_invalid_output_format",
-                    operation="cli",
-                    remediation=(
-                        f"Set {CLI_OUTPUT_FORMAT_ENV} to "
-                        f"{' or '.join(CLI_OUTPUT_FORMAT_CHOICES)}, or unset it."
-                    ),
-                    valid_values={
-                        CLI_OUTPUT_FORMAT_ENV: list(CLI_OUTPUT_FORMAT_CHOICES)
-                    },
-                    documentation="docs/ENV_VARS.md",
-                )
-            )
-        )
-        return 2
-    return None
+    print(json.dumps(payload))
+    return 2
 
 
 def _leading_command_token(argv: Sequence[str]) -> Optional[str]:
