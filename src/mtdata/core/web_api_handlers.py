@@ -37,7 +37,12 @@ def _http_status_for_error(payload: Dict[str, Any], *, default: int = 400) -> in
     code = str(payload.get("error_code") or "").strip().lower()
     if code == "symbol_not_found":
         return 404
-    if code == "mt5_connection_error" or (
+    if code in {
+        "market_ticker_mt5_connection",
+        "market_ticker_tick_unavailable",
+        "market_ticker_quote_unavailable",
+        "mt5_connection_error",
+    } or (
         "mt5" in code
         and any(token in code for token in ("connection", "unavailable", "quote"))
     ):
@@ -77,6 +82,31 @@ def _http_error(
         payload["error"],
     )
     return HTTPException(status_code=status_code, detail=payload)
+
+
+def _raise_tool_error(
+    result: Any,
+    *,
+    operation: str,
+    default_code: str,
+    default_status: int = 400,
+    invalid_message: Optional[str] = None,
+) -> None:
+    """Raise the shared HTTP error for a structured tool failure."""
+    if isinstance(result, dict) and result.get("error"):
+        raise _http_error(
+            _http_status_for_error(result, default=default_status),
+            result,
+            code=str(result.get("error_code") or default_code),
+            operation=operation,
+        )
+    if invalid_message is not None and not isinstance(result, dict):
+        raise _http_error(
+            500,
+            invalid_message,
+            code=default_code,
+            operation=operation,
+        )
 
 
 def _raise_history_fetch_error(exc: Exception) -> NoReturn:
@@ -239,20 +269,12 @@ def get_instruments_response(
             detail="compact",
         )
     )
-    if not isinstance(result, dict):
-        raise _http_error(
-            500,
-            "Unexpected symbol catalog payload.",
-            code="symbols_payload_invalid",
-            operation="get_instruments",
-        )
-    if result.get("error"):
-        raise _http_error(
-            _http_status_for_error(result),
-            result,
-            code=str(result.get("error_code") or "symbols_list_failed"),
-            operation="get_instruments",
-        )
+    _raise_tool_error(
+        result,
+        operation="get_instruments",
+        default_code="symbols_list_failed",
+        invalid_message="Unexpected symbol catalog payload.",
+    )
     items = [
         {
             "symbol": row.get("symbol"),
@@ -605,15 +627,12 @@ def get_history_response(  # noqa: C901
     except Exception as exc:
         _raise_history_fetch_error(exc)
 
-    if not isinstance(result, dict):
-        raise _http_error(500, "Unexpected history payload", code="history_payload_invalid", operation="get_history")
-    if result.get("error"):
-        raise _http_error(
-            _http_status_for_error(result),
-            result,
-            code="history_tool_error",
-            operation="get_history",
-        )
+    _raise_tool_error(
+        result,
+        operation="get_history",
+        default_code="history_tool_error",
+        invalid_message="Unexpected history payload",
+    )
 
     payload = ensure_common_meta(
         result,
@@ -687,13 +706,7 @@ def get_pivots_response(
                 operation="get_pivots",
             )
 
-    if isinstance(result, dict) and result.get("error"):
-        raise _http_error(
-            _http_status_for_error(result),
-            result,
-            code="pivot_tool_error",
-            operation="get_pivots",
-        )
+    _raise_tool_error(result, operation="get_pivots", default_code="pivot_tool_error")
     if not isinstance(result, dict):
         raise _http_error(
             500,
@@ -785,13 +798,11 @@ def get_support_resistance_response(
             operation="get_support_resistance",
         )
 
-    if isinstance(result, dict) and result.get("error"):
-        raise _http_error(
-            _http_status_for_error(result),
-            result,
-            code=str(result.get("error_code") or "support_resistance_failed"),
-            operation="get_support_resistance",
-        )
+    _raise_tool_error(
+        result,
+        operation="get_support_resistance",
+        default_code="support_resistance_failed",
+    )
     if not isinstance(result, dict) or not result.get("levels"):
         raise _http_error(
             404,
@@ -826,24 +837,7 @@ def get_tick_response(
             code="tick_payload_invalid",
             operation="get_tick",
         )
-    if result.get("error"):
-        error_code = str(result.get("error_code") or "tick_data_missing")
-        if error_code == "symbol_not_found":
-            status_code = 404
-        elif error_code in {
-            "market_ticker_mt5_connection",
-            "market_ticker_tick_unavailable",
-            "market_ticker_quote_unavailable",
-        }:
-            status_code = 503
-        else:
-            status_code = 400
-        raise _http_error(
-            status_code,
-            result,
-            code=error_code,
-            operation="get_tick",
-        )
+    _raise_tool_error(result, operation="get_tick", default_code="tick_data_missing")
     return apply_output_verbosity(result, detail=detail, tool_name="market_ticker")
 
 
@@ -882,13 +876,11 @@ def _post_use_case_response(
             code=internal_error_code,
             message=internal_message,
         )
-    if isinstance(result, dict) and result.get("error"):
-        raise _http_error(
-            _http_status_for_error(result),
-            result,
-            code=result_error_code,
-            operation=operation,
-        )
+    _raise_tool_error(
+        result,
+        operation=operation,
+        default_code=result_error_code,
+    )
     return result
 
 

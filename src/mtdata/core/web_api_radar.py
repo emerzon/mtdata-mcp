@@ -12,7 +12,7 @@ from .radar import (
     run_market_radar,
 )
 from .tool_calling import call_tool_sync_structured
-from .web_api_handlers import _http_error, _http_status_for_error
+from .web_api_handlers import _http_error, _raise_tool_error
 
 
 def get_radar_response(
@@ -49,11 +49,11 @@ def get_radar_response(
         ) from exc
     result = runner(request)
     if isinstance(result, dict) and result.get("error") and not result.get("rows"):
-        raise _http_error(
-            _http_status_for_error(result, default=404),
+        _raise_tool_error(
             result,
-            code=str(result.get("error_code") or "radar_empty"),
             operation="get_radar",
+            default_code="radar_empty",
+            default_status=404,
         )
     return apply_output_verbosity(result, detail="compact", tool_name="market_radar")
 

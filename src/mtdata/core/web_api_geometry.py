@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 from ..utils.coercion import coerce_finite_float
 from .output_contract import apply_output_verbosity
 from .tool_calling import call_tool_sync_structured
-from .web_api_handlers import _http_error, _http_status_for_error
+from .web_api_handlers import _http_error, _raise_tool_error
 
 
 def _as_float(value: Any) -> Optional[float]:
@@ -130,23 +130,6 @@ def compact_exposure_payload(
     }
 
 
-def _raise_tool_error(result: Any, *, operation: str, default_code: str) -> None:
-    if isinstance(result, dict) and result.get("error"):
-        raise _http_error(
-            _http_status_for_error(result),
-            result,
-            code=str(result.get("error_code") or default_code),
-            operation=operation,
-        )
-    if not isinstance(result, dict):
-        raise _http_error(
-            500,
-            "Unexpected geometry payload",
-            code=default_code,
-            operation=operation,
-        )
-
-
 def get_confluence_response(
     *,
     symbol: str,
@@ -161,7 +144,12 @@ def get_confluence_response(
         sr_timeframe=sr_timeframe,
         detail="compact",
     )
-    _raise_tool_error(result, operation="get_confluence", default_code="confluence_failed")
+    _raise_tool_error(
+        result,
+        operation="get_confluence",
+        default_code="confluence_failed",
+        invalid_message="Unexpected geometry payload",
+    )
     payload = compact_confluence_payload(result)
     if not payload["levels"]:
         raise _http_error(
@@ -189,6 +177,7 @@ def get_volume_profile_response(
         result,
         operation="get_volume_profile",
         default_code="volume_profile_failed",
+        invalid_message="Unexpected geometry payload",
     )
     payload = compact_volume_profile_payload(result)
     if payload.get("poc") is None and payload.get("vah") is None and payload.get("val") is None:
