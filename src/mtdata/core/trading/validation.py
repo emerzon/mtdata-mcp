@@ -1291,6 +1291,17 @@ def _safe_int_ticket(value: Any) -> Optional[int]:
         return None
 
 
+def _exact_ticket_row(rows: Any, ticket: Any) -> Optional[Any]:
+    """Return the first row whose ticket exactly matches a valid MT5 ticket."""
+    expected = _safe_int_ticket(ticket)
+    if expected is None:
+        return None
+    for row in list(rows or []):
+        if _safe_int_ticket(getattr(row, "ticket", None)) == expected:
+            return row
+    return None
+
+
 def _safe_int_magic(value: Any) -> Optional[int]:
     """Best-effort exact conversion for MT5 magic values, including zero."""
     try:

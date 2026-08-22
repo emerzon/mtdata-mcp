@@ -405,15 +405,11 @@ def _attach_post_fill_protection(  # noqa: C901
                     positions_after = None
                     try:
                         positions_after = mt5.positions_get(ticket=position_ticket)
-                        exact_positions = [
-                            position
-                            for position in (positions_after or [])
-                            if validation._safe_int_ticket(
-                                getattr(position, "ticket", None)
-                            ) == position_ticket
-                        ]
-                        if exact_positions:
-                            pos_after = exact_positions[0]
+                        pos_after = validation._exact_ticket_row(
+                            positions_after,
+                            position_ticket,
+                        )
+                        if pos_after is not None:
                             sl_applied, tp_applied = validation._position_protection_levels(
                                 pos_after
                             )

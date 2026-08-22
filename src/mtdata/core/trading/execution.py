@@ -45,16 +45,6 @@ def _position_matches_any_ticket(position: Any, ticket_values: set[int]) -> bool
     return False
 
 
-def _exact_ticket_row(rows: Any, ticket: Optional[int]) -> Optional[Any]:
-    expected = validation._safe_int_ticket(ticket)
-    if expected is None:
-        return None
-    for row in list(rows or []):
-        if validation._safe_int_ticket(getattr(row, "ticket", None)) == expected:
-            return row
-    return None
-
-
 def _position_modify_readback(
     mt5: Any,
     *,
@@ -64,7 +54,7 @@ def _position_modify_readback(
     price_tol: float,
 ) -> Optional[Dict[str, Optional[float]]]:
     try:
-        row = _exact_ticket_row(
+        row = validation._exact_ticket_row(
             mt5.positions_get(ticket=resolved_ticket),
             resolved_ticket,
         )
@@ -97,7 +87,7 @@ def _pending_modify_readback(
     price_tol: float,
 ) -> Optional[Dict[str, Any]]:
     try:
-        row = _exact_ticket_row(
+        row = validation._exact_ticket_row(
             mt5.orders_get(ticket=resolved_ticket),
             resolved_ticket,
         )
