@@ -37,13 +37,11 @@ from ..execution_logging import run_logged_operation
 from ..mt5_gateway import mt5_connection_error
 from ..output_contract import attach_collection_contract
 from ..runtime_metadata import attach_mt5_source
-from ..trading.time import _next_candle_wait_payload, _sleep_until_next_candle
 from .requests import (
     DATA_FETCH_CANDLES_DEFAULT_LIMIT,
     DATA_FETCH_TICKS_DEFAULT_LIMIT,
     DataFetchCandlesRequest,
     DataFetchTicksRequest,
-    WaitCandleRequest,
     WaitEventRequest,
 )
 from .wait_events import run_wait_event_loop
@@ -170,23 +168,6 @@ def run_data_fetch_ticks(
             gateway=gateway,
             fetch_ticks_impl=fetch_ticks_impl,
             effective_limit=effective_limit,
-        ),
-    )
-
-
-def run_wait_candle(
-    request: WaitCandleRequest,
-    *,
-    sleep_impl: Any = time.sleep,
-) -> Dict[str, Any]:
-    return run_logged_operation(
-        logger,
-        operation="wait_candle",
-        timeframe=request.timeframe,
-        buffer_seconds=request.buffer_seconds,
-        func=lambda: _run_wait_candle_impl(
-            request=request,
-            sleep_impl=sleep_impl,
         ),
     )
 
@@ -2442,54 +2423,6 @@ def _tick_row_price(value: Any) -> Optional[float]:
     if not np.isfinite(numeric):
         return None
     return numeric
-
-
-def _run_wait_candle_impl(
-    *,
-    request: WaitCandleRequest,
-    sleep_impl: Any,
-) -> Dict[str, Any]:
-    try:
-        preview = _next_candle_wait_payload(
-            request.timeframe,
-            buffer_seconds=request.buffer_seconds,
-        )
-        max_wait_seconds = request.max_wait_seconds
-        if max_wait_seconds is not None and float(preview["sleep_seconds"]) > float(max_wait_seconds):
-            preview["success"] = False
-            preview["status"] = "wait_budget_exceeded"
-            preview["error_code"] = "wait_budget_exceeded"
-            preview["error"] = (
-                "The next candle boundary is beyond max_wait_seconds; no wait was "
-                "performed and no candle-close event was observed."
-            )
-            preview["not_waited"] = True
-            preview["slept"] = False
-            preview["slept_seconds"] = 0.0
-            preview["remaining_seconds"] = float(preview["sleep_seconds"])
-            preview["max_wait_seconds"] = float(max_wait_seconds)
-            preview["remediation"] = (
-                "Increase max_wait_seconds beyond remaining_seconds and retry."
-            )
-            return preview
-
-        payload = _sleep_until_next_candle(
-            request.timeframe,
-            buffer_seconds=request.buffer_seconds,
-            sleep_impl=sleep_impl,
-        )
-    except ValueError as exc:
-        return build_error_payload(
-            str(exc),
-            code="wait_candle_error",
-            operation="wait_candle",
-        )
-
-    payload["max_wait_seconds"] = (
-        None if request.max_wait_seconds is None else float(request.max_wait_seconds)
-    )
-    payload["success"] = True
-    return payload
 
 
 def _run_wait_event_impl(

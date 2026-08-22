@@ -5,7 +5,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from mtdata.forecast.forecast import forecast
+from mtdata.forecast.forecast import execute_forecast
 from mtdata.forecast.forecast_engine import forecast_engine
 from mtdata.forecast.forecast_registry import ForecastRegistry
 from mtdata.forecast.interface import ForecastResult
@@ -183,7 +183,7 @@ class TestUnifiedForecast(unittest.TestCase):
             'volume': np.ones(30) * 1000,
         })
         with patch('mtdata.forecast.forecast_engine._fetch_history', return_value=df):
-            res = forecast(
+            res = execute_forecast(
                 symbol='X',
                 timeframe='H1',
                 method='naive',

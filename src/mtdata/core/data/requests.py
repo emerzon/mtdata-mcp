@@ -542,24 +542,6 @@ class DataFetchTicksRequest(_DetailNormalizedRequest):
         return validated
 
 
-class WaitCandleRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    timeframe: TimeframeLiteral = "H1"
-    buffer_seconds: float = Field(1.0, ge=0.0)
-    max_wait_seconds: Optional[float] = Field(3600.0, ge=0.0)
-
-    @field_validator("buffer_seconds")
-    @classmethod
-    def _validate_buffer_seconds(cls, value: float) -> float:
-        return _validate_required_non_negative(value, "buffer_seconds")
-
-    @field_validator("max_wait_seconds")
-    @classmethod
-    def _validate_max_wait_seconds(cls, value: Optional[float]) -> Optional[float]:
-        return _validate_non_negative(value, "max_wait_seconds")
-
-
 class WaitEventWindow(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

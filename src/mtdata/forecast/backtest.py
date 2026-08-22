@@ -39,7 +39,7 @@ from .contracts import (
     StrategyTradeIntent,
 )
 from .exceptions import ForecastError, raise_if_error_result
-from .forecast import forecast
+from .forecast import execute_forecast
 from .forecast_validation import attach_denoise_causality_disclosure
 from .gpu_runtime import cleanup_forecast_gpu_runtime, forecast_methods_may_use_gpu
 from .target_builder import _log_return_array
@@ -2423,7 +2423,7 @@ def forecast_backtest(  # noqa: C901
                                 ),
                                 evaluation=evaluation_contract,
                             )
-                        r = raise_if_error_result(forecast(
+                        r = execute_forecast(
                             symbol=symbol,
                             timeframe=timeframe,
                             method=method,  # type: ignore[arg-type]
@@ -2437,7 +2437,7 @@ def forecast_backtest(  # noqa: C901
                             dimred_method=dimred_method,
                             dimred_params=dimred_params,
                             prefetched_df=anchor_history,
-                        ))
+                        )
                 except Exception as ex:
                     per_anchor.append({"anchor": anchor_time, "success": False, "error": str(ex)})
                     continue
