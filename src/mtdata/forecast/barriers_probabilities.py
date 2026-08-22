@@ -24,6 +24,7 @@ from ..utils.barriers import (
     resolve_barrier_prices as _resolve_barrier_prices,
 )
 from ..utils.utils import parse_kv_or_json as _parse_kv_or_json
+from .barrier_outcomes import evaluate_barrier_path_outcomes
 from .barriers_shared import (
     BROWNIAN_BRIDGE_DUAL_BARRIER_MODEL,
     BROWNIAN_BRIDGE_DUAL_BARRIER_WARNING,
@@ -419,52 +420,36 @@ def forecast_barrier_hit_probabilities(  # noqa: C901
         )
         S, H = price_paths.shape
         
-        # Vectorized hit detection
-        # hits_tp/sl: boolean (S, H)
-        if dir_long:
-            hits_tp = (price_paths >= tp_price)
-            hits_sl = (price_paths <= sl_price)
-        else:
-            hits_tp = (price_paths <= tp_price)
-            hits_sl = (price_paths >= sl_price)
+        tp_bridge = None
+        sl_bridge = None
         if bb_enabled and bb_log_paths is not None and bb_uniform_tp is not None and bb_uniform_sl is not None:
             tp_dir = "up" if dir_long else "down"
             sl_dir = "down" if dir_long else "up"
             tp_bridge = _brownian_bridge_hits(bb_log_paths, float(np.log(tp_price)), bb_sigma, direction=tp_dir, uniform=bb_uniform_tp)
             sl_bridge = _brownian_bridge_hits(bb_log_paths, float(np.log(sl_price)), bb_sigma, direction=sl_dir, uniform=bb_uniform_sl)
-            hits_tp = hits_tp | tp_bridge
-            hits_sl = hits_sl | sl_bridge
 
-        # Find first hit index (argmax returns 0 if none found, check any)
-        idx_tp = np.argmax(hits_tp, axis=1)
-        idx_sl = np.argmax(hits_sl, axis=1)
-        
-        any_tp = np.any(hits_tp, axis=1)
-        any_sl = np.any(hits_sl, axis=1)
-        
-        # Set index to H (beyond horizon) if no hit
-        idx_tp_val = np.where(any_tp, idx_tp, H)
-        idx_sl_val = np.where(any_sl, idx_sl, H)
-        
-        # Determine outcomes
-        # TP Win: TP hit detected AND (SL not hit OR TP hit before SL)
-        tp_wins = (idx_tp_val < idx_sl_val)
-        # SL Win: SL hit detected AND (TP not hit OR SL hit before TP)
-        sl_wins = (idx_sl_val < idx_tp_val)
-        # Tie: Both hit at same index (rare but possible in discrete time)
-        ties = (idx_tp_val == idx_sl_val) & (idx_tp_val < H)
-        # No hit: Both H
-        no_hits = (idx_tp_val == H) & (idx_sl_val == H)
+        outcomes = evaluate_barrier_path_outcomes(
+            price_paths,
+            tp_trigger=tp_price,
+            sl_trigger=sl_price,
+            direction="long" if dir_long else "short",
+            extra_tp_hits=tp_bridge,
+            extra_sl_hits=sl_bridge,
+        )
+        idx_tp_val = outcomes.first_tp
+        idx_sl_val = outcomes.first_sl
+        any_tp = idx_tp_val < outcomes.horizon
+        any_sl = idx_sl_val < outcomes.horizon
 
-        tp_first = np.sum(tp_wins)
-        sl_first = np.sum(sl_wins)
-        both_tie = np.sum(ties)
-        no_hit = np.sum(no_hits)
+        tp_first = np.sum(outcomes.wins)
+        sl_first = np.sum(outcomes.losses)
+        both_tie = np.sum(outcomes.ties)
+        no_hit = np.sum(outcomes.unresolved)
 
         # Collect hit times (1-based) for stats
         # TP stats include strict wins and ties
-        t_hit_tp = (idx_tp_val[tp_wins | ties] + 1).tolist()
-        t_hit_sl = (idx_sl_val[sl_wins | ties] + 1).tolist()
+        t_hit_tp = (idx_tp_val[outcomes.wins | outcomes.ties] + 1).tolist()
+        t_hit_sl = (idx_sl_val[outcomes.losses | outcomes.ties] + 1).tolist()
 
         # Cumulative hit curves (hit at or before t)
         def _compute_cum_curve(indices, valid_mask, length):
@@ -477,8 +462,8 @@ def forecast_barrier_hit_probabilities(  # noqa: C901
                 counts = counts[:length]
             return np.cumsum(counts).astype(float)
 
-        tp_any_by_t = _compute_cum_curve(idx_tp, any_tp, H)
-        sl_any_by_t = _compute_cum_curve(idx_sl, any_sl, H)
+        tp_any_by_t = _compute_cum_curve(idx_tp_val, any_tp, H)
+        sl_any_by_t = _compute_cum_curve(idx_sl_val, any_sl, H)
 
         S_f = float(S)
         resolved_probabilities = resolve_same_bar_probabilities(
