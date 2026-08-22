@@ -51,9 +51,12 @@ CRYPTO_SYMBOL_HINTS = (
     "ATOM",
     "FIL",
     "UNI",
+    "XLM",
+    "USDC",
+    "USDT",
 )
 
-_CRYPTO_QUOTE_CODES = frozenset(
+CRYPTO_QUOTE_CODES = frozenset(
     {
         *FOREX_CURRENCY_CODES,
         "USDT",
@@ -132,7 +135,7 @@ def is_probably_crypto_symbol(symbol: Any) -> bool:
         if not normalized.startswith(base):
             continue
         remainder = normalized[len(base) :]
-        for quote in sorted(_CRYPTO_QUOTE_CODES, key=len, reverse=True):
+        for quote in sorted(CRYPTO_QUOTE_CODES, key=len, reverse=True):
             if remainder.startswith(quote):
                 return True
     return False

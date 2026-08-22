@@ -64,3 +64,10 @@ def test_crypto_shorthand_prefers_base_quote_pair_over_stock_prefix():
     assert symbol_shorthand_rank(crypto, "BTC") == 0
     assert symbol_shorthand_rank(stock, "BTC") == 1
     assert match_symbol_infos([stock, crypto], "BTC") == [crypto, stock]
+
+
+def test_extended_crypto_shorthand_prefers_pair_over_stock_prefix():
+    stock = SimpleNamespace(name="ATOM.NAS-24", description="Atomera", path="Stocks")
+    crypto = SimpleNamespace(name="ATOMUSD", description="Cosmos", path="Crypto")
+
+    assert match_symbol_infos([stock, crypto], "ATOM") == [crypto, stock]

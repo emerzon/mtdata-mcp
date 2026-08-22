@@ -9,6 +9,7 @@ from typing import (
     Optional,
 )
 
+from ...shared.symbols import CRYPTO_SYMBOL_HINTS
 from ...shared.symbols import FOREX_CURRENCY_CODES as _FOREX_CURRENCY_CODES
 from ...utils.symbol import _extract_group_path as _extract_group_path_util
 from ...utils.symbol import (
@@ -72,25 +73,7 @@ def _normalize_symbol_search_term(value: Optional[str]) -> Optional[str]:
         return f"{pair_match.group(1)}{pair_match.group(2)}".upper()
     return text
 
-_COMMON_CRYPTO_BASES = (
-    "BTC",
-    "ETH",
-    "SOL",
-    "XRP",
-    "LTC",
-    "BCH",
-    "ADA",
-    "DOT",
-    "DOGE",
-    "BNB",
-    "AVAX",
-    "LINK",
-    "XLM",
-    "TRX",
-    "UNI",
-    "USDC",
-    "USDT",
-)
+_COMMON_CRYPTO_BASES = CRYPTO_SYMBOL_HINTS
 
 _SYMBOL_SEARCH_MODES = frozenset(
     {"auto", "name", "description", "group", "exact", "all"}

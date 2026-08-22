@@ -10,11 +10,22 @@ from mtdata.shared.symbols import (
 
 
 def test_shared_crypto_symbol_hints_include_extended_tokens() -> None:
-        assert {"BNB", "TRX", "NEAR", "FIL"}.issubset(set(CRYPTO_SYMBOL_HINTS))
+        assert {"BNB", "TRX", "NEAR", "FIL", "XLM", "USDC", "USDT"}.issubset(
+            set(CRYPTO_SYMBOL_HINTS)
+        )
 
 
 def test_crypto_symbol_detection_stays_consistent_across_modules() -> None:
-    for symbol in ("BNBUSDT", "TRXUSD", "NEARUSD", "FILUSD"):
+    for symbol in (
+        "BNBUSDT",
+        "TRXUSD",
+        "NEARUSD",
+        "FILUSD",
+        "MATICUSD",
+        "ATOMUSD",
+        "XLMUSD",
+        "USDCUSD",
+    ):
         assert is_probably_crypto_symbol(symbol) is True
 
     for symbol in (

@@ -2,19 +2,13 @@ import re
 import time
 from typing import Any, Callable, Optional, Sequence
 
+from ..shared.symbols import CRYPTO_QUOTE_CODES, CRYPTO_SYMBOL_HINTS
 from .market_metadata import build_tick_freshness_context
 from .quote import (
     enforce_quote_execution_readiness,
     resolve_quote_tick,
     tick_epoch,
     tick_value,
-)
-
-_COMMON_CRYPTO_SHORTHANDS = frozenset(
-    {"BTC", "ETH", "SOL", "XRP", "ADA", "DOGE", "LTC", "BCH"}
-)
-_COMMON_QUOTE_CURRENCIES = frozenset(
-    {"USD", "USDT", "USDC", "EUR", "GBP", "JPY", "CHF", "AUD", "CAD", "NZD"}
 )
 
 
@@ -25,7 +19,7 @@ def _normalize_symbol_token(value: str) -> str:
 def symbol_shorthand_rank(symbol: Any, query: str) -> int:
     """Prefer an exact crypto base/quote pair for common base shorthands."""
     query_text = re.sub(r"[^A-Z0-9]", "", str(query or "").upper())
-    if query_text not in _COMMON_CRYPTO_SHORTHANDS:
+    if query_text not in CRYPTO_SYMBOL_HINTS:
         return 0
     symbol_text = re.sub(
         r"[^A-Z0-9]",
@@ -33,7 +27,7 @@ def symbol_shorthand_rank(symbol: Any, query: str) -> int:
         str(getattr(symbol, "name", "") or "").upper(),
     )
     tail = symbol_text[len(query_text) :] if symbol_text.startswith(query_text) else ""
-    return 0 if tail in _COMMON_QUOTE_CURRENCIES else 1
+    return 0 if tail in CRYPTO_QUOTE_CODES else 1
 
 
 def _normalize_group_path_query(value: str) -> str:
