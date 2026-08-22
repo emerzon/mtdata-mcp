@@ -32,6 +32,7 @@ from mtdata.services.finviz import (
 )
 from mtdata.services.finviz.dates import (
     FINVIZ_CALENDAR_TIMEZONE,
+    parse_finviz_datetime,
     parse_finviz_publication_date,
 )
 from mtdata.services.news_text import normalize_news_text
@@ -58,25 +59,9 @@ def _normalize_finviz_published_at(value: Any, *, now: Optional[datetime] = None
     if not text:
         return text
 
-    iso_text = text
-    try:
-        dt = datetime.fromisoformat(iso_text)
-        if dt.tzinfo is None:
-            dt = dt.replace(tzinfo=_FINVIZ_CALENDAR_LOCAL_TZ)
-        return dt.astimezone(timezone.utc).isoformat()
-    except ValueError:
-        pass
-
-    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y-%m-%d"):
-        try:
-            dt = datetime.strptime(text, fmt)
-            return (
-                dt.replace(tzinfo=_FINVIZ_CALENDAR_LOCAL_TZ)
-                .astimezone(timezone.utc)
-                .isoformat()
-            )
-        except ValueError:
-            continue
+    parsed = parse_finviz_datetime(text)
+    if parsed is not None:
+        return parsed.isoformat()
 
     for fmt in ("%I:%M%p", "%I:%M %p"):
         try:

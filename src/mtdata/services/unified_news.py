@@ -34,7 +34,11 @@ from .finviz import (
     get_general_news,
     get_stock_news,
 )
-from .finviz.dates import FINVIZ_CALENDAR_TIMEZONE, parse_finviz_publication_date
+from .finviz.dates import (
+    FINVIZ_CALENDAR_TIMEZONE,
+    parse_finviz_datetime,
+    parse_finviz_publication_date,
+)
 from .finviz.symbols import normalize_finviz_equity_symbol
 from .finviz.utils import finviz_percent_value
 from .news_embeddings import get_news_embedding_service
@@ -581,24 +585,7 @@ def _maybe_parse_datetime(value: Any) -> Optional[datetime]:
 
 def _maybe_parse_finviz_datetime(value: Any) -> Optional[datetime]:
     """Parse Finviz's naive wall-clock timestamps as America/New_York."""
-    if isinstance(value, datetime):
-        parsed = value
-    else:
-        text = _safe_text(value)
-        if not text or re.fullmatch(r"[+-]?\d+(?:\.\d+)?", text):
-            return None
-        try:
-            parsed = datetime.fromisoformat(text)
-        except ValueError:
-            try:
-                from dateutil import parser as date_parser
-
-                parsed = date_parser.parse(text)
-            except Exception:
-                return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=ZoneInfo("America/New_York"))
-    return parsed.astimezone(timezone.utc)
+    return parse_finviz_datetime(value, allow_fuzzy=True)
 
 
 def _economic_reference_date(

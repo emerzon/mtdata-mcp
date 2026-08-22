@@ -97,6 +97,50 @@ def parse_finviz_publication_date(
     return None
 
 
+def parse_finviz_datetime(
+    value: Any,
+    *,
+    allow_fuzzy: bool = False,
+) -> Optional[datetime.datetime]:
+    """Parse a Finviz wall-clock value and return an aware UTC datetime."""
+    if isinstance(value, datetime.datetime):
+        parsed = value
+    elif isinstance(value, str):
+        text = value.strip()
+        if not text or re.fullmatch(r"[+-]?\d+(?:\.\d+)?", text):
+            return None
+        try:
+            parsed = datetime.datetime.fromisoformat(text)
+        except ValueError:
+            parsed = None
+            for fmt in (
+                "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%d %H:%M",
+                "%Y-%m-%d",
+                "%b %d '%y",
+                "%b %d %Y",
+            ):
+                try:
+                    parsed = datetime.datetime.strptime(text, fmt)
+                    break
+                except ValueError:
+                    continue
+            if parsed is None and allow_fuzzy:
+                try:
+                    from dateutil import parser as date_parser
+
+                    parsed = date_parser.parse(text)
+                except Exception:
+                    return None
+            if parsed is None:
+                return None
+    else:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=_FINVIZ_CALENDAR_TZ)
+    return parsed.astimezone(datetime.timezone.utc)
+
+
 def normalize_finviz_dates_in_rows(
     rows: List[Dict[str, Any]], *keys: str
 ) -> List[Dict[str, Any]]:
@@ -246,6 +290,7 @@ __all__ = [
     "normalize_finviz_date_string",
     "normalize_finviz_dates_in_rows",
     "parse_finviz_publication_date",
+    "parse_finviz_datetime",
     "finviz_earnings_period_window",
     "parse_finviz_earnings_date",
     "strip_string_fields_in_rows",
