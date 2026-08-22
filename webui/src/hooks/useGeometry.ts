@@ -1,132 +1,42 @@
-import { useCallback, useRef, useState } from 'react'
-import { getConfluence, getErrorMessage, getExposure, getVolumeProfile } from '../api/client'
+import { useCallback } from 'react'
+import { getConfluence, getExposure, getVolumeProfile } from '../api/client'
 import type { ConfluenceResponse, ExposureResponse, VolumeProfileResponse } from '../types'
+import { useToggleResource } from './useToggleResource'
+
+const hasNoConfluenceLevels = (data: ConfluenceResponse) => !data.levels?.length
+const hasNoVolumeProfileLevels = (data: VolumeProfileResponse) =>
+  data.poc == null && data.vah == null && data.val == null
+const exposureIsNeverEmpty = (_data: ExposureResponse) => false
 
 export function useConfluenceLevels(symbol: string) {
-  const [data, setData] = useState<ConfluenceResponse | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const dataRef = useRef(data)
-  dataRef.current = data
-
-  const fetchLevels = useCallback(async () => {
-    if (!symbol) return
-    try {
-      setIsLoading(true)
-      setError(null)
-      const next = await getConfluence({ symbol })
-      if (!next.levels?.length) {
-        setError('No confluence levels returned')
-        setData(null)
-        return
-      }
-      setData(next)
-    } catch (err) {
-      setError(getErrorMessage(err))
-      setData(null)
-    } finally {
-      setIsLoading(false)
-    }
-  }, [symbol])
-
-  const toggle = useCallback(async () => {
-    if (!symbol) return
-    if (dataRef.current) {
-      setData(null)
-      setError(null)
-      return
-    }
-    await fetchLevels()
-  }, [symbol, fetchLevels])
-
-  const reset = useCallback(() => {
-    setData(null)
-    setError(null)
-  }, [])
-
-  return { data, isLoading, error, toggle, reset }
+  const fetchResource = useCallback(() => getConfluence({ symbol }), [symbol])
+  return useToggleResource({
+    enabled: Boolean(symbol),
+    fetchResource,
+    isEmpty: hasNoConfluenceLevels,
+    emptyMessage: 'No confluence levels returned',
+  })
 }
 
 export function useVolumeProfileLevels(symbol: string, timeframe: string) {
-  const [data, setData] = useState<VolumeProfileResponse | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const dataRef = useRef(data)
-  dataRef.current = data
-
-  const fetchLevels = useCallback(async () => {
-    if (!symbol) return
-    try {
-      setIsLoading(true)
-      setError(null)
-      const next = await getVolumeProfile({ symbol, timeframe })
-      if (next.poc == null && next.vah == null && next.val == null) {
-        setError('No volume-profile levels returned')
-        setData(null)
-        return
-      }
-      setData(next)
-    } catch (err) {
-      setError(getErrorMessage(err))
-      setData(null)
-    } finally {
-      setIsLoading(false)
-    }
-  }, [symbol, timeframe])
-
-  const toggle = useCallback(async () => {
-    if (!symbol) return
-    if (dataRef.current) {
-      setData(null)
-      setError(null)
-      return
-    }
-    await fetchLevels()
-  }, [symbol, fetchLevels])
-
-  const reset = useCallback(() => {
-    setData(null)
-    setError(null)
-  }, [])
-
-  return { data, isLoading, error, toggle, reset }
+  const fetchResource = useCallback(
+    () => getVolumeProfile({ symbol, timeframe }),
+    [symbol, timeframe]
+  )
+  return useToggleResource({
+    enabled: Boolean(symbol),
+    fetchResource,
+    isEmpty: hasNoVolumeProfileLevels,
+    emptyMessage: 'No volume-profile levels returned',
+  })
 }
 
 export function useExposureOverlay(symbol: string) {
-  const [data, setData] = useState<ExposureResponse | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const dataRef = useRef(data)
-  dataRef.current = data
-
-  const fetchLevels = useCallback(async () => {
-    if (!symbol) return
-    try {
-      setIsLoading(true)
-      setError(null)
-      setData(await getExposure(symbol))
-    } catch (err) {
-      setError(getErrorMessage(err))
-      setData(null)
-    } finally {
-      setIsLoading(false)
-    }
-  }, [symbol])
-
-  const toggle = useCallback(async () => {
-    if (!symbol) return
-    if (dataRef.current) {
-      setData(null)
-      setError(null)
-      return
-    }
-    await fetchLevels()
-  }, [symbol, fetchLevels])
-
-  const reset = useCallback(() => {
-    setData(null)
-    setError(null)
-  }, [])
-
-  return { data, isLoading, error, toggle, reset }
+  const fetchResource = useCallback(() => getExposure(symbol), [symbol])
+  return useToggleResource({
+    enabled: Boolean(symbol),
+    fetchResource,
+    isEmpty: exposureIsNeverEmpty,
+    emptyMessage: '',
+  })
 }

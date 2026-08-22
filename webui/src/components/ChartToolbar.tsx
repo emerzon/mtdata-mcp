@@ -6,7 +6,7 @@ import { useEscapeKey } from '../lib/useEscapeKey'
 import { ApiAuthControl } from './ApiAuthControl'
 import { ConnectionStatus } from './ConnectionStatus'
 import { OverlayControls } from './OverlayControls'
-import { PivotIcon, RefreshIcon, SRIcon } from '../features/chart-workspace/toolbarIcons'
+import { RefreshIcon } from '../features/chart-workspace/toolbarIcons'
 import {
   DenoiseSelector,
   IndicatorSelector,
@@ -129,28 +129,6 @@ export function ChartToolbar({
     <>
       <ApiAuthControl onChange={onAuthChange} />
       <div className="w-px h-5 bg-slate-700 hidden sm:block" />
-      {!overflow && (
-        <>
-          <button
-            className={`toolbar-btn ${hasPivots ? 'text-amber-400' : ''}`}
-            onClick={onTogglePivots}
-            disabled={!symbol || pivotsLoading}
-            title="Toggle pivot levels"
-            aria-pressed={hasPivots}
-          >
-            <PivotIcon />
-          </button>
-          <button
-            className={`toolbar-btn ${hasSR ? 'text-emerald-400' : ''}`}
-            onClick={onToggleSR}
-            disabled={!symbol || srLoading}
-            title="Toggle support/resistance"
-            aria-pressed={hasSR}
-          >
-            <SRIcon />
-          </button>
-        </>
-      )}
       <OverlayControls
         disabled={!symbol}
         pivotMethod={pivotMethod}

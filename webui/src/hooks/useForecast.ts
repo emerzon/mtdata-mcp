@@ -29,6 +29,26 @@ import {
   type PivotMethod,
   type SupportResistanceControls,
 } from '../lib/overlayParams'
+import { useToggleResource } from './useToggleResource'
+
+type PivotResource = {
+  levels: PivotLevel[]
+  meta: { method: string; period?: { start?: string; end?: string } }
+}
+
+type SupportResistanceResource = {
+  levels: SupportResistanceLevel[]
+  meta: {
+    method: string
+    tolerance_pct: number
+    min_touches: number
+    lookback?: number
+    window?: { start?: string | null; end?: string | null }
+  }
+}
+
+const hasNoPivotLevels = (data: PivotResource) => !data.levels.length
+const hasNoSupportResistanceLevels = (data: SupportResistanceResource) => !data.levels.length
 
 // ============================================================================
 // Forecast Methods Hook
@@ -54,169 +74,112 @@ export function useForecastMethods() {
 // ============================================================================
 
 export function usePivotLevels(symbol: string, timeframe: string) {
-  const [levels, setLevels] = useState<PivotLevel[] | null>(null)
-  const [meta, setMeta] = useState<{ method: string; period?: { start?: string; end?: string } } | null>(null)
   const [method, setMethodState] = useState<PivotMethod>(DEFAULT_PIVOT_METHOD)
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const levelsRef = useRef(levels)
-  levelsRef.current = levels
+  const methodRef = useRef(method)
+  methodRef.current = method
 
-  const fetchLevels = useCallback(
-    async (nextMethod: PivotMethod) => {
-      if (!symbol) return
-      try {
-        setIsLoading(true)
-        setError(null)
-        const query = buildPivotQuery(symbol, timeframe, nextMethod)
-        const data = await getPivots(query)
-        const parsed = (data.levels || [])
-          .map((row) => ({ level: String(row.level), value: Number(row.value) }))
-          .filter((row) => Number.isFinite(row.value))
-
-        if (!parsed.length) {
-          setError('No pivot levels returned')
-          setLevels(null)
-          setMeta(null)
-          return
-        }
-
-        setLevels(parsed)
-        setMeta({ method: data.method ?? nextMethod, period: data.period })
-      } catch (err) {
-        setError(getErrorMessage(err))
-        setLevels(null)
-        setMeta(null)
-      } finally {
-        setIsLoading(false)
-      }
+  const fetchResource = useCallback(
+    async (): Promise<PivotResource> => {
+      const nextMethod = methodRef.current
+      const data = await getPivots(buildPivotQuery(symbol, timeframe, nextMethod))
+      const levels = (data.levels || [])
+        .map((row) => ({ level: String(row.level), value: Number(row.value) }))
+        .filter((row) => Number.isFinite(row.value))
+      return { levels, meta: { method: data.method ?? nextMethod, period: data.period } }
     },
     [symbol, timeframe]
   )
-
-  const toggle = useCallback(async () => {
-    if (!symbol) return
-
-    if (levelsRef.current) {
-      setLevels(null)
-      setMeta(null)
-      setError(null)
-      return
-    }
-
-    await fetchLevels(method)
-  }, [symbol, method, fetchLevels])
+  const resource = useToggleResource({
+    enabled: Boolean(symbol),
+    fetchResource,
+    isEmpty: hasNoPivotLevels,
+    emptyMessage: 'No pivot levels returned',
+  })
 
   const setMethod = useCallback(
     async (next: string) => {
       const normalized = normalizePivotMethod(next)
+      methodRef.current = normalized
       setMethodState(normalized)
-      if (levelsRef.current) {
-        await fetchLevels(normalized)
+      if (resource.data) {
+        await resource.fetch()
       }
     },
-    [fetchLevels]
+    [resource]
   )
 
-  const reset = useCallback(() => {
-    setLevels(null)
-    setMeta(null)
-    setError(null)
-  }, [])
-
-  return { levels, meta, method, setMethod, isLoading, error, toggle, reset }
+  return {
+    levels: resource.data?.levels ?? null,
+    meta: resource.data?.meta ?? null,
+    method,
+    setMethod,
+    isLoading: resource.isLoading,
+    error: resource.error,
+    toggle: resource.toggle,
+    reset: resource.reset,
+  }
 }
 
 // ============================================================================
 // Support/Resistance Hook
 // ============================================================================
 
-export function useSupportResistance(symbol: string, timeframe: string, _limit: number) {
-  const [levels, setLevels] = useState<SupportResistanceLevel[] | null>(null)
-  const [meta, setMeta] = useState<{
-    method: string
-    tolerance_pct: number
-    min_touches: number
-    lookback?: number
-    window?: { start?: string | null; end?: string | null }
-  } | null>(null)
+export function useSupportResistance(symbol: string, timeframe: string) {
   const [controls, setControlsState] = useState<SupportResistanceControls>(DEFAULT_SR_CONTROLS)
-  const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const levelsRef = useRef(levels)
-  levelsRef.current = levels
   const controlsRef = useRef(controls)
   controlsRef.current = controls
 
-  const fetchLevels = useCallback(
-    async (nextControls: SupportResistanceControls) => {
-      if (!symbol) return
-      try {
-        setIsLoading(true)
-        setError(null)
-        const query = buildSupportResistanceQuery(symbol, timeframe, nextControls)
-        const data = await getSupportResistance(query)
-        const parsed = [...(data.supports || []), ...(data.resistances || [])].filter((row) =>
-          Number.isFinite(row?.value)
-        )
-
-        if (!parsed.length) {
-          setError('No support/resistance levels detected')
-          setLevels(null)
-          setMeta(null)
-          return
-        }
-
-        setLevels(parsed)
-        setMeta({
+  const fetchResource = useCallback(
+    async (): Promise<SupportResistanceResource> => {
+      const nextControls = controlsRef.current
+      const data = await getSupportResistance(
+        buildSupportResistanceQuery(symbol, timeframe, nextControls)
+      )
+      const levels = [...(data.supports || []), ...(data.resistances || [])].filter((row) =>
+        Number.isFinite(row?.value)
+      )
+      return {
+        levels,
+        meta: {
           method: data.method ?? 'swing',
           tolerance_pct: data.tolerance_pct ?? nextControls.tolerance_pct,
           min_touches: data.min_touches ?? nextControls.min_touches,
           lookback: data.lookback ?? nextControls.lookback,
           window: data.scan_window,
-        })
-      } catch (err) {
-        setError(getErrorMessage(err))
-        setLevels(null)
-        setMeta(null)
-      } finally {
-        setIsLoading(false)
+        },
       }
     },
     [symbol, timeframe]
   )
-
-  const toggle = useCallback(async () => {
-    if (!symbol) return
-
-    if (levelsRef.current) {
-      setLevels(null)
-      setMeta(null)
-      setError(null)
-      return
-    }
-
-    await fetchLevels(controlsRef.current)
-  }, [symbol, fetchLevels])
+  const resource = useToggleResource({
+    enabled: Boolean(symbol),
+    fetchResource,
+    isEmpty: hasNoSupportResistanceLevels,
+    emptyMessage: 'No support/resistance levels detected',
+  })
 
   const setControls = useCallback(
     async (partial: Partial<SupportResistanceControls>) => {
       const next = normalizeSrControls({ ...controlsRef.current, ...partial })
+      controlsRef.current = next
       setControlsState(next)
-      if (levelsRef.current) {
-        await fetchLevels(next)
+      if (resource.data) {
+        await resource.fetch()
       }
     },
-    [fetchLevels]
+    [resource]
   )
 
-  const reset = useCallback(() => {
-    setLevels(null)
-    setMeta(null)
-    setError(null)
-  }, [])
-
-  return { levels, meta, controls, setControls, isLoading, error, toggle, reset }
+  return {
+    levels: resource.data?.levels ?? null,
+    meta: resource.data?.meta ?? null,
+    controls,
+    setControls,
+    isLoading: resource.isLoading,
+    error: resource.error,
+    toggle: resource.toggle,
+    reset: resource.reset,
+  }
 }
 
 // ============================================================================

@@ -68,7 +68,7 @@ export function useChartWorkspace() {
   historyContractRef.current = historyContract
 
   const pivotState = usePivotLevels(symbol, timeframe)
-  const srState = useSupportResistance(symbol, timeframe, QUERY_LIMIT)
+  const srState = useSupportResistance(symbol, timeframe)
   const confluenceState = useConfluenceLevels(symbol)
   const volumeProfileState = useVolumeProfileLevels(symbol, timeframe)
   const exposureState = useExposureOverlay(symbol)
