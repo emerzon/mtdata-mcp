@@ -39,7 +39,7 @@ class TestSameDayEarlyClose:
             "early_close": (13, 0),
             "early_close_holidays": ["Half Day"],
         }
-        monkeypatch.setitem(ms_mod._MARKETS, "TEST", test_market)
+        monkeypatch.setitem(ms_mod.MARKET_SESSIONS, "TEST", test_market)
         monkeypatch.setattr(
             ms_mod.holidays, "country_holidays",
             _fake_holidays_factory({date(2030, 6, 17): "Half Day"}),
@@ -63,7 +63,7 @@ class TestSameDayEarlyClose:
             "early_close": (13, 0),
             "early_close_holidays": ["Half Day"],
         }
-        monkeypatch.setitem(ms_mod._MARKETS, "TEST", test_market)
+        monkeypatch.setitem(ms_mod.MARKET_SESSIONS, "TEST", test_market)
         monkeypatch.setattr(
             ms_mod.holidays, "country_holidays",
             _fake_holidays_factory({date(2030, 6, 17): "Full Holiday"}),
@@ -160,7 +160,7 @@ class TestDayAfterEarlyClose:
             "early_close_holidays": [],
             "early_close_day_after": ["Thanksgiving"],
         }
-        monkeypatch.setitem(ms_mod._MARKETS, "TEST", test_market)
+        monkeypatch.setitem(ms_mod.MARKET_SESSIONS, "TEST", test_market)
         # Thanksgiving on Thursday Nov 28, Black Friday is Nov 29
         monkeypatch.setattr(
             ms_mod.holidays, "country_holidays",
@@ -186,7 +186,7 @@ class TestDayAfterEarlyClose:
             "early_close_holidays": [],
             "early_close_day_after": ["Thanksgiving"],
         }
-        monkeypatch.setitem(ms_mod._MARKETS, "TEST", test_market)
+        monkeypatch.setitem(ms_mod.MARKET_SESSIONS, "TEST", test_market)
         monkeypatch.setattr(
             ms_mod.holidays, "country_holidays",
             _fake_holidays_factory({date(2030, 7, 4): "Independence Day"}),
@@ -214,7 +214,7 @@ class TestEveEarlyClose:
             "early_close_holidays": [],
             "early_close_eves": ["Christmas Day"],
         }
-        monkeypatch.setitem(ms_mod._MARKETS, "TEST", test_market)
+        monkeypatch.setitem(ms_mod.MARKET_SESSIONS, "TEST", test_market)
         monkeypatch.setattr(
             ms_mod.holidays, "country_holidays",
             _fake_holidays_factory({date(2030, 12, 25): "Christmas Day"}),
@@ -238,7 +238,7 @@ class TestEveEarlyClose:
             "early_close_holidays": [],
             "early_close_eves": ["Christmas Day"],
         }
-        monkeypatch.setitem(ms_mod._MARKETS, "TEST", test_market)
+        monkeypatch.setitem(ms_mod.MARKET_SESSIONS, "TEST", test_market)
         monkeypatch.setattr(
             ms_mod.holidays, "country_holidays",
             _fake_holidays_factory({date(2030, 1, 1): "New Year's Day"}),
@@ -260,7 +260,7 @@ class TestNextOpenSkipsAndAllowsHolidaySessions:
             "open": (9, 0),
             "close": (16, 0),
         }
-        monkeypatch.setitem(ms_mod._MARKETS, "TEST", test_market)
+        monkeypatch.setitem(ms_mod.MARKET_SESSIONS, "TEST", test_market)
         monkeypatch.setattr(
             ms_mod.holidays, "country_holidays",
             _fake_holidays_factory({date(2030, 6, 17): "Full Holiday"}),
@@ -283,7 +283,7 @@ class TestNextOpenSkipsAndAllowsHolidaySessions:
             "early_close": (13, 0),
             "early_close_holidays": ["Half Day"],
         }
-        monkeypatch.setitem(ms_mod._MARKETS, "TEST", test_market)
+        monkeypatch.setitem(ms_mod.MARKET_SESSIONS, "TEST", test_market)
         monkeypatch.setattr(
             ms_mod.holidays, "country_holidays",
             _fake_holidays_factory({date(2030, 12, 25): "Half Day"}),
@@ -326,7 +326,7 @@ class TestUpcomingHolidayImpact:
             "early_close_holidays": [],
             "early_close_day_after": ["Thanksgiving"],
         }
-        monkeypatch.setitem(ms_mod._MARKETS, "TEST", test_market)
+        monkeypatch.setitem(ms_mod.MARKET_SESSIONS, "TEST", test_market)
         # Thursday Nov 28 Thanksgiving, Black Friday Nov 29
         monkeypatch.setattr(
             ms_mod.holidays, "country_holidays",
@@ -360,7 +360,7 @@ class TestUpcomingHolidayImpact:
             "early_close_holidays": [],
             "early_close_eves": ["Christmas Day"],
         }
-        monkeypatch.setitem(ms_mod._MARKETS, "TEST", test_market)
+        monkeypatch.setitem(ms_mod.MARKET_SESSIONS, "TEST", test_market)
         monkeypatch.setattr(
             ms_mod.holidays, "country_holidays",
             _fake_holidays_factory({date(2030, 12, 25): "Christmas Day"}),

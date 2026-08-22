@@ -5,11 +5,9 @@ import os
 import re
 import threading
 from datetime import datetime, timedelta, timezone
-from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 from zoneinfo import ZoneInfo
 
-import holidays
 import numpy as np
 import pandas as pd
 
@@ -35,6 +33,11 @@ def _calendar_bound_or_raise(
     except ValueError as exc:
         raise RuntimeError(str(exc)) from exc
 from ..shared.constants import TIMEFRAME_MAP, TIMEFRAME_SECONDS
+from ..shared.market_sessions import (
+    exchange_holidays,
+    is_early_close_session,
+    market_for_exchange_calendar,
+)
 from ..shared.symbols import (
     FOREX_CURRENCY_CODES,
     is_probably_crypto_symbol,
@@ -469,32 +472,22 @@ def _forecast_exchange_calendar(symbol: Optional[str]) -> Optional[str]:
     return None
 
 
-@lru_cache(maxsize=32)
-def _exchange_holidays(calendar: str, year: int) -> holidays.HolidayBase:
-    return holidays.financial_holidays(calendar, years=[int(year)])
-
-
 def _is_exchange_session_holiday(calendar: str, session_date: Any) -> bool:
-    return session_date in _exchange_holidays(calendar, int(session_date.year))
+    return session_date in exchange_holidays(calendar, int(session_date.year))
 
 
-def _is_xnys_early_close_session(session_date: Any) -> bool:
-    """Mirror the repository's NYSE/Nasdaq shortened-session rules."""
-    calendar = "XNYS"
-    if _is_exchange_session_holiday(calendar, session_date):
-        return False
-    adjacent = _exchange_holidays(
-        calendar,
-        int(session_date.year),
-    )
-    yesterday_name = str(adjacent.get(session_date - timedelta(days=1)) or "")
-    if "thanksgiving" in yesterday_name.lower():
-        return True
-    tomorrow_name = str(adjacent.get(session_date + timedelta(days=1)) or "")
-    return any(
-        name in tomorrow_name.lower()
-        for name in ("independence day", "christmas day")
-    )
+def _exchange_holiday(
+    _country: str,
+    session_date: Any,
+    exchange: Optional[str] = None,
+) -> Tuple[bool, Optional[str]]:
+    if not exchange:
+        return False, None
+    calendar = exchange_holidays(exchange, int(session_date.year))
+    holiday_name = calendar.get(session_date)
+    if holiday_name is None:
+        return False, None
+    return True, str(holiday_name)
 
 
 def _observed_intraday_session_slots(
@@ -512,7 +505,10 @@ def _observed_intraday_session_slots(
     if not values:
         return None
 
-    exchange_tz = ZoneInfo("America/New_York")
+    market = market_for_exchange_calendar(calendar)
+    if market is None:
+        return None
+    exchange_tz = ZoneInfo(str(market["timezone"]))
     slots_by_date: Dict[Any, set[int]] = {}
     for value in values:
         if isinstance(value, bool):
@@ -547,10 +543,13 @@ def _observed_intraday_session_slots(
 
 
 def _regular_exchange_intraday_slots(tf_secs: int, *, calendar: str) -> List[int]:
-    if calendar != "XNYS" or int(tf_secs) <= 0:
+    market = market_for_exchange_calendar(calendar)
+    if market is None or int(tf_secs) <= 0:
         return []
-    session_open = 9 * 3600 + 30 * 60
-    session_close = 16 * 3600
+    open_hour, open_minute = market["open"]
+    close_hour, close_minute = market["close"]
+    session_open = int(open_hour) * 3600 + int(open_minute) * 60
+    session_close = int(close_hour) * 3600 + int(close_minute) * 60
     return list(range(session_open, session_close, int(tf_secs)))
 
 
@@ -596,7 +595,10 @@ def _next_exchange_intraday_times(
 ) -> List[float]:
     if int(horizon) <= 0:
         return []
-    exchange_tz = ZoneInfo("America/New_York")
+    market = market_for_exchange_calendar(calendar)
+    if market is None:
+        return []
+    exchange_tz = ZoneInfo(str(market["timezone"]))
     base = float(last_epoch)
     local_base = datetime.fromtimestamp(base, tz=timezone.utc).astimezone(exchange_tz)
     session_date = local_base.date()
@@ -608,11 +610,20 @@ def _next_exchange_intraday_times(
             session_date.weekday() < 5
             and not _is_exchange_session_holiday(calendar, session_date)
         ):
-            close_slot = (
-                13 * 3600
-                if calendar == "XNYS" and _is_xnys_early_close_session(session_date)
-                else None
+            early_close = market.get("early_close")
+            early_session = bool(
+                early_close
+                and is_early_close_session(
+                    market,
+                    str(market["country"]),
+                    session_date,
+                    holiday_resolver=_exchange_holiday,
+                )
             )
+            close_slot = None
+            if early_session:
+                close_hour, close_minute = early_close
+                close_slot = int(close_hour) * 3600 + int(close_minute) * 60
             for slot in slots:
                 if close_slot is not None and slot >= close_slot:
                     continue
@@ -1359,4 +1370,3 @@ def future_as_of_error(
     if parsed.timestamp() > current_epoch + 1.0:
         return "as_of must not be in the future."
     return None
-

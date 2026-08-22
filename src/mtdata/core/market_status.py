@@ -11,6 +11,13 @@ from zoneinfo import ZoneInfo
 
 import holidays
 
+from ..shared.market_sessions import (
+    MARKET_SESSIONS,
+    exchange_holidays,
+)
+from ..shared.market_sessions import (
+    is_early_close_session as evaluate_early_close_session,
+)
 from ..shared.schema import DetailLiteral
 from ..shared.symbols import is_probably_crypto_symbol, is_probably_forex_symbol
 from ..utils.freshness import is_standard_weekend_closure
@@ -50,114 +57,6 @@ _WEEKDAY_NAMES = (
 )
 
 
-# Market definitions with trading hours (local time)
-_MARKETS = {
-    "NYSE": {
-        "name": "New York Stock Exchange",
-        "country": "US",
-        "exchange_calendar": "XNYS",
-        "timezone": "America/New_York",
-        "pre_open": (4, 0),
-        "open": (9, 30),  # 9:30 AM
-        "close": (16, 0),  # 4:00 PM
-        "after_hours_close": (20, 0),
-        "early_close": (13, 0),  # 1:00 PM on some holidays
-        "early_close_holidays": [],
-        "early_close_day_after": ["Thanksgiving"],
-        "early_close_eves": ["Independence Day", "Christmas Day"],
-    },
-    "NASDAQ": {
-        "name": "NASDAQ",
-        "country": "US",
-        "exchange_calendar": "XNYS",
-        "timezone": "America/New_York",
-        "pre_open": (4, 0),
-        "open": (9, 30),
-        "close": (16, 0),
-        "after_hours_close": (20, 0),
-        "early_close": (13, 0),
-        "early_close_holidays": [],
-        "early_close_day_after": ["Thanksgiving"],
-        "early_close_eves": ["Independence Day", "Christmas Day"],
-    },
-    "LSE": {
-        "name": "London Stock Exchange",
-        "country": "UK",
-        "timezone": "Europe/London",
-        "open": (8, 0),  # 8:00 AM
-        "close": (16, 30),  # 4:30 PM
-        "early_close": (12, 30),
-        "early_close_holidays": [],
-        "early_close_last_business_day_before": ["Christmas Day", "New Year's Day"],
-    },
-    "XETRA": {
-        "name": "Xetra (Frankfurt)",
-        "country": "DE",
-        "exchange_calendar": "XETR",
-        "timezone": "Europe/Berlin",
-        "open": (9, 0),  # 9:00 AM
-        "close": (17, 30),  # 5:30 PM
-        "early_close": None,
-        "early_close_holidays": [],
-    },
-    "EURONEXT": {
-        "name": "Euronext Paris",
-        "country": "FR",
-        "timezone": "Europe/Paris",
-        "open": (9, 0),  # 9:00 AM
-        "close": (17, 30),  # 5:30 PM
-        "early_close": None,
-        "early_close_holidays": [],
-    },
-    "TSE": {
-        "name": "Tokyo Stock Exchange",
-        "country": "JP",
-        "exchange_calendar": "XJPX",
-        "timezone": "Asia/Tokyo",
-        "open": (9, 0),  # 9:00 AM
-        "close": (15, 30),  # 3:30 PM since 2024-11-05
-        "lunch_start": (11, 30),
-        "lunch_end": (12, 30),
-        "early_close": None,
-        "early_close_holidays": [],
-    },
-    "HKEX": {
-        "name": "Hong Kong Stock Exchange",
-        "country": "HK",
-        "exchange_calendar": "XHKG",
-        "timezone": "Asia/Hong_Kong",
-        "open": (9, 30),  # 9:30 AM
-        "close": (16, 0),  # 4:00 PM
-        "lunch_start": (12, 0),
-        "lunch_end": (13, 0),
-        "early_close": (12, 0),
-        "early_close_holidays": [],
-        "early_close_eves": ["Christmas Day", "New Year's Day"],
-    },
-    "SSE": {
-        "name": "Shanghai Stock Exchange",
-        "country": "CN",
-        "exchange_calendar": "XSHG",
-        "timezone": "Asia/Shanghai",
-        "open": (9, 30),  # 9:30 AM
-        "close": (15, 0),  # 3:00 PM
-        "lunch_start": (11, 30),
-        "lunch_end": (13, 0),
-        "early_close": None,
-        "early_close_holidays": [],
-    },
-    "ASX": {
-        "name": "Australian Securities Exchange",
-        "country": "AU",
-        "timezone": "Australia/Sydney",
-        "open": (10, 0),  # 10:00 AM
-        "pre_open": (7, 0),  # 7:00 AM
-        "close": (16, 0),  # 4:00 PM
-        "early_close": (14, 0),  # 2:00 PM
-        "early_close_holidays": [],
-        "early_close_eves": ["Christmas Day"],
-    },
-}
 
 VenueLiteral = Literal[
     "NYSE",
@@ -178,10 +77,6 @@ def _get_holidays(country: str, year: int) -> holidays.HolidayBase:
     return holidays.country_holidays(country, years=[int(year)])
 
 
-@lru_cache(maxsize=128)
-def _get_exchange_holidays(exchange: str, year: int) -> holidays.HolidayBase:
-    """Return the venue trading calendar supplied by python-holidays."""
-    return holidays.financial_holidays(exchange, years=[int(year)])
 
 
 def _is_holiday(
@@ -191,7 +86,7 @@ def _is_holiday(
 ) -> Tuple[bool, Optional[str]]:
     """Check if date is a holiday and return holiday name if so."""
     h = (
-        _get_exchange_holidays(exchange, dt.year)
+        exchange_holidays(exchange, dt.year)
         if exchange
         else _get_holidays(country, dt.year)
     )
@@ -337,58 +232,19 @@ def _runtime_meta_tzinfo(
     return None, None
 
 
+
+
 def _is_early_close_session(
     market: Dict[str, Any],
     country: str,
     session_dt: datetime,
 ) -> bool:
-    """Return whether *session_dt* should trade as an early-close session."""
-    exchange = market.get("exchange_calendar")
-    is_holiday_result, holiday_name = _is_holiday(country, session_dt, exchange)
-
-    if is_holiday_result and holiday_name and market.get("early_close_holidays"):
-        for h_name in market["early_close_holidays"]:
-            if h_name.lower() in holiday_name.lower():
-                return True
-
-    # An observed full-day holiday takes precedence over an adjacent-date rule.
-    # For example, July 3 is closed when July 4 falls on Saturday; it must not
-    # be reclassified as the early-close eve of Independence Day.
-    if is_holiday_result:
-        return False
-
-    if market.get("early_close_day_after"):
-        yesterday = session_dt - timedelta(days=1)
-        _, yesterday_holiday = _is_holiday(country, yesterday, exchange)
-        if yesterday_holiday:
-            for h_name in market["early_close_day_after"]:
-                if h_name.lower() in yesterday_holiday.lower():
-                    return True
-
-    if market.get("early_close_eves"):
-        tomorrow = session_dt + timedelta(days=1)
-        _, tomorrow_holiday = _is_holiday(country, tomorrow, exchange)
-        if tomorrow_holiday:
-            for eve_name in market["early_close_eves"]:
-                if eve_name.lower() in tomorrow_holiday.lower():
-                    return True
-
-    if market.get("early_close_last_business_day_before"):
-        target_names = market["early_close_last_business_day_before"]
-        for days_ahead in range(1, 8):
-            next_day = session_dt + timedelta(days=days_ahead)
-            next_is_holiday, next_holiday = _is_holiday(country, next_day, exchange)
-            if next_is_holiday and next_holiday:
-                if any(
-                    target.lower() in next_holiday.lower()
-                    for target in target_names
-                ):
-                    return True
-                continue
-            if next_day.weekday() < 5:
-                break
-
-    return False
+    return evaluate_early_close_session(
+        market,
+        country,
+        session_dt,
+        holiday_resolver=_is_holiday,
+    )
 
 
 def _next_market_open_datetime(
@@ -418,7 +274,7 @@ def _next_market_open_datetime(
 
 def _check_market_status(market_id: str, now_local: datetime) -> Dict[str, Any]:
     """Check status for a single market."""
-    market = _MARKETS[market_id]
+    market = MARKET_SESSIONS[market_id]
     country = market["country"]
     
     # Check weekend
@@ -648,7 +504,7 @@ def _get_upcoming_holidays(
             row["markets_affected"].append(market_id)
 
     for market_id in market_ids:
-        market = _MARKETS.get(market_id)
+        market = MARKET_SESSIONS.get(market_id)
         if market is None:
             continue
         country = str(market["country"])
@@ -1559,7 +1415,7 @@ def market_status(  # noqa: C901
         }
     if symbol_mode and not venue_mode:
         positional = str(symbol).strip().upper()
-        if positional in _MARKETS and "," not in str(symbol):
+        if positional in MARKET_SESSIONS and "," not in str(symbol):
             return {
                 "error": (
                     f"'{positional}' is a venue ID, not an MT5 symbol. "
@@ -1571,16 +1427,16 @@ def market_status(  # noqa: C901
                     f"Use --venue {positional} or pass a broker symbol such as EURUSD."
                 ),
             }
-    if venue_mode and venue_id not in _MARKETS:
+    if venue_mode and venue_id not in MARKET_SESSIONS:
         return {
             "error": (
                 f"Unknown venue '{venue}'. Valid venues: "
-                + ", ".join(_MARKETS)
+                + ", ".join(MARKET_SESSIONS)
                 + "."
             ),
             "error_code": "invalid_venue",
             "venue": venue_id,
-            "valid_venues": list(_MARKETS),
+            "valid_venues": list(MARKET_SESSIONS),
         }
     timezone_display_mode = _normalize_timezone_display(
         timezone_display,
@@ -1629,9 +1485,9 @@ def market_status(  # noqa: C901
         if venue_mode:
             markets_to_check = [venue_id]
         elif region == "all" or region is None:
-            markets_to_check = list(_MARKETS.keys())
+            markets_to_check = list(MARKET_SESSIONS.keys())
         else:
-            markets_to_check = region_map.get(region, list(_MARKETS.keys()))
+            markets_to_check = region_map.get(region, list(MARKET_SESSIONS.keys()))
         
         results: List[Dict[str, Any]] = []
         errors: List[Dict[str, Any]] = []
@@ -1645,10 +1501,10 @@ def market_status(  # noqa: C901
         )
 
         for market_id in markets_to_check:
-            if market_id not in _MARKETS:
+            if market_id not in MARKET_SESSIONS:
                 continue
             
-            market = _MARKETS[market_id]
+            market = MARKET_SESSIONS[market_id]
             try:
                 local_now = _get_local_time(market["timezone"])
                 status = _check_market_status(market_id, local_now)

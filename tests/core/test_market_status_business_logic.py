@@ -1198,7 +1198,7 @@ def test_upcoming_holidays_crosses_into_the_next_year(monkeypatch) -> None:
             return {date(2031, 1, 1): "New Year's Day"}
         return {}
 
-    market_status_mod._get_exchange_holidays.cache_clear()
+    market_status_mod.exchange_holidays.cache_clear()
     monkeypatch.setattr(market_status_mod, "datetime", FixedDateTime)
     monkeypatch.setattr(
         market_status_mod.holidays,
@@ -1246,7 +1246,7 @@ def test_upcoming_holidays_use_each_venue_local_date(monkeypatch) -> None:
 
 
 def test_exchange_calendar_differs_from_country_calendar() -> None:
-    market_status_mod._get_exchange_holidays.cache_clear()
+    market_status_mod.exchange_holidays.cache_clear()
 
     good_friday = datetime(2026, 4, 3, 12, tzinfo=timezone.utc)
     columbus_day = datetime(2026, 10, 12, 12, tzinfo=timezone.utc)
