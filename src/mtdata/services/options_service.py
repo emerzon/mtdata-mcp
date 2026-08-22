@@ -1369,6 +1369,55 @@ def _option_premium_contract() -> Dict[str, Any]:
     }
 
 
+def _options_chain_payload(
+    *,
+    provider: str,
+    quote: Dict[str, Any],
+    symbol: str,
+    expiration: str,
+    expiration_status: str,
+    underlying_price: float,
+    currency: Any,
+    expirations: List[str],
+    available: List[Dict[str, Any]],
+    selected: List[Dict[str, Any]],
+    option_type: str,
+    min_open_interest: int,
+    min_volume: int,
+    limit: int,
+    offset: int,
+) -> Dict[str, Any]:
+    """Build the provider-neutral options-chain response contract."""
+    return {
+        "success": True,
+        **_options_underlying_metadata(provider, quote),
+        "symbol": symbol,
+        "expiration": expiration,
+        "expiration_status": expiration_status,
+        "underlying_price": underlying_price,
+        "currency": currency,
+        "contract_terms_summary": _option_contract_terms_summary(selected),
+        **_option_premium_contract(),
+        "expirations": expirations,
+        "option_type": option_type,
+        "min_open_interest": int(min_open_interest),
+        "min_volume": int(min_volume),
+        "count": int(len(selected)),
+        "calls_count": sum(1 for item in selected if item.get("side") == "call"),
+        "puts_count": sum(1 for item in selected if item.get("side") == "put"),
+        "side_coverage": _option_side_coverage(selected),
+        **_option_selection_metadata(
+            available,
+            selected,
+            option_type=option_type,
+            limit=limit,
+            offset=offset,
+        ),
+        **_option_chain_quality_metadata(selected),
+        "options": selected,
+    }
+
+
 def _get_tradier_options_expirations(symbol: str) -> Dict[str, Any]:
     symbol_norm = str(symbol).upper().strip()
     payload = _fetch_tradier_expirations_payload(symbol_norm)
@@ -1460,34 +1509,23 @@ def _get_tradier_options_chain(
         offset=offset,
         underlying_price=underlying_price,
     )
-    return {
-        "success": True,
-        **_options_underlying_metadata("tradier", quote),
-        "symbol": symbol_norm,
-        "expiration": chosen_expiry,
-        "expiration_status": expiration_status,
-        "underlying_price": underlying_price,
-        "currency": quote.get("currency") or "USD",
-        "contract_terms_summary": _option_contract_terms_summary(normalized),
-        **_option_premium_contract(),
-        "expirations": expirations,
-        "option_type": option_type,
-        "min_open_interest": int(min_open_interest),
-        "min_volume": int(min_volume),
-        "count": int(len(normalized)),
-        "calls_count": sum(1 for item in normalized if item.get("side") == "call"),
-        "puts_count": sum(1 for item in normalized if item.get("side") == "put"),
-        "side_coverage": _option_side_coverage(normalized),
-        **_option_selection_metadata(
-            available,
-            normalized,
-            option_type=option_type,
-            limit=limit,
-            offset=offset,
-        ),
-        **_option_chain_quality_metadata(normalized),
-        "options": normalized,
-    }
+    return _options_chain_payload(
+        provider="tradier",
+        quote=quote,
+        symbol=symbol_norm,
+        expiration=chosen_expiry,
+        expiration_status=expiration_status,
+        underlying_price=underlying_price,
+        currency=quote.get("currency") or "USD",
+        expirations=expirations,
+        available=available,
+        selected=normalized,
+        option_type=option_type,
+        min_open_interest=min_open_interest,
+        min_volume=min_volume,
+        limit=limit,
+        offset=offset,
+    )
 
 
 def _get_yahoo_options_expirations(symbol: str) -> Dict[str, Any]:
@@ -1640,34 +1678,23 @@ def _get_yahoo_options_chain(
         underlying_price=underlying_price,
     )
 
-    return {
-        "success": True,
-        **_options_underlying_metadata("yahoo", quote),
-        "symbol": symbol_norm,
-        "expiration": chosen_expiry_ymd,
-        "expiration_status": expiration_status,
-        "underlying_price": underlying_price,
-        "currency": quote.get("currency"),
-        "contract_terms_summary": _option_contract_terms_summary(combined),
-        **_option_premium_contract(),
-        "expirations": sorted(available_map),
-        "option_type": option_type,
-        "min_open_interest": int(min_open_interest),
-        "min_volume": int(min_volume),
-        "count": int(len(combined)),
-        "calls_count": sum(1 for item in combined if item.get("side") == "call"),
-        "puts_count": sum(1 for item in combined if item.get("side") == "put"),
-        "side_coverage": _option_side_coverage(combined),
-        **_option_selection_metadata(
-            available,
-            combined,
-            option_type=option_type,
-            limit=limit,
-            offset=offset,
-        ),
-        **_option_chain_quality_metadata(combined),
-        "options": combined,
-    }
+    return _options_chain_payload(
+        provider="yahoo",
+        quote=quote,
+        symbol=symbol_norm,
+        expiration=chosen_expiry_ymd,
+        expiration_status=expiration_status,
+        underlying_price=underlying_price,
+        currency=quote.get("currency"),
+        expirations=sorted(available_map),
+        available=available,
+        selected=combined,
+        option_type=option_type,
+        min_open_interest=min_open_interest,
+        min_volume=min_volume,
+        limit=limit,
+        offset=offset,
+    )
 
 
 def get_options_expirations(symbol: str) -> Dict[str, Any]:
