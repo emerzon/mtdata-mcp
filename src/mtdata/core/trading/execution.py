@@ -148,8 +148,8 @@ def _readback_adjustments(
     return adjustments
 
 
-def _positions_excluding_current(
-    positions: Optional[List[Any]],
+def _trade_rows_excluding_current(
+    rows: Optional[List[Any]],
     *,
     resolved_ticket: Optional[int],
     requested_ticket: Optional[int],
@@ -163,30 +163,9 @@ def _positions_excluding_current(
         if value is not None
     }
     return [
-        position
-        for position in list(positions or [])
-        if not _position_matches_any_ticket(position, ticket_values)
-    ]
-
-
-def _pending_orders_excluding_current(
-    orders: Optional[List[Any]],
-    *,
-    resolved_ticket: Optional[int],
-    requested_ticket: Optional[int],
-) -> List[Any]:
-    ticket_values = {
-        value
-        for value in (
-            validation._safe_int_ticket(resolved_ticket),
-            validation._safe_int_ticket(requested_ticket),
-        )
-        if value is not None
-    }
-    return [
-        order
-        for order in list(orders or [])
-        if not _position_matches_any_ticket(order, ticket_values)
+        row
+        for row in list(rows or [])
+        if not _position_matches_any_ticket(row, ticket_values)
     ]
 
 
@@ -261,7 +240,7 @@ def _evaluate_position_modify_guardrails(
         side=side,
         entry_price=entry_price,
         account_info=account_info,
-        existing_positions=_positions_excluding_current(
+        existing_positions=_trade_rows_excluding_current(
             positions,
             resolved_ticket=resolved_ticket,
             requested_ticket=requested_ticket,
@@ -1065,7 +1044,7 @@ def _modify_pending_order(  # noqa: C901
                     ),
                     account_info=account_info,
                     existing_positions=positions,
-                    existing_pending_orders=_pending_orders_excluding_current(
+                    existing_pending_orders=_trade_rows_excluding_current(
                         pending_orders,
                         resolved_ticket=resolved_ticket,
                         requested_ticket=ticket_id,

@@ -275,12 +275,6 @@ def _order_sort_key(order: Any) -> float:
     )
 
 
-def _position_side_matches(position: Any, side: Optional[str], mt5: Any) -> bool:
-    if side not in {"BUY", "SELL"}:
-        return True
-    return validation._resolve_position_side(position, mt5) == side
-
-
 def _position_matches_required_filters(
     position: Any,
     *,
@@ -683,7 +677,6 @@ def _compact_non_empty_mapping(row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-_TRADE_MONEY_FIELDS = {"profit", "commission", "swap", "fee"}
 _TRADE_PRICE_FIELDS = {
     "price",
     "entry_price",

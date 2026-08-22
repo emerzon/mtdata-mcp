@@ -18,12 +18,18 @@ class _FakeMt5:
         return list(self._fallback_rows)
 
 
-def test_position_side_matches_uses_numeric_defaults_when_mt5_constants_are_missing():
+def test_position_filter_uses_numeric_defaults_when_mt5_constants_are_missing():
     mt5 = SimpleNamespace()
 
-    assert positions._position_side_matches(SimpleNamespace(type=0), "BUY", mt5) is True
-    assert positions._position_side_matches(SimpleNamespace(type=1), "BUY", mt5) is False
-    assert positions._position_side_matches(SimpleNamespace(type=1), "SELL", mt5) is True
+    assert positions._position_matches_required_filters(
+        SimpleNamespace(type=0), symbol=None, side="BUY", mt5=mt5
+    )
+    assert not positions._position_matches_required_filters(
+        SimpleNamespace(type=1), symbol=None, side="BUY", mt5=mt5
+    )
+    assert positions._position_matches_required_filters(
+        SimpleNamespace(type=1), symbol=None, side="SELL", mt5=mt5
+    )
 
 
 def test_position_side_resolution_accepts_text_without_mt5_constants():
