@@ -969,19 +969,43 @@ class TestGetHistory:
         assert call_arg["keep_original"] is False
         assert call_arg["columns"] == ["close"]
 
-    def test_denoise_kv_params_rejects_duplicate_keys(self):
+    def test_denoise_kv_params_use_shared_last_value_policy(self):
+        payload = {"data": [{"time": 1.0}]}
         dn_methods = {"methods": [{"method": "wavelet", "available": True}]}
         with patch.object(web_api.mt5_connection, "_ensure_connection", return_value=True), \
-             patch("mtdata.core.web_api._get_denoise_methods", return_value=dn_methods):
+             patch("mtdata.core.web_api._fetch_candles_impl", return_value=payload), \
+             patch("mtdata.core.web_api._get_denoise_methods", return_value=dn_methods), \
+             patch("mtdata.core.web_api._norm_dn", return_value={"method": "wavelet"}) as mock_norm, \
+             patch("mtdata.core.web_api.mt5_config") as mock_cfg:
+            mock_cfg.get_time_offset_seconds.return_value = 0
             resp = _client.get("/api/history", params={
                 "symbol": "EURUSD",
                 "denoise_method": "wavelet",
                 "denoise_params": "level=3,level=4",
             })
-        assert resp.status_code == 400
-        detail = resp.json()["detail"]
-        assert detail["error_code"] == "denoise_params_invalid"
-        assert "duplicate key 'level'" in detail["error"]
+        assert resp.status_code == 200
+        assert mock_norm.call_args[0][0]["params"] == {"level": 4}
+
+    def test_denoise_kv_params_support_comma_values_and_native_scalars(self):
+        payload = {"data": [{"time": 1.0}]}
+        dn_methods = {"methods": [{"method": "wavelet", "available": True}]}
+        with patch.object(web_api.mt5_connection, "_ensure_connection", return_value=True), \
+             patch("mtdata.core.web_api._fetch_candles_impl", return_value=payload), \
+             patch("mtdata.core.web_api._get_denoise_methods", return_value=dn_methods), \
+             patch("mtdata.core.web_api._norm_dn", return_value={"method": "wavelet"}) as mock_norm, \
+             patch("mtdata.core.web_api.mt5_config") as mock_cfg:
+            mock_cfg.get_time_offset_seconds.return_value = 0
+            resp = _client.get("/api/history", params={
+                "symbol": "EURUSD",
+                "denoise_method": "wavelet",
+                "denoise_params": "thresholds=1,2,3 enabled=true offset=null",
+            })
+        assert resp.status_code == 200
+        assert mock_norm.call_args[0][0]["params"] == {
+            "thresholds": "1,2,3",
+            "enabled": True,
+            "offset": None,
+        }
 
     def test_denoise_params_rejects_oversized_query_value(self):
         dn_methods = {"methods": [{"method": "wavelet", "available": True}]}

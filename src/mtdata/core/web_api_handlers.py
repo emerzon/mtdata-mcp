@@ -14,6 +14,7 @@ from ..utils.coercion import UNPARSED_BOOL, parse_bool_like
 from ..utils.denoise import DenoiseCausalityError
 from ..utils.mt5 import MT5ConnectionError
 from ..utils.support_resistance import compact_support_resistance_payload
+from ..utils.utils import parse_kv_or_json
 from .data.requests import DATA_FETCH_CANDLES_DEFAULT_LIMIT, DataFetchCandlesRequest
 from .data.use_cases import run_data_fetch_candles
 from .error_envelope import build_error_payload, normalize_error_payload
@@ -529,70 +530,36 @@ def get_history_response(  # noqa: C901
                     operation="get_history",
                     details={"max_chars": _MAX_DENOISE_PARAMS_CHARS},
                 )
-            try:
-                payload = json.loads(denoise_params_val)
-                if isinstance(payload, dict):
-                    if "params" in payload:
-                        spec_input["params"] = _history_denoise_params_dict(payload.pop("params"))
-                    else:
-                        extra_params = {
-                            key: value
-                            for key, value in payload.items()
-                            if key not in _HISTORY_DENOISE_CONTROL_KEYS
-                        }
-                        if extra_params:
-                            spec_input["params"] = extra_params
-                    _apply_history_denoise_controls(spec_input, payload)
-                else:
-                    raise ValueError("payload not dict")
-            except HTTPException:
-                raise
-            except Exception:
-                stripped_params = str(denoise_params_val or "").strip()
-                if stripped_params:
-                    if stripped_params.startswith("{") or stripped_params.startswith("["):
-                        raise _http_error(
-                            400,
-                            "denoise_params must be a JSON object or key=value pairs.",
-                            code="denoise_params_invalid",
-                            operation="get_history",
-                        )
-                    try:
-                        json_payload = json.loads(stripped_params)
-                    except Exception:
-                        json_payload = None
-                    else:
-                        if not isinstance(json_payload, dict):
-                            raise _http_error(
-                                400,
-                                "denoise_params must be a JSON object or key=value pairs.",
-                                code="denoise_params_invalid",
-                                operation="get_history",
-                            )
-                params_dict: Dict[str, Any] = {}
-                for part in denoise_params_val.split(","):
-                    if "=" in part:
-                        key, value = part.split("=", 1)
-                        key = key.strip()
-                        value = value.strip()
-                        if key in params_dict:
-                            raise _http_error(
-                                400,
-                                f"denoise_params contains duplicate key '{key}'",
-                                code="denoise_params_invalid",
-                                operation="get_history",
-                            )
-                        try:
-                            params_dict[key] = float(value) if value.replace(".", "", 1).lstrip("-").isdigit() else value
-                        except Exception:
-                            params_dict[key] = value
-                controls = {
-                    key: params_dict.pop(key)
-                    for key in tuple(params_dict)
-                    if key in _HISTORY_DENOISE_CONTROL_KEYS
+            stripped_params = denoise_params_val.strip()
+            if stripped_params.startswith(("{", "[")):
+                try:
+                    decoded = json.loads(stripped_params)
+                except (TypeError, ValueError):
+                    decoded = None
+                if not isinstance(decoded, dict):
+                    raise _http_error(
+                        400,
+                        "denoise_params must be a JSON object or key=value pairs.",
+                        code="denoise_params_invalid",
+                        operation="get_history",
+                    )
+            payload = parse_kv_or_json(stripped_params)
+            if not payload and stripped_params != "{}":
+                raise _http_error(
+                    400,
+                    "denoise_params must be a JSON object or key=value pairs.",
+                    code="denoise_params_invalid",
+                    operation="get_history",
+                )
+            if "params" in payload:
+                spec_input["params"] = _history_denoise_params_dict(payload.pop("params"))
+            else:
+                spec_input["params"] = {
+                    key: value
+                    for key, value in payload.items()
+                    if key not in _HISTORY_DENOISE_CONTROL_KEYS
                 }
-                spec_input["params"] = params_dict
-                _apply_history_denoise_controls(spec_input, controls)
+            _apply_history_denoise_controls(spec_input, payload)
         try:
             denoise_spec = normalize_denoise_spec(spec_input, default_when="pre_ti")
         except DenoiseCausalityError as exc:
