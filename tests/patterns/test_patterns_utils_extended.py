@@ -7,6 +7,7 @@ from scipy.spatial import cKDTree
 
 from mtdata.utils.patterns import (
     PatternIndex,
+    _fetch_symbol_df,
     _SeriesStore,
     build_index,
 )
@@ -76,6 +77,36 @@ def _make_index(
 def test_build_index_rejects_too_small_window_size():
     with pytest.raises(ValueError, match="window_size must be at least 5"):
         build_index(["EURUSD"], "H1", window_size=4, future_size=1)
+
+
+def test_fetch_symbol_frame_uses_shared_history_gateway(monkeypatch):
+    expected = pd.DataFrame({"time": [1.0], "close": [2.0]})
+    calls = []
+
+    def fake_fetch(symbol, timeframe, count, as_of=None, **kwargs):
+        calls.append((symbol, timeframe, count, as_of, kwargs))
+        return expected
+
+    monkeypatch.setattr("mtdata.utils.patterns.fetch_history_frame", fake_fetch)
+
+    result = _fetch_symbol_df(
+        "EURUSD",
+        "H1",
+        100,
+        as_of="2026-08-20T12:00:00Z",
+        drop_last_live=True,
+    )
+
+    assert result is expected
+    assert calls == [
+        (
+            "EURUSD",
+            "H1",
+            100,
+            "2026-08-20T12:00:00+00:00",
+            {"include_incomplete": False},
+        )
+    ]
 
 
 @pytest.mark.parametrize("scale", ["minmax", "zscore", "none"])

@@ -14,9 +14,7 @@ try:
 except Exception:
     _HNSW = None  # optional ANN backend
 
-# Dimensionality reduction abstraction
-# Reuse existing MT5 helpers and denoise utilities
-from ..services.data_service.candles import _drop_incomplete_tail_df
+from ..services.data_service import fetch_history_frame
 from ..shared.constants import TIMEFRAME_MAP
 from .denoise import (
     denoise_series as apply_denoise_series,
@@ -30,7 +28,6 @@ from .denoise import (
 from .dimred import DimReducer as _DimReducer
 from .dimred import create_reducer as _create_reducer
 from .dtw import dtw_distance
-from .mt5 import _mt5_copy_rates_from, _rates_to_df
 from .utils import align_finite
 
 
@@ -440,35 +437,27 @@ def _fetch_symbol_df(
     Returns DataFrame with columns at least ['time','open','high','low','close','tick_volume','real_volume']
     where available. 'time' is UTC epoch seconds as float.
     """
-    tf = TIMEFRAME_MAP.get(timeframe)
-    if tf is None:
+    if timeframe not in TIMEFRAME_MAP:
         raise ValueError(f"Unknown timeframe: {timeframe}")
-    # Use a small guard for extra bars; server fetch typically asks +2
+    as_of_text: Optional[str] = None
     if as_of is not None:
         try:
-            to_dt = pd.to_datetime(as_of)
-            if to_dt.tzinfo is None:
-                to_dt = to_dt.tz_localize("UTC")
-            to_dt = to_dt.to_pydatetime()
-        except Exception:
-            to_dt = pd.Timestamp.utcnow().to_pydatetime()
-    else:
-        to_dt = pd.Timestamp.utcnow().to_pydatetime()
-    rates = _mt5_copy_rates_from(symbol, tf, to_dt, int(bars) + 2)
-    if rates is None or len(rates) == 0:
-        raise RuntimeError(f"Failed to fetch rates for {symbol}")
-    df = _rates_to_df(rates)
-    if drop_last_live and len(df) >= 1:
-        reference_epoch = pd.Timestamp(to_dt).timestamp()
-        df, _ = _drop_incomplete_tail_df(
-            df,
-            timeframe,
-            current_time_epoch=reference_epoch,
-        )
-    # Keep last `bars` rows
-    if len(df) > bars:
-        df = df.iloc[-bars:].copy()
-    return df
+            timestamp = pd.Timestamp(as_of)
+            timestamp = (
+                timestamp.tz_localize("UTC")
+                if timestamp.tzinfo is None
+                else timestamp.tz_convert("UTC")
+            )
+            as_of_text = timestamp.isoformat()
+        except Exception as exc:
+            raise ValueError(f"Invalid as_of time: {as_of}") from exc
+    return fetch_history_frame(
+        symbol,
+        timeframe,
+        int(bars),
+        as_of=as_of_text,
+        include_incomplete=not drop_last_live,
+    )
 
 
 def _coerce_time_epoch(values: Any) -> np.ndarray:
