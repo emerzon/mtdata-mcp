@@ -4,19 +4,14 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from ..utils.coercion import coerce_finite_float
 from .output_contract import apply_output_verbosity
 from .tool_calling import call_tool_sync_structured
 from .web_api_handlers import _http_error, _http_status_for_error
 
 
 def _as_float(value: Any) -> Optional[float]:
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return None
-    if number != number:  # NaN
-        return None
-    return number
+    return coerce_finite_float(value)
 
 
 def compact_confluence_payload(payload: Dict[str, Any]) -> Dict[str, Any]:

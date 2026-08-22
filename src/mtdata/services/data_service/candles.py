@@ -28,7 +28,7 @@ from ...shared.constants import (
 )
 from ...shared.schema import DenoiseSpec, IndicatorSpec, SimplifySpec, TimeframeLiteral
 from ...shared.validators import invalid_timeframe_error
-from ...utils.coercion import round_finite
+from ...utils.coercion import coerce_finite_float, round_finite
 from ...utils.denoise import (
     DenoiseCausalityError,
     consume_denoise_warnings,
@@ -265,13 +265,7 @@ def _build_candle_freshness_diagnostics(
     data_freshness_reference_epoch: Any = None,
 ) -> Dict[str, Any]:
     def _coerce_epoch(value: Any) -> Optional[float]:
-        try:
-            epoch = float(value)
-        except Exception:
-            return None
-        if not math.isfinite(epoch):
-            return None
-        return epoch
+        return coerce_finite_float(value)
 
     last_epoch = _coerce_epoch(last_bar_epoch)
     expected_epoch = _coerce_epoch(expected_end_epoch)

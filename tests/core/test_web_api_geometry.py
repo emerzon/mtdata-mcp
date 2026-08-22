@@ -35,6 +35,19 @@ def test_compact_confluence_payload_keeps_zones() -> None:
     assert payload["levels"][0]["range"]["low"] == pytest.approx(1.1042)
 
 
+def test_compact_confluence_payload_rejects_non_finite_geometry() -> None:
+    payload = compact_confluence_payload(
+        {
+            "levels": [
+                {"price": float("inf")},
+                {"price": 1.1, "score": float("-inf")},
+            ]
+        }
+    )
+
+    assert payload["levels"] == [{"price": 1.1}]
+
+
 def test_compact_volume_profile_payload_reads_nested_and_area() -> None:
     payload = compact_volume_profile_payload(
         {

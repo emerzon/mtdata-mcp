@@ -15,6 +15,7 @@ from typing import (
 )
 
 from mtdata.core.data.requests import WaitEventWindow
+from mtdata.utils.coercion import coerce_finite_float
 from mtdata.utils.mt5 import _to_server_query_dt
 from mtdata.utils.tick_flags import is_mt5_trade_event
 
@@ -820,13 +821,7 @@ def _tick_key_component(value: Any) -> Any:
     return float(numeric)
 
 def _finite_number(value: Any) -> Optional[float]:
-    try:
-        numeric = float(value)
-    except Exception:
-        return None
-    if not math.isfinite(numeric):
-        return None
-    return numeric
+    return coerce_finite_float(value)
 
 def _tick_float(row: Any, key: str) -> float:
     value = _finite_number(_tick_value(row, key))

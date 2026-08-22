@@ -20,6 +20,7 @@ from ..utils.barriers import (
 from ..utils.barriers import (
     resolve_barrier_prices as _resolve_barrier_prices,
 )
+from ..utils.coercion import coerce_finite_float
 from ..utils.coercion import safe_float as _safe_float
 from ..utils.freshness import (
     closed_session_context,
@@ -894,11 +895,8 @@ def _format_barrier_epoch(epoch: float) -> str:
 
 
 def _coerce_epoch(value: Any) -> Optional[float]:
-    try:
-        epoch = float(value)
-    except Exception:
-        return None
-    if not np.isfinite(epoch) or epoch <= 0.0:
+    epoch = coerce_finite_float(value)
+    if epoch is None or epoch <= 0.0:
         return None
     if epoch > 10_000_000_000:
         epoch /= 1000.0
