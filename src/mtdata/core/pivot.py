@@ -714,12 +714,14 @@ def confluence_levels(  # noqa: C901
     volume_profile_max_m1_bars: Annotated[int, Field(ge=1)] = 20_000,
     detail: Literal["compact", "standard", "full"] = "compact",
 ) -> Dict[str, Any]:
-    """Find nearby high-probability price zones where multiple level methods agree.
+    """Find nearby high-probability price zones where pivots, support/resistance, and Fibonacci agree.
 
     Combines formula pivot levels, touch-derived support/resistance, and
     Fibonacci swing levels. Defaults use daily pivots and auto-timeframe S/R.
     Single-family clusters are returned but score lower than multi-family
     confluence. Use `min_source_families=2` to require independent agreement.
+    Use `support_resistance_levels` for structural levels alone; this tool is
+    multi-source consensus of those levels with pivots and Fibonacci.
     """
 
     def _run() -> Dict[str, Any]:  # noqa: C901
@@ -1085,6 +1087,8 @@ def support_resistance_levels(
     whether historical tests mostly behaved as support or resistance.
     Use `pivot_compute_points` for complementary formula-based PP/R/S levels
     from the last completed OHLC bar.
+    Use `confluence_levels` to cluster these levels with pivots and Fibonacci
+    into scored consensus zones.
 
     Score combines:
     - repeated tests of a level

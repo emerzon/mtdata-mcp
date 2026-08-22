@@ -433,9 +433,9 @@ task state can survive process restarts. See
 | `indicators_describe` | Get indicator details |
 | `patterns_detect` | Detect candlestick, chart, harmonic, fractal, and Elliott patterns |
 | `volume_profile_levels` | Compute POC, VAH, and VAL from bounded ticks or M1-bar approximation |
-| `confluence_levels` | Rank price zones where pivots, support/resistance, Fibonacci, and volume-profile levels cluster |
+| `confluence_levels` | Rank multi-source consensus zones (pivots + S/R + Fibonacci + optional volume profile) |
 | `pivot_compute_points` | Calculate pivot levels |
-| `support_resistance_levels` | Compute support/resistance levels with Fibonacci swing context |
+| `support_resistance_levels` | Compute single-source structural support/resistance around the current price |
 | `correlation_matrix` | Pairwise correlation matrix between symbols |
 | `cross_correlation` | Estimate lead/lag correlation between two symbols |
 | `cointegration_test` | Engle-Granger pair tests or Johansen multivariate cointegration |

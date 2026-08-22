@@ -77,6 +77,9 @@ historical tests mostly behaved as support or resistance. `--detail standard` ad
 Fibonacci swing levels; `--detail full` returns the raw
 diagnostic payload.
 
+Use `confluence_levels` to cluster these levels with pivots and Fibonacci into
+scored consensus zones.
+
 ---
 
 ## `confluence_levels`
@@ -115,6 +118,8 @@ history request than the other level families.
 
 **Output:** `clusters` sorted by `score`, each with a `price`, the contributing
 `source_families` and `sources`, and `distance_pct` from current price.
+
+Use `support_resistance_levels` for the structural S/R component on its own.
 
 ---
 
