@@ -277,7 +277,7 @@ def test_tools_catalog_standard_detail_includes_parameter_summaries():
     assert full_market_scan["parameters"]["timeframe"]["cli"]["forms"] == [
         {"kind": "option", "token": "--timeframe"}
     ]
-    assert full_market_scan["module"] == "mtdata.core.symbols"
+    assert full_market_scan["module"] == "mtdata.core.symbols.scan"
 
 
 def test_tools_list_full_exposes_nested_invocation_schema_and_cli_forms():

@@ -752,7 +752,7 @@ class TestToolRegistries:
     def test_registry_views_stay_aligned_across_function_and_object_projections(self):
         import mtdata.core._mcp_tools as tools
 
-        key = "__test_registry_projection__"
+        key = "test_registry_projection"
         func = lambda: None
         tool_obj = object()
         prior_func = tools._TOOL_REGISTRY.pop(key, None)
