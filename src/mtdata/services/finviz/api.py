@@ -23,6 +23,7 @@ from .dates import (
     parse_finviz_earnings_date,
     resolve_date_range,
 )
+from .pagination import _sanitize_row
 from .symbols import looks_like_non_equity_symbol, normalize_finviz_equity_symbol
 from .utils import (
     apply_finvizfinance_timeout_patch,
@@ -185,15 +186,6 @@ def _compute_screener_fetch_limit(limit: int, page: int, max_rows: int) -> int:
         max_rows,
         page_limit_max=_FINVIZ_PAGE_LIMIT_MAX,
     )
-
-
-def _sanitize_finviz_row(row: Any) -> Any:
-    """Coerce missing Finviz/pandas values in a row to ``None``."""
-    from .pagination import _sanitize_finviz_cell
-
-    if isinstance(row, dict):
-        return {key: _sanitize_finviz_cell(val) for key, val in row.items()}
-    return row
 
 
 def _paginate_finviz_records(
@@ -362,7 +354,7 @@ def _fetch_finviz_market_performance_rows(
     if df is None or df.empty:
         raise ValueError(empty_error)
     records = df.to_dict(orient="records")
-    return [_sanitize_finviz_row(row) for row in records]
+    return [_sanitize_row(row) for row in records]
 
 
 def _extract_finviz_futures_performance_rows(html: str) -> List[Dict[str, Any]]:
@@ -374,7 +366,7 @@ def _extract_finviz_futures_performance_rows(html: str) -> List[Dict[str, Any]]:
     data, _ = json.JSONDecoder().raw_decode(payload)
     if not isinstance(data, list):
         raise TypeError("Unexpected Finviz futures performance payload shape")
-    return [_sanitize_finviz_row(row) for row in data if isinstance(row, dict)]
+    return [_sanitize_row(row) for row in data if isinstance(row, dict)]
 
 
 def _fetch_finviz_futures_performance_rows() -> List[Dict[str, Any]]:
@@ -458,7 +450,7 @@ def get_stock_fundamentals(symbol: str) -> Dict[str, Any]:
                 "stage": "ticker_fundament",
                 "symbol": symbol_norm,
             }
-        fundament = _sanitize_finviz_row(fundament)
+        fundament = _sanitize_row(fundament)
         return {
             "success": True,
             "symbol": symbol_norm,
@@ -592,7 +584,7 @@ def get_stock_ratings(symbol: str) -> Dict[str, Any]:
         if ratings_df is None or ratings_df.empty:
             return {"error": f"No ratings found for {symbol}"}
         ratings_list = ratings_df.to_dict(orient="records")
-        ratings_list = [_sanitize_finviz_row(row) for row in ratings_list]
+        ratings_list = [_sanitize_row(row) for row in ratings_list]
         return {
             "success": True,
             "symbol": symbol_norm,
