@@ -1756,9 +1756,9 @@ class TestResolveParamKwargs:
         ("param_name", "expected"),
         [
             ("lookback", "after applying the requested time window"),
-            ("as_of", "Cannot be combined with --start/--end"),
-            ("start", "Cannot be combined with --as-of"),
-            ("end", "Cannot be combined with --as-of"),
+            ("as_of", "Cannot be combined with start/end"),
+            ("start", "Cannot be combined with as_of"),
+            ("end", "Cannot be combined with as_of"),
             ("quantity", "forecast_volatility_estimate"),
         ],
     )
@@ -1767,18 +1767,11 @@ class TestResolveParamKwargs:
         param_name,
         expected,
     ):
-        kwargs, _ = _resolve_param_kwargs(
-            {
-                "name": param_name,
-                "type": str,
-                "required": False,
-                "default": None,
-            },
-            None,
-            cmd_name="forecast_train",
-        )
+        from mtdata.core.forecast_tasks import ForecastTrainRequest
 
-        assert expected in kwargs["help"]
+        description = ForecastTrainRequest.model_fields[param_name].description
+        assert description is not None
+        assert expected in description
 
     def test_forecast_train_wait_help_explains_context_defaults(self):
         kwargs, _ = _resolve_param_kwargs(

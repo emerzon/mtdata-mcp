@@ -89,44 +89,10 @@ _COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "Boolean output control. Compute and include bid/ask spread metrics from "
         "broker DOM or the fallback quote; disabled by default."
     ),
-    ("forecast_train", "lookback"): (
-        "Maximum historical bars to use for training after applying the requested "
-        "time window."
-    ),
-    ("forecast_train", "as_of"): (
-        "Train on closed bars available at this historical reference time. Cannot "
-        "be combined with --start/--end."
-    ),
-    ("forecast_train", "start"): (
-        "Optional start of the historical training range. Cannot be combined "
-        "with --as-of."
-    ),
-    ("forecast_train", "end"): (
-        "Optional end of the historical training range. Cannot be combined "
-        "with --as-of."
-    ),
-    ("forecast_train", "quantity"): (
-        "Train a price-level or return target. Volatility uses "
-        "forecast_volatility_estimate and is not separately trainable."
-    ),
     ("forecast_train", "wait"): (
         "Wait for training to finish. One-shot CLI and stdin shell batches "
         "always wait so the in-process worker stays alive; the flag only "
         "applies in interactive shell, MCP, and Web API sessions."
-    ),
-    ("trade_idea_compose", "template"): (
-        "Idea template: quick runs session, forecast, volatility, one barrier "
-        "pair, and sizing; standard also adds confluence and snaps exits "
-        "toward nearby structure."
-    ),
-    ("trade_idea_compose", "direction"): (
-        "Trade direction. Auto and explicit long/short share the same conformal "
-        "interval forecast; auto stands down when the horizon band contains the "
-        "last-price or live-quote anchor."
-    ),
-    ("trade_idea_compose", "risk_pct"): (
-        "Fixed-fraction account risk in percent (0.5 means 0.5% of "
-        "equity). Used only for preview sizing."
     ),
     ("forecast_tune_optuna", "n_trials"): (
         "Optuna trial count. Each trial runs --steps rolling backtests; the "

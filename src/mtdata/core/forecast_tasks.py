@@ -98,21 +98,34 @@ class ForecastTrainRequest(BaseModel):
     timeframe: TimeframeLiteral = "H1"
     method: str = Field(..., description="Forecast method name (e.g. nhits, tft, mlf_rf).")
     horizon: int = Field(12, ge=1, le=MAX_FORECAST_HORIZON)
-    lookback: Optional[int] = Field(None, ge=1)
+    lookback: Optional[int] = Field(
+        None,
+        ge=1,
+        description=(
+            "Maximum historical bars to use for training after applying the "
+            "requested time window."
+        ),
+    )
     as_of: Optional[str] = Field(
         None,
         description=(
-            "Train on closed bars available at this historical reference time; "
-            "cannot be combined with start/end."
+            "Train on closed bars available at this historical reference time. "
+            "Cannot be combined with start/end."
         ),
     )
     start: Optional[str] = Field(
         None,
-        description="Optional start of the historical training range.",
+        description=(
+            "Optional start of the historical training range. Cannot be combined "
+            "with as_of."
+        ),
     )
     end: Optional[str] = Field(
         None,
-        description="Optional end of the historical training range.",
+        description=(
+            "Optional end of the historical training range. Cannot be combined "
+            "with as_of."
+        ),
     )
     params: Optional[Dict[str, Any]] = None
     quantity: Literal["price", "return"] = Field(
