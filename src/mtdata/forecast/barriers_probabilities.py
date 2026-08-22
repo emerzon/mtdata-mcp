@@ -24,6 +24,7 @@ from ..utils.barriers import (
     resolve_barrier_prices as _resolve_barrier_prices,
 )
 from ..utils.utils import parse_kv_or_json as _parse_kv_or_json
+from .barrier_constants import barrier_simulation_param_keys
 from .barrier_outcomes import evaluate_barrier_path_outcomes
 from .barriers_shared import (
     BROWNIAN_BRIDGE_DUAL_BARRIER_MODEL,
@@ -55,30 +56,9 @@ from .monte_carlo import simulate_heston_mc as _simulate_heston_mc
 from .monte_carlo import simulate_hmm_mc as _simulate_hmm_mc
 from .monte_carlo import simulate_jump_diffusion_mc as _simulate_jump_diffusion_mc
 
-_BARRIER_COMMON_PARAM_KEYS = {"n_sims", "seed", "sims"}
-_BARRIER_METHOD_PARAM_KEYS = {
-    "mc_gbm": set(),
-    "mc_gbm_bb": set(),
-    "hmm_mc": {"n_states"},
-    "garch": {"p", "q"},
-    "bootstrap": {"block_size"},
-    "heston": {"kappa", "rho", "theta", "v0", "xi"},
-    "jump_diffusion": {
-        "jump_lambda",
-        "jump_mu",
-        "jump_sigma",
-        "jump_threshold",
-        "lambda",
-    },
-}
-
 
 def _barrier_param_keys(method: str) -> set[str]:
-    if method == "auto":
-        method_keys = set().union(*_BARRIER_METHOD_PARAM_KEYS.values())
-    else:
-        method_keys = set(_BARRIER_METHOD_PARAM_KEYS.get(method, set()))
-    return _BARRIER_COMMON_PARAM_KEYS | method_keys
+    return barrier_simulation_param_keys(method)
 
 
 def _abs_barrier_side_error(

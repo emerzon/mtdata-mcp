@@ -18,6 +18,7 @@ from ..utils.barriers import (
 )
 from ..utils.coercion import UNPARSED_BOOL, parse_bool_like
 from ..utils.utils import parse_kv_or_json as _parse_kv_or_json
+from .barrier_constants import barrier_simulation_param_keys
 from .barrier_outcomes import (
     BarrierPathOutcomes,
     barrier_path_payoffs,
@@ -206,22 +207,6 @@ _BARRIER_OPTIMIZER_PARAM_KEYS = {
     "vol_steps",
     "vol_window",
 }
-_BARRIER_OPTIMIZER_COMMON_SIM_KEYS = {"n_sims", "seed", "sims"}
-_BARRIER_OPTIMIZER_METHOD_KEYS = {
-    "mc_gbm": set(),
-    "mc_gbm_bb": set(),
-    "hmm_mc": {"n_states"},
-    "garch": {"p", "q"},
-    "bootstrap": {"block_size"},
-    "heston": {"kappa", "rho", "theta", "v0", "xi"},
-    "jump_diffusion": {
-        "jump_lambda",
-        "jump_mu",
-        "jump_sigma",
-        "jump_threshold",
-        "lambda",
-    },
-}
 _BARRIER_ENSEMBLE_PARAM_KEYS = {
     "ensemble_agg",
     "ensemble_methods",
@@ -230,17 +215,12 @@ _BARRIER_ENSEMBLE_PARAM_KEYS = {
 
 
 def _barrier_optimizer_param_keys(method: str) -> set[str]:
-    if method in {"auto", "ensemble"}:
-        method_keys = set().union(*_BARRIER_OPTIMIZER_METHOD_KEYS.values())
-    else:
-        method_keys = set(_BARRIER_OPTIMIZER_METHOD_KEYS.get(method, set()))
+    method_keys = barrier_simulation_param_keys(
+        "auto" if method == "ensemble" else method
+    )
     if method == "ensemble":
         method_keys |= _BARRIER_ENSEMBLE_PARAM_KEYS
-    return (
-        _BARRIER_OPTIMIZER_PARAM_KEYS
-        | _BARRIER_OPTIMIZER_COMMON_SIM_KEYS
-        | method_keys
-    )
+    return _BARRIER_OPTIMIZER_PARAM_KEYS | method_keys
 
 
 @dataclass(frozen=True)

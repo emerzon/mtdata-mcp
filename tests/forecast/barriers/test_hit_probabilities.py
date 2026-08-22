@@ -65,6 +65,7 @@ def test_barrier_history_age_uses_completed_bar_end():
     assert result["last_observation_close_epoch"] == bar_open + 3600
     assert result["data_freshness_seconds"] == 25 * 60
     assert result["data_stale"] is False
+    assert result["freshness_basis"] == "last_completed_bar_close"
 
 
 def test_barrier_reference_prefers_live_stream_over_future_cached_tick():

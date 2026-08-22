@@ -23,9 +23,8 @@ from ..utils.barriers import (
 from ..utils.coercion import coerce_finite_float
 from ..utils.coercion import safe_float as _safe_float
 from ..utils.freshness import (
-    closed_session_context,
+    completed_bar_freshness_fields,
     format_age_seconds,
-    format_freshness_label,
 )
 from ..utils.market_metadata import build_tick_freshness_context
 from ..utils.quote import (
@@ -922,14 +921,23 @@ def _history_freshness_context(
         out["history_policy_ok"] = False
         return out
 
-    if now_epoch is None:
-        now_epoch = datetime.now(timezone.utc).timestamp()
-    timeframe_seconds = max(1, int(TIMEFRAME_SECONDS.get(timeframe, 0) or 0))
-    completed_bar_end = last_epoch + timeframe_seconds
-    age_seconds = max(0, int(round(now_epoch - completed_bar_end)))
-    stale_after = timeframe_seconds
-    data_stale = age_seconds > stale_after if stale_after > 0 else None
-    age_text = format_age_seconds(age_seconds)
+    observed_epoch = (
+        datetime.now(timezone.utc).timestamp()
+        if now_epoch is None
+        else float(now_epoch)
+    )
+    freshness = completed_bar_freshness_fields(
+        symbol,
+        timeframe,
+        last_epoch,
+        now_epoch=observed_epoch,
+        item="data",
+        tolerance_bars=1,
+    )
+    if not freshness:
+        out["history_policy_ok"] = False
+        return out
+    completed_bar_end = float(freshness["data_as_of_epoch"])
     out.update(
         {
             "history_last_bar_open": _format_barrier_epoch(last_epoch),
@@ -938,10 +946,11 @@ def _history_freshness_context(
             "data_as_of_epoch": float(last_epoch),
             "last_observation_close_time": _format_barrier_epoch(completed_bar_end),
             "last_observation_close_epoch": float(completed_bar_end),
-            "data_freshness_seconds": age_seconds,
-            "data_stale": data_stale,
-            "stale_after_seconds": stale_after,
-            "freshness_basis": "last_completed_bar_end",
+            "data_freshness_seconds": freshness["data_age_seconds"],
+            "data_stale": freshness["data_stale"],
+            "stale_after_seconds": freshness["stale_after_seconds"],
+            "freshness_basis": freshness["freshness_basis"],
+            "freshness_age_metric": freshness["freshness_age_metric"],
             "input_bar_policy": "closed_bars_only",
             "timezone": "UTC",
         }
@@ -954,35 +963,17 @@ def _history_freshness_context(
             "timezone": "UTC",
             "input_bar_policy": "closed_bars_only",
         }
-    closed_session = closed_session_context(
-        symbol,
-        now_epoch=now_epoch,
-        item="data",
-        data_age_seconds=age_seconds,
-    )
-    if closed_session:
-        out.update(closed_session)
-    out["history_policy_ok"] = not bool(out.get("data_stale")) and not bool(
-        closed_session
-    )
-    freshness = format_freshness_label(
-        data_stale=out.get("data_stale"),
-        market_status=(
-            out.get("market_status")
-            if out.get("freshness_policy_relaxed") is not False
-            else None
-        ),
-        market_status_reason=(
-            out.get("market_status_reason")
-            if out.get("freshness_policy_relaxed") is not False
-            else None
-        ),
-        age_seconds=age_seconds,
-        age_text=age_text,
-        item="data",
-    )
-    if freshness:
-        out["freshness"] = freshness
+    for key, value in freshness.items():
+        if key not in {
+            "data_as_of",
+            "data_as_of_epoch",
+            "data_age_seconds",
+            "data_stale",
+            "stale_after_seconds",
+            "freshness_basis",
+            "freshness_age_metric",
+        }:
+            out[key] = value
     return out
 
 
