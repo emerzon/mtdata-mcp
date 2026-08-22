@@ -2592,21 +2592,6 @@ def test_minimal_report_assessment_names_only_selected_sections(
     assert not_requested in assessment["summary"]
 
 
-def test_context_snapshot_time_is_report_data_as_of():
-    from mtdata.core.report.use_cases import _derive_report_data_as_of
-
-    assert _derive_report_data_as_of(
-        {
-            "context": {
-                "last_snapshot": {
-                    "time": "2026-08-10T23:00Z",
-                    "close": 1.15461,
-                }
-            }
-        }
-    ) == "2026-08-10T23:00:00Z"
-
-
 def test_report_data_as_of_prefers_base_timeframe_over_older_sections():
     from mtdata.core.report.use_cases import _derive_report_timestamp_contract
 

@@ -329,17 +329,6 @@ def _derive_report_timestamp_contract(
     }
 
 
-def _derive_report_data_as_of(
-    sections: Any,
-    *,
-    base_timeframe: str | None = None,
-) -> str | None:
-    return _derive_report_timestamp_contract(
-        sections,
-        base_timeframe=base_timeframe,
-    )["as_of"]
-
-
 def _report_temporal_alignment(sections: Any) -> Dict[str, Any] | None:
     if not isinstance(sections, dict):
         return None
