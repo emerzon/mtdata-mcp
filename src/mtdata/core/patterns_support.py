@@ -6,8 +6,20 @@ import numpy as np
 import pandas as pd
 
 from ..patterns.common import interval_overlap_ratio as _interval_overlap_ratio
+from ..patterns.enrichment import (
+    _apply_confidence_delta,
+    _config_bool,
+    _config_float,
+    _config_int,
+    _infer_market_regime,
+    _resolve_volume_series,
+    _round_value,
+    _row_confidence_weight,
+    _volume_window_mean,
+    directional_regime_verdict,
+    volume_confirmation_verdict,
+)
 from ..utils.coercion import safe_float as _safe_float
-from ..utils.regime_heuristics import infer_market_regime
 from ..utils.time import _format_time_minimal
 from ..utils.utils import to_float_np as __to_float_np
 
@@ -48,22 +60,6 @@ _ACTIONABLE_SIGNAL_MIN_CONFIDENCE = 0.5
 _DIRECTIONAL_BIAS_MIN_CONFIDENCE = 0.3
 
 
-def _round_value(x: Any) -> Any:
-    """Round floats while preserving JSON scalar and container types."""
-    if x is None:
-        return None
-    if isinstance(x, (bool, np.bool_)):
-        return bool(x)
-    if isinstance(x, (int, np.integer)):
-        return int(x)
-    if isinstance(x, dict):
-        return {str(key): _round_value(value) for key, value in x.items()}
-    if isinstance(x, (list, tuple)):
-        return [_round_value(value) for value in x]
-    try:
-        return float(np.round(float(x), 8))
-    except Exception:
-        return x
 
 
 def _round_confidence(value: Any) -> Any:
@@ -334,13 +330,6 @@ def _row_pattern_bias(row: Dict[str, Any]) -> Optional[str]:
     return None
 
 
-def _row_confidence_weight(row: Dict[str, Any]) -> float:
-    conf = _safe_float(row.get("confidence"))
-    if conf is None:
-        conf = _safe_float(row.get("strength"))
-    if conf is None or not np.isfinite(conf):
-        conf = 0.5
-    return float(max(0.0, min(1.0, conf)))
 
 
 def _summarize_pattern_bias(rows: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -1499,167 +1488,6 @@ def _close_price_at_index(df: pd.DataFrame, end_index: Any) -> Optional[float]:
     return float(last) if last is not None and np.isfinite(last) else None
 
 
-def _config_value(config: Any, key: str) -> tuple[bool, Any]:
-    if isinstance(config, dict):
-        if key in config:
-            return True, config.get(key)
-        return False, None
-    try:
-        return True, getattr(config, key)
-    except Exception:
-        return False, None
-
-
-def _config_bool(config: Any, key: str, default: bool) -> bool:
-    found, value = _config_value(config, key)
-    if not found:
-        return bool(default)
-    if value is None:
-        return bool(default)
-    if isinstance(value, bool):
-        return value
-    if isinstance(value, (int, float)):
-        return bool(value)
-    if isinstance(value, str):
-        s = value.strip().lower()
-        if s in {"true", "1", "yes", "y", "on"}:
-            return True
-        if s in {"false", "0", "no", "n", "off"}:
-            return False
-    return bool(default)
-
-
-def _config_int(config: Any, key: str, default: int, *, minimum: int = 0) -> int:
-    found, value_raw = _config_value(config, key)
-    if not found:
-        value = int(default)
-    else:
-        try:
-            value = int(value_raw)
-        except Exception:
-            value = int(default)
-    return max(int(minimum), int(value))
-
-
-def _config_float(
-    config: Any, key: str, default: float, *, minimum: float = 0.0
-) -> float:
-    found, value_raw = _config_value(config, key)
-    if not found:
-        value = float(default)
-    else:
-        try:
-            value = float(value_raw)
-        except Exception:
-            value = float(default)
-    if not np.isfinite(value):
-        value = float(default)
-    return float(max(float(minimum), value))
-
-
-def _resolve_volume_series(
-    df: pd.DataFrame,
-) -> Tuple[Optional[np.ndarray], Optional[str]]:
-    if not isinstance(df, pd.DataFrame) or len(df) <= 0:
-        return None, None
-
-    if "real_volume" in df.columns:
-        try:
-            real_volume = pd.to_numeric(df["real_volume"], errors="coerce").to_numpy(
-                dtype=float, copy=False
-            )
-        except Exception:
-            real_volume = np.asarray([], dtype=float)
-        finite_real = real_volume[np.isfinite(real_volume)]
-        if finite_real.size > 0 and np.nanmax(finite_real) > 0:
-            return real_volume, "real_volume"
-
-    for col in ("volume", "tick_volume", "Volume"):
-        if col not in df.columns:
-            continue
-        try:
-            volume = pd.to_numeric(df[col], errors="coerce").to_numpy(
-                dtype=float, copy=False
-            )
-        except Exception:
-            continue
-        if volume.size <= 0:
-            continue
-        if np.isfinite(volume).any():
-            return volume, str(col)
-    return None, None
-
-
-def _volume_window_mean(
-    volume: Optional[np.ndarray], start_index: Any, end_index: Any
-) -> Optional[float]:
-    if volume is None or len(volume) <= 0:
-        return None
-    try:
-        start_i = int(start_index)
-        end_i = int(end_index)
-    except Exception:
-        return None
-    start_i = max(0, start_i)
-    end_i = min(int(len(volume) - 1), end_i)
-    if end_i < start_i:
-        return None
-    window = np.asarray(volume[start_i : end_i + 1], dtype=float)
-    window = window[np.isfinite(window)]
-    window = window[window >= 0]
-    if window.size <= 0:
-        return None
-    return float(np.mean(window))
-
-
-def _apply_confidence_delta(row: Dict[str, Any], delta: float) -> None:
-    if not np.isfinite(delta) or abs(float(delta)) <= 1e-12:
-        return
-    conf = _row_confidence_weight(row)
-    cap = 0.95 if str(row.get("status", "")).lower() == "forming" else 1.0
-    row["confidence"] = float(max(0.0, min(cap, conf + float(delta))))
-
-
-def _infer_market_regime(df: pd.DataFrame, config: Any) -> Optional[Dict[str, Any]]:
-    if not isinstance(df, pd.DataFrame) or len(df) <= 0:
-        return None
-
-    try:
-        close = pd.to_numeric(df.get("close"), errors="coerce").to_numpy(
-            dtype=float, copy=False
-        )
-    except Exception:
-        return None
-    if close.size < 20:
-        return None
-
-    close = close[np.isfinite(close)]
-    if close.size < 20:
-        return None
-
-    result = infer_market_regime(
-        close,
-        window_bars=_config_int(config, "regime_window_bars", 160, minimum=20),
-        trend_strength_threshold=_config_float(
-            config, "regime_trend_strength_threshold", 1.25, minimum=0.1
-        ),
-        efficiency_threshold=_config_float(
-            config,
-            "regime_efficiency_trending_threshold",
-            0.35,
-            minimum=0.05,
-        ),
-    )
-    if result is None:
-        return None
-    return {
-        "state": result["state"],
-        "direction": result["direction"],
-        "window_bars": result["window_bars"],
-        "trend_strength": _round_value(result["trend_strength"]),
-        "efficiency_ratio": _round_value(result["efficiency_ratio"]),
-        "window_move_pct": _round_value(result["window_move_pct"]),
-    }
 
 
 def _attach_regime_context(
@@ -1700,21 +1528,15 @@ def _attach_regime_context(
     confidence_delta = 0.0
 
     if bias in {"bullish", "bearish"}:
-        if payload.get("state") == "trending" and payload.get("direction") in {
-            "bullish",
-            "bearish",
-        }:
-            if bias == payload.get("direction"):
-                payload["status"] = "aligned"
-                payload["alignment"] = "aligned"
-                confidence_delta = float(bonus)
-            else:
-                payload["status"] = "countertrend"
-                payload["alignment"] = "countertrend"
-                confidence_delta = -float(penalty)
-        else:
-            payload["status"] = "context_only"
-            payload["alignment"] = "neutral"
+        status, alignment, confidence_delta = directional_regime_verdict(
+            bias,
+            state=payload.get("state"),
+            regime_direction=payload.get("direction"),
+            bonus=bonus,
+            penalty=penalty,
+        )
+        payload["status"] = status
+        payload["alignment"] = alignment
     elif bias == "neutral":
         if payload.get("state") == "ranging":
             payload["status"] = "range_aligned"
@@ -1809,21 +1631,16 @@ def _attach_classic_volume_confirmation(
         payload["breakout_to_baseline_ratio"] = _round_value(ratio)
 
     status = str(out.get("status", "")).strip().lower()
-    confidence_delta = 0.0
-    if ratio is None:
-        payload["status"] = "unavailable"
-    elif status == "completed":
-        reject_ratio = (1.0 / float(min_ratio)) if min_ratio > 0 else 0.0
-        if ratio >= float(min_ratio):
-            payload["status"] = "confirmed"
-            confidence_delta = float(bonus)
-        elif ratio <= float(reject_ratio):
-            payload["status"] = "rejected"
-            confidence_delta = -float(penalty)
-        else:
-            payload["status"] = "neutral"
+    if ratio is None or status == "completed":
+        payload["status"], confidence_delta = volume_confirmation_verdict(
+            ratio,
+            min_ratio=min_ratio,
+            bonus=bonus,
+            penalty=penalty,
+        )
     else:
         payload["status"] = "pending"
+        confidence_delta = 0.0
 
     if abs(confidence_delta) > 1e-12:
         payload["confidence_delta"] = _round_value(confidence_delta)
@@ -1942,19 +1759,12 @@ def _attach_elliott_volume_confirmation(
     min_ratio = _config_float(config, "volume_confirm_min_ratio", 1.05, minimum=1.0)
     bonus = _config_float(config, "volume_confirm_bonus", 0.06, minimum=0.0)
     penalty = _config_float(config, "volume_confirm_penalty", 0.04, minimum=0.0)
-    confidence_delta = 0.0
-    if ratio is None:
-        payload["status"] = "unavailable"
-    else:
-        reject_ratio = (1.0 / float(min_ratio)) if min_ratio > 0 else 0.0
-        if ratio >= float(min_ratio):
-            payload["status"] = "confirmed"
-            confidence_delta = float(bonus)
-        elif ratio <= float(reject_ratio):
-            payload["status"] = "rejected"
-            confidence_delta = -float(penalty)
-        else:
-            payload["status"] = "neutral"
+    payload["status"], confidence_delta = volume_confirmation_verdict(
+        ratio,
+        min_ratio=min_ratio,
+        bonus=bonus,
+        penalty=penalty,
+    )
 
     if abs(confidence_delta) > 1e-12:
         payload["confidence_delta"] = _round_value(confidence_delta)

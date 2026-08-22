@@ -7,16 +7,6 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from ..core.patterns_support import (
-    _apply_confidence_delta,
-    _config_bool,
-    _config_float,
-    _config_int,
-    _infer_market_regime,
-    _resolve_volume_series,
-    _round_value,
-    _volume_window_mean,
-)
 from ..shared.constants import TIME_DISPLAY_FORMAT, TIMEFRAME_SECONDS
 from ..shared.validators import invalid_timeframe_error
 from ..utils.freshness import completed_bar_freshness_fields
@@ -27,6 +17,18 @@ from ..utils.utils import (
     _table_from_rows,
 )
 from .common import data_quality_warnings, should_drop_last_live_bar
+from .enrichment import (
+    _apply_confidence_delta,
+    _config_bool,
+    _config_float,
+    _config_int,
+    _infer_market_regime,
+    _resolve_volume_series,
+    _round_value,
+    _volume_window_mean,
+    directional_regime_verdict,
+    volume_confirmation_verdict,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1225,19 +1227,12 @@ def _attach_candlestick_volume_confirmation(
         payload["signal_avg_volume"] = _round_value(signal_avg)
     if ratio is not None and np.isfinite(ratio):
         payload["signal_to_baseline_ratio"] = _round_value(ratio)
-    confidence_delta = 0.0
-    if ratio is None:
-        payload["status"] = "unavailable"
-    else:
-        reject_ratio = (1.0 / float(min_ratio)) if min_ratio > 0 else 0.0
-        if ratio >= float(min_ratio):
-            payload["status"] = "confirmed"
-            confidence_delta = float(bonus)
-        elif ratio <= float(reject_ratio):
-            payload["status"] = "rejected"
-            confidence_delta = -float(penalty)
-        else:
-            payload["status"] = "neutral"
+    payload["status"], confidence_delta = volume_confirmation_verdict(
+        ratio,
+        min_ratio=min_ratio,
+        bonus=bonus,
+        penalty=penalty,
+    )
     if abs(confidence_delta) > 1e-12:
         payload["confidence_delta"] = _round_value(confidence_delta)
         _apply_confidence_delta(row, confidence_delta)
@@ -1269,22 +1264,15 @@ def _attach_candlestick_regime_context(
     payload["pattern_bias"] = bias
     bonus = _config_float(config, "regime_alignment_bonus", 0.05, minimum=0.0)
     penalty = _config_float(config, "regime_countertrend_penalty", 0.05, minimum=0.0)
-    confidence_delta = 0.0
-    if payload.get("state") == "trending" and payload.get("direction") in {
-        "bullish",
-        "bearish",
-    }:
-        if bias == payload.get("direction"):
-            payload["status"] = "aligned"
-            payload["alignment"] = "aligned"
-            confidence_delta = float(bonus)
-        else:
-            payload["status"] = "countertrend"
-            payload["alignment"] = "countertrend"
-            confidence_delta = -float(penalty)
-    else:
-        payload["status"] = "context_only"
-        payload["alignment"] = "neutral"
+    status, alignment, confidence_delta = directional_regime_verdict(
+        bias,
+        state=payload.get("state"),
+        regime_direction=payload.get("direction"),
+        bonus=bonus,
+        penalty=penalty,
+    )
+    payload["status"] = status
+    payload["alignment"] = alignment
     if abs(confidence_delta) > 1e-12:
         payload["confidence_delta"] = _round_value(confidence_delta)
         _apply_confidence_delta(row, confidence_delta)
