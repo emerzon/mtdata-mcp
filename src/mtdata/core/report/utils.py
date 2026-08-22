@@ -13,6 +13,7 @@ from ...shared.constants import (
 from ...shared.market_units import forex_pip_size
 from ...utils.barriers import get_tick_size as _get_tick_size
 from ...utils.mt5 import get_symbol_info_cached
+from ...utils.quote import compute_spread_metrics
 from ...utils.time import format_datetime_utc
 from ...utils.utils import _parse_end_datetime
 from ..tool_calling import call_tool_sync_structured
@@ -783,15 +784,16 @@ def report_market_quote(  # noqa: C901
         if depth_reason:
             snapshot['depth_reason'] = depth_reason
 
-        valid_pair = False
-        try:
-            valid_pair = (
-                bid is not None
-                and ask is not None
-                and float(ask) > float(bid)
+        if not isinstance(snapshot.get('spread_valid'), bool):
+            spread_metrics = compute_spread_metrics(
+                bid,
+                ask,
+                point=point_size,
+                tick_size=tick_size,
             )
-        except (TypeError, ValueError):
-            valid_pair = False
+            snapshot['spread_valid'] = spread_metrics['spread_valid']
+            snapshot['spread_quality'] = spread_metrics['spread_quality']
+        valid_pair = snapshot.get('spread_valid') is True
         if not valid_pair:
             snapshot.update(
                 {
@@ -834,14 +836,13 @@ def apply_market_gates(section: Dict[str, Any], params: Dict[str, Any]) -> Dict[
         'spread_valid': section.get('spread_valid'),
     }
     if gate['spread_valid'] is None:
-        try:
-            gate['spread_valid'] = (
-                section.get('bid') is not None
-                and section.get('ask') is not None
-                and float(section['ask']) > float(section['bid'])
-            )
-        except (KeyError, TypeError, ValueError):
-            gate['spread_valid'] = False
+        spread_metrics = compute_spread_metrics(
+            section.get('bid'),
+            section.get('ask'),
+            point=section.get('point_size'),
+            tick_size=section.get('tick_size'),
+        )
+        gate['spread_valid'] = spread_metrics['spread_valid']
     if gate['quote_usable_for_live_trading'] is None:
         gate['quote_usable_for_live_trading'] = bool(gate['spread_valid'])
 
