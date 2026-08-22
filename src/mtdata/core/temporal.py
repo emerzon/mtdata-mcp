@@ -12,7 +12,7 @@ from ..services.data_service.candles import (
     _drop_incomplete_tail_df,
     _parse_candle_calendar_bound,
 )
-from ..shared.constants import TIMEFRAME_MAP, TIMEFRAME_SECONDS
+from ..shared.constants import CALENDAR_TIMEFRAMES, TIMEFRAME_MAP, TIMEFRAME_SECONDS
 from ..shared.schema import DetailLiteral, TimeframeLiteral
 from ..shared.symbols import is_probably_fx_session_symbol
 from ..shared.validators import (
@@ -1214,7 +1214,7 @@ def temporal_analyze(  # noqa: C901
             dt_utc = pd.to_datetime(df["__epoch"], unit="s", utc=True)
             dt = dt_utc.dt.tz_convert(analysis_tz)
             df["__dt"] = dt
-            uses_broker_session_date = timeframe in {"D1", "W1", "MN1"}
+            uses_broker_session_date = timeframe in CALENDAR_TIMEFRAMES
             if uses_broker_session_date:
                 df["__session_date"] = df["__epoch"].map(_broker_session_date)
                 df["__month"] = df["__session_date"].map(lambda value: value.month)

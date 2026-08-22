@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from ..shared.constants import TIME_DISPLAY_FORMAT
+from ..shared.constants import CALENDAR_TIMEFRAMES, TIME_DISPLAY_FORMAT
 
 
 def bar_close_epoch(open_epoch: Any, timeframe: str) -> float:
@@ -14,7 +14,7 @@ def bar_close_epoch(open_epoch: Any, timeframe: str) -> float:
     """
     opened = float(open_epoch)
     normalized_timeframe = str(timeframe).upper()
-    if normalized_timeframe in {"D1", "W1", "MN1"}:
+    if normalized_timeframe in CALENDAR_TIMEFRAMES:
         opened_at = datetime.fromtimestamp(opened, tz=timezone.utc)
         broker_tz = _broker_calendar_timezone(opened_at)
         opened_local = opened_at.astimezone(broker_tz)

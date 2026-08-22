@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import ValidationError
 
 from ...services.data_service import fetch_candles, fetch_ticks
-from ...shared.constants import TIMEFRAME_SECONDS
+from ...shared.constants import CALENDAR_TIMEFRAMES, TIMEFRAME_SECONDS
 from ...shared.schema import DetailLiteral, TimeframeLiteral
 from ...utils.coercion import coerce_finite_float
 from ...utils.mt5 import (
@@ -292,7 +292,7 @@ def _default_level_price_source(symbol: str) -> str:
 
 def _default_wait_event_pivot_timeframe(timeframe: TimeframeLiteral) -> TimeframeLiteral:
     normalized = str(timeframe or "M1").upper().strip()
-    if normalized in {"D1", "W1", "MN1"}:
+    if normalized in CALENDAR_TIMEFRAMES:
         return normalized  # type: ignore[return-value]
     return "D1"
 

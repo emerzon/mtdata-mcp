@@ -11,7 +11,12 @@ import numpy as np
 import pandas as pd
 
 from ..bootstrap.settings import mt5_config
-from ..shared.constants import SANITY_BARS_TOLERANCE, TIMEFRAME_MAP, TIMEFRAME_SECONDS
+from ..shared.constants import (
+    CALENDAR_TIMEFRAMES,
+    SANITY_BARS_TOLERANCE,
+    TIMEFRAME_MAP,
+    TIMEFRAME_SECONDS,
+)
 from ..shared.schema import DenoiseSpec, ForecastMethodLiteral, TimeframeLiteral
 from ..shared.symbols import is_probably_crypto_symbol
 from ..shared.validators import (
@@ -1692,7 +1697,7 @@ def _format_forecast_output(
         now_epoch=now_epoch,
     )
     last_observation_time = fmt_time(float(last_epoch))
-    calendar_timeframe = str(timeframe or "").upper() in {"D1", "W1", "MN1"}
+    calendar_timeframe = str(timeframe or "").upper() in CALENDAR_TIMEFRAMES
     if calendar_timeframe or session_projection:
         calendar_gaps, skipped_bars = [], 0
     else:

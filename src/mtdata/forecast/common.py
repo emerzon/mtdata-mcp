@@ -32,7 +32,7 @@ def _calendar_bound_or_raise(
         )
     except ValueError as exc:
         raise RuntimeError(str(exc)) from exc
-from ..shared.constants import TIMEFRAME_MAP, TIMEFRAME_SECONDS
+from ..shared.constants import CALENDAR_TIMEFRAMES, TIMEFRAME_MAP, TIMEFRAME_SECONDS
 from ..shared.market_sessions import (
     exchange_holidays,
     is_early_close_session,
@@ -729,7 +729,7 @@ def next_times_from_last(
     base = float(last_epoch)
     step = float(tf_secs)
     normalized_timeframe = str(timeframe or "").upper()
-    if normalized_timeframe in {"D1", "W1", "MN1"}:
+    if normalized_timeframe in CALENDAR_TIMEFRAMES:
         out: List[float] = []
         current = base
         for _ in range(int(horizon)):
@@ -1242,7 +1242,7 @@ def fetch_history(
             cutoff = _utc_epoch_seconds(to_dt)
             bound_value = as_of or end
             date_only_calendar_bound = bool(
-                timeframe in {"D1", "W1", "MN1"}
+                timeframe in CALENDAR_TIMEFRAMES
                 and isinstance(bound_value, str)
                 and re.fullmatch(r"\d{4}-\d{2}-\d{2}", bound_value.strip())
             )
@@ -1272,7 +1272,7 @@ def fetch_history(
             if not start and len(df) > need:
                 df = df.iloc[-int(need):]
 
-    if timeframe in {"D1", "W1", "MN1"} and (start or end):
+    if timeframe in CALENDAR_TIMEFRAMES and (start or end):
         df = _trim_calendar_bars_to_session_dates(
             df,
             start_datetime=start,

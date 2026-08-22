@@ -5,7 +5,11 @@ from contextvars import ContextVar
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
-from ...shared.constants import TIME_DISPLAY_FORMAT, TIMEFRAME_SECONDS
+from ...shared.constants import (
+    CALENDAR_TIMEFRAMES,
+    TIME_DISPLAY_FORMAT,
+    TIMEFRAME_SECONDS,
+)
 from ...shared.market_units import forex_pip_size
 from ...utils.barriers import get_tick_size as _get_tick_size
 from ...utils.mt5 import get_symbol_info_cached
@@ -86,7 +90,7 @@ def resolve_report_context_end(end: Any, timeframe: str) -> Any:
     if end in (None, ""):
         return end
     normalized_timeframe = str(timeframe or "").strip().upper()
-    if normalized_timeframe in {"D1", "W1", "MN1"}:
+    if normalized_timeframe in CALENDAR_TIMEFRAMES:
         return end
     seconds = TIMEFRAME_SECONDS.get(normalized_timeframe)
     parsed = _parse_end_datetime(str(end))

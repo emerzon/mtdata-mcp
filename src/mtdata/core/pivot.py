@@ -8,7 +8,7 @@ from pydantic import Field
 
 from ..bootstrap.settings import mt5_config
 from ..forecast.common import fetch_history as _fetch_history
-from ..shared.constants import TIMEFRAME_MAP, TIMEFRAME_SECONDS
+from ..shared.constants import CALENDAR_TIMEFRAMES, TIMEFRAME_MAP, TIMEFRAME_SECONDS
 from ..shared.schema import (
     _PIVOT_METHODS,
     AutoTimeframeLiteral,
@@ -573,7 +573,7 @@ def pivot_compute_points(  # noqa: C901
             start_str = _format_time_minimal_local(period_start) if _use_ctz else _format_time_minimal(period_start)
             end_str = _format_time_minimal_local(period_end) if _use_ctz else _format_time_minimal(period_end)
             period_note = None
-            if str(timeframe).upper() in {"D1", "W1", "MN1"}:
+            if str(timeframe).upper() in CALENDAR_TIMEFRAMES:
                 period_note = (
                     "MT5 daily/weekly/monthly bar periods follow broker/server "
                     "session boundaries; UTC timestamps may not align to UTC "

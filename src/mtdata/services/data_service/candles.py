@@ -14,6 +14,7 @@ import pandas as pd
 from ...bootstrap.settings import mt5_config
 from ...core.error_envelope import build_error_payload
 from ...shared.constants import (
+    CALENDAR_TIMEFRAMES,
     DEFAULT_ROW_LIMIT,
     FETCH_RETRY_ATTEMPTS,
     FETCH_RETRY_DELAY,
@@ -849,7 +850,7 @@ def _trim_df_to_target(
     copy_rows: bool = True,
     timeframe: Optional[str] = None,
 ) -> pd.DataFrame:
-    if timeframe in {"D1", "W1", "MN1"} and (
+    if timeframe in CALENDAR_TIMEFRAMES and (
         _is_calendar_query_bound(start_datetime)
         or _is_calendar_query_bound(end_datetime)
     ):
@@ -1177,7 +1178,7 @@ def _normalize_candle_spread_columns(
 
 def _candle_time_convention_metadata(timeframe: str) -> Dict[str, str]:
     tf = str(timeframe or "").strip().upper()
-    if tf in {"D1", "W1", "MN1"}:
+    if tf in CALENDAR_TIMEFRAMES:
         return {
             "bar_time_convention": "bar_open_time",
             "bar_time_note": (
@@ -2263,7 +2264,7 @@ def fetch_candles(  # noqa: C901
             if forming_candle_included and ti_added_cols:
                 payload["indicator_uses_incomplete_bar"] = True
 
-            if str(timeframe).upper() in {"D1", "W1", "MN1"}:
+            if str(timeframe).upper() in CALENDAR_TIMEFRAMES:
                 broker_tz = mt5_config.get_server_tz()
                 if broker_tz is not None and "__epoch" in df.columns:
                     for row, epoch_value in zip(

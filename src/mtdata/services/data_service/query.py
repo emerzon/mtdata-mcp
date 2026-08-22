@@ -6,6 +6,7 @@ from datetime import timezone as dt_timezone
 from typing import Any, Dict, Optional
 
 from ...bootstrap.settings import mt5_config
+from ...shared.constants import CALENDAR_TIMEFRAMES
 from ...shared.schema import TimeframeLiteral
 from ...utils.time import (
     _broker_calendar_timezone as _resolve_broker_calendar_timezone,
@@ -67,7 +68,7 @@ def _missing_broker_session_timezone_error(
     timeframe: Optional[str],
     value: Optional[str],
 ) -> Optional[str]:
-    if timeframe not in {"D1", "W1", "MN1"} or not _is_calendar_query_bound(value):
+    if timeframe not in CALENDAR_TIMEFRAMES or not _is_calendar_query_bound(value):
         return None
     if _broker_calendar_timezone() is not None:
         return None
@@ -86,7 +87,7 @@ def _parse_candle_calendar_bound(
     end_bound: bool,
 ) -> Optional[datetime]:
     """Resolve D1/W1/MN1 calendar labels at broker-local midnight."""
-    if timeframe not in {"D1", "W1", "MN1"} or not _is_calendar_query_bound(value):
+    if timeframe not in CALENDAR_TIMEFRAMES or not _is_calendar_query_bound(value):
         return None
     tz_error = _missing_broker_session_timezone_error(timeframe, value)
     if tz_error:
@@ -160,7 +161,7 @@ def _candle_query_applied(
     query: Dict[str, Any] = {"mode": "range", "timeframe": timeframe}
     if limit is not None:
         query["limit"] = int(limit)
-    calendar_session_bounds = timeframe in {"D1", "W1", "MN1"} and (
+    calendar_session_bounds = timeframe in CALENDAR_TIMEFRAMES and (
         _is_calendar_query_bound(start) or _is_calendar_query_bound(end)
     )
     if calendar_session_bounds:

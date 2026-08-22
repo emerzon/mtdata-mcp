@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from ..services.data_service.candles import _is_last_bar_forming
-from ..shared.constants import TIMEFRAME_MAP, TIMEFRAME_SECONDS
+from ..shared.constants import CALENDAR_TIMEFRAMES, TIMEFRAME_MAP, TIMEFRAME_SECONDS
 from ..shared.schema import DenoiseSpec, DetailLiteral, TimeframeLiteral
 from ..shared.validators import (
     invalid_timeframe_error,
@@ -666,7 +666,7 @@ def _volatility_input_context(
     if forecast_epochs:
         start_epoch = float(forecast_epochs[0])
         end_epoch = float(forecast_epochs[-1])
-        calendar_timeframe = str(timeframe).upper() in {"D1", "W1", "MN1"}
+        calendar_timeframe = str(timeframe).upper() in CALENDAR_TIMEFRAMES
         out["forecast_window"] = {
             "anchor": _format_time_minimal(grid_anchor_epoch),
             "start": _format_time_minimal(start_epoch),
@@ -752,7 +752,7 @@ def _next_volatility_times_on_grid(
             symbol=symbol,
             observed_times=observed_times,
         )
-    if normalized_timeframe not in {"D1", "W1", "MN1"}:
+    if normalized_timeframe not in CALENDAR_TIMEFRAMES:
         steps_after_anchor = math.floor(
             (float(last_observation_epoch) - float(grid_anchor_epoch))
             / float(tf_secs)

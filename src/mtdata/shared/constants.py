@@ -39,6 +39,9 @@ TIMEFRAME_SECONDS = {
     "MN1": 2592000,
 }
 
+# Bars whose boundaries follow broker trading sessions instead of fixed UTC spans.
+CALENDAR_TIMEFRAMES = frozenset({"D1", "W1", "MN1"})
+
 # Constants (centralize defaults instead of hardcoding inline)
 SERVICE_NAME = "MetaTrader5 Market Data Server"
 TICKS_LOOKBACK_DAYS = 1
