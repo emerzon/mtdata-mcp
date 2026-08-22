@@ -29,6 +29,7 @@ def test_forecast_barrier_prob_request_rejects_removed_flat_barriers():
 def test_forecast_barrier_prob_request_allows_single_shared_unit_family():
     request = ForecastBarrierProbRequest(symbol="EURUSD", barrier=_tp_sl_barrier())
 
+    assert isinstance(request.barrier, BarrierPairSpec)
     assert request.tp_pct == 0.5
     assert request.sl_pct == 0.25
 

@@ -13,6 +13,7 @@ from pydantic import (
 )
 
 from ..shared.schema import (
+    BarrierPairSpec,
     DenoiseSpec,
     DetailLiteral,
     DimensionalityReductionSpec,
@@ -78,24 +79,6 @@ class SinglePriceBarrierSpec(BaseModel):
     level: float = Field(gt=0.0, description="Positive absolute barrier price.")
 
 
-class TakeProfitStopLossBarrierSpec(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    kind: Literal["tp_sl"] = "tp_sl"
-    unit: Literal["price", "pct", "ticks"] = Field(
-        description="Barrier unit: absolute price, percent, or trade ticks."
-    )
-    take_profit: float = Field(gt=0.0, description="Positive take-profit level or distance.")
-    stop_loss: float = Field(gt=0.0, description="Positive stop-loss level or distance.")
-
-    def as_legacy_kwargs(self) -> Dict[str, float]:
-        suffix = {"price": "abs", "pct": "pct", "ticks": "ticks"}[self.unit]
-        return {
-            f"tp_{suffix}": float(self.take_profit),
-            f"sl_{suffix}": float(self.stop_loss),
-        }
-
-
 def _normalize_forecast_barrier_spec(value: Any) -> Any:
     if isinstance(value, bool):
         raise ValueError(
@@ -141,7 +124,7 @@ def _normalize_forecast_barrier_spec(value: Any) -> Any:
 
 
 ForecastBarrierSpec = Annotated[
-    Union[SinglePriceBarrierSpec, TakeProfitStopLossBarrierSpec],
+    Union[SinglePriceBarrierSpec, BarrierPairSpec],
     BeforeValidator(_normalize_forecast_barrier_spec),
     Field(discriminator="kind"),
 ]
@@ -668,13 +651,13 @@ class ForecastBarrierProbRequest(_PublicForecastRequest):
         if self.method == "closed_form" and not isinstance(self.barrier, SinglePriceBarrierSpec):
             raise ValueError("closed_form requires barrier.kind='single_price'")
         if self.method != "closed_form" and not isinstance(
-            self.barrier, TakeProfitStopLossBarrierSpec
+            self.barrier, BarrierPairSpec
         ):
             raise ValueError("Monte Carlo methods require barrier.kind='tp_sl'")
         return self
 
     def barrier_kwargs(self) -> Dict[str, float]:
-        if isinstance(self.barrier, TakeProfitStopLossBarrierSpec):
+        if isinstance(self.barrier, BarrierPairSpec):
             return self.barrier.as_legacy_kwargs()
         return {}
 
