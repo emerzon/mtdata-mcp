@@ -86,6 +86,37 @@ def _fit_line_bounded_shape(
     }
 
 
+def _classify_shape_breakout(
+    c: np.ndarray,
+    *,
+    upper: np.ndarray,
+    lower: np.ndarray,
+    tol_abs: float,
+    confidence: float,
+    cfg: ClassicDetectorConfig,
+) -> tuple[str, float, Optional[str], Optional[int]]:
+    breakout_look = max(
+        int(cfg.completion_lookback_bars),
+        int(max(1, cfg.breakout_lookahead)),
+    )
+    direction, index = _find_recent_breakout(
+        c,
+        upper=upper,
+        lower=lower,
+        tol_abs=tol_abs,
+        tol_pct=float(cfg.same_level_tol_pct),
+        lookback_bars=breakout_look,
+    )
+    if direction is None or index is None:
+        return "forming", confidence, direction, index
+    return (
+        "completed",
+        _apply_breakout_confidence_bonus(confidence, cfg),
+        direction,
+        index,
+    )
+
+
 def _build_line_bounded_pattern_results(
     name: str,
     shape: Dict[str, Any],
@@ -95,20 +126,14 @@ def _build_line_bounded_pattern_results(
     bias: str = "neutral",
 ) -> List[ClassicPatternResult]:
     conf = _conf(shape["touches"], min(shape["r2h"], shape["r2l"]), 1.0, cfg)
-    status = "forming"
-    breakout_look = max(int(cfg.completion_lookback_bars), int(max(1, cfg.breakout_lookahead)))
-    bdir, bidx = _find_recent_breakout(
+    status, conf, bdir, bidx = _classify_shape_breakout(
         shape["c"],
         upper=shape["top"],
         lower=shape["bot"],
         tol_abs=shape["tol_abs"],
-        tol_pct=float(cfg.same_level_tol_pct),
-        lookback_bars=breakout_look,
+        confidence=conf,
+        cfg=cfg,
     )
-
-    if bdir is not None and bidx is not None:
-        status = "completed"
-        conf = _apply_breakout_confidence_bonus(conf, cfg)
 
     end_index = int(max(int(max(shape["ih"][-1], shape["il"][-1])), int(bidx) if bidx is not None else int(max(shape["ih"][-1], shape["il"][-1]))))
     base = _result(
@@ -172,23 +197,17 @@ def detect_rectangles(
     if high_hits >= required_high_hits and low_hits >= required_low_hits and touches >= cfg.min_channel_touches - 1:
         geom_ok = 1.0
         conf = _conf(touches, 1.0, geom_ok, cfg)
-        status = "forming"
         top_line = np.full(n, top, dtype=float)
         bot_line = np.full(n, bot, dtype=float)
         tol_abs = _tol_abs_from_close(c, cfg.same_level_tol_pct)
-        breakout_look = max(int(cfg.completion_lookback_bars), int(max(1, cfg.breakout_lookahead)))
-        bdir, bidx = _find_recent_breakout(
+        status, conf, bdir, bidx = _classify_shape_breakout(
             c,
             upper=top_line,
             lower=bot_line,
             tol_abs=tol_abs,
-            tol_pct=float(cfg.same_level_tol_pct),
-            lookback_bars=breakout_look,
+            confidence=conf,
+            cfg=cfg,
         )
-
-        if bdir is not None and bidx is not None:
-            status = "completed"
-            conf = _apply_breakout_confidence_bonus(conf, cfg)
 
         out.append(ClassicPatternResult(
             name="Rectangle",
@@ -311,20 +330,14 @@ def detect_broadening(
         if not _boundaries_are_ordered(top, bot, start_idx=start_idx, end_idx=last_pivot):
             return out
         tol_abs = _tol_abs_from_close(c, cfg.same_level_tol_pct)
-        status = "forming"
-        breakout_look = max(int(cfg.completion_lookback_bars), int(max(1, cfg.breakout_lookahead)))
-        bdir, bidx = _find_recent_breakout(
+        status, conf, bdir, bidx = _classify_shape_breakout(
             c,
             upper=top,
             lower=bot,
             tol_abs=tol_abs,
-            tol_pct=float(cfg.same_level_tol_pct),
-            lookback_bars=breakout_look,
+            confidence=conf,
+            cfg=cfg,
         )
-        
-        if bdir is not None and bidx is not None:
-            status = "completed"
-            conf = _apply_breakout_confidence_bonus(conf, cfg)
             
         out.append(_result(
             "Broadening Formation",
