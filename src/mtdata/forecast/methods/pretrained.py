@@ -30,23 +30,6 @@ class PretrainedMethod(ForecastMethod):
         return {"price": True, "return": True, "volatility": True, "ci": True}
 
 
-def _stringify_exception_chain(error: BaseException) -> str:
-    parts: List[str] = []
-    seen: set[int] = set()
-    current: BaseException | None = error
-    while current is not None and id(current) not in seen:
-        seen.add(id(current))
-        text = str(current).strip()
-        parts.append(text or current.__class__.__name__)
-        next_error = current.__cause__
-        if next_error is None and not current.__suppress_context__:
-            next_error = current.__context__
-        current = next_error
-    if not parts:
-        return error.__class__.__name__
-    return " | caused by: ".join(parts)
-
-
 def _resolve_chronos_device_map(requested: Any, torch_module: Any) -> str:
     """Resolve a stable device map for Chronos pipelines.
 

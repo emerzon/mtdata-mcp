@@ -177,7 +177,6 @@ from mtdata.forecast.methods.pretrained import (
     _resolve_chronos2_multivariate_columns,
     _resolve_chronos_device_map,
     _resolve_chronos_model_defaults,
-    _stringify_exception_chain,
     _unwrap_chronos_predict,
     _unwrap_chronos_quantiles,
 )
@@ -823,14 +822,3 @@ class TestPretrainedErrorContext:
 
         assert isinstance(exc_info.value.__cause__, ValueError)
         assert str(exc_info.value.__cause__) == "predict failed"
-
-
-
-def test_stringify_exception_chain_joins_nested_causes():
-    try:
-        try:
-            raise ValueError("root cause")
-        except ValueError as inner:
-            raise RuntimeError("outer cause") from inner
-    except RuntimeError as ex:
-        assert _stringify_exception_chain(ex) == "outer cause | caused by: root cause"
