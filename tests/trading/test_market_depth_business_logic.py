@@ -785,6 +785,48 @@ def test_market_ticker_prefers_stream_for_equal_timestamp_quote_conflict() -> No
     }
 
 
+def test_market_ticker_price_field_omits_quote_source_conflict() -> None:
+    now = 1_700_000_100.0
+    cached_tick = SimpleNamespace(
+        bid=1.15304,
+        ask=1.15326,
+        time=now - 1.0,
+        time_msc=(now - 1.0) * 1000.0,
+    )
+    stream_tick = {
+        "bid": 1.15308,
+        "ask": 1.15322,
+        "time": now - 1.0,
+        "time_msc": (now - 1.0) * 1000.0,
+    }
+    with patch("mtdata.core.market_depth.mt5") as mt5, patch(
+        "mtdata.core.market_depth.time.time", return_value=now
+    ), patch("mtdata.core.market_depth._use_client_tz", return_value=False):
+        mt5.COPY_TICKS_ALL = 0
+        mt5.symbol_select.return_value = True
+        mt5.symbol_info.return_value = SimpleNamespace(
+            digits=5,
+            point=0.00001,
+            trade_tick_size=0.00001,
+            trade_tick_value=1.0,
+        )
+        mt5.symbol_info_tick.return_value = cached_tick
+        mt5.copy_ticks_range.return_value = [stream_tick]
+
+        out = _raw_market_ticker("EURUSD", price_field="bid")
+
+    assert out["success"] is True
+    assert out["type"] == "price"
+    assert out["field"] == "bid"
+    assert out["price"] == 1.15308
+    assert out["freshness_state"] == "live"
+    assert out["quote_source_state"] == "reconciled_equal_timestamp_conflict"
+    assert "quote_source_conflict" not in out
+    assert "quote_conflict_pips" not in out
+    assert "alternate_bid" not in out
+    assert "alternate_ask" not in out
+
+
 def test_market_ticker_uses_last_stream_tick_when_millisecond_timestamps_tie() -> None:
     now = 1_700_000_100.0
     cached_tick = SimpleNamespace(

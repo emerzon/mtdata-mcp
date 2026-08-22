@@ -1130,7 +1130,6 @@ def market_ticker(  # noqa: C901
                     "warning",
                     "quote_source",
                     "quote_source_state",
-                    "quote_source_conflict",
                     "quote_refresh_attempted",
                     "spread_valid",
                     "spread_quality",
