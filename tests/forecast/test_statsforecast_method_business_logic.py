@@ -19,6 +19,28 @@ class _DummyStatsMethod(sfm.StatsForecastMethod):
         return {"model": "dummy", "seasonality": seasonality}
 
 
+def test_statsforecast_param_coercion_uses_shared_cli_rules():
+    assert sfm._coerce_params(
+        {
+            "enabled": "true",
+            "missing": "null",
+            "code": '"001"',
+            "rate": "1e-3",
+            "invalid": "nan",
+            "nested": '{"period": "12", "flags": ["false", "2"]}',
+            "tuple": ("3", "none"),
+        }
+    ) == {
+        "enabled": True,
+        "missing": None,
+        "code": "001",
+        "rate": 0.001,
+        "invalid": "nan",
+        "nested": {"period": 12, "flags": [False, 2]},
+        "tuple": (3, None),
+    }
+
+
 def test_statsforecast_forecast_rejects_invalid_ci_alpha(monkeypatch):
     fake_stats_mod = ModuleType("statsforecast")
     fake_stats_mod.StatsForecast = object

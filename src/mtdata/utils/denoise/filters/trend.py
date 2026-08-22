@@ -4,6 +4,7 @@ from typing import Any, Dict
 
 import numpy as np
 import pandas as pd
+from statsmodels.tsa.filters.hp_filter import hpfilter
 
 try:
     from scipy import sparse as _sps
@@ -20,19 +21,10 @@ from ..base import _series_like, register_filter
 
 
 def _hp_filter(x: np.ndarray, lamb: float) -> np.ndarray:
-    if _sps is None or _sps_linalg is None:
+    if len(x) < 3:
         return x
-    n = len(x)
-    if n < 3:
-        return x
-    d = _sps.diags(
-        [np.ones(n - 2), -2 * np.ones(n - 2), np.ones(n - 2)],
-        [0, 1, 2],
-        shape=(n - 2, n),
-        format="csc",
-    )
-    a = _sps.eye(n, format="csc") + float(lamb) * (d.T @ d)
-    return np.asarray(_sps_linalg.spsolve(a, x))
+    _cycle, trend = hpfilter(np.asarray(x, dtype=float), lamb=float(lamb))
+    return np.asarray(trend, dtype=float)
 
 
 @register_filter('hp')

@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import inspect
-import json
 import logging
 import warnings
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
+from ...utils.coercion import coerce_cli_scalar
 from ..forecast_registry import ForecastRegistry
 from ..interface import (
     CancelToken,
@@ -26,27 +26,10 @@ def _coerce_param_value(value: Any) -> Any:
     if isinstance(value, (list, tuple)):
         coerced = [_coerce_param_value(v) for v in value]
         return tuple(coerced) if isinstance(value, tuple) else coerced
-    if isinstance(value, str):
-        s = value.strip()
-        if not s:
-            return value
-        low = s.lower()
-        if low in ("true", "false"):
-            return low == "true"
-        if (s.startswith("{") and s.endswith("}")) or (s.startswith("[") and s.endswith("]")):
-            try:
-                return _coerce_param_value(json.loads(s))
-            except Exception:
-                pass
-        try:
-            return int(s)
-        except (TypeError, ValueError):
-            pass
-        try:
-            return float(s)
-        except (TypeError, ValueError):
-            pass
-    return value
+    coerced = coerce_cli_scalar(value)
+    if isinstance(coerced, (dict, list, tuple)):
+        return _coerce_param_value(coerced)
+    return coerced
 
 
 def _coerce_params(params: Dict[str, Any]) -> Dict[str, Any]:
