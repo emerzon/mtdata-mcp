@@ -16,8 +16,16 @@ from mtdata.core.web_api_handlers import (
     post_forecast_price_response,
     post_forecast_volatility_response,
 )
-from mtdata.core.web_api_models import BacktestBody, ForecastPriceBody, ForecastVolBody
 from mtdata.core.web_api_runtime import SafeJSONResponse
+from mtdata.forecast.requests import (
+    ForecastBacktestRequest as BacktestBody,
+)
+from mtdata.forecast.requests import (
+    ForecastGenerateRequest as ForecastPriceBody,
+)
+from mtdata.forecast.requests import (
+    ForecastVolatilityEstimateRequest as ForecastVolBody,
+)
 
 
 def _rendered(result):

@@ -10,10 +10,10 @@ from fastapi import HTTPException
 
 from ..forecast.exceptions import ForecastError
 from ..forecast.forecast_methods import get_forecast_methods_payload
+from ..shared.constants import DEFAULT_ROW_LIMIT
 from ..utils.coercion import UNPARSED_BOOL, parse_bool_like
 from ..utils.denoise import DenoiseCausalityError
 from ..utils.mt5 import MT5ConnectionError
-from ..utils.support_resistance import compact_support_resistance_payload
 from ..utils.utils import parse_kv_or_json
 from .data.requests import DATA_FETCH_CANDLES_DEFAULT_LIMIT, DataFetchCandlesRequest
 from .data.use_cases import run_data_fetch_candles
@@ -23,9 +23,7 @@ from .output_contract import (
     apply_output_verbosity,
     ensure_common_meta,
 )
-from .pivot import compute_support_resistance_payload
 from .tool_calling import resolve_sync_tool_result
-from .web_api_models import BacktestBody, ForecastPriceBody, ForecastVolBody
 
 logger = logging.getLogger(__name__)
 _MAX_DENOISE_PARAMS_CHARS = 4096
@@ -230,51 +228,44 @@ def get_instruments_response(
     *,
     search: Optional[str],
     limit: Optional[int],
-    mt5: Any,
-    extract_group_path: Callable[[Any], str],
+    symbols_list_tool: Any,
+    call_tool_raw: Callable[[Any], Any],
 ) -> Dict[str, Any]:
-    _require_mt5_connection()
-    symbols = mt5.symbols_get()
-    if symbols is None:
+    tool = call_tool_raw(symbols_list_tool)
+    result = resolve_sync_tool_result(
+        tool(
+            search_term=search,
+            limit=int(limit) if limit is not None else DEFAULT_ROW_LIMIT,
+            detail="compact",
+        )
+    )
+    if not isinstance(result, dict):
         raise _http_error(
             500,
-            f"symbols_get failed: {mt5.last_error()}",
-            code="symbols_get_failed",
+            "Unexpected symbol catalog payload.",
+            code="symbols_payload_invalid",
             operation="get_instruments",
         )
-    items: List[Dict[str, Any]] = []
-    query = (search or "").strip().lower()
-    only_visible = False if query else True
-    for symbol in symbols:
-        try:
-            if only_visible and not getattr(symbol, "visible", False):
-                continue
-            name = getattr(symbol, "name", "") or ""
-            desc = getattr(symbol, "description", "") or ""
-            group = extract_group_path(symbol)
-            if query:
-                haystack = " ".join([name, desc, group]).lower()
-                if query not in haystack:
-                    continue
-            items.append({"symbol": name, "group": group, "description": desc})
-        except Exception:
-            continue
-    total = len(items)
-    if limit and limit > 0:
-        returned_items = items[: int(limit)]
-    else:
-        returned_items = items
-    returned = len(returned_items)
+    if result.get("error"):
+        raise _http_error(
+            _http_status_for_error(result),
+            result,
+            code=str(result.get("error_code") or "symbols_list_failed"),
+            operation="get_instruments",
+        )
+    items = [
+        {
+            "symbol": row.get("symbol"),
+            "group": row.get("group"),
+            "description": row.get("description"),
+        }
+        for row in result.get("data", [])
+        if isinstance(row, dict)
+    ]
     return {
-        "items": returned_items,
-        "count": returned,
-        "pagination": {
-            "total": total,
-            "returned": returned,
-            "offset": 0,
-            "limit": int(limit) if limit and limit > 0 else None,
-            "has_more": returned < total,
-        },
+        "items": items,
+        "count": len(items),
+        "pagination": result.get("pagination"),
     }
 
 
@@ -763,15 +754,16 @@ def get_support_resistance_response(
     adx_period: int,
     decay_half_life_bars: Optional[int],
     detail: str,
-    fetch_history_impl: Callable[..., Any],
+    support_resistance_tool: Any,
+    call_tool_raw: Callable[[Any], Any],
 ) -> Dict[str, Any]:
     effective_lookback = int(lookback if lookback is not None else 200)
+    tool = call_tool_raw(support_resistance_tool)
     try:
-        result = compute_support_resistance_payload(
-            fetch_history_impl=fetch_history_impl,
+        result = resolve_sync_tool_result(tool(
             symbol=symbol,
             timeframe=timeframe,
-            limit=effective_lookback,
+            lookback=effective_lookback,
             tolerance_pct=float(tolerance_pct),
             min_touches=int(min_touches),
             max_levels=int(max_levels),
@@ -780,7 +772,8 @@ def get_support_resistance_response(
             reaction_bars=int(reaction_bars),
             adx_period=int(adx_period),
             decay_half_life_bars=None if decay_half_life_bars is None else int(decay_half_life_bars),
-        )
+            detail=detail,
+        ))
     except Exception as exc:
         message = str(exc)
         status_code = 404 if "No history available" in message else 400
@@ -792,6 +785,13 @@ def get_support_resistance_response(
             operation="get_support_resistance",
         )
 
+    if isinstance(result, dict) and result.get("error"):
+        raise _http_error(
+            _http_status_for_error(result),
+            result,
+            code=str(result.get("error_code") or "support_resistance_failed"),
+            operation="get_support_resistance",
+        )
     if not isinstance(result, dict) or not result.get("levels"):
         raise _http_error(
             404,
@@ -799,13 +799,7 @@ def get_support_resistance_response(
             code="support_resistance_levels_missing",
             operation="get_support_resistance",
         )
-    shape_detail = detail
-    payload = compact_support_resistance_payload(result) if shape_detail == "compact" else result
-    return apply_output_verbosity(
-        payload,
-        detail=shape_detail,
-        tool_name="support_resistance_levels",
-    )
+    return result
 
 
 def get_tick_response(
@@ -865,7 +859,7 @@ def _post_use_case_response(
     result_error_code: str,
 ) -> Dict[str, Any]:
     try:
-        result = use_case(body.to_domain_request())
+        result = use_case(body)
     except HTTPException:
         raise
     except ForecastError as exc:
@@ -898,7 +892,7 @@ def _post_use_case_response(
     return result
 
 
-def post_forecast_price_response(*, body: ForecastPriceBody, forecast_generate_use_case: Callable[..., Any]) -> Dict[str, Any]:
+def post_forecast_price_response(*, body: Any, forecast_generate_use_case: Callable[..., Any]) -> Dict[str, Any]:
     return _post_use_case_response(
         body=body,
         use_case=forecast_generate_use_case,
@@ -924,7 +918,7 @@ def post_trade_idea_response(*, body: Any, compose_impl: Callable[..., Any]) -> 
     )
 
 
-def post_forecast_volatility_response(*, body: ForecastVolBody, forecast_vol_impl: Callable[..., Any]) -> Dict[str, Any]:
+def post_forecast_volatility_response(*, body: Any, forecast_vol_impl: Callable[..., Any]) -> Dict[str, Any]:
     return _post_use_case_response(
         body=body,
         use_case=forecast_vol_impl,
@@ -937,7 +931,7 @@ def post_forecast_volatility_response(*, body: ForecastVolBody, forecast_vol_imp
     )
 
 
-def post_backtest_response(*, body: BacktestBody, backtest_use_case: Callable[..., Any]) -> Dict[str, Any]:
+def post_backtest_response(*, body: Any, backtest_use_case: Callable[..., Any]) -> Dict[str, Any]:
     return _post_use_case_response(
         body=body,
         use_case=backtest_use_case,

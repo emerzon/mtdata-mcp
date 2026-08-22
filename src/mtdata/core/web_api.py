@@ -5,7 +5,6 @@ from __future__ import annotations
 import hmac
 import logging
 from functools import lru_cache
-from importlib.util import find_spec as _find_spec
 from typing import Annotated, Any, Dict, Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
@@ -13,8 +12,13 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from ..bootstrap.runtime import is_loopback_host, load_web_api_runtime_settings
 from ..bootstrap.settings import load_environment, mt5_config
-from ..forecast.common import fetch_history as _fetch_history_impl
 from ..forecast.forecast import get_forecast_methods_data as _get_methods_impl
+from ..forecast.requests import (
+    ForecastBacktestRequest,
+    ForecastGenerateRequest,
+    ForecastVolatilityEstimateRequest,
+)
+from ..forecast.use_cases.sktime_index import _discover_sktime_forecasters
 from ..forecast.volatility import (
     get_volatility_methods_data as _get_vol_methods,
 )
@@ -29,7 +33,6 @@ from ..utils.mt5 import (
     mt5,
     mt5_connection,
 )
-from ..utils.symbol import _extract_group_path as _extract_group_path_util
 from .error_envelope import build_error_payload
 from .forecast import (
     forecast_backtest_run as _forecast_backtest_tool,
@@ -43,8 +46,10 @@ from .forecast import (
 from .forecast_tasks import forecast_models_list as _forecast_models_list_tool
 from .market_depth import market_ticker as _market_ticker_tool
 from .mt5_gateway import create_mt5_gateway, mt5_connection_error
-from .pivot import confluence_levels, pivot_compute_points
+from .pivot import confluence_levels, pivot_compute_points, support_resistance_levels
+from .symbols.catalog import symbols_list
 from .tool_calling import call_tool_sync_structured, unwrap_tool_callable
+from .trading.ideas_requests import TradeIdeaComposeRequest
 from .trading.positions import trade_get_open, trade_get_pending
 from .volume_profile import volume_profile_levels
 from .web_api_geometry import (
@@ -102,11 +107,7 @@ from .web_api_handlers import (
     post_trade_idea_response as _post_trade_idea_response,
 )
 from .web_api_models import (
-    BacktestBody,
-    ForecastPriceBody,
-    ForecastVolBody,
     ToolInvokeBody,
-    TradeIdeaBody,
 )
 from .web_api_radar import (
     get_radar_response as _get_radar_response,
@@ -217,21 +218,20 @@ api_router = APIRouter(dependencies=[Depends(_require_api_access)])
 
 
 def _list_sktime_forecasters() -> Dict[str, Any]:
-    if _find_spec("sktime") is None:
-        return {"available": False, "error": "sktime not installed", "estimators": []}
     try:
-        from sktime.registry import all_estimators  # type: ignore
-
-        estimators = all_estimators(estimator_types="forecaster", as_dataframe=True)
-        items = []
-        for row in estimators.to_dict("records"):
-            cls = row.get("object") or row.get("class")
-            name = row.get("name") or getattr(cls, "__name__", None)
-            module = row.get("module") or getattr(cls, "__module__", None)
-            if not cls or not name or not module:
-                continue
-            items.append({"name": str(name), "class_path": f"{module}.{name}"})
-        items.sort(key=lambda item: item["name"].lower())
+        discovered = _discover_sktime_forecasters()
+        items = [
+            {"name": class_name, "class_path": class_path}
+            for class_name, class_path in sorted(
+                set(discovered.values()), key=lambda item: item[0].lower()
+            )
+        ]
+        if not items:
+            return {
+                "available": False,
+                "error": "No sktime forecasters are available.",
+                "estimators": [],
+            }
         return {"available": True, "estimators": items}
     except Exception as exc:
         return {"available": False, "error": str(exc), "estimators": []}
@@ -312,8 +312,8 @@ def get_instruments(search: Optional[str] = Query(None), limit: Optional[int] = 
     return _get_instruments_response(
         search=search,
         limit=limit,
-        mt5=_web_api_gateway(),
-        extract_group_path=_extract_group_path_util,
+        symbols_list_tool=symbols_list,
+        call_tool_raw=_call_tool_raw,
     )
 
 
@@ -474,7 +474,8 @@ def get_support_resistance(
         adx_period=adx_period,
         decay_half_life_bars=decay_half_life_bars,
         detail=detail,
-        fetch_history_impl=_fetch_history_impl,
+        support_resistance_tool=support_resistance_levels,
+        call_tool_raw=_call_tool_raw,
     )
 
 
@@ -547,7 +548,7 @@ def get_tick(
 
 
 @api_router.post("/forecast/price", response_model=None)
-def post_forecast_price(body: ForecastPriceBody) -> Dict[str, Any] | SafeJSONResponse:
+def post_forecast_price(body: ForecastGenerateRequest) -> Dict[str, Any] | SafeJSONResponse:
     result = _post_forecast_price_response(
         body=body,
         forecast_generate_use_case=_run_forecast_generate_impl,
@@ -563,17 +564,17 @@ def post_forecast_price(body: ForecastPriceBody) -> Dict[str, Any] | SafeJSONRes
 
 
 @api_router.post("/forecast/volatility")
-def post_forecast_volatility(body: ForecastVolBody) -> Dict[str, Any]:
+def post_forecast_volatility(body: ForecastVolatilityEstimateRequest) -> Dict[str, Any]:
     return _post_forecast_volatility_response(body=body, forecast_vol_impl=_forecast_vol_impl)
 
 
 @api_router.post("/backtest")
-def post_backtest(body: BacktestBody) -> Dict[str, Any]:
+def post_backtest(body: ForecastBacktestRequest) -> Dict[str, Any]:
     return _post_backtest_response(body=body, backtest_use_case=_run_forecast_backtest_impl)
 
 
 @api_router.post("/trade-ideas")
-def post_trade_idea(body: TradeIdeaBody) -> Dict[str, Any]:
+def post_trade_idea(body: TradeIdeaComposeRequest) -> Dict[str, Any]:
     from .trading.ideas import run_trade_idea_compose
 
     return _post_trade_idea_response(body=body, compose_impl=run_trade_idea_compose)

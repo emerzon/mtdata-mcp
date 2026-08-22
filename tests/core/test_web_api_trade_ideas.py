@@ -4,14 +4,16 @@ from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
+from mtdata.core.trading.ideas_requests import TradeIdeaComposeRequest
 from mtdata.core.web_api import app
-from mtdata.core.web_api_models import TradeIdeaBody
 
 _client = TestClient(app)
 
 
-def test_trade_idea_body_maps_to_domain_request() -> None:
-    request = TradeIdeaBody(symbol="eurusd", template="standard", risk_pct=0.75).to_domain_request()
+def test_trade_idea_request_normalizes_domain_input() -> None:
+    request = TradeIdeaComposeRequest(
+        symbol="eurusd", template="standard", risk_pct=0.75
+    )
     assert request.symbol == "EURUSD"
     assert request.template == "standard"
     assert request.risk_pct == 0.75

@@ -15,15 +15,21 @@ from pydantic import ValidationError
 from mtdata.bootstrap.runtime import WebApiRuntimeSettings
 from mtdata.core import web_api
 from mtdata.core.web_api import (
-    BacktestBody,
-    ForecastPriceBody,
-    ForecastVolBody,
     _call_tool_raw,
     _list_sktime_forecasters,
     app,
 )
 from mtdata.core.web_api_runtime import create_web_api_app, mount_webui
 from mtdata.forecast.exceptions import ForecastError
+from mtdata.forecast.requests import (
+    ForecastBacktestRequest as BacktestBody,
+)
+from mtdata.forecast.requests import (
+    ForecastGenerateRequest as ForecastPriceBody,
+)
+from mtdata.forecast.requests import (
+    ForecastVolatilityEstimateRequest as ForecastVolBody,
+)
 from mtdata.utils.mt5 import MT5ConnectionError
 
 _client = TestClient(app)
@@ -65,22 +71,27 @@ class TestCallToolRaw:
 
 class TestListSktimeForecasters:
     def test_sktime_not_installed(self):
-        with patch("mtdata.core.web_api._find_spec", return_value=None):
+        with patch("mtdata.core.web_api._discover_sktime_forecasters", return_value={}):
             res = _list_sktime_forecasters()
         assert res["available"] is False
         assert res["estimators"] == []
-        assert "not installed" in res["error"]
+        assert "No sktime forecasters" in res["error"]
 
     def test_sktime_success(self):
-        import pandas as pd
-        rows = pd.DataFrame([
-            {"name": "ThetaForecaster", "object": type("ThetaForecaster", (), {"__name__": "ThetaForecaster", "__module__": "sktime.forecasting"}), "module": "sktime.forecasting"},
-            {"name": "NaiveForecaster", "object": type("NaiveForecaster", (), {"__name__": "NaiveForecaster", "__module__": "sktime.forecasting"}), "module": "sktime.forecasting"},
-        ])
-        mock_spec = MagicMock()
-        mock_all_estimators = MagicMock(return_value=rows)
-        with patch("mtdata.core.web_api._find_spec", return_value=mock_spec), \
-             patch.dict(sys.modules, {"sktime": MagicMock(), "sktime.registry": MagicMock(all_estimators=mock_all_estimators)}):
+        discovered = {
+            "thetaforecaster": (
+                "ThetaForecaster",
+                "sktime.forecasting.theta.ThetaForecaster",
+            ),
+            "naiveforecaster": (
+                "NaiveForecaster",
+                "sktime.forecasting.naive.NaiveForecaster",
+            ),
+        }
+        with patch(
+            "mtdata.core.web_api._discover_sktime_forecasters",
+            return_value=discovered,
+        ):
             res = _list_sktime_forecasters()
         assert res["available"] is True
         names = [e["name"] for e in res["estimators"]]
@@ -90,23 +101,23 @@ class TestListSktimeForecasters:
         assert names == sorted(names, key=str.lower)
 
     def test_sktime_import_exception(self):
-        mock_spec = MagicMock()
-        with patch("mtdata.core.web_api._find_spec", return_value=mock_spec), \
-             patch.dict(sys.modules, {"sktime": MagicMock(), "sktime.registry": MagicMock(all_estimators=MagicMock(side_effect=RuntimeError("boom")))}):
+        with patch(
+            "mtdata.core.web_api._discover_sktime_forecasters",
+            side_effect=RuntimeError("boom"),
+        ):
             res = _list_sktime_forecasters()
         assert res["available"] is False
         assert "boom" in res["error"]
 
-    def test_sktime_row_missing_fields_skipped(self):
-        import pandas as pd
-        rows = pd.DataFrame([
-            {"name": None, "object": None, "module": None},
-            {"name": "Good", "object": type("Good", (), {"__name__": "Good", "__module__": "m"}), "module": "m"},
-        ])
-        mock_spec = MagicMock()
-        mock_all_estimators = MagicMock(return_value=rows)
-        with patch("mtdata.core.web_api._find_spec", return_value=mock_spec), \
-             patch.dict(sys.modules, {"sktime": MagicMock(), "sktime.registry": MagicMock(all_estimators=mock_all_estimators)}):
+    def test_sktime_aliases_are_deduplicated(self):
+        discovered = {
+            "good": ("Good", "sktime.forecasting.good.Good"),
+            "goodalias": ("Good", "sktime.forecasting.good.Good"),
+        }
+        with patch(
+            "mtdata.core.web_api._discover_sktime_forecasters",
+            return_value=discovered,
+        ):
             res = _list_sktime_forecasters()
         assert res["available"] is True
         assert len(res["estimators"]) == 1
@@ -125,7 +136,7 @@ class TestPydanticModels:
         assert body.horizon == 12
         assert body.ci_alpha == 0.0
         assert body.quantity == "price"
-        assert body.to_domain_request().method == "theta"
+        assert body.method == "theta"
 
     def test_forecast_vol_body_defaults(self):
         body = ForecastVolBody(symbol="EURUSD")
@@ -155,9 +166,9 @@ class TestPydanticModels:
         assert body.dimred.method == "pca"
 
     def test_forecast_bodies_accept_detail(self):
-        assert ForecastPriceBody(symbol="EURUSD", detail="summary").to_domain_request().detail == "summary"
-        assert ForecastVolBody(symbol="EURUSD", detail="standard").to_domain_request().detail == "standard"
-        assert BacktestBody(symbol="EURUSD", detail="full").to_domain_request().detail == "full"
+        assert ForecastPriceBody(symbol="EURUSD", detail="summary").detail == "summary"
+        assert ForecastVolBody(symbol="EURUSD", detail="standard").detail == "standard"
+        assert BacktestBody(symbol="EURUSD", detail="full").detail == "full"
 
     @pytest.mark.parametrize("body_type", [ForecastPriceBody, ForecastVolBody, BacktestBody])
     def test_forecast_bodies_reject_removed_extras(self, body_type):
@@ -175,7 +186,7 @@ class TestPydanticModels:
             trade_threshold=0.01,
         )
         assert body.methods == ["theta", "arima"]
-        assert body.to_domain_request().quantity == "price"
+        assert body.quantity == "price"
 
     @pytest.mark.parametrize(
         ("model", "field", "value"),
@@ -349,75 +360,72 @@ class TestGetTimeframes:
 # ===========================================================================
 
 class TestGetInstruments:
-    def test_connection_failure(self):
-        with patch.object(web_api.mt5_connection, "_ensure_connection", return_value=False):
-            resp = _client.get("/api/instruments")
-        assert resp.status_code == 503
+    def test_maps_canonical_catalog_rows(self):
+        catalog = MagicMock(
+            return_value={
+                "success": True,
+                "data": [
+                    {
+                        "symbol": "EURUSD",
+                        "group": "Forex",
+                        "description": "Euro vs USD",
+                        "match_reason": "normalized_exact",
+                    }
+                ],
+                "pagination": {
+                    "total": 1,
+                    "returned": 1,
+                    "offset": 0,
+                    "limit": 10,
+                    "has_more": False,
+                },
+            }
+        )
+        with patch("mtdata.core.web_api._call_tool_raw", return_value=catalog):
+            response = _client.get(
+                "/api/instruments",
+                params={"search": "EUR/USD", "limit": 10},
+            )
 
-    def test_symbols_get_none(self):
-        with patch.object(web_api.mt5_connection, "_ensure_connection", return_value=True), \
-             patch("mtdata.core.web_api.mt5") as mock_mt5:
-            mock_mt5.symbols_get.return_value = None
-            mock_mt5.last_error.return_value = (0, "err")
-            resp = _client.get("/api/instruments")
-        assert resp.status_code == 500
+        assert response.status_code == 200
+        body = response.json()
+        assert body["items"] == [
+            {
+                "symbol": "EURUSD",
+                "group": "Forex",
+                "description": "Euro vs USD",
+            }
+        ]
+        assert body["pagination"]["total"] == 1
+        catalog.assert_called_once_with(
+            search_term="EUR/USD",
+            limit=10,
+            detail="compact",
+        )
 
-    def test_returns_visible_symbols_no_search(self):
-        syms = [_make_symbol("EURUSD", "Euro vs USD", True), _make_symbol("HIDDEN", "X", False)]
-        with patch.object(web_api.mt5_connection, "_ensure_connection", return_value=True), \
-             patch("mtdata.core.web_api.mt5") as mock_mt5, \
-             patch("mtdata.core.web_api._extract_group_path_util", return_value="Forex"):
-            mock_mt5.symbols_get.return_value = syms
-            resp = _client.get("/api/instruments")
-        res = resp.json()
-        assert len(res["items"]) == 1
-        assert res["items"][0]["symbol"] == "EURUSD"
-        assert "name" not in res["items"][0]
-        assert res["count"] == 1
-        assert res["pagination"] == {
-            "total": 1,
-            "returned": 1,
-            "offset": 0,
-            "limit": None,
-            "has_more": False,
-        }
+    def test_uses_catalog_default_limit(self):
+        catalog = MagicMock(
+            return_value={"success": True, "data": [], "pagination": None}
+        )
+        with patch("mtdata.core.web_api._call_tool_raw", return_value=catalog):
+            response = _client.get("/api/instruments")
 
-    def test_search_filters(self):
-        syms = [_make_symbol("EURUSD", "Euro"), _make_symbol("USDJPY", "Yen")]
-        with patch.object(web_api.mt5_connection, "_ensure_connection", return_value=True), \
-             patch("mtdata.core.web_api.mt5") as mock_mt5, \
-             patch("mtdata.core.web_api._extract_group_path_util", return_value="Forex"):
-            mock_mt5.symbols_get.return_value = syms
-            resp = _client.get("/api/instruments", params={"search": "yen"})
-        res = resp.json()
-        assert len(res["items"]) == 1
-        assert res["items"][0]["symbol"] == "USDJPY"
+        assert response.status_code == 200
+        assert catalog.call_args.kwargs["limit"] == 50
 
-    def test_limit(self):
-        syms = [_make_symbol(f"SYM{i}", visible=True) for i in range(10)]
-        with patch.object(web_api.mt5_connection, "_ensure_connection", return_value=True), \
-             patch("mtdata.core.web_api.mt5") as mock_mt5, \
-             patch("mtdata.core.web_api._extract_group_path_util", return_value="Forex"):
-            mock_mt5.symbols_get.return_value = syms
-            resp = _client.get("/api/instruments", params={"limit": 3})
-        res = resp.json()
-        assert len(res["items"]) == 3
-        assert res["count"] == 3
-        assert res["pagination"]["total"] == 10
-        assert res["pagination"]["has_more"] is True
+    def test_catalog_error_is_mapped_to_http(self):
+        catalog = MagicMock(
+            return_value={
+                "success": False,
+                "error": "MT5 unavailable",
+                "error_code": "mt5_connection_error",
+            }
+        )
+        with patch("mtdata.core.web_api._call_tool_raw", return_value=catalog):
+            response = _client.get("/api/instruments")
 
-    def test_symbol_exception_skipped(self):
-        bad = MagicMock()
-        bad.visible = True
-        type(bad).name = PropertyMock(side_effect=RuntimeError("boom"))
-        good = _make_symbol("OK", "ok", True)
-        with patch.object(web_api.mt5_connection, "_ensure_connection", return_value=True), \
-             patch("mtdata.core.web_api.mt5") as mock_mt5, \
-             patch("mtdata.core.web_api._extract_group_path_util", return_value="G"):
-            mock_mt5.symbols_get.return_value = [bad, good]
-            resp = _client.get("/api/instruments")
-        res = resp.json()
-        assert any(i["symbol"] == "OK" for i in res["items"])
+        assert response.status_code == 503
+        assert response.json()["detail"]["error_code"] == "mt5_connection_error"
 
 
 # ===========================================================================
@@ -1642,218 +1650,68 @@ class TestMainWebapi:
 # ===========================================================================
 
 class TestGetSupportResistance:
-    def _sr_params(self, **kw):
-        defaults = {"symbol": "EURUSD", "timeframe": "H1", "limit": 800,
-                     "tolerance_pct": 0.15, "min_touches": 2, "max_levels": 4}
-        defaults.update(kw)
-        return defaults
-
-    def test_fetch_exception(self):
-        with patch("mtdata.core.web_api._fetch_history_impl", side_effect=RuntimeError("fail")):
-            resp = _client.get("/api/support-resistance", params=self._sr_params())
-        assert resp.status_code == 400
-        assert resp.json()["detail"]["error_code"] == "support_resistance_history_failed"
-
-    def test_empty_df(self):
-        import pandas as pd
-        with patch("mtdata.core.web_api._fetch_history_impl", return_value=pd.DataFrame()):
-            resp = _client.get("/api/support-resistance", params=self._sr_params())
-        assert resp.status_code == 404
-        assert resp.json()["detail"]["error_code"] == "support_resistance_history_missing"
-
-    def test_none_df(self):
-        with patch("mtdata.core.web_api._fetch_history_impl", return_value=None):
-            resp = _client.get("/api/support-resistance", params=self._sr_params())
-        assert resp.status_code == 404
-        assert resp.json()["detail"]["error_code"] == "support_resistance_history_missing"
-
-    def test_missing_columns(self):
-        import pandas as pd
-        df = pd.DataFrame({"close": [1.0, 2.0, 3.0]})
-        with patch("mtdata.core.web_api._fetch_history_impl", return_value=df):
-            resp = _client.get("/api/support-resistance", params=self._sr_params())
-        assert resp.status_code == 400
-        detail = resp.json()["detail"]
-        assert detail["error_code"] == "support_resistance_history_failed"
-        assert "Missing columns" in detail["error"]
-
-    def test_too_few_bars(self):
-        import pandas as pd
-        df = pd.DataFrame({"high": [1.1, 1.2], "low": [1.0, 1.05], "close": [1.05, 1.1], "time": [1, 2]})
-        with patch("mtdata.core.web_api._fetch_history_impl", return_value=df):
-            resp = _client.get("/api/support-resistance", params=self._sr_params())
-        assert resp.status_code == 400
-
-    def test_success_with_levels(self):
-        import pandas as pd
-        n = 20
-        highs = [1.10, 1.12, 1.10, 1.09, 1.12, 1.10, 1.09, 1.12, 1.10, 1.09,
-                 1.10, 1.12, 1.10, 1.09, 1.12, 1.10, 1.09, 1.12, 1.10, 1.09]
-        lows =  [1.08, 1.09, 1.07, 1.08, 1.09, 1.07, 1.08, 1.09, 1.07, 1.08,
-                 1.08, 1.09, 1.07, 1.08, 1.09, 1.07, 1.08, 1.09, 1.07, 1.08]
-        df = pd.DataFrame({
-            "high": highs, "low": lows,
-            "close": [(h + l) / 2 for h, l in zip(highs, lows)],
-            "time": [1700000000 + i * 3600 for i in range(n)],
-        })
-        with patch("mtdata.core.web_api._fetch_history_impl", return_value=df):
-            resp = _client.get("/api/support-resistance", params=self._sr_params(
-                tolerance_pct=1.0, min_touches=1, max_levels=4,
-            ))
-        res = resp.json()
-        assert resp.status_code == 200
-        assert "supports" in res or "resistances" in res
-        assert res["symbol"] == "EURUSD"
-        assert "window" not in res
-        assert "fibonacci" not in res
-
-    def test_default_timeframe_uses_h1_mode(self):
-        import pandas as pd
-
-        n = 20
-        frame = pd.DataFrame({
-            "high": [1.10, 1.12, 1.10, 1.09, 1.12, 1.10, 1.09, 1.12, 1.10, 1.09,
-                     1.10, 1.12, 1.10, 1.09, 1.12, 1.10, 1.09, 1.12, 1.10, 1.09],
-            "low": [1.08, 1.09, 1.07, 1.08, 1.09, 1.07, 1.08, 1.09, 1.07, 1.08,
-                    1.08, 1.09, 1.07, 1.08, 1.09, 1.07, 1.08, 1.09, 1.07, 1.08],
-            "close": [1.09] * n,
-            "time": [1700000000 + i * 3600 for i in range(n)],
-        })
-
-        with patch("mtdata.core.web_api._fetch_history_impl", return_value=frame) as mock_fetch:
-            resp = _client.get(
-                "/api/support-resistance",
-                params={"symbol": "EURUSD", "min_touches": 1},
-            )
-
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["timeframe"] == "H1"
-        assert body["mode"] == "single"
-        assert mock_fetch.call_count == 1
-
-    def test_default_params_match_support_resistance_tool(self):
+    def test_delegates_to_canonical_tool(self):
         payload = {
+            "success": True,
             "symbol": "EURUSD",
             "timeframe": "H1",
-            "mode": "single",
-            "limit": 200,
-            "method": "support_resistance_levels",
-            "tolerance_pct": 0.15,
-            "min_touches": 2,
-            "max_levels": 4,
-            "levels": [{"type": "support", "value": 1.1, "touches": 2}],
+            "levels": [{"type": "support", "value": 1.1}],
         }
-        with patch("mtdata.core.web_api_handlers.compute_support_resistance_payload", return_value=payload) as mock_compute:
-            resp = _client.get("/api/support-resistance", params={"symbol": "EURUSD", "detail": "full"})
-        assert resp.status_code == 200
-        kwargs = mock_compute.call_args.kwargs
-        assert kwargs["limit"] == 200
+        tool = MagicMock(return_value=payload)
+        with patch("mtdata.core.web_api._call_tool_raw", return_value=tool):
+            response = _client.get(
+                "/api/support-resistance",
+                params={
+                    "symbol": "EURUSD",
+                    "lookback": 250,
+                    "tolerance_pct": 0.25,
+                    "detail": "full",
+                },
+            )
+
+        assert response.status_code == 200
+        assert response.json() == payload
+        kwargs = tool.call_args.kwargs
+        assert kwargs["lookback"] == 250
+        assert kwargs["tolerance_pct"] == 0.25
+        assert kwargs["detail"] == "full"
+
+    def test_defaults_match_canonical_tool(self):
+        tool = MagicMock(
+            return_value={
+                "success": True,
+                "levels": [{"type": "support", "value": 1.1}],
+            }
+        )
+        with patch("mtdata.core.web_api._call_tool_raw", return_value=tool):
+            response = _client.get(
+                "/api/support-resistance", params={"symbol": "EURUSD"}
+            )
+
+        assert response.status_code == 200
+        kwargs = tool.call_args.kwargs
+        assert kwargs["lookback"] == 200
         assert kwargs["max_distance_pct"] == 5.0
         assert kwargs["volume_weighting"] == "off"
         assert kwargs["reaction_bars"] == 6
         assert kwargs["adx_period"] == 14
         assert kwargs["decay_half_life_bars"] is None
 
-    def test_lookback_passed_to_compute_payload(self):
-        payload = {
-            "symbol": "EURUSD",
-            "timeframe": "H1",
-            "mode": "single",
-            "limit": 250,
-            "method": "support_resistance_levels",
-            "tolerance_pct": 0.15,
-            "min_touches": 2,
-            "max_levels": 4,
-            "levels": [{"type": "support", "value": 1.1, "touches": 2}],
-        }
-        with patch("mtdata.core.web_api_handlers.compute_support_resistance_payload", return_value=payload) as mock_compute:
-            resp = _client.get(
-                "/api/support-resistance",
-                params={"symbol": "EURUSD", "lookback": 250, "detail": "full"},
+    def test_canonical_tool_error_is_mapped_to_http(self):
+        tool = MagicMock(
+            return_value={
+                "success": False,
+                "error": "No history available",
+                "error_code": "no_data_for_range",
+            }
+        )
+        with patch("mtdata.core.web_api._call_tool_raw", return_value=tool):
+            response = _client.get(
+                "/api/support-resistance", params={"symbol": "EURUSD"}
             )
-        assert resp.status_code == 200
-        assert mock_compute.call_args.kwargs["limit"] == 250
 
-    def test_no_levels_detected(self):
-        import pandas as pd
-        # Strictly monotonic data: no local extrema (center never >= both neighbors for highs)
-        n = 10
-        df = pd.DataFrame({
-            "high": [1.10 + 0.001 * i for i in range(n)],
-            "low": [1.09 + 0.001 * i for i in range(n)],
-            "close": [1.095 + 0.001 * i for i in range(n)],
-            "time": [1700000000 + i * 3600 for i in range(n)],
-        })
-        with patch("mtdata.core.web_api._fetch_history_impl", return_value=df):
-            resp = _client.get("/api/support-resistance", params=self._sr_params(
-                min_touches=100, max_levels=4,
-            ))
-        assert resp.status_code == 404
-        assert resp.json()["detail"]["error_code"] == "support_resistance_levels_missing"
-
-    def test_no_time_column(self):
-        import pandas as pd
-        n = 20
-        highs = [1.10, 1.12, 1.10, 1.09, 1.12, 1.10, 1.09, 1.12, 1.10, 1.09,
-                 1.10, 1.12, 1.10, 1.09, 1.12, 1.10, 1.09, 1.12, 1.10, 1.09]
-        lows =  [1.08, 1.09, 1.07, 1.08, 1.09, 1.07, 1.08, 1.09, 1.07, 1.08,
-                 1.08, 1.09, 1.07, 1.08, 1.09, 1.07, 1.08, 1.09, 1.07, 1.08]
-        df = pd.DataFrame({
-            "high": highs, "low": lows,
-            "close": [(h + l) / 2 for h, l in zip(highs, lows)],
-        })
-        with patch("mtdata.core.web_api._fetch_history_impl", return_value=df):
-            resp = _client.get("/api/support-resistance", params=self._sr_params(
-                tolerance_pct=1.0, min_touches=1,
-            ))
-        res = resp.json()
-        assert resp.status_code == 200
-        assert "supports" in res or "resistances" in res
-
-    def test_datetime_timestamps_in_time(self):
-        """Handles datetime objects in the time column."""
-        import pandas as pd
-        n = 20
-        highs = [1.10, 1.12, 1.10, 1.09, 1.12, 1.10, 1.09, 1.12, 1.10, 1.09,
-                 1.10, 1.12, 1.10, 1.09, 1.12, 1.10, 1.09, 1.12, 1.10, 1.09]
-        lows =  [1.08, 1.09, 1.07, 1.08, 1.09, 1.07, 1.08, 1.09, 1.07, 1.08,
-                 1.08, 1.09, 1.07, 1.08, 1.09, 1.07, 1.08, 1.09, 1.07, 1.08]
-        times = [datetime(2024, 1, 1, i, 0, tzinfo=timezone.utc) for i in range(n)]
-        df = pd.DataFrame({
-            "high": highs, "low": lows,
-            "close": [(h + l) / 2 for h, l in zip(highs, lows)],
-            "time": times,
-        })
-        with patch("mtdata.core.web_api._fetch_history_impl", return_value=df):
-            resp = _client.get("/api/support-resistance", params=self._sr_params(
-                tolerance_pct=1.0, min_touches=1,
-            ))
-        res = resp.json()
-        assert resp.status_code == 200
-        assert "supports" in res or "resistances" in res
-        assert "window" not in res
-
-    def test_cluster_with_single_touch_fallback(self):
-        """When min_touches is high, falls back to returning first cluster."""
-        import pandas as pd
-        n = 10
-        highs = [1.10 + 0.01 * i for i in range(n)]
-        lows = [1.08 + 0.01 * i for i in range(n)]
-        highs[3] = max(highs) + 0.05
-        lows[6] = min(lows) - 0.05
-        df = pd.DataFrame({
-            "high": highs, "low": lows,
-            "close": [(h + l) / 2 for h, l in zip(highs, lows)],
-            "time": [1700000000 + i * 3600 for i in range(n)],
-        })
-        with patch("mtdata.core.web_api._fetch_history_impl", return_value=df):
-            resp = _client.get("/api/support-resistance", params=self._sr_params(
-                tolerance_pct=0.01, min_touches=1, max_distance_pct=20.0,
-            ))
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body.get("supports") or body.get("resistances")
+        assert response.status_code == 400
+        assert response.json()["detail"]["error_code"] == "no_data_for_range"
 
 
 # ===========================================================================
@@ -1901,30 +1759,6 @@ class TestHistoryDenoiseEdgeCases:
             })
         assert resp.status_code == 400
         assert resp.json()["detail"]["error_code"] == "denoise_params_invalid"
-
-
-class TestInstrumentSearchEdgeCases:
-    def test_search_includes_hidden_symbols(self):
-        """When search is provided, hidden symbols are also checked."""
-        syms = [_make_symbol("EURUSD", "Euro", visible=False)]
-        with patch.object(web_api.mt5_connection, "_ensure_connection", return_value=True), \
-             patch("mtdata.core.web_api.mt5") as mock_mt5, \
-             patch("mtdata.core.web_api._extract_group_path_util", return_value="Forex"):
-            mock_mt5.symbols_get.return_value = syms
-            resp = _client.get("/api/instruments", params={"search": "eur"})
-        assert len(resp.json()["items"]) == 1
-
-    def test_empty_search_string(self):
-        """Empty search string falls back to visible-only filter."""
-        syms = [_make_symbol("EURUSD", "Euro", visible=True), _make_symbol("HIDDEN", "", visible=False)]
-        with patch.object(web_api.mt5_connection, "_ensure_connection", return_value=True), \
-             patch("mtdata.core.web_api.mt5") as mock_mt5, \
-             patch("mtdata.core.web_api._extract_group_path_util", return_value="G"):
-            mock_mt5.symbols_get.return_value = syms
-            resp = _client.get("/api/instruments", params={"search": ""})
-        res = resp.json()
-        assert len(res["items"]) == 1
-        assert res["items"][0]["symbol"] == "EURUSD"
 
 
 class TestMethodsAvailabilityEdgeCases:
