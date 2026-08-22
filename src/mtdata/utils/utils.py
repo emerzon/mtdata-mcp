@@ -16,6 +16,7 @@ from .formatting import (
     format_number,
     optimal_decimals,
 )
+from .time import as_utc
 
 
 def _positive_float_attr(obj: Any, *names: str) -> Optional[float]:
@@ -657,7 +658,5 @@ def _utc_epoch_seconds(dt: datetime) -> float:
     Python's `datetime.timestamp()` interprets naive datetimes as *local time*,
     which can silently shift values when the host isn't running in UTC.
     """
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc).timestamp()
-    return dt.astimezone(timezone.utc).timestamp()
+    return as_utc(dt).timestamp()
 

@@ -2,10 +2,19 @@ from datetime import datetime, timedelta, timezone
 
 import mtdata.utils.time as time_utils
 from mtdata.utils.time import (
+    as_utc,
     format_datetime_utc,
     format_epoch_utc,
     format_relative_time,
 )
+
+
+def test_as_utc_treats_naive_values_as_utc_and_converts_aware_values() -> None:
+    naive = datetime(2026, 8, 7, 13, 30, 15)
+    central = naive.replace(tzinfo=timezone(timedelta(hours=-5)))
+
+    assert as_utc(naive) == naive.replace(tzinfo=timezone.utc)
+    assert as_utc(central) == datetime(2026, 8, 7, 18, 30, 15, tzinfo=timezone.utc)
 
 
 def test_format_epoch_utc_uses_second_resolution() -> None:

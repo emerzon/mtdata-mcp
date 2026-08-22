@@ -12,6 +12,7 @@ from ...utils.time import (
 )
 from ...utils.time import (
     _localize_broker_calendar_time,
+    as_utc,
     format_datetime_utc,
 )
 from ...utils.utils import (
@@ -139,20 +140,12 @@ def _parse_fetch_datetime_arg(
         if issue is not None:
             return None, f"{issue['error']} {issue['remediation']}"
         return None, f"Could not parse date {value!r}. {_DATE_FORMAT_HINT}"
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=dt_timezone.utc)
-    else:
-        parsed = parsed.astimezone(dt_timezone.utc)
-    return parsed, None
+    return as_utc(parsed), None
 
 
 def _format_resolved_query_bound(value: datetime) -> str:
     """Format a parsed query bound without hiding an inclusive day-end."""
-    resolved = (
-        value.replace(tzinfo=dt_timezone.utc)
-        if value.tzinfo is None
-        else value.astimezone(dt_timezone.utc)
-    )
+    resolved = as_utc(value)
     timespec = "microseconds" if resolved.microsecond else "seconds"
     return format_datetime_utc(resolved, timespec=timespec)
 

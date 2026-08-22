@@ -76,13 +76,16 @@ def format_epoch_utc(value: Any) -> Optional[str]:
         return None
 
 
+def as_utc(value: datetime) -> datetime:
+    """Convert a datetime to UTC, treating a naive value as already UTC."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
 def format_datetime_utc(value: datetime, *, timespec: str = "seconds") -> str:
     """Format a datetime as RFC 3339 UTC, treating naive values as UTC."""
-    resolved = (
-        value.replace(tzinfo=timezone.utc)
-        if value.tzinfo is None
-        else value.astimezone(timezone.utc)
-    )
+    resolved = as_utc(value)
     return resolved.isoformat(timespec=timespec).replace("+00:00", "Z")
 
 
