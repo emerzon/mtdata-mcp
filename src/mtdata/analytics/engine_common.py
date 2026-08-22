@@ -131,19 +131,41 @@ def _percentiles(values: Iterable[float]) -> Dict[str, Optional[float]]:
 
 
 
-def _bootstrap_mean_ci(values: Sequence[float], samples: int, seed: int = 42) -> Optional[List[float]]:
+def _circular_block_bootstrap_means(
+    values: Sequence[float],
+    samples: int,
+    seed: int = 42,
+    *,
+    min_block_size: int = 1,
+) -> Optional[np.ndarray]:
     arr = np.asarray(values, dtype=float)
     arr = arr[np.isfinite(arr)]
     if len(arr) < 5:
         return None
     rng = np.random.default_rng(seed)
-    block = max(1, int(round(math.sqrt(len(arr)))))
+    block = max(int(min_block_size), int(round(math.sqrt(len(arr)))))
     means = []
     for _ in range(int(samples)):
         starts = rng.integers(0, len(arr), size=math.ceil(len(arr) / block))
         draw = np.concatenate([arr[(start + np.arange(block)) % len(arr)] for start in starts])[: len(arr)]
         means.append(float(np.mean(draw)))
+    return np.asarray(means, dtype=float)
+
+
+def _bootstrap_mean_ci(values: Sequence[float], samples: int, seed: int = 42) -> Optional[List[float]]:
+    means = _circular_block_bootstrap_means(values, samples, seed)
+    if means is None:
+        return None
     return [float(np.quantile(means, 0.025)), float(np.quantile(means, 0.975))]
+
+
+def _log_close_returns(bars: pd.DataFrame, *, name: Optional[str] = None) -> pd.Series:
+    """Return close log differences indexed by native bar timestamps."""
+    return pd.Series(
+        np.log(bars["close"]).diff().to_numpy(),
+        index=bars["time"].to_numpy(),
+        name=name,
+    )
 
 
 

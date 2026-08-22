@@ -17,6 +17,7 @@ from ..utils.barriers import normalize_same_bar_policy
 from ..utils.time import bar_close_epoch, format_epoch_utc
 from .engine_common import (
     _bootstrap_mean_ci,
+    _circular_block_bootstrap_means,
     _finite,
     _rates,
 )
@@ -32,15 +33,15 @@ def _block_bootstrap_positive_mean_p_value(
         return None
     observed = float(np.mean(arr))
     centered = arr - observed
-    rng = np.random.default_rng(seed)
-    block = max(2, int(round(math.sqrt(len(arr)))))
-    exceed = 0
-    for _ in range(int(samples)):
-        starts = rng.integers(0, len(centered), size=math.ceil(len(centered) / block))
-        draw = np.concatenate(
-            [centered[(start + np.arange(block)) % len(centered)] for start in starts]
-        )[: len(centered)]
-        exceed += int(float(np.mean(draw)) >= observed)
+    means = _circular_block_bootstrap_means(
+        centered,
+        samples,
+        seed,
+        min_block_size=2,
+    )
+    if means is None:
+        return None
+    exceed = int(np.count_nonzero(means >= observed))
     return float((exceed + 1) / (int(samples) + 1))
 
 

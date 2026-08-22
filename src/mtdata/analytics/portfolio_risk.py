@@ -21,6 +21,7 @@ from ..utils.quote import (
 )
 from ..utils.time import format_epoch_utc
 from .engine_common import (
+    _log_close_returns,
     _mapping,
     _rates,
 )
@@ -496,7 +497,7 @@ def decompose_portfolio_risk(  # noqa: C901
     for symbol in sensitivities:
         bars = _rates(gateway, symbol, request.timeframe, request.lookback + max(request.horizon_bars) + 5)
         if len(bars) >= 100:
-            values = pd.Series(np.log(bars["close"]).diff().to_numpy(), index=bars["time"].to_numpy(), name=symbol).dropna()
+            values = _log_close_returns(bars, name=symbol).dropna()
             series[symbol] = values
         else:
             history_failures.append({

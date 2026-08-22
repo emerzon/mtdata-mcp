@@ -25,6 +25,7 @@ from ..utils.quote import (
 )
 from ..utils.time import bar_close_epoch, format_datetime_utc, format_epoch_utc
 from .engine_common import (
+    _log_close_returns,
     _mapping,
     _rates,
 )
@@ -528,7 +529,7 @@ def rank_relative_strength(  # noqa: C901
         factor_histories[benchmark_symbol] = histories[benchmark_symbol]
     return_frames = []
     for symbol, bars in factor_histories.items():
-        return_frames.append(pd.Series(np.log(bars["close"]).diff().to_numpy(), index=bars["time"].to_numpy(), name=symbol))
+        return_frames.append(_log_close_returns(bars, name=symbol))
     returns = (
         pd.concat(return_frames, axis=1, join="outer")
         if return_frames
@@ -540,7 +541,7 @@ def rank_relative_strength(  # noqa: C901
     score_parts: Dict[int, Dict[str, float]] = {h: {} for h in request.horizons}
     stability_parts: Dict[int, Dict[int, Dict[str, float]]] = {offset: {h: {} for h in request.horizons} for offset in (0, 5, 10)}
     for symbol, bars in scoring_histories.items():
-        own = pd.Series(np.log(bars["close"]).diff().to_numpy(), index=bars["time"].to_numpy()).dropna()
+        own = _log_close_returns(bars).dropna()
         factor = explicit_factor if explicit_factor is not None else returns.drop(columns=[symbol], errors="ignore").mean(axis=1, skipna=True)
         aligned = pd.concat([own.rename("own"), factor.rename("factor")], axis=1, join="inner").dropna()
         symbol_window = dict(history_windows[symbol])
