@@ -493,6 +493,18 @@ def symbol_candle_price_basis(*infos: Any) -> str:
     return "broker_chart_price"
 
 
+def symbol_candle_price_basis_for(symbol: Any) -> str:
+    """Look up candle price basis via cached symbol info for a symbol name."""
+    symbol_text = str(symbol or "").strip()
+    if not symbol_text:
+        return "broker_chart_price"
+    try:
+        info = get_symbol_info_cached(symbol_text)
+    except Exception:
+        return "broker_chart_price"
+    return symbol_candle_price_basis(info)
+
+
 def clear_mt5_timestamp_mode_cache() -> None:
     """Forget auto-detected MT5 timestamp modes after reconnect/config changes."""
     global _mt5_terminal_timestamp_mode

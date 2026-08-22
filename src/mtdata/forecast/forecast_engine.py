@@ -27,7 +27,11 @@ from ..utils.denoise import (
     normalize_denoise_spec as _normalize_denoise_spec,
 )
 from ..utils.freshness import completed_bar_freshness_fields, format_age_seconds
-from ..utils.mt5 import get_cached_mt5_time_alignment, get_symbol_info_cached
+from ..utils.mt5 import (
+    get_cached_mt5_time_alignment,
+    get_symbol_info_cached,
+    symbol_candle_price_basis_for,
+)
 from ..utils.time import (
     _format_time_minimal,
     _format_time_minimal_local,
@@ -1769,7 +1773,9 @@ def _format_forecast_output(
         ),
         "last_price": last_price,
         "last_price_source": "candle_close" if last_price is not None else None,
-        "price_basis": "mt5_bid_ohlc" if last_price is not None else None,
+        "price_basis": (
+            symbol_candle_price_basis_for(symbol) if last_price is not None else None
+        ),
         "direction_threshold_pct": float(round(direction_threshold_pct, 6)),
         "direction_threshold_basis": direction_threshold_basis,
         "calendar_treatment": describe_forecast_calendar_treatment(

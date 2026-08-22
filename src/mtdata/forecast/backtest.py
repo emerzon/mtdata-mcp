@@ -10,7 +10,7 @@ from ..shared.constants import TIMEFRAME_MAP, TIMEFRAME_SECONDS
 from ..shared.schema import DenoiseSpec, DetailLiteral, TimeframeLiteral
 from ..shared.validators import invalid_timeframe_error
 from ..utils.denoise import normalize_denoise_spec as _normalize_denoise_spec
-from ..utils.mt5 import mt5
+from ..utils.mt5 import mt5, symbol_candle_price_basis_for
 from ..utils.time import _format_time_minimal, bar_close_epoch
 from .common import (
     annualization_context as _annualization_context,
@@ -1831,7 +1831,7 @@ def strategy_backtest(  # noqa: C901
             "strategy": strategy_value,
             "detail": detail_mode,
             "position_mode": position_mode_value,
-            "price_basis": "mt5_bid_ohlc",
+            "price_basis": symbol_candle_price_basis_for(symbol),
             "result_status": (
                 "complete"
                 if cost_model_complete

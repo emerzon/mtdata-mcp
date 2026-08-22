@@ -309,7 +309,7 @@ def test_strategy_backtest_compact_mode_excludes_trades(monkeypatch):
     assert out["is_signal"] is False
     assert out["usage"] == "research_only"
     assert "usable_for_live_trading" not in out
-    assert out["price_basis"] == "mt5_bid_ohlc"
+    assert out["price_basis"] == "broker_chart_price"
     assert out["cost_model"] == {
         "type": "fixed",
         "requested_type": "fixed",

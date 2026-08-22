@@ -37,8 +37,9 @@ the history is too short to learn those slots, it uses the regular 09:30–16:00
 exchange grid and identifies that fallback in `calendar_treatment`.
 
 For price and return forecasts, `last_price_source=candle_close` identifies the
-forecast anchor and `price_basis=mt5_bid_ohlc` identifies the MT5 candle-price
-basis. This is a historical candle close, not a live executable bid or ask.
+forecast anchor and `price_basis` identifies the broker chart series
+(`bid`, `last_trade`, or `broker_chart_price`), matching `data_fetch_candles`.
+This is a historical candle close, not a live executable bid or ask.
 
 For `analog` forecasts, compact output retains concise `component_status` and
 `ensemble_metrics` summaries. Raw analog paths, per-timeframe diagnostics, and

@@ -331,7 +331,7 @@ def test_preprocessing_helpers_and_output_format():
     assert res["last_price"] == float(df["close"].iloc[-1])
     assert "last_price_close" not in res
     assert res["last_price_source"] == "candle_close"
-    assert res["price_basis"] == "mt5_bid_ohlc"
+    assert res["price_basis"] == "broker_chart_price"
 
     with patch("mtdata.forecast.forecast_engine._use_client_tz", return_value=False):
         no_ci = fe._format_forecast_output(
@@ -364,7 +364,32 @@ def test_preprocessing_helpers_and_output_format():
     assert no_ci["last_price"] == float(df["close"].iloc[-1])
     assert "last_price_close" not in no_ci
     assert no_ci["last_price_source"] == "candle_close"
-    assert no_ci["price_basis"] == "mt5_bid_ohlc"
+    assert no_ci["price_basis"] == "broker_chart_price"
+
+
+def test_format_forecast_output_uses_symbol_chart_mode_price_basis():
+    df = _df(4)
+    forecast_values = np.array([101.0, 102.0], dtype=float)
+    with patch("mtdata.forecast.forecast_engine._use_client_tz", return_value=False), patch(
+        "mtdata.forecast.forecast_engine.symbol_candle_price_basis_for",
+        return_value="last_trade",
+    ) as mock_basis:
+        res = fe._format_forecast_output(
+            forecast_values=forecast_values,
+            last_epoch=float(df["time"].iloc[-1]),
+            tf_secs=3600,
+            horizon=2,
+            base_col="close",
+            df=df,
+            ci_alpha=None,
+            ci_values=None,
+            method="theta",
+            quantity="price",
+            denoise_used=False,
+            symbol="AAPL",
+        )
+    mock_basis.assert_called_once_with("AAPL")
+    assert res["price_basis"] == "last_trade"
 
 
 def test_forecast_engine_as_of_uses_replay_time_for_target_bar_states():

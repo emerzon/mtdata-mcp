@@ -266,3 +266,32 @@ class TestCopyFunctionsUseRetry:
                 1,
             )
         assert result == "data"
+
+
+class TestSymbolCandlePriceBasis:
+    def test_chart_mode_int_and_string(self):
+        from types import SimpleNamespace
+
+        assert mt5_mod.symbol_candle_price_basis(SimpleNamespace(chart_mode=0)) == "bid"
+        assert mt5_mod.symbol_candle_price_basis(SimpleNamespace(chart_mode=1)) == "last_trade"
+        assert mt5_mod.symbol_candle_price_basis(
+            SimpleNamespace(chart_mode="SYMBOL_CHART_MODE_BID")
+        ) == "bid"
+        assert mt5_mod.symbol_candle_price_basis(
+            SimpleNamespace(chart_mode="SYMBOL_CHART_MODE_LAST")
+        ) == "last_trade"
+        assert mt5_mod.symbol_candle_price_basis(SimpleNamespace()) == "broker_chart_price"
+        assert mt5_mod.symbol_candle_price_basis(None) == "broker_chart_price"
+
+    def test_lookup_by_symbol_name(self):
+        from types import SimpleNamespace
+
+        with patch.object(
+            mt5_mod,
+            "get_symbol_info_cached",
+            return_value=SimpleNamespace(chart_mode=1),
+        ):
+            assert mt5_mod.symbol_candle_price_basis_for("AAPL") == "last_trade"
+        assert mt5_mod.symbol_candle_price_basis_for("") == "broker_chart_price"
+        with patch.object(mt5_mod, "get_symbol_info_cached", side_effect=RuntimeError("offline")):
+            assert mt5_mod.symbol_candle_price_basis_for("EURUSD") == "broker_chart_price"

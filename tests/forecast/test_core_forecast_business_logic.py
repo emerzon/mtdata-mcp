@@ -515,7 +515,7 @@ def test_forecast_generate_defaults_to_compact_payload(monkeypatch):
             "forecast_epoch": [1.0, 2.0, 3.0],
             "last_price": 1.05,
             "last_price_source": "candle_close",
-            "price_basis": "mt5_bid_ohlc",
+            "price_basis": "bid",
             "last_price_age_seconds": 3600,
             "last_price_age": "1h 0m",
             "last_price_stale": False,
@@ -537,7 +537,7 @@ def test_forecast_generate_defaults_to_compact_payload(monkeypatch):
     assert "forecast_step_seconds" not in out
     assert out["last_price"] == 1.05
     assert out["last_price_source"] == "candle_close"
-    assert out["price_basis"] == "mt5_bid_ohlc"
+    assert out["price_basis"] == "bid"
     assert out["last_price_stale"] is False
     assert out["freshness"] == "fresh, anchor 1h 0m ago"
     assert "last_price_age_seconds" not in out
