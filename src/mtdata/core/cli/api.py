@@ -45,6 +45,7 @@ from .._mcp_tools import get_tool_registry as get_registered_tools
 from ..error_envelope import build_error_payload
 from ..execution_logging import infer_result_success
 from ..output_contract import resolve_output_contract
+from ..output_serialization import json_default as _json_default
 from ..request_context import ensure_request_id_scope
 from .catalog import (
     current_cli_program_name,
@@ -55,7 +56,6 @@ from .catalog import (
 from .formatting import (
     _attach_cli_meta,
     _format_result_for_cli,
-    _json_default,
     _resolve_cli_formatter,
 )
 from .output_format import (
