@@ -4,7 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { getDenoiseMethods, getWavelets } from '../api/client'
 import type { DenoiseSpecUI, ParamDef } from '../types'
 import { defaultDenoiseCausality } from '../lib/denoiseSpec'
-import { coerce } from '../lib/utils'
+import { coerceParamValue } from '../lib/toolCatalog'
 import { useEscapeKey } from '../lib/useEscapeKey'
 
 type Props = {
@@ -236,7 +236,12 @@ export function DenoiseModal({ open, title = 'Configure Denoising', value, onClo
                         <input
                           className="input"
                           value={String(params?.[p.name] ?? '')}
-                          onChange={e => setParams({ ...params, [p.name]: coerce(e.target.value) })}
+                          onChange={e =>
+                            setParams({
+                              ...params,
+                              [p.name]: coerceParamValue(e.target.value, p.type),
+                            })
+                          }
                           placeholder={String(p.default ?? '')}
                         />
                         {p.description && <span className="text-xs text-slate-400">{p.description}</span>}

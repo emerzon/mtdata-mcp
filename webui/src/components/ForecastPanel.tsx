@@ -10,7 +10,8 @@ import {
 } from '../api/client'
 import { useForecast, useForecastMethods, useForecastSettings } from '../hooks/useForecast'
 import type { BacktestResult, ForecastPayload, VolatilityPayload } from '../types'
-import { formatDateTime, coerce } from '../lib/utils'
+import { coerceParamValue } from '../lib/toolCatalog'
+import { formatDateTime } from '../lib/utils'
 import { forecastPanelPlacementClass, type LayoutBreakpoint } from '../lib/layout'
 import { useEscapeKey } from '../lib/useEscapeKey'
 import { DenoiseModal } from './DenoiseModal'
@@ -321,7 +322,7 @@ function ForecastTab({
                           ...previous,
                           params: {
                             ...previous.params,
-                            [param.name]: coerce(event.target.value),
+                            [param.name]: coerceParamValue(event.target.value, param.type),
                           },
                         }))
                       }

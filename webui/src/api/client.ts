@@ -28,6 +28,7 @@ import type {
   TradeIdeaPayload,
   VolumeProfileResponse,
 } from '../types'
+import type { PivotMethod, SrQueryParams } from '../lib/overlayParams'
 import type { ToolCatalogEntry } from '../lib/toolCatalog'
 
 // Use environment variable or default to empty (same origin)
@@ -242,7 +243,7 @@ export async function runBacktest(body: BacktestBody): Promise<BacktestResult> {
 export type PivotParams = {
   symbol: string
   timeframe: string
-  method?: 'classic' | 'fibonacci' | 'woodie' | 'camarilla' | 'demark'
+  method?: PivotMethod
 }
 
 export async function getPivots(params: PivotParams): Promise<PivotResponse> {
@@ -250,19 +251,14 @@ export async function getPivots(params: PivotParams): Promise<PivotResponse> {
   return data
 }
 
-export type SupportResistanceParams = {
-  symbol: string
-  timeframe?: string
-  lookback?: number
-  tolerance_pct?: number
-  min_touches?: number
-  max_levels?: number
+export type SupportResistanceParams = Pick<SrQueryParams, 'symbol'> &
+  Partial<Omit<SrQueryParams, 'symbol'>> & {
   max_distance_pct?: number
   volume_weighting?: 'off' | 'auto'
   reaction_bars?: number
   adx_period?: number
   decay_half_life_bars?: number
-}
+  }
 
 export async function getSupportResistance(
   params: SupportResistanceParams

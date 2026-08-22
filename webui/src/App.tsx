@@ -10,11 +10,10 @@ import { useChartWorkspace } from './features/chart-workspace/useChartWorkspace'
 import { useViewportBreakpoint } from './hooks/useViewportBreakpoint'
 import { resolveChartWorkspaceStatus } from './lib/workspaceStatus'
 
+type ActivePanel = 'forecast' | 'tools' | 'idea' | 'radar' | null
+
 export default function App() {
-  const [showForecastPanel, setShowForecastPanel] = useState(false)
-  const [showToolsPanel, setShowToolsPanel] = useState(false)
-  const [showIdeaPanel, setShowIdeaPanel] = useState(false)
-  const [showRadarPanel, setShowRadarPanel] = useState(false)
+  const [activePanel, setActivePanel] = useState<ActivePanel>(null)
   const [ideaAutoKey, setIdeaAutoKey] = useState(0)
   const workspace = useChartWorkspace()
   const layoutBreakpoint = useViewportBreakpoint()
@@ -44,7 +43,7 @@ export default function App() {
         <ChartToolbar
           symbol={workspace.symbol}
           timeframe={workspace.timeframe}
-          displayAnchor={workspace.displayAnchor}
+          displayAnchor={workspace.anchor}
           isLoading={workspace.isFetching || workspace.isLoadingMore}
           onSymbolChange={workspace.handleSymbolChange}
           onTimeframeChange={workspace.handleTimeframeChange}
@@ -53,30 +52,10 @@ export default function App() {
           onTogglePivots={workspace.handlePivotToggle}
           onToggleSR={workspace.handleSRToggle}
           onDenoiseChange={workspace.handleDenoiseChange}
-          onOpenForecast={() => {
-            setShowToolsPanel(false)
-            setShowIdeaPanel(false)
-            setShowRadarPanel(false)
-            setShowForecastPanel(true)
-          }}
-          onOpenTools={() => {
-            setShowForecastPanel(false)
-            setShowIdeaPanel(false)
-            setShowRadarPanel(false)
-            setShowToolsPanel(true)
-          }}
-          onOpenIdea={() => {
-            setShowForecastPanel(false)
-            setShowToolsPanel(false)
-            setShowRadarPanel(false)
-            setShowIdeaPanel(true)
-          }}
-          onOpenRadar={() => {
-            setShowForecastPanel(false)
-            setShowToolsPanel(false)
-            setShowIdeaPanel(false)
-            setShowRadarPanel(true)
-          }}
+          onOpenForecast={() => setActivePanel('forecast')}
+          onOpenTools={() => setActivePanel('tools')}
+          onOpenIdea={() => setActivePanel('idea')}
+          onOpenRadar={() => setActivePanel('radar')}
           hasPivots={!!workspace.pivotLevels}
           hasSR={!!workspace.srLevels}
           denoise={workspace.chartDenoise}
@@ -115,11 +94,11 @@ export default function App() {
 
         <div className="absolute inset-0" data-chart-surface>
           <OHLCChart
-            data={workspace.displayBars}
+            data={workspace.bars}
             onAnchor={workspace.handleAnchorSelect}
             onNeedMoreLeft={workspace.earliest ? workspace.handleNeedMoreLeft : undefined}
-            anchorTime={workspace.displayAnchor}
-            overlays={workspace.displayOverlays}
+            anchorTime={workspace.anchor}
+            overlays={workspace.chartOverlays}
             priceLines={workspace.priceLines}
             timeZone={workspace.displayTimeZone}
           />
@@ -159,8 +138,8 @@ export default function App() {
         )}
 
         <ForecastPanel
-          open={showForecastPanel}
-          onClose={() => setShowForecastPanel(false)}
+          open={activePanel === 'forecast'}
+          onClose={() => setActivePanel(null)}
           symbol={workspace.symbol}
           timeframe={workspace.timeframe}
           anchor={workspace.anchor}
@@ -169,25 +148,22 @@ export default function App() {
         />
 
         <RadarPanel
-          open={showRadarPanel}
-          onClose={() => setShowRadarPanel(false)}
+          open={activePanel === 'radar'}
+          onClose={() => setActivePanel(null)}
           symbol={workspace.symbol}
           timeframe={workspace.timeframe}
           onSelectSymbol={workspace.handleSymbolChange}
           onComposeIdea={(name) => {
             workspace.handleSymbolChange(name)
-            setShowRadarPanel(false)
-            setShowForecastPanel(false)
-            setShowToolsPanel(false)
             setIdeaAutoKey((value) => value + 1)
-            setShowIdeaPanel(true)
+            setActivePanel('idea')
           }}
           layoutBreakpoint={layoutBreakpoint}
         />
 
         <IdeaPanel
-          open={showIdeaPanel}
-          onClose={() => setShowIdeaPanel(false)}
+          open={activePanel === 'idea'}
+          onClose={() => setActivePanel(null)}
           symbol={workspace.symbol}
           timeframe={workspace.timeframe}
           onIdea={workspace.handleIdeaResult}
@@ -196,8 +172,8 @@ export default function App() {
         />
 
         <ToolsRunnerPanel
-          open={showToolsPanel}
-          onClose={() => setShowToolsPanel(false)}
+          open={activePanel === 'tools'}
+          onClose={() => setActivePanel(null)}
           layoutBreakpoint={layoutBreakpoint}
           symbol={workspace.symbol}
           timeframe={workspace.timeframe}

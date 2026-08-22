@@ -17,6 +17,7 @@ import {
 import { loadJSON, saveJSON } from '../../lib/storage'
 import { toUtcSec } from '../../lib/time'
 import { chartWorkspaceLivePollMs, tfSeconds } from '../../lib/timeframes'
+import { formatDateTime } from '../../lib/utils'
 import {
   confluencePriceLines,
   exposurePriceLines,
@@ -181,8 +182,6 @@ export function useChartWorkspace() {
     : timezoneMode === 'local'
       ? localTimeZone
       : 'UTC'
-  const displayBars = bars
-
   const handleAnchorSelect = useCallback(
     (utcTime: number) => {
       setAnchor(utcTime)
@@ -238,7 +237,7 @@ export function useChartWorkspace() {
       setHistoryPageError(null)
       try {
         const utcTime = earliestDisplayTime
-        const before = new Date((utcTime - 1) * 1000).toISOString().slice(0, 19).replace('T', ' ')
+      const before = formatDateTime(utcTime - 1)
         const older = await getHistory({
           symbol,
           timeframe,
@@ -552,7 +551,6 @@ export function useChartWorkspace() {
     chartIndicators,
     indicatorsActive: chartIndicatorsActive(chartIndicators),
     bars,
-    displayBars,
     chartOverlays,
     priceLines,
     metrics,
@@ -607,7 +605,5 @@ export function useChartWorkspace() {
       setForecastOverlays([])
       setMetrics(null)
     },
-    displayAnchor: anchor,
-    displayOverlays: chartOverlays,
   }
 }

@@ -1,33 +1,15 @@
 import type { PriceLineSpec } from '../components/OHLCChart'
+import type {
+  ConfluenceResponse,
+  ExposureResponse,
+  TradeIdeaPayload,
+  VolumeProfileResponse,
+} from '../types'
 
-export type ConfluenceLevel = {
-  price: number
-  type?: string
-  score?: number
-  range?: { low?: number; high?: number }
-}
-
-export type VolumeProfileLevels = {
-  poc?: number
-  vah?: number
-  val?: number
-}
-
-export type ExposureRow = {
-  ticket?: number | string
-  type?: string
-  volume?: number
-  price?: number
-  sl?: number
-  tp?: number
-}
-
-export type IdeaGeometry = {
-  entry?: number
-  take_profit?: number
-  stop_loss?: number
-  direction?: string
-}
+export type ConfluenceLevel = NonNullable<ConfluenceResponse['levels']>[number]
+export type VolumeProfileLevels = Pick<VolumeProfileResponse, 'poc' | 'vah' | 'val'>
+export type ExposureRow = NonNullable<ExposureResponse['positions']>[number]
+export type IdeaGeometry = NonNullable<TradeIdeaPayload['geometry']>
 
 function line(price: number | undefined, color: string, title: string): PriceLineSpec | null {
   if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) return null
