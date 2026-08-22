@@ -365,6 +365,22 @@ def _indicator_preferred_spec(name: str, params: List[Dict[str, Any]], context: 
     return lname
 
 
+def _suggest_indicator_catalog_name(name: Any, items: List[Dict[str, Any]]) -> Optional[str]:
+    requested = str(name or "").strip().lower()
+    if not requested:
+        return None
+    catalog = {
+        str(item.get("name") or "").strip()
+        for item in items
+        if str(item.get("name") or "").strip()
+    }
+    catalog_lookup = {value.lower(): value for value in catalog}
+    match = re.fullmatch(r"([a-z][a-z0-9_]*)[_\-]([0-9]{1,3})", requested)
+    if not match:
+        return None
+    return catalog_lookup.get(match.group(1))
+
+
 def _indicator_example_column(spec: str) -> str:
     text = str(spec or "").strip().lower()
     match = re.fullmatch(r"([a-z0-9_]+)(?:\(([^)]*)\))?", text)
@@ -711,11 +727,22 @@ def indicators_describe(
                 None,
             )
             if not target:
+                suggested = _suggest_indicator_catalog_name(name, items)
+                details: Dict[str, Any] = {"name": str(name)}
+                if suggested:
+                    details["suggested_name"] = suggested
+                error = f"Indicator '{name}' not found"
+                if suggested:
+                    error = (
+                        f"Indicator '{name}' not found. "
+                        f"'{name}' looks like a fetch spec or output column; "
+                        f"describe '{suggested}' instead."
+                    )
                 return build_error_payload(
-                    f"Indicator '{name}' not found",
+                    error,
                     code="indicator_not_found",
                     operation="indicators_describe",
-                    details={"name": str(name)},
+                    details=details,
                 )
             indicator = dict(target)
             docs = _build_indicator_documentation(indicator)

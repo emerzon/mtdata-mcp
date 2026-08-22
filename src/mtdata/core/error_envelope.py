@@ -105,8 +105,10 @@ _ERROR_GUIDANCE: Dict[str, Dict[str, Any]] = {
     },
     "indicator_not_found": {
         "remediation": (
-            "Use indicators_list to inspect canonical indicator names, then retry "
-            "indicators_describe with an exact name."
+            "Use indicators_list to inspect canonical catalog names such as rsi, "
+            "then retry indicators_describe with that exact name. Tokens like "
+            "rsi_14 are fetch specs / output columns for data_fetch_candles, "
+            "not catalog names."
         ),
         "related_tools": ["indicators_list"],
     },

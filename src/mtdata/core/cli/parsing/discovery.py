@@ -240,7 +240,7 @@ _COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "Return transform: log_return (aliases log_returns/log) or pct "
         "(aliases pct_return/percent/simple_return)."
     ),
-    ("data_fetch_candles", "indicators"): "Technical indicators. On PowerShell, quote parenthesized specs such as --indicators \"rsi(14)\", or use shell-safe rsi_14 / sma=20 syntax. JSON arrays like '[{\"name\":\"rsi\",\"params\":[14]}]' and named params like rsi(length=14) also work. Use params syntax, not sma,20.",
+    ("data_fetch_candles", "indicators"): "Technical indicators. Catalog names come from indicators_list / indicators_describe (rsi, not rsi_14). On PowerShell, quote parenthesized specs such as --indicators \"rsi(14)\", or use shell-safe fetch specs rsi_14 / sma=20. JSON arrays like '[{\"name\":\"rsi\",\"params\":[14]}]' and named params like rsi(length=14) also work. Use params syntax, not sma,20. Output columns such as rsi_14 are backend-derived.",
     ("data_fetch_candles", "limit"): (
         "Maximum returned bars. Latest queries default to 20 most-recent bars. "
         "Explicit --start/--end ranges also default to a 20-bar page and return a "

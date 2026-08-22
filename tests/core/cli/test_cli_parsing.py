@@ -2399,6 +2399,8 @@ class TestResolveParamKwargs:
         assert "rsi(length=14)" in kwargs["help"]
         assert "On PowerShell" in kwargs["help"]
         assert '--indicators "rsi(14)"' in kwargs["help"]
+        assert "Catalog names" in kwargs["help"]
+        assert "indicators_describe" in kwargs["help"]
 
     @pytest.mark.parametrize(
         ("name", "expected"),

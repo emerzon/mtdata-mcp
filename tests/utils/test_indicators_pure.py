@@ -841,7 +841,32 @@ Values above 70 often indicate overbought conditions.
         assert missing["error_code"] == "indicator_not_found"
         assert missing["details"] == {"name": "bb"}
         assert missing["related_tools"] == ["indicators_list"]
-        assert "canonical indicator names" in missing["remediation"]
+        assert "canonical catalog names" in missing["remediation"]
+
+    def test_indicators_describe_suggests_catalog_name_for_fetch_spec(self, monkeypatch):
+        from mtdata.core import indicators as core_indicators
+
+        monkeypatch.setattr(
+            core_indicators,
+            "_list_ta_indicators",
+            lambda detailed=True: [
+                {
+                    "name": "rsi",
+                    "category": "momentum",
+                    "params": [{"name": "length", "default": 14}],
+                    "description": "Relative Strength Index.",
+                }
+            ],
+        )
+
+        raw_describe = getattr(core_indicators.indicators_describe, "__wrapped__", core_indicators.indicators_describe)
+        missing = raw_describe("rsi_14")
+
+        assert missing["success"] is False
+        assert missing["error_code"] == "indicator_not_found"
+        assert missing["details"] == {"name": "rsi_14", "suggested_name": "rsi"}
+        assert "describe 'rsi' instead" in missing["error"]
+        assert "rsi_14" in missing["remediation"]
 
 
 # ===================================================================
