@@ -10,7 +10,7 @@ from pydantic import Field
 from ..shared.schema import DetailLiteral
 from ..shared.tool_categories import TOOL_CATEGORY_IDS
 from ._mcp_instance import mcp
-from ._mcp_tools import registered_tool_catalog
+from ._mcp_tools import filter_tool_catalog_rows, registered_tool_catalog
 from .execution_logging import run_logged_operation
 from .output_contract import build_pagination_meta
 
@@ -55,18 +55,11 @@ def tools_list(
         detail_mode = str(catalog.get("detail") or detail or "compact").strip().lower()
         filtered = []
         filtered_gated = []
-        for row in tools:
-            if not isinstance(row, dict):
-                continue
-            row_category = str(row.get("category") or "").strip().lower()
-            haystack = " ".join(
-                str(row.get(key) or "")
-                for key in ("name", "category", "description")
-            ).lower()
-            if category_filter and row_category != category_filter:
-                continue
-            if search_filter and search_filter not in haystack:
-                continue
+        for row in filter_tool_catalog_rows(
+            tools,
+            category=category_filter,
+            search=search_filter,
+        ):
             if row.get("enabled") is False or row.get("status") == "disabled":
                 filtered_gated.append(row)
             else:

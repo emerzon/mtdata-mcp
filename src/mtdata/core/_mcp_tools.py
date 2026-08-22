@@ -600,6 +600,32 @@ def _market_depth_fetch_catalog_row(*, detail_mode: str) -> Dict[str, Any]:
     return row
 
 
+def filter_tool_catalog_rows(
+    tools: Any,
+    *,
+    category: Any = None,
+    search: Any = None,
+) -> List[Dict[str, Any]]:
+    """Filter catalog rows by category and searchable public text."""
+    category_filter = str(category or "").strip().lower()
+    search_filter = str(search or "").strip().lower()
+    filtered: List[Dict[str, Any]] = []
+    for row in tools if isinstance(tools, list) else []:
+        if not isinstance(row, dict):
+            continue
+        row_category = str(row.get("category") or "").strip().lower()
+        haystack = " ".join(
+            str(row.get(key) or "")
+            for key in ("name", "category", "description")
+        ).lower()
+        if category_filter and row_category != category_filter:
+            continue
+        if search_filter and search_filter not in haystack:
+            continue
+        filtered.append(row)
+    return filtered
+
+
 def registered_tool_catalog(*, detail: str = "compact") -> Dict[str, Any]:
     """Return a generated catalog of registered mtdata tools."""
     from .output_contract import related_tools_for

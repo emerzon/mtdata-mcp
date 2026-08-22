@@ -14,6 +14,7 @@ from ..utils.mt5 import MT5ConnectionError
 from ._mcp_tools import (
     _prepare_public_tool_call,
     _shape_public_tool_output,
+    filter_tool_catalog_rows,
     get_tool_functions,
     registered_tool_catalog,
 )
@@ -139,20 +140,12 @@ def list_tools_for_webapi(
     if not isinstance(tools, list):
         tools = []
 
-    category_filter = str(category or "").strip().lower()
-    search_filter = str(search or "").strip().lower()
     enriched: List[Dict[str, Any]] = []
-    for row in tools:
-        if not isinstance(row, dict):
-            continue
-        if category_filter and str(row.get("category") or "").strip().lower() != category_filter:
-            continue
-        if search_filter:
-            hay = " ".join(
-                str(row.get(k) or "") for k in ("name", "category", "description")
-            ).lower()
-            if search_filter not in hay:
-                continue
+    for row in filter_tool_catalog_rows(
+        tools,
+        category=category,
+        search=search,
+    ):
         enriched.append(_enrich_catalog_row(row, include_fields=include_fields))
 
     categories: Dict[str, List[str]] = {}
