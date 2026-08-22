@@ -160,13 +160,13 @@ def calendar(
             detail=str(detail or "compact"),
         )
         if request.view == "period" and request.kind != "earnings":
-            return {
-                "success": False,
-                "error": "view='period' is only supported for kind='earnings'.",
-                "error_code": "calendar_invalid_view",
-                "operation": "calendar",
-                "valid_values": {"kind": ["earnings"], "view": ["range", "period"]},
-            }
+            return build_error_payload(
+                "view='period' is only supported for kind='earnings'.",
+                code="calendar_invalid_view",
+                operation="calendar",
+                valid_values={"kind": ["earnings"], "view": ["range", "period"]},
+                remediation="Use kind=earnings, or switch to view=range.",
+            )
         if request.view == "period":
             invalid = [
                 name

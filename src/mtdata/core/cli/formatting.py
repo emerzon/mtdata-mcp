@@ -102,7 +102,7 @@ def _format_result_for_cli(
             payload,
             compact_numbers=precision_policy.simplify_numbers,
         )
-        return json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False, default=_json_default)
+        return json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False)
     if isinstance(prepared, str):
         return prepared
     try:

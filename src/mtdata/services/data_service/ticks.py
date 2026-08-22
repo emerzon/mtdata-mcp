@@ -494,13 +494,13 @@ def _finite_or_none(value: Any) -> Optional[float]:
     return numeric
 
 
-def _json_safe_payload(value: Any) -> Any:
+def _normalize_tick_missing_values(value: Any) -> Any:
     if isinstance(value, dict):
-        return {key: _json_safe_payload(item) for key, item in value.items()}
+        return {key: _normalize_tick_missing_values(item) for key, item in value.items()}
     if isinstance(value, list):
-        return [_json_safe_payload(item) for item in value]
+        return [_normalize_tick_missing_values(item) for item in value]
     if isinstance(value, tuple):
-        return [_json_safe_payload(item) for item in value]
+        return [_normalize_tick_missing_values(item) for item in value]
     if value is None or isinstance(value, (bool, str, bytes)):
         return value
     if isinstance(value, Real) and not isinstance(value, bool):
@@ -1443,7 +1443,7 @@ def fetch_ticks(  # noqa: C901
             _add_tick_last_quality(out)
             _add_tick_context_fields(out)
             _round_tick_price_payload(out, price_digits)
-            return _json_safe_payload(_compact_tick_summary(out))
+            return _normalize_tick_missing_values(_compact_tick_summary(out))
 
         def _add_tick_summary_fields(payload: Dict[str, Any]) -> None:
             summary = _compact_summary_from_ticks()
@@ -1479,7 +1479,7 @@ def fetch_ticks(  # noqa: C901
                         out["q75"] = float("nan")
                     if detailed_stats or n != int(total_count):
                         out["count"] = n
-                    return _json_safe_payload(out)
+                    return _normalize_tick_missing_values(out)
                 first = float(vals.iloc[0])
                 last = float(vals.iloc[-1])
                 low = float(vals.min())
@@ -1509,7 +1509,7 @@ def fetch_ticks(  # noqa: C901
                     out["q75"] = float(vals.quantile(0.75))
                 if detailed_stats or n != int(total_count):
                     out["count"] = n
-                return _json_safe_payload(out)
+                return _normalize_tick_missing_values(out)
 
             df_stats = df_ticks.copy()
             df_stats["mid"] = (
@@ -1696,7 +1696,7 @@ def fetch_ticks(  # noqa: C901
             _add_tick_last_quality(out)
             _add_tick_context_fields(out)
             _round_tick_price_payload(out, price_digits)
-            return _json_safe_payload(
+            return _normalize_tick_missing_values(
                 out if detailed_stats else _compact_tick_summary(out)
             )
 
@@ -1760,7 +1760,7 @@ def fetch_ticks(  # noqa: C901
             _add_tick_data_quality(payload)
             _add_tick_last_quality(payload)
             _add_tick_context_fields(payload)
-            return _json_safe_payload(payload)
+            return _normalize_tick_missing_values(payload)
         # Optional simplification based on a chosen y-series
         select_indices = list(range(original_count))
         _simp_method_used: Optional[str] = None
@@ -1981,7 +1981,7 @@ def fetch_ticks(  # noqa: C901
                     ),
                 )
             payload["simplify"] = meta
-        return _json_safe_payload(payload)
+        return _normalize_tick_missing_values(payload)
     except Exception as e:
         return {"error": f"Error getting ticks: {str(e)}"}
 
