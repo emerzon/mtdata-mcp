@@ -686,6 +686,12 @@ _COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "New limit leg for a stop-limit pending order; omitted values preserve the "
         "existing broker price."
     ),
+    ("trade_modify", "clear_stop_loss"): (
+        "Explicitly remove stop-loss protection from the ticket."
+    ),
+    ("trade_modify", "clear_take_profit"): (
+        "Explicitly remove take-profit protection from the ticket."
+    ),
     ("trade_get_pending", "order_type"): (
         "Pending-order filter: BUY_LIMIT, BUY_STOP, BUY_STOP_LIMIT, SELL_LIMIT, "
         "SELL_STOP, or SELL_STOP_LIMIT."

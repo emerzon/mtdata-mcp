@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from mtdata.core.schema_attach import get_public_tool_schema
 from mtdata.core.schema_evaluation import (
     SchemaEvaluationReport,
     SchemaFinding,
@@ -98,3 +99,15 @@ def test_public_schema_evaluation_has_no_unbounded_numeric_parameters() -> None:
         for finding in report.findings
         if finding.code == "unbounded_numeric_parameter"
     ]
+
+
+def test_trade_modify_confirmation_flags_have_descriptions() -> None:
+    evaluate_public_tool_schemas()
+    properties = get_public_tool_schema("trade_modify")["properties"]
+
+    assert properties["clear_stop_loss"]["description"] == (
+        "Explicitly remove stop-loss protection from the ticket."
+    )
+    assert properties["clear_take_profit"]["description"] == (
+        "Explicitly remove take-profit protection from the ticket."
+    )
