@@ -1938,9 +1938,9 @@ def _auxiliary_method_catalog_rows() -> List[Dict[str, Any]]:
     except Exception:
         pass
     try:
-        from ..forecast.barriers_probabilities import _BARRIER_METHOD_PARAM_KEYS
+        from ..forecast.barrier_constants import BARRIER_METHOD_SIM_PARAM_KEYS
 
-        for name, keys in _BARRIER_METHOD_PARAM_KEYS.items():
+        for name, keys in BARRIER_METHOD_SIM_PARAM_KEYS.items():
             rows.append(
                 {
                     "method": str(name),
@@ -2002,7 +2002,10 @@ def _forecast_list_methods_impl(  # noqa: C901
         if isinstance(snapshot, dict) and search_value:
             catalog_rows = list(snapshot.get("methods") or [])
             existing = {
-                str(row.get("method") or "")
+                (
+                    str(row.get("method") or ""),
+                    str(row.get("tool") or "forecast_generate"),
+                )
                 for row in catalog_rows
                 if isinstance(row, dict)
             }
@@ -2010,16 +2013,17 @@ def _forecast_list_methods_impl(  # noqa: C901
                 from ..forecast.forecast_registry import ForecastRegistry
 
                 existing.update(
-                    str(name)
+                    (str(name), "forecast_generate")
                     for name in ForecastRegistry.get_all_method_names()
                 )
             except Exception:
                 pass
             for row in _auxiliary_method_catalog_rows():
                 name = str(row.get("method") or "")
-                if name and name not in existing:
+                key = (name, str(row.get("tool") or ""))
+                if name and key not in existing:
                     catalog_rows.append(row)
-                    existing.add(name)
+                    existing.add(key)
             snapshot["methods"] = catalog_rows
             snapshot["methods_valid"] = True
         supported_libraries = {
