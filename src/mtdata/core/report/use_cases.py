@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
 from ...shared.constants import SANITY_BARS_TOLERANCE, TIMEFRAME_SECONDS
-from ...utils.time import format_datetime_utc
+from ...utils.time import format_datetime_utc, parse_iso_utc
 from ..error_envelope import build_error_payload, normalize_error_payload
 from ..execution_logging import log_operation_exception, run_logged_operation
 from ..output_contract import normalize_output_detail
@@ -132,9 +132,8 @@ def _parse_report_timestamp(value: Any) -> datetime | None:
         text = value.strip()
         if not text:
             return None
-        iso_text = text.replace("Z", "+00:00") if text.endswith("Z") else text
         try:
-            parsed = datetime.fromisoformat(iso_text)
+            parsed = parse_iso_utc(text)
         except ValueError:
             try:
                 parsed = datetime.strptime(text, "%Y-%m-%d %H:%M UTC").replace(tzinfo=timezone.utc)

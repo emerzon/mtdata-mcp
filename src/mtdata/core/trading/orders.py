@@ -18,6 +18,7 @@ from ...shared.market_units import (
 from ...utils.coercion import round_finite
 from ...utils.freshness import QUOTE_LIVE_SECONDS
 from ...utils.quote import compute_spread_metrics, resolve_quote_tick, tick_value
+from ...utils.utils import _utc_epoch_seconds
 from . import comments, common, time, validation
 from .gateway import MT5TradingGateway, create_trading_gateway, trading_connection_error
 from .positions import _resolve_open_position
@@ -72,12 +73,10 @@ def _expand_position_ticket_candidates_from_deals(
 
     now = datetime.now(timezone.utc)
     try:
-        from ...utils.mt5 import _to_mt5_history_epoch_seconds
-
-        history_from = _to_mt5_history_epoch_seconds(
+        history_from = _utc_epoch_seconds(
             now - timedelta(seconds=_POSITION_DEAL_LOOKUP_WINDOW_SECONDS)
         )
-        history_to = _to_mt5_history_epoch_seconds(now + timedelta(seconds=5))
+        history_to = _utc_epoch_seconds(now + timedelta(seconds=5))
         rows = mt5.history_deals_get(history_from, history_to)
     except Exception:
         rows = None

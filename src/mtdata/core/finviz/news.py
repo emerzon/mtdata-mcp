@@ -58,7 +58,7 @@ def _normalize_finviz_published_at(value: Any, *, now: Optional[datetime] = None
     if not text:
         return text
 
-    iso_text = text.replace("Z", "+00:00") if text.endswith("Z") else text
+    iso_text = text
     try:
         dt = datetime.fromisoformat(iso_text)
         if dt.tzinfo is None:
@@ -117,7 +117,7 @@ def _finviz_relative_time_from_text(
     if " ago" in text.lower():
         return text
     try:
-        dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        dt = datetime.fromisoformat(text)
     except ValueError:
         return None
     if dt.tzinfo is None:
@@ -203,14 +203,14 @@ def _normalize_finviz_news_item(
     )
     if isinstance(raw_published_at, str):
         try:
-            raw_dt = datetime.fromisoformat(raw_published_at.replace("Z", "+00:00"))
+            raw_dt = datetime.fromisoformat(raw_published_at)
             raw_was_naive = raw_dt.tzinfo is None
         except ValueError:
             raw_was_naive = False
     published_text = out.get("published_at")
     try:
         published_dt = datetime.fromisoformat(
-            str(published_text).replace("Z", "+00:00")
+            str(published_text)
         )
     except (TypeError, ValueError):
         published_dt = None

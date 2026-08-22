@@ -980,13 +980,6 @@ def _to_utc_history_query_dt(dt: Any) -> datetime:
     return dt.astimezone(timezone.utc)
 
 
-def _to_mt5_history_epoch_seconds(dt: datetime, *, config: Any = None) -> float:
-    """Convert an absolute UTC instant to MT5's native UTC epoch axis."""
-    from .utils import _utc_epoch_seconds
-
-    return float(_utc_epoch_seconds(dt))
-
-
 _MT5_TIME_FIELDS = (
     "time",
     "time_msc",

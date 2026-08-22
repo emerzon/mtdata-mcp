@@ -53,7 +53,6 @@ from mtdata.utils.mt5 import (
     _normalize_times_in_struct,
     _rates_to_df,
     _symbol_ready_guard,
-    _to_mt5_history_epoch_seconds,
     _to_server_query_dt,
     _to_utc_history_query_dt,
     clear_mt5_time_alignment_cache,
@@ -300,26 +299,6 @@ class TestToUtcHistoryQueryDt:
         assert _to_utc_history_query_dt(dt) == datetime(
             2024, 1, 1, 10, 0, tzinfo=timezone.utc
         )
-
-
-class TestToMt5HistoryEpochSeconds:
-    def test_static_offset_does_not_change_native_utc_epoch(self):
-        cfg = types.SimpleNamespace(
-            get_time_offset_seconds=lambda at_time=None: 3 * 60 * 60,
-        )
-        start = datetime(2026, 3, 1, 10, 0, tzinfo=timezone.utc)
-        end = datetime(2026, 3, 1, 11, 0, tzinfo=timezone.utc)
-
-        start_epoch = _to_mt5_history_epoch_seconds(start, config=cfg)
-        end_epoch = _to_mt5_history_epoch_seconds(end, config=cfg)
-
-        assert start_epoch == datetime(
-            2026, 3, 1, 10, 0, tzinfo=timezone.utc
-        ).timestamp()
-        assert end_epoch == datetime(
-            2026, 3, 1, 11, 0, tzinfo=timezone.utc
-        ).timestamp()
-        assert end_epoch - start_epoch == 60 * 60
 
 
 # ── _normalize_times_in_struct  (lines 88-102) ───────────────────────────────

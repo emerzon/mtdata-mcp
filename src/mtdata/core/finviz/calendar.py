@@ -602,7 +602,7 @@ def _finviz_calendar_item_is_upcoming(
     if raw_date in (None, ""):
         return False
     try:
-        event_time = datetime.fromisoformat(str(raw_date).replace("Z", "+00:00"))
+        event_time = datetime.fromisoformat(str(raw_date))
     except (TypeError, ValueError):
         return False
     if event_time.tzinfo is None:

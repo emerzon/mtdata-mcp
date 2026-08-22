@@ -10,7 +10,7 @@ from pydantic import Field
 
 from ..services.research.payload import stamp_provider
 from ..services.unified_news import fetch_unified_news
-from ..utils.time import format_datetime_utc, format_relative_time
+from ..utils.time import format_datetime_utc, format_relative_time, parse_iso_utc
 from ._mcp_instance import mcp
 from .error_envelope import build_error_payload
 from .execution_logging import run_logged_operation
@@ -97,13 +97,11 @@ def _news_datetime_utc(value: Any) -> Optional[datetime]:
         if not text:
             return None
         try:
-            published_at = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            published_at = parse_iso_utc(text)
         except ValueError:
             return None
 
-    if published_at.tzinfo is None:
-        return published_at.replace(tzinfo=timezone.utc)
-    return published_at.astimezone(timezone.utc)
+    return parse_iso_utc(published_at)
 
 
 def _news_time_utc_text(value: datetime) -> str:

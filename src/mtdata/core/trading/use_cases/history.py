@@ -23,9 +23,9 @@ from mtdata.core.trading.use_cases.common import (
     _validate_trading_symbol,
     logger,
 )
-from mtdata.utils.mt5 import MT5ConnectionError, _to_mt5_history_epoch_seconds
+from mtdata.utils.mt5 import MT5ConnectionError
 from mtdata.utils.time import _format_datetime_second_explicit
-from mtdata.utils.utils import validate_historical_range
+from mtdata.utils.utils import _utc_epoch_seconds, validate_historical_range
 
 _DEFAULT_TRADE_HISTORY_LOOKBACK_DAYS = 7
 _TRADE_HISTORY_CURSOR_MAX_AGE_SECONDS = 3_600
@@ -374,11 +374,11 @@ def run_trade_history(  # noqa: C901
                     "remediation": "Choose a start datetime at or before the current time.",
                 }
 
-            history_from_dt = _to_mt5_history_epoch_seconds(
+            history_from_dt = _utc_epoch_seconds(
                 from_dt,
                 config=mt5_config,
             )
-            history_to_dt = _to_mt5_history_epoch_seconds(
+            history_to_dt = _utc_epoch_seconds(
                 to_dt,
                 config=mt5_config,
             )

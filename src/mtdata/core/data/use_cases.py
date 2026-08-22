@@ -804,7 +804,7 @@ def _forming_bar_exclusion_affects_range(
         return True
     try:
         end_dt = datetime.fromisoformat(
-            str(resolved_end).strip().replace("Z", "+00:00")
+            str(resolved_end).strip()
         )
         if end_dt.tzinfo is None:
             end_dt = end_dt.replace(tzinfo=timezone.utc)
@@ -815,7 +815,7 @@ def _forming_bar_exclusion_affects_range(
             latest_open_epoch = float(latest_value)
         else:
             latest_dt = datetime.fromisoformat(
-                str(latest_value).strip().replace("Z", "+00:00")
+                str(latest_value).strip()
             )
             if latest_dt.tzinfo is None:
                 latest_dt = latest_dt.replace(tzinfo=timezone.utc)
@@ -1072,7 +1072,7 @@ def _next_candle_cursor(
         if isinstance(value, (int, float)) and not isinstance(value, bool):
             observed = datetime.fromtimestamp(float(value), timezone.utc)
         else:
-            observed = datetime.fromisoformat(str(value).strip().replace("Z", "+00:00"))
+            observed = datetime.fromisoformat(str(value).strip())
             if observed.tzinfo is None:
                 observed = observed.replace(tzinfo=timezone.utc)
             else:
@@ -1280,7 +1280,7 @@ def _timestamp_representation(value: Any) -> Optional[tuple[str, str, str]]:
         return None
     text = value.strip()
     try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(text)
     except ValueError:
         return "iso_text", "unspecified", ""
     offset = parsed.utcoffset() if parsed.tzinfo is not None else None
@@ -2154,7 +2154,7 @@ def _future_tick_bound(
             continue
         try:
             parsed = datetime.fromisoformat(
-                str(value).strip().replace("Z", "+00:00")
+                str(value).strip()
             )
             if parsed.tzinfo is None:
                 parsed = parsed.replace(tzinfo=timezone.utc)

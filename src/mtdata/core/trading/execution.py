@@ -8,8 +8,8 @@ from typing import Any, Dict, List, Optional, Union
 
 from ...bootstrap.settings import trade_guardrails_config
 from ...utils.freshness import QUOTE_LIVE_SECONDS
-from ...utils.mt5 import _to_mt5_history_epoch_seconds
 from ...utils.quote import resolve_quote_tick
+from ...utils.utils import _utc_epoch_seconds
 from . import comments, time, validation
 from .common import build_trade_quote_context
 from .gateway import MT5TradingGateway, create_trading_gateway, trading_connection_error
@@ -388,8 +388,8 @@ def _resolve_closed_deal_from_history(
         return None
     try:
         rows = mt5.history_deals_get(
-            _to_mt5_history_epoch_seconds(closed_at_utc - timedelta(minutes=5)),
-            _to_mt5_history_epoch_seconds(closed_at_utc + timedelta(minutes=1)),
+            _utc_epoch_seconds(closed_at_utc - timedelta(minutes=5)),
+            _utc_epoch_seconds(closed_at_utc + timedelta(minutes=1)),
         )
     except Exception:
         return None

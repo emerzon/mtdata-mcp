@@ -211,9 +211,7 @@ def _next_candle_close_server_time(
         )
         if closed and closed.get("assumed_closure_end"):
             try:
-                closure_end = datetime.fromisoformat(
-                    str(closed["assumed_closure_end"]).replace("Z", "+00:00")
-                )
+                closure_end = datetime.fromisoformat(str(closed["assumed_closure_end"]))
             except ValueError:
                 closure_end = None
             if closure_end is not None and next_utc <= closure_end:

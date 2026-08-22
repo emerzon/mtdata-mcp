@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 import numpy as np
@@ -12,7 +12,7 @@ import pandas as pd
 from ..shared.constants import (
     TIMEFRAME_SECONDS as _TIMEFRAME_SECONDS,
 )
-from .time import _format_time_minimal, format_epoch_utc
+from .time import _format_time_minimal, format_epoch_utc, parse_iso_utc
 
 _METHOD_NAME = "weighted_retests"
 _DEFAULT_REACTION_BARS = 6
@@ -112,10 +112,7 @@ def _parse_output_time(value: Any) -> Optional[float]:
         if not cleaned:
             return None
         try:
-            parsed = datetime.fromisoformat(cleaned.replace("Z", "+00:00"))
-            if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=timezone.utc)
-            return parsed.timestamp()
+            return parse_iso_utc(cleaned).timestamp()
         except Exception:
             return None
     return None

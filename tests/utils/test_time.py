@@ -6,6 +6,7 @@ from mtdata.utils.time import (
     format_datetime_utc,
     format_epoch_utc,
     format_relative_time,
+    parse_iso_utc,
 )
 
 
@@ -24,6 +25,22 @@ def test_format_epoch_utc_uses_second_resolution() -> None:
 def test_format_epoch_utc_rejects_invalid_values() -> None:
     assert format_epoch_utc(None) is None
     assert format_epoch_utc("not-an-epoch") is None
+
+
+def test_format_epoch_utc_supports_minute_precision() -> None:
+    assert format_epoch_utc(0, timespec="minutes") == "1970-01-01T00:00Z"
+
+
+def test_parse_iso_utc_accepts_z_offsets_and_naive_values() -> None:
+    assert parse_iso_utc("2024-01-01T00:00:00Z") == datetime(
+        2024, 1, 1, tzinfo=timezone.utc
+    )
+    assert parse_iso_utc("2024-01-01T01:00:00+01:00") == datetime(
+        2024, 1, 1, tzinfo=timezone.utc
+    )
+    assert parse_iso_utc("2024-01-01T00:00:00") == datetime(
+        2024, 1, 1, tzinfo=timezone.utc
+    )
 
 
 def test_format_datetime_utc_normalizes_offsets_and_resolution() -> None:

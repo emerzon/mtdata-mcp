@@ -588,7 +588,7 @@ def _maybe_parse_finviz_datetime(value: Any) -> Optional[datetime]:
         if not text or re.fullmatch(r"[+-]?\d+(?:\.\d+)?", text):
             return None
         try:
-            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+            parsed = datetime.fromisoformat(text)
         except ValueError:
             try:
                 from dateutil import parser as date_parser

@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from ..shared.constants import CALENDAR_TIMEFRAMES, TIME_DISPLAY_FORMAT
+from ..shared.constants import CALENDAR_TIMEFRAMES
 
 
 def bar_close_epoch(open_epoch: Any, timeframe: str) -> float:
@@ -64,13 +64,13 @@ def _localize_broker_calendar_time(broker_tz: Any, value: datetime) -> datetime:
     return value.replace(tzinfo=broker_tz)
 
 
-def format_epoch_utc(value: Any) -> Optional[str]:
-    """Format epoch seconds as second-resolution RFC 3339 UTC."""
+def format_epoch_utc(value: Any, *, timespec: str = "seconds") -> Optional[str]:
+    """Format epoch seconds as RFC 3339 UTC at the requested precision."""
     try:
         timestamp = float(value)
         return format_datetime_utc(
             datetime.fromtimestamp(timestamp, timezone.utc),
-            timespec="seconds",
+            timespec=timespec,
         )
     except (OSError, OverflowError, TypeError, ValueError):
         return None
@@ -81,6 +81,19 @@ def as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def parse_iso_utc(value: Any) -> datetime:
+    """Parse an ISO datetime and normalize it to UTC.
+
+    Python's ISO parser accepts the RFC 3339 ``Z`` suffix. Naive values are
+    treated as UTC, matching the repository's existing timestamp contracts.
+    """
+    if isinstance(value, datetime):
+        return as_utc(value)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("Expected a non-empty ISO datetime string.")
+    return as_utc(datetime.fromisoformat(value.strip()))
 
 
 def format_datetime_utc(value: datetime, *, timespec: str = "seconds") -> str:
@@ -121,7 +134,7 @@ def format_relative_time(value: datetime, *, now: Optional[datetime] = None) -> 
 def _format_time_minimal(epoch_seconds: float) -> str:
     """Format epoch seconds as a minute-resolution RFC 3339 UTC string."""
     dt = datetime.fromtimestamp(epoch_seconds, tz=timezone.utc)
-    return dt.strftime(TIME_DISPLAY_FORMAT)
+    return format_datetime_utc(dt, timespec="minutes")
 
 
 def _format_time_minimal_local(epoch_seconds: float) -> str:
@@ -134,20 +147,10 @@ def _format_time_minimal_local(epoch_seconds: float) -> str:
         return _format_time_minimal(epoch_seconds)
 
 
-def _format_time_explicit(epoch_seconds: float) -> str:
-    """Format UTC epoch seconds with an embedded timezone marker."""
-    dt = datetime.fromtimestamp(epoch_seconds, tz=timezone.utc)
-    return _format_datetime_minute_explicit(dt)
-
-
-def _format_time_explicit_local(epoch_seconds: float) -> str:
-    """Format epoch seconds in local/client time with an embedded offset."""
-    try:
-        tz = _resolve_client_tz()
-        dt = datetime.fromtimestamp(epoch_seconds, tz=timezone.utc).astimezone(tz)
-        return _format_datetime_minute_explicit(dt)
-    except Exception:
-        return _format_time_explicit(epoch_seconds)
+# Backward-compatible aliases for callers that historically used "explicit"
+# to mean the same minute-resolution representation.
+_format_time_explicit = _format_time_minimal
+_format_time_explicit_local = _format_time_minimal_local
 
 
 def _format_time_second_explicit(epoch_seconds: float) -> str:

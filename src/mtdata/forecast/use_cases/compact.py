@@ -10,6 +10,7 @@ from mtdata.utils.coercion import coerce_finite_float as _finite_float
 from mtdata.utils.coercion import round_finite
 from mtdata.utils.freshness import format_age_seconds as _format_age_seconds
 from mtdata.utils.freshness import format_freshness_label
+from mtdata.utils.time import parse_iso_utc
 
 _FORECAST_DIRECTION_MIN_THRESHOLD_PCT = 0.05
 
@@ -29,17 +30,13 @@ def _format_forecast_time_utc(value: Any) -> Any:
         return value
     if "T" not in text and " " not in text:
         return value
-    parse_text = text.replace("Z", "+00:00")
+    parse_text = text
     if "T" not in parse_text and " " in parse_text:
         parse_text = parse_text.replace(" ", "T", 1)
     try:
-        parsed = datetime.fromisoformat(parse_text)
+        parsed = parse_iso_utc(parse_text)
     except Exception:
         return value
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    else:
-        parsed = parsed.astimezone(timezone.utc)
     parsed = parsed.replace(microsecond=0)
     if parsed.second == 0:
         return parsed.strftime("%Y-%m-%dT%H:%MZ")

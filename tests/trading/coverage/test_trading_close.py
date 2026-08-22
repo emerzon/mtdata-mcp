@@ -186,7 +186,7 @@ def test_resolve_closed_deal_from_history_queries_recent_window_as_mt5_epoch():
     mt5 = SimpleNamespace(history_deals_get=MagicMock(return_value=[matched_row]))
 
     with patch(
-        "mtdata.core.trading.execution._to_mt5_history_epoch_seconds",
+        "mtdata.core.trading.execution._utc_epoch_seconds",
         side_effect=[111.0, 222.0],
     ):
         result = _resolve_closed_deal_from_history(
@@ -230,7 +230,7 @@ def test_resolve_closed_deal_from_history_tiebreaks_missing_timestamps_by_ticket
     )
 
     with patch(
-        "mtdata.core.trading.execution._to_mt5_history_epoch_seconds",
+        "mtdata.core.trading.execution._utc_epoch_seconds",
         side_effect=[111.0, 222.0],
     ):
         result = _resolve_closed_deal_from_history(

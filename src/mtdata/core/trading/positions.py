@@ -259,10 +259,6 @@ _TRADE_MONEY_FIELDS = {
 }
 
 
-def _utc_epoch_identity(value: Any) -> float:
-    return float(value)
-
-
 def _position_sort_key(position: Any) -> float:
     """Prefer the most recently updated position when multiple candidates exist."""
     return validation._time_sort_key(
@@ -1721,7 +1717,7 @@ def trade_get_open(
                 use_client_tz=lambda: False,
                 format_time_minimal=format_epoch_utc,
                 format_time_minimal_local=format_epoch_utc,
-                mt5_epoch_to_utc=_utc_epoch_identity,
+                mt5_epoch_to_utc=float,
                 normalize_limit=_normalize_limit,
                 comment_row_metadata=comments._comment_row_metadata,
             ),
@@ -1761,7 +1757,7 @@ def trade_get_pending(
                 use_client_tz=lambda: False,
                 format_time_minimal=format_epoch_utc,
                 format_time_minimal_local=format_epoch_utc,
-                mt5_epoch_to_utc=_utc_epoch_identity,
+                mt5_epoch_to_utc=float,
                 normalize_limit=_normalize_limit,
                 comment_row_metadata=comments._comment_row_metadata,
             ),

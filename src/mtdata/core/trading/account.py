@@ -106,10 +106,6 @@ _TRADE_JOURNAL_UNITS: Dict[str, str] = {
 }
 
 
-def _utc_epoch_identity(value: Any) -> float:
-    return float(value)
-
-
 def _run_trade_history_request(request: TradeHistoryRequest) -> Any:
     gateway = create_trading_gateway(
         adapter=mt5_adapter,
@@ -121,7 +117,7 @@ def _run_trade_history_request(request: TradeHistoryRequest) -> Any:
         use_client_tz=_use_client_tz,
         format_time_minimal=_format_time_minimal,
         format_time_minimal_local=_format_time_minimal_local,
-        mt5_epoch_to_utc=_utc_epoch_identity,
+        mt5_epoch_to_utc=float,
         parse_end_datetime=_parse_end_datetime,
         parse_start_datetime=_parse_start_datetime,
         normalize_limit=_normalize_limit,

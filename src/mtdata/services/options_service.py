@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from ..bootstrap.settings import options_data_config
+from ..utils.time import parse_iso_utc
 
 logger = logging.getLogger(__name__)
 
@@ -1103,10 +1104,7 @@ def _parse_tradier_epoch(value: Any) -> int:
         return _to_numeric(value, int, 0, field_name="lastTradeDate")
     text = str(value).strip()
     try:
-        parsed = _dt.datetime.fromisoformat(text.replace("Z", "+00:00"))
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=_dt.timezone.utc)
-        return int(parsed.timestamp())
+        return int(parse_iso_utc(text).timestamp())
     except Exception:
         return 0
 
