@@ -652,11 +652,14 @@ def validate_historical_range(
     return None
 
 
-def _utc_epoch_seconds(dt: datetime) -> float:
+def _utc_epoch_seconds(dt: datetime, *, config: Any = None) -> float:
     """Convert a datetime to UTC epoch seconds, treating naive values as UTC.
 
     Python's `datetime.timestamp()` interprets naive datetimes as *local time*,
     which can silently shift values when the host isn't running in UTC.
+    ``config`` is accepted for compatibility with the former MT5-specific
+    wrapper; absolute UTC instants do not require broker offset settings.
     """
+    del config
     return as_utc(dt).timestamp()
 
