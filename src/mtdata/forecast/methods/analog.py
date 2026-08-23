@@ -17,6 +17,21 @@ def build_index(*args: Any, **kwargs: Any) -> Any:
     return _build_index(*args, **kwargs)
 
 
+def _normalize_engine_metric_scale(
+    search_engine: str,
+    requested_metric: str,
+    requested_scale: str,
+) -> Tuple[str, str]:
+    if search_engine in ("matrix_profile", "mass"):
+        metric = (
+            requested_metric
+            if requested_metric.lower() in ("euclidean", "l2")
+            else "euclidean"
+        )
+        return metric, "zscore"
+    return requested_metric, requested_scale
+
+
 def _weighted_quantile(values: np.ndarray, weights: np.ndarray, quantile: float) -> float:
     vals = np.asarray(values, dtype=float).ravel()
     w = np.asarray(weights, dtype=float).ravel()
@@ -487,10 +502,9 @@ class AnalogMethod(ForecastMethod):
             self._record_timeframe_diagnostic(str(timeframe), diagnostic)
             return [], []
 
-        metric = requested_metric
-        idx_scale = "zscore" if search_engine in ("matrix_profile", "mass") else requested_scale
-        if search_engine in ("matrix_profile", "mass") and metric.lower() not in ("euclidean", "l2"):
-            metric = "euclidean"
+        metric, idx_scale = _normalize_engine_metric_scale(
+            search_engine, requested_metric, requested_scale
+        )
 
         diagnostic: Dict[str, Any] = {
             "symbol": str(symbol),
@@ -803,8 +817,9 @@ class AnalogMethod(ForecastMethod):
         requested_scale = str(params.get("scale", "zscore"))
         refine_metric = str(params.get("refine_metric", "dtw"))
         search_engine = str(params.get("search_engine", "ckdtree"))
-        index_scale = "zscore" if search_engine in ("matrix_profile", "mass") else requested_scale
-        effective_metric = "euclidean" if search_engine in ("matrix_profile", "mass") and requested_metric.lower() not in ("euclidean", "l2") else requested_metric
+        effective_metric, index_scale = _normalize_engine_metric_scale(
+            search_engine, requested_metric, requested_scale
+        )
         denoise_spec = params.get("denoise")
         search_symbols = self._parse_search_symbols(str(symbol), params.get("search_symbols"))
         base_col = str(params.get("base_col") or base_name or "").strip().lower()
