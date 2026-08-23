@@ -20,7 +20,9 @@ from typing import Any, Dict, Iterator, Optional, Tuple
 from uuid import uuid4
 
 from ..bootstrap.settings import mt5_config
+from ..shared.symbols import _alnum_upper
 from .quote import tick_epoch
+from .symbol import symbol_suggestions_from_gateway
 
 logger = logging.getLogger(__name__)
 
@@ -1497,7 +1499,7 @@ def ensure_mt5_connection_or_raise(*, service: Optional[MT5Service] = None) -> N
 
 
 def _compact_symbol_name(value: Any) -> str:
-    return "".join(ch for ch in str(value or "").upper() if ch.isalnum())
+    return _alnum_upper(value)
 
 
 def resolve_broker_symbol_name(symbol: str, *, gateway: Any = None) -> str:
@@ -1527,56 +1529,13 @@ def resolve_broker_symbol_name(symbol: str, *, gateway: Any = None) -> str:
     return query
 
 
-def _symbol_name_suggestions(symbol: str, *, limit: int = 5) -> list[str]:
-    query = str(symbol or "").strip()
-    if not query:
-        return []
-    query_upper = query.upper()
-    query_compact = _compact_symbol_name(query)
-    try:
-        symbols = list(mt5.symbols_get() or [])
-    except Exception:
-        return []
-
-    ranked: list[tuple[tuple[int, str], str]] = []
-    seen: set[str] = set()
-    for info in symbols:
-        name = str(getattr(info, "name", "") or "")
-        if not name or name in seen:
-            continue
-        seen.add(name)
-        name_upper = name.upper()
-        name_compact = _compact_symbol_name(name)
-        description = str(getattr(info, "description", "") or "").upper()
-        if name_upper == query_upper:
-            score = 0
-        elif name_upper.startswith(query_upper):
-            score = 1
-        elif query_compact and name_compact.startswith(query_compact):
-            score = 2
-        elif (
-            query_compact
-            and name_compact
-            and query_compact.startswith(name_compact)
-            and len(name_compact) >= 5
-        ):
-            score = 2
-        elif query_upper in name_upper:
-            score = 3
-        elif query_upper in description:
-            score = 4
-        else:
-            continue
-        ranked.append(((score, name_upper), name))
-    ranked.sort(key=lambda item: item[0])
-    return [name for _key, name in ranked[: max(1, int(limit))]]
-
-
 def _symbol_suggestion_suffix(symbol: str) -> str:
-    suggestions = _symbol_name_suggestions(symbol)
-    if not suggestions:
+    suggestions = symbol_suggestions_from_gateway(mt5, symbol)
+    names = [str(item.get("symbol") or "").strip() for item in suggestions]
+    names = [name for name in names if name]
+    if not names:
         return ""
-    return " Closest broker symbols: " + ", ".join(suggestions) + "."
+    return " Closest broker symbols: " + ", ".join(names) + "."
 
 
 def _ensure_symbol_ready(symbol: str) -> Optional[str]:
