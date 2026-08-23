@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mtdata-mcp-server"
+name = "mtdata-mcp"
 version = "0.1.0"
 description = "MetaTrader5 MCP Server for market data retrieval and analysis."
 authors = [
@@ -161,11 +161,11 @@ mtdata-stdio = "mtdata.core.server:main_stdio"
 mtdata-streamable-http = "mtdata.core.server:main_streamable_http"
 mtdata-webapi = "mtdata.core.web_api:main_webapi"
 mtdata-cli = "mtdata.core.cli:main"
-mtdata = "mtdata.core.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/emerzon/mt-data-mcp"
-Repository = "https://github.com/emerzon/mt-data-mcp"
+Homepage = "https://github.com/emerzon/mtdata-mcp"
+Repository = "https://github.com/emerzon/mtdata-mcp"
+Issues = "https://github.com/emerzon/mtdata-mcp/issues"
 
 [tool.ruff]
 target-version = "py314"

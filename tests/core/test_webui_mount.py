@@ -22,7 +22,7 @@ from mtdata.core.web_api_runtime import (
 def test_web_api_version_comes_from_installed_package_metadata():
     app = create_web_api_app(settings=WebApiRuntimeSettings())
 
-    assert app.version == version("mtdata-mcp-server")
+    assert app.version == version("mtdata-mcp")
 
 
 def test_package_version_has_deterministic_source_checkout_fallback():

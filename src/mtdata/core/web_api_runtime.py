@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 WEBUI_MOUNT_PATH = "/app"
 _MISSING_UI_STATUS = 503
-_PACKAGE_DISTRIBUTION = "mtdata-mcp-server"
+_PACKAGE_DISTRIBUTION = "mtdata-mcp"
 
 
 def _package_version() -> str:

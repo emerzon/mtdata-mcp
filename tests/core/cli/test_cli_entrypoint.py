@@ -77,6 +77,25 @@ def test_dynamic_tools_list_subprocess_has_clean_stderr():
     assert completed.stderr == ""
 
 
+def test_cli_version_reads_mtdata_mcp_distribution():
+    from importlib.metadata import PackageNotFoundError
+
+    from mtdata.core.cli.version import cli_version
+
+    with patch(
+        "mtdata.core.cli.version.importlib_metadata.version",
+        return_value="0.1.0",
+    ) as version_lookup:
+        assert cli_version() == "0.1.0"
+    version_lookup.assert_called_once_with("mtdata-mcp")
+
+    with patch(
+        "mtdata.core.cli.version.importlib_metadata.version",
+        side_effect=PackageNotFoundError,
+    ):
+        assert cli_version() == "0.1.0"
+
+
 def test_version_path_does_not_import_cli_api(capsys):
     from mtdata.core.cli import main
 

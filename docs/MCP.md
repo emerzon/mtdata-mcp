@@ -47,7 +47,8 @@ spawns it. For a background HTTP server, see [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## Claude Desktop (stdio)
 
-After `pip install -e .`, add this to `claude_desktop_config.json`:
+After installing this repo (PyPI package **`mtdata-mcp`**, CLI **`mtdata-cli`**),
+add this to `claude_desktop_config.json`:
 
 ```json
 {

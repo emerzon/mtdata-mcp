@@ -171,6 +171,10 @@ Keep the first session **read-only** unless you are on a demo account and intent
 
 Dependency caveats (NeuralForecast optional installs, Python 3.14 exclusions, optional native accelerators) live in **[Setup](docs/SETUP.md)** so this page stays focused on getting you productive.
 
+### Naming
+
+The PyPI package is **`mtdata-mcp`**. The command-line entry is **`mtdata-cli`** (not `mtdata`). That avoids a clash with the unrelated [mtdata](https://pypi.org/project/mtdata/) machine-translation dataset package, which already owns the `mtdata` CLI. The importable Python package remains `mtdata` (`import mtdata`).
+
 ---
 
 ## Documentation

@@ -327,7 +327,10 @@ After editable install, these entry points are available:
 | `mtdata-streamable-http` | Streamable HTTP | `mtdata-streamable-http` |
 | `mtdata-webapi` | Web API (FastAPI) | `mtdata-webapi` |
 | `mtdata-cli` | CLI | `mtdata-cli <command>` |
-| `mtdata` | CLI | `mtdata <command>` |
+
+The published distribution name is **`mtdata-mcp`**. Use **`mtdata-cli`** (not
+`mtdata`) so this project does not collide with the unrelated
+[mtdata](https://pypi.org/project/mtdata/) CLI. The import remains `mtdata`.
 
 **MCP server environment variables:**
 
