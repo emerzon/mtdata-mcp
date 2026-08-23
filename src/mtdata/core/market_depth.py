@@ -12,7 +12,7 @@ from ..shared.market_units import (
     forex_points_per_pip,
 )
 from ..shared.schema import DetailLiteral
-from ..utils.coercion import round_finite
+from ..utils.coercion import coerce_finite_float, round_finite
 from ..utils.freshness import (
     QUOTE_STALE_SECONDS,
     format_age_seconds,
@@ -265,15 +265,7 @@ def _positive_market_ticker_float(value: Any) -> Optional[float]:
 
 
 def _optional_finite_float(value: Any) -> Optional[float]:
-    if value is None:
-        return None
-    try:
-        number = float(value)
-    except (TypeError, ValueError, OverflowError):
-        return None
-    if not math.isfinite(number):
-        return None
-    return number
+    return coerce_finite_float(value)
 
 
 def _format_mt5_error_text(error: Any) -> str:

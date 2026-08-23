@@ -16,7 +16,7 @@ from ..utils.barriers import (
     resolve_barrier_prices,
     resolve_same_bar_probabilities,
 )
-from ..utils.coercion import UNPARSED_BOOL, parse_bool_like
+from ..utils.coercion import UNPARSED_BOOL, coerce_finite_float, parse_bool_like
 from ..utils.utils import parse_kv_or_json as _parse_kv_or_json
 from .barrier_constants import barrier_simulation_param_keys
 from .barrier_outcomes import (
@@ -365,13 +365,7 @@ def _barrier_candidate_filter_config(
 
 
 def _optional_finite_float(value: Any) -> Optional[float]:
-    try:
-        numeric = float(value)
-    except Exception:
-        return None
-    if not np.isfinite(numeric):
-        return None
-    return float(numeric)
+    return coerce_finite_float(value)
 
 
 def _candidate_passes_threshold_filters(
