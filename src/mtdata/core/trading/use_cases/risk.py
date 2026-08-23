@@ -650,7 +650,13 @@ def _normalize_var_cvar_method(method: Any) -> tuple[Optional[str], Optional[str
         return "historical", None
     if method_text in {"gaussian", "normal", "parametric"}:
         return "parametric", None
-    return None, "Invalid method. Valid options: historical, parametric"
+    if method_text in {"cornish_fisher", "cornish-fisher", "cf"}:
+        return "cornish_fisher", None
+    if method_text in {"ewma", "ewma_historical"}:
+        return "ewma", None
+    return None, (
+        "Invalid method. Valid options: historical, parametric, cornish_fisher, ewma"
+    )
 
 
 def _normalize_var_cvar_transform(
@@ -738,6 +744,86 @@ def _gaussian_var_cvar_tail(
     return var_value, cvar_value, threshold
 
 
+def _cornish_fisher_var_cvar_tail(
+    pnl_values: List[float], confidence: float
+) -> tuple[float, float, float]:
+    import numpy as np
+    from scipy.stats import norm
+
+    ordered = np.asarray([float(value) for value in pnl_values], dtype=float)
+    if ordered.size == 0:
+        return 0.0, 0.0, 0.0
+    if ordered.size < 3:
+        return _gaussian_var_cvar_tail(pnl_values, confidence)
+
+    mean_pnl = float(np.mean(ordered))
+    centered = ordered - mean_pnl
+    std_pnl = float(np.std(ordered, ddof=1))
+    if not math.isfinite(std_pnl) or std_pnl <= 0.0:
+        threshold = mean_pnl
+        var_value = max(0.0, -threshold)
+        return var_value, var_value, threshold
+
+    z_score = float(norm.ppf(1.0 - confidence))
+    standardized = centered / std_pnl
+    skewness = float(np.mean(standardized ** 3))
+    excess_kurtosis = float(np.mean(standardized ** 4) - 3.0)
+    z_cf = (
+        z_score
+        + ((z_score**2 - 1.0) * skewness / 6.0)
+        + ((z_score**3 - (3.0 * z_score)) * excess_kurtosis / 24.0)
+        - (((2.0 * (z_score**3)) - (5.0 * z_score)) * (skewness**2) / 36.0)
+    )
+    threshold = mean_pnl + (std_pnl * z_cf)
+
+    tail_values = ordered[ordered <= threshold]
+    tail_mean = float(np.mean(tail_values)) if tail_values.size else float(threshold)
+    var_value = max(0.0, -float(threshold))
+    cvar_value = max(0.0, -tail_mean)
+    return var_value, cvar_value, float(threshold)
+
+
+def _ewma_var_cvar_tail(
+    pnl_values: List[float], confidence: float, *, decay: float = 0.94
+) -> tuple[float, float, float]:
+    import numpy as np
+
+    ordered = np.asarray([float(value) for value in pnl_values], dtype=float)
+    if ordered.size == 0:
+        return 0.0, 0.0, 0.0
+    if ordered.size == 1:
+        threshold = float(ordered[0])
+        var_value = max(0.0, -threshold)
+        return var_value, var_value, threshold
+
+    lam = min(max(float(decay), 0.0), 0.999999)
+    ages = np.arange(ordered.size - 1, -1, -1, dtype=float)
+    weights = (1.0 - lam) * np.power(lam, ages)
+    total_weight = float(np.sum(weights))
+    if not math.isfinite(total_weight) or total_weight <= 0.0:
+        return _historical_var_cvar_tail(pnl_values, confidence)
+    weights = weights / total_weight
+
+    sort_idx = np.argsort(ordered)
+    sorted_pnl = ordered[sort_idx]
+    sorted_weights = weights[sort_idx]
+    alpha = 1.0 - confidence
+    cumulative = np.cumsum(sorted_weights)
+    threshold_idx = int(np.searchsorted(cumulative, alpha, side="left"))
+    threshold_idx = max(0, min(threshold_idx, sorted_pnl.size - 1))
+    threshold = float(sorted_pnl[threshold_idx])
+    tail_mask = sorted_pnl <= threshold
+    tail_weights = sorted_weights[tail_mask]
+    tail_total = float(np.sum(tail_weights))
+    if tail_total <= 0.0:
+        tail_mean = threshold
+    else:
+        tail_mean = float(np.dot(sorted_pnl[tail_mask], tail_weights) / tail_total)
+    var_value = max(0.0, -threshold)
+    cvar_value = max(0.0, -tail_mean)
+    return var_value, cvar_value, threshold
+
+
 def _calculate_var_cvar_from_pnl(
     pnl_values: List[float],
     *,
@@ -746,7 +832,13 @@ def _calculate_var_cvar_from_pnl(
 ) -> tuple[float, float, float]:
     if method == "historical":
         return _historical_var_cvar_tail(pnl_values, confidence)
-    return _gaussian_var_cvar_tail(pnl_values, confidence)
+    if method in {"parametric", "gaussian"}:
+        return _gaussian_var_cvar_tail(pnl_values, confidence)
+    if method == "cornish_fisher":
+        return _cornish_fisher_var_cvar_tail(pnl_values, confidence)
+    if method == "ewma":
+        return _ewma_var_cvar_tail(pnl_values, confidence)
+    raise ValueError(f"Unsupported VaR/CVaR method: {method}")
 
 
 def _extract_var_cvar_return_series(

@@ -196,7 +196,7 @@ _COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "available in this installation."
     ),
     ("trade_var_cvar_calculate", "method"): (
-        "Tail-risk method: historical or parametric."
+        "Tail-risk method: historical, parametric, cornish_fisher, or ewma."
     ),
     ("trade_var_cvar_calculate", "symbol"): (
         "Optional scope: calculate VaR/CVaR for currently open positions in this "

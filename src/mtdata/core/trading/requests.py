@@ -642,10 +642,10 @@ class TradeVarCvarRequest(BaseModel):
             "Values must satisfy 0 < confidence < 1."
         ),
     )
-    method: Literal["historical", "parametric"] = Field(
+    method: Literal["historical", "parametric", "cornish_fisher", "ewma"] = Field(
         default="historical",
         description=(
-            "Tail-risk method: historical or parametric."
+            "Tail-risk method: historical, parametric, cornish_fisher, or ewma."
         ),
     )
     transform: Literal["log_return", "pct"] = Field(

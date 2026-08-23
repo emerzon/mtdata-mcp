@@ -8,6 +8,7 @@ from mtdata.core.trading.requests import TradeVarCvarRequest
 from mtdata.core.trading.use_cases import run_trade_var_cvar_calculate
 from mtdata.core.trading.use_cases.risk import (
     _calculate_var_cvar_from_pnl,
+    _normalize_var_cvar_method,
     _position_mark_freshness,
 )
 
@@ -83,6 +84,44 @@ def test_calculate_var_cvar_from_pnl_gaussian_cvar_exceeds_var() -> None:
     assert threshold < 0.0
     assert var_value > 0.0
     assert cvar_value >= var_value
+
+
+def test_normalize_var_cvar_method_accepts_cornish_fisher_and_ewma() -> None:
+    assert _normalize_var_cvar_method("cornish-fisher") == ("cornish_fisher", None)
+    assert _normalize_var_cvar_method("ewma") == ("ewma", None)
+
+
+def test_calculate_var_cvar_from_pnl_cornish_fisher_cvar_exceeds_var() -> None:
+    var_value, cvar_value, threshold = _calculate_var_cvar_from_pnl(
+        [18.0, -25.0, 7.0, -11.0, 9.0, -4.0, 3.0, -30.0, 16.0],
+        confidence=0.95,
+        method="cornish_fisher",
+    )
+
+    assert threshold < 0.0
+    assert var_value > 0.0
+    assert cvar_value >= var_value
+
+
+def test_calculate_var_cvar_from_pnl_ewma_emphasizes_recent_losses() -> None:
+    pnl_values = [0.0] * 49 + [-10.0]
+
+    historical_var, _, historical_threshold = _calculate_var_cvar_from_pnl(
+        pnl_values,
+        confidence=0.95,
+        method="historical",
+    )
+    ewma_var, ewma_cvar, ewma_threshold = _calculate_var_cvar_from_pnl(
+        pnl_values,
+        confidence=0.95,
+        method="ewma",
+    )
+
+    assert historical_threshold == 0.0
+    assert historical_var == 0.0
+    assert ewma_threshold == -10.0
+    assert ewma_var == 10.0
+    assert ewma_cvar == 10.0
 
 
 def test_run_trade_var_cvar_calculate_summarizes_open_position_portfolio() -> None:
