@@ -9,6 +9,8 @@ from typing import Any, Callable, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field
 
 from ...shared.market_units import price_delta_ticks
+from ...shared.schema import normalize_optional_symbol
+from ...utils.coercion import coerce_finite_float
 from . import validation
 from .sizing import _resolve_risk_tick_value
 
@@ -79,7 +81,7 @@ def _normalize_stop_loss_value(value: Optional[float]) -> Optional[float]:
 
 
 def _normalize_symbol(value: Any) -> str:
-    return str(value or "").strip().upper()
+    return normalize_optional_symbol(value) or ""
 
 
 def assess_margin_stress(account: Any) -> Dict[str, Any]:
@@ -1339,18 +1341,10 @@ def pending_order_risk_increased(
     candidate_stop_loss: Optional[float],
 ) -> bool:
     """Return True when a pending-order modification increases downside risk."""
-    current_sl = _normalize_stop_loss_value(_safe_float_attr(
-        type("Obj", (), {"value": existing_stop_loss})(), "value"
-    ))
-    next_sl = _normalize_stop_loss_value(_safe_float_attr(
-        type("Obj", (), {"value": candidate_stop_loss})(), "value"
-    ))
-    current_entry = _safe_float_attr(
-        type("Obj", (), {"value": existing_entry_price})(), "value"
-    )
-    next_entry = _safe_float_attr(
-        type("Obj", (), {"value": candidate_entry_price})(), "value"
-    )
+    current_sl = _normalize_stop_loss_value(existing_stop_loss)
+    next_sl = _normalize_stop_loss_value(candidate_stop_loss)
+    current_entry = coerce_finite_float(existing_entry_price)
+    next_entry = coerce_finite_float(candidate_entry_price)
 
     if current_sl is None and next_sl is None:
         return False

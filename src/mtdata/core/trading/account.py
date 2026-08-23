@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from ...bootstrap.settings import mt5_config
 from ...shared.schema import DetailLiteral
-from ...utils.coercion import coerce_optional_bool, round_finite
+from ...utils.coercion import coerce_finite_float, coerce_optional_bool, round_finite
 from ...utils.freshness import is_standard_weekend_closure
 from ...utils.mt5 import (
     MT5ConnectionError,
@@ -202,16 +202,6 @@ def _run_trade_history_request(request: TradeHistoryRequest) -> Any:
     return out
 
 
-def _safe_trade_journal_float(value: Any) -> Optional[float]:
-    try:
-        numeric = float(value)
-    except Exception:
-        return None
-    if not math.isfinite(numeric):
-        return None
-    return float(numeric)
-
-
 def _round_trade_journal_value(value: Any, *, digits: int) -> Optional[float]:
     return round_finite(value, digits, on_invalid="none")
 
@@ -233,7 +223,7 @@ def _trade_journal_net_pnl(row: Dict[str, Any]) -> Optional[float]:
     seen = False
     total = 0.0
     for key in ("profit", "commission", "swap", "fee"):
-        value = _safe_trade_journal_float(row.get(key))
+        value = coerce_finite_float(row.get(key))
         if value is None:
             continue
         total += value
@@ -285,7 +275,7 @@ def _allocate_trade_journal_entry_costs(
         position_key = _trade_journal_position_key(row)
         if position_key is None:
             continue
-        exit_volume = _safe_trade_journal_float(row.get("volume"))
+        exit_volume = coerce_finite_float(row.get("volume"))
         if exit_volume is None or math.isclose(exit_volume, 0.0, abs_tol=1e-12):
             exit_volume_complete[position_key] = False
             continue
@@ -295,7 +285,7 @@ def _allocate_trade_journal_entry_costs(
         exit_volume_complete.setdefault(position_key, True)
 
     for row in exit_rows:
-        exit_net_pnl = _safe_trade_journal_float(row.get("net_pnl"))
+        exit_net_pnl = coerce_finite_float(row.get("net_pnl"))
         row["exit_net_pnl"] = _round_trade_journal_value(exit_net_pnl, digits=2)
         row["entry_commission"] = None
         row["entry_fee"] = None
@@ -308,7 +298,7 @@ def _allocate_trade_journal_entry_costs(
             continue
 
         costs_known = any(
-            _safe_trade_journal_float(entry.get(key)) is not None
+            coerce_finite_float(entry.get(key)) is not None
             for entry in entry_rows
             for key in ("commission", "fee")
         )
@@ -316,11 +306,11 @@ def _allocate_trade_journal_entry_costs(
             continue
 
         total_entry_commission = sum(
-            _safe_trade_journal_float(entry.get("commission")) or 0.0
+            coerce_finite_float(entry.get("commission")) or 0.0
             for entry in entry_rows
         )
         total_entry_fee = sum(
-            _safe_trade_journal_float(entry.get("fee")) or 0.0
+            coerce_finite_float(entry.get("fee")) or 0.0
             for entry in entry_rows
         )
         total_entry_cost = total_entry_commission + total_entry_fee
@@ -330,10 +320,10 @@ def _allocate_trade_journal_entry_costs(
             entry_volumes = [
                 abs(float(value))
                 for entry in entry_rows
-                if (value := _safe_trade_journal_float(entry.get("volume"))) is not None
+                if (value := coerce_finite_float(entry.get("volume"))) is not None
                 and not math.isclose(float(value), 0.0, abs_tol=1e-12)
             ]
-            exit_volume = _safe_trade_journal_float(row.get("volume"))
+            exit_volume = coerce_finite_float(row.get("volume"))
             total_entry_volume = sum(entry_volumes)
             if (
                 exit_volume is None
@@ -398,7 +388,7 @@ def _trade_journal_metrics(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     pnls = [
         float(row["net_pnl"])
         for row in rows
-        if _safe_trade_journal_float(row.get("net_pnl")) is not None
+        if coerce_finite_float(row.get("net_pnl")) is not None
     ]
     count = int(len(pnls))
     wins = int(sum(1 for pnl in pnls if pnl > 0.0))
