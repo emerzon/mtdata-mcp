@@ -88,18 +88,6 @@ def _format_time(timestamp: Optional[float]) -> Optional[str]:
         return None
 
 
-def _format_time_iso_utc(timestamp: Optional[float]) -> Optional[str]:
-    if timestamp is None:
-        return None
-    try:
-        epoch = float(timestamp)
-        if not math.isfinite(epoch):
-            return None
-    except Exception:
-        return None
-    return format_epoch_utc(epoch)
-
-
 def _parse_output_time(value: Any) -> Optional[float]:
     if value is None:
         return None
@@ -2359,7 +2347,7 @@ def merge_support_resistance_results(  # noqa: C901
         "timeframe": str(timeframe),
         "mode": "auto",
         "source": "mt5_history",
-        "structure_as_of": _format_time_iso_utc(
+        "structure_as_of": format_epoch_utc(
             _parse_output_time(max(end_values)) if end_values else None
         ),
         "timezone": "UTC",
@@ -2927,7 +2915,7 @@ def compute_support_resistance_levels(
         "timeframe": timeframe,
         "mode": "single",
         "source": "mt5_history",
-        "structure_as_of": _format_time_iso_utc(window_end),
+        "structure_as_of": format_epoch_utc(window_end),
         "timezone": "UTC",
         "timeframes_analyzed": [str(timeframe)] if timeframe is not None else [],
         "limit": int(limit) if limit is not None else len(frame),
