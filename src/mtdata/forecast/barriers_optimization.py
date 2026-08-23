@@ -495,32 +495,6 @@ def _candidate_hit_arrays(
     )
 
 
-def _unresolved_terminal_pnl(
-    eval_paths: np.ndarray,
-    unresolved_mask: np.ndarray,
-    *,
-    context: _BarrierEvaluationContext,
-) -> float:
-    """Mean PnL (in barrier units) for paths that never hit TP or SL."""
-    if not np.any(unresolved_mask):
-        return 0.0
-    terminal_prices = eval_paths[unresolved_mask, -1]
-    if context.mode_val == "pct":
-        if context.last_price <= 0:
-            return 0.0
-        pnl_pct = (terminal_prices - context.last_price) / context.last_price * 100.0
-        if not context.dir_long:
-            pnl_pct = -pnl_pct
-    elif context.tick_size and context.tick_size > 0:
-        pnl_ticks = (terminal_prices - context.last_price) / context.tick_size
-        if not context.dir_long:
-            pnl_ticks = -pnl_ticks
-        pnl_pct = pnl_ticks
-    else:
-        return 0.0
-    return float(np.mean(pnl_pct))
-
-
 def _evaluate_barrier_candidate(
     tp_unit: float,
     sl_unit: float,

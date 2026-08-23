@@ -76,42 +76,6 @@ class TestUnresolvedTerminalPnl(unittest.TestCase):
             same_bar_policy=same_bar_policy,
         )
 
-    def test_unresolved_terminal_pnl_long_ticks(self):
-        """Unresolved long paths that drift up give positive PnL in ticks."""
-        from mtdata.forecast.barriers_optimization import _unresolved_terminal_pnl
-        ctx = self._make_context(last_price=1.1000, tick_size=0.0001, dir_long=True)
-        paths = np.full((5, 10), 1.1010)
-        mask = np.ones(5, dtype=bool)
-        pnl = _unresolved_terminal_pnl(paths, mask, context=ctx)
-        self.assertAlmostEqual(pnl, 10.0, places=1)
-
-    def test_unresolved_terminal_pnl_short_ticks(self):
-        """Unresolved short paths that drift down give positive PnL in ticks."""
-        from mtdata.forecast.barriers_optimization import _unresolved_terminal_pnl
-        ctx = self._make_context(last_price=1.1000, tick_size=0.0001, dir_long=False)
-        paths = np.full((5, 10), 1.0990)  # Price dropped 10 ticks
-        mask = np.ones(5, dtype=bool)
-        pnl = _unresolved_terminal_pnl(paths, mask, context=ctx)
-        self.assertAlmostEqual(pnl, 10.0, places=1)
-
-    def test_unresolved_terminal_pnl_pct_mode(self):
-        """Pct mode: long path ending 1% up gives +1.0 pct."""
-        from mtdata.forecast.barriers_optimization import _unresolved_terminal_pnl
-        ctx = self._make_context(mode="pct", last_price=100.0, dir_long=True)
-        paths = np.full((4, 5), 101.0)  # +1%
-        mask = np.ones(4, dtype=bool)
-        pnl = _unresolved_terminal_pnl(paths, mask, context=ctx)
-        self.assertAlmostEqual(pnl, 1.0, places=4)
-
-    def test_unresolved_terminal_pnl_no_unresolved(self):
-        """No unresolved paths → returns 0."""
-        from mtdata.forecast.barriers_optimization import _unresolved_terminal_pnl
-        ctx = self._make_context()
-        paths = np.full((3, 5), 1.1010)
-        mask = np.zeros(3, dtype=bool)
-        pnl = _unresolved_terminal_pnl(paths, mask, context=ctx)
-        self.assertEqual(pnl, 0.0)
-
     def test_ev_unresolved_appears_in_candidate_result(self):
         """_evaluate_barrier_candidate includes ev_unresolved in output."""
         from mtdata.forecast.barriers_optimization import (
