@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { DenoiseSpecUI } from '../types'
 import type { PivotMethod, SupportResistanceControls } from '../lib/overlayParams'
 import { toolbarUsesOverflowMenu, type LayoutBreakpoint } from '../lib/layout'
@@ -123,7 +123,18 @@ export function ChartToolbar({
 }: Props) {
   const overflow = toolbarUsesOverflowMenu(layoutBreakpoint)
   const [moreOpen, setMoreOpen] = useState(false)
+  const moreRef = useRef<HTMLDivElement>(null)
   useEscapeKey(moreOpen, () => setMoreOpen(false))
+  useEffect(() => {
+    if (!moreOpen) return
+    const handleClick = (event: MouseEvent) => {
+      if (moreRef.current && !moreRef.current.contains(event.target as Node)) {
+        setMoreOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [moreOpen])
 
   const analysisGroup = (
     <>
@@ -208,7 +219,7 @@ export function ChartToolbar({
         <ConnectionStatus />
 
         {overflow ? (
-          <div className="relative">
+          <div className="relative" ref={moreRef}>
             <button
               type="button"
               className="toolbar-btn bg-slate-900/95 border border-slate-800 rounded-lg min-h-9 px-3"

@@ -17,19 +17,22 @@ import {
   type ChartIndicatorSelection,
 } from '../../lib/indicatorSpec'
 import { loadJSON } from '../../lib/storage'
+import { useEscapeKey } from '../../lib/useEscapeKey'
 import type { DenoiseMethodInfo, DenoiseSpecUI } from '../../types'
 import { ChevronDown, IndicatorIcon } from './toolbarIcons'
 
-function useDismissiblePanel(onClose: () => void) {
+function useDismissiblePanel(onClose: () => void, enabled = true) {
   const ref = useRef<HTMLDivElement>(null)
+  useEscapeKey(enabled, onClose)
 
   useEffect(() => {
+    if (!enabled) return
     const handleClick = (event: MouseEvent) => {
       if (ref.current && !ref.current.contains(event.target as Node)) onClose()
     }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
-  }, [onClose])
+  }, [enabled, onClose])
 
   return ref
 }
@@ -202,7 +205,7 @@ export function TimeframeSelector({
   onChange: (value: string) => void
 }) {
   const [open, setOpen] = useState(false)
-  const ref = useDismissiblePanel(() => setOpen(false))
+  const ref = useDismissiblePanel(() => setOpen(false), open)
   const { data } = useQuery({ queryKey: ['timeframes'], queryFn: getTimeframes })
   const timeframes = data ?? []
 
