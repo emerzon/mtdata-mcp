@@ -12,23 +12,21 @@ from mtdata.patterns.classic_impl.utils import (
     _build_time_array,
     _calibrate_confidence,
     _collect_calibration_points,
-    _compute_atr,
     _conf,
     _count_touches,
     _detect_pivots_close,
-    _dtw_distance,
     _find_recent_breakout,
     _fit_line,
     _fit_line_robust,
     _is_converging,
     _level_close,
     _paa,
-    _pivot_thresholds,
     _template_hs,
     _tol_abs_from_close,
     _znorm,
 )
-from mtdata.patterns.common import fallback_local_extrema
+from mtdata.patterns.common import compute_atr_sma, compute_pivot_thresholds, fallback_local_extrema
+from mtdata.utils.dtw import dtw_distance
 
 
 class TestLevelClose:
@@ -180,13 +178,13 @@ class TestPaa:
 class TestDtwDistance:
     def test_identical(self):
         a = np.array([1.0, 2.0, 3.0])
-        d = _dtw_distance(a, a)
+        d = dtw_distance(a, a)
         assert d == 0.0
 
     def test_different(self):
         a = np.array([0.0, 0.0, 0.0])
         b = np.array([1.0, 1.0, 1.0])
-        d = _dtw_distance(a, b)
+        d = dtw_distance(a, b)
         assert d > 0.0
 
 class TestTemplateHs:
@@ -215,14 +213,14 @@ class TestComputeAtr:
         h = np.full(n, 102.0)
         l = np.full(n, 98.0)
         c = np.full(n, 100.0)
-        atr = _compute_atr(h, l, c, 14)
+        atr = compute_atr_sma(h, l, c, 14)
         assert len(atr) == n
         # ATR should be ~4.0 for constant range
         finite = atr[np.isfinite(atr)]
         assert abs(finite[-1] - 4.0) < 0.5
 
     def test_empty(self):
-        atr = _compute_atr(np.array([]), np.array([]), np.array([]), 14)
+        atr = compute_atr_sma(np.array([]), np.array([]), np.array([]), 14)
         assert atr.size == 0
 
 
@@ -232,7 +230,7 @@ class TestPivotThresholds:
         h = c + 0.5
         l = c - 0.5
         cfg = ClassicDetectorConfig()
-        prom, dist = _pivot_thresholds(c, h, l, cfg)
+        prom, dist = compute_pivot_thresholds(c, h, l, cfg)
         assert prom > 0
         assert dist >= 2
 

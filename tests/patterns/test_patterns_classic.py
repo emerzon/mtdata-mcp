@@ -1587,7 +1587,7 @@ def test_detect_tops_bottoms_rejects_escalating_peaks_as_triple_top():
 def test_head_shoulders_dtw_distance_is_normalized_by_window_length(monkeypatch):
     from mtdata.patterns.classic_impl import reversal
 
-    monkeypatch.setattr(reversal, "_dtw_distance", lambda _a, _b: 5.2)
+    monkeypatch.setattr(reversal, "dtw_distance", lambda _a, _b: 5.2)
     distance = reversal._normalized_dtw_distance(np.zeros(80), np.ones(80))
 
     assert distance == pytest.approx(5.2 / np.sqrt(80))

@@ -2,13 +2,13 @@ from typing import List, Optional
 
 import numpy as np
 
+from ...utils.dtw import dtw_distance
 from ..common import PatternResultBase
 from ..common import interval_overlap_ratio as _interval_overlap_ratio
 from .config import ClassicDetectorConfig, ClassicPatternResult
 from .utils import (
     _apply_breakout_confidence_bonus,
     _boundary_tol_abs,
-    _dtw_distance,
     _effective_flat_slope,
     _find_forward_level_breakout,
     _fit_line,
@@ -111,7 +111,7 @@ def _neckline_quality_score(
 
 def _normalized_dtw_distance(a: np.ndarray, b: np.ndarray) -> float:
     """Return RMS-scaled DTW so thresholds do not depend on PAA length."""
-    raw = float(_dtw_distance(a, b))
+    raw = float(dtw_distance(a, b))
     width = max(1, int(np.asarray(a).size), int(np.asarray(b).size))
     return float(raw / np.sqrt(float(width)))
 

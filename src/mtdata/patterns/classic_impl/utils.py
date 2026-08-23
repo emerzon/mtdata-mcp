@@ -6,12 +6,9 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from ...utils.dtw import dtw_distance
 from ...utils.utils import to_float_np
 from ..common import (
     PatternResultBase,
-    compute_atr_sma,
-    compute_pivot_thresholds,
     detect_pivots,
 )
 from .config import ClassicDetectorConfig, ClassicPatternResult
@@ -158,12 +155,6 @@ def _paa(a: np.ndarray, m: int) -> np.ndarray:
     return sums / counts
 
 
-def _dtw_distance(a: np.ndarray, b: np.ndarray) -> float:
-    a_arr = np.asarray(a, dtype=float)
-    b_arr = np.asarray(b, dtype=float)
-    return dtw_distance(a_arr, b_arr)
-
-
 def _template_hs(L: int, inverse: bool = False) -> np.ndarray:
     """Simple H&S template over L points (z-norm target)."""
     L = max(20, int(L))
@@ -195,19 +186,6 @@ def _template_hs_variants(L: int, inverse: bool = False) -> Tuple[np.ndarray, ..
             y = -y
         out.append(_znorm(y))
     return tuple(out)
-
-
-def _compute_atr(high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int) -> np.ndarray:
-    return compute_atr_sma(high, low, close, period)
-
-
-def _pivot_thresholds(
-    close: np.ndarray,
-    high: np.ndarray,
-    low: np.ndarray,
-    cfg: ClassicDetectorConfig,
-) -> Tuple[float, int]:
-    return compute_pivot_thresholds(close, high, low, cfg)
 
 
 def _detect_pivots_close(

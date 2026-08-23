@@ -8,8 +8,6 @@ import pandas as pd
 
 from .common import (
     PatternResultBase,
-    compute_atr_sma,
-    compute_pivot_thresholds,
     detect_pivots,
     prepare_ohlc_pattern_inputs,
 )
@@ -276,28 +274,6 @@ def validate_harmonic_detector_config(cfg: HarmonicDetectorConfig) -> list[str]:
             + ", ".join(sorted(dict.fromkeys(invalid)))
         )
     return warnings
-
-
-def _compute_atr(high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int) -> np.ndarray:
-    return compute_atr_sma(high, low, close, period)
-
-
-def _pivot_thresholds(
-    close: np.ndarray,
-    high: np.ndarray,
-    low: np.ndarray,
-    cfg: HarmonicDetectorConfig,
-) -> Tuple[float, int]:
-    return compute_pivot_thresholds(close, high, low, cfg)
-
-
-def _detect_pivots(
-    close: np.ndarray,
-    high: np.ndarray,
-    low: np.ndarray,
-    cfg: HarmonicDetectorConfig,
-) -> Tuple[np.ndarray, np.ndarray]:
-    return detect_pivots(close, cfg, high=high, low=low)
 
 
 def _prepare_inputs(
@@ -729,7 +705,7 @@ def detect_harmonic_patterns(
     if prepared is None:
         return []
     _, t, close, high, low, n_bars = prepared
-    peaks, troughs = _detect_pivots(close, high, low, cfg)
+    peaks, troughs = detect_pivots(close, cfg, high=high, low=low)
     swings = _build_swing_points(peaks, troughs, high, low, cfg)
     if len(swings) < 4:
         return []
