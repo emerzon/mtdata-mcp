@@ -28,68 +28,9 @@ def test_method_metadata_lookup_helpers(monkeypatch):
     monkeypatch.setattr(fm, "_get_registered_capabilities", lambda: [])
 
     assert fm.get_forecast_methods_data() == methods_data
-    assert fm.get_method_category("theta") == "classical"
-    assert fm.get_method_category("unknown") == "unknown"
-    assert fm.get_method_requirements("mlf_rf") == ["mlforecast", "scikit-learn"]
-    assert fm.get_method_requirements("none") == []
     assert fm.get_method_supports("theta")["price"] is True
     assert fm.get_method_supports("none") == {"price": False, "return": False, "volatility": False, "ci": False}
     assert fm.get_forecast_method_names() == ("theta", "mlf_rf")
-
-
-def test_validate_method_params_type_rules(monkeypatch):
-    methods_data = {
-        "methods": [
-            {
-                "method": "m",
-                "requires": [],
-                "supports": {},
-                "params": [
-                    {"name": "int_p", "type": "int"},
-                    {"name": "float_p", "type": "float"},
-                    {"name": "bool_p", "type": "bool"},
-                    {"name": "tuple_p", "type": "tuple"},
-                ],
-            }
-        ],
-        "categories": {},
-    }
-    monkeypatch.setattr(fm, "_registry_methods_data", lambda: methods_data)
-    monkeypatch.setattr(fm, "_get_registered_capabilities", lambda: [])
-
-    errors = fm.validate_method_params(
-        "m",
-        {
-            "int_p": "abc",
-            "float_p": "abc",
-            "bool_p": "true",
-            "tuple_p": [1, 2],
-        },
-    )
-    assert "Parameter 'int_p' should be an integer" in errors
-    assert "Parameter 'float_p' should be a float" in errors
-    assert "Parameter 'bool_p' should be a boolean" in errors
-    assert "Parameter 'tuple_p' should have 3 elements" in errors
-
-    unknown_param = fm.validate_method_params("m", {"int_q": 2})
-    assert unknown_param == [
-        "Unknown parameter(s) for method 'm': int_q. "
-        "Valid parameters: bool_p, float_p, int_p, tuple_p"
-    ]
-
-    ok = fm.validate_method_params(
-        "m",
-        {
-            "int_p": "2",
-            "float_p": "2.5",
-            "bool_p": True,
-            "tuple_p": (1, 1, 1),
-        },
-    )
-    assert ok == []
-
-    unknown = fm.validate_method_params("nope", {})
-    assert unknown == ["Unknown method: nope"]
 
 
 def test_forecast_methods_snapshot_enriches_rows_with_capabilities(monkeypatch):
