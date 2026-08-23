@@ -21,7 +21,7 @@ from ._mcp_tools import (
 from .cli.runtime.commands import LIVE_TRADE_MUTATION_TOOLS, LIVE_TRADE_MUTATION_WARNING
 from .error_envelope import build_error_payload
 from .schema_attach import get_public_tool_schema
-from .tool_calling import call_tool_sync_structured, unwrap_tool_callable
+from .tool_calling import resolve_sync_tool_result, unwrap_tool_callable
 
 logger = logging.getLogger(__name__)
 
@@ -257,7 +257,7 @@ def invoke_tool_for_webapi(
             args,
             json_output=True,
         )
-        result = call_tool_sync_structured(target, **args)
+        result = resolve_sync_tool_result(target(**args))
         result = _shape_public_tool_output(
             result,
             tool_name=name,

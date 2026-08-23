@@ -289,7 +289,7 @@ class TestListAndInvoke:
                 return_value={"demo": lambda: None},
             ),
             patch(
-                "mtdata.core.web_api_tools.call_tool_sync_structured",
+                "mtdata.core.web_api_tools.resolve_sync_tool_result",
                 side_effect=error,
             ),
             pytest.raises(HTTPException) as exc,
