@@ -708,9 +708,7 @@ def _forecast_backtest_impl(**kwargs):
 
 
 def _strategy_backtest_impl(**kwargs):
-    module = _forecast_backtest_module()
-    func = getattr(module, "execute_strategy_backtest", module.strategy_backtest)
-    return func(**kwargs)
+    return _forecast_backtest_module().strategy_backtest(**kwargs)
 
 
 def _forecast_volatility_impl(**kwargs):

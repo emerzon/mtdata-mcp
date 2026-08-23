@@ -2142,9 +2142,6 @@ def strategy_backtest(  # noqa: C901
         return {"error": f"Error in strategy_backtest: {str(e)}"}
 
 
-execute_strategy_backtest = strategy_backtest
-
-
 def forecast_backtest(  # noqa: C901
     symbol: str,
     timeframe: TimeframeLiteral = "H1",
