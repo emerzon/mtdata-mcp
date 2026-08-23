@@ -39,6 +39,7 @@ dependencies = [
     "tslearn>=0.9.0",
     "stumpy>=1.14.1",
     "finvizfinance>=1.3.0",
+    "requests>=2.32.0",
 ]
 classifiers = [
     "Development Status :: 3 - Alpha",
