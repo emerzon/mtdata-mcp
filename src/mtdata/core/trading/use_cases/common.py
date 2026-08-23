@@ -12,7 +12,7 @@ from mtdata.bootstrap.settings import trade_guardrails_config
 from mtdata.core.error_envelope import normalize_error_payload
 from mtdata.core.execution_logging import infer_result_success
 from mtdata.core.output_contract import resolve_output_contract
-from mtdata.core.trading import validation
+from mtdata.core.trading import safety, validation
 from mtdata.core.trading.idempotency import (
     IdempotencyStore,
     SQLiteIdempotencyStore,
@@ -27,23 +27,11 @@ TradeIdempotencyStore = IdempotencyStore | SQLiteIdempotencyStore
 _TRADE_IDEMPOTENCY_STORE = create_default_idempotency_store()
 
 
-_SUPPORTED_ORDER_TYPES = (
-    "BUY",
-    "SELL",
-    "BUY_LIMIT",
-    "BUY_STOP",
-    "BUY_STOP_LIMIT",
-    "SELL_LIMIT",
-    "SELL_STOP",
-    "SELL_STOP_LIMIT",
-)
-
-
 def _invalid_order_type_payload(message: str) -> Dict[str, Any]:
     return {
         "error": message,
         "error_code": "invalid_order_type",
-        "valid_values": {"order_type": list(_SUPPORTED_ORDER_TYPES)},
+        "valid_values": {"order_type": list(validation._SUPPORTED_ORDER_TYPE_ORDER)},
         "remediation": "Choose a market side or an explicit pending-order type.",
         "example": "mtdata-cli trade_place EURUSD --order-type BUY --volume 0.01",
     }
@@ -482,12 +470,8 @@ def _sl_tp_result_details(result: Dict[str, Any]) -> tuple[bool, str]:
 
 
 def _guardrail_order_side(order_type: Optional[str]) -> Optional[str]:
-    text = str(order_type or "").strip().upper()
-    if text.startswith("BUY"):
-        return "BUY"
-    if text.startswith("SELL"):
-        return "SELL"
-    return None
+    side = safety._normalize_side(order_type)
+    return side if side in {"BUY", "SELL"} else None
 
 
 def _best_effort_trade_guardrail_account_info() -> Any:

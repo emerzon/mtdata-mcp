@@ -520,28 +520,9 @@ def run_trade_place(  # noqa: C901
                 _invalid_order_type_payload(order_type_error),
                 order_type=order_type_norm,
             )
-        explicit_pending_types = {
-            "BUY_LIMIT",
-            "BUY_STOP",
-            "BUY_STOP_LIMIT",
-            "SELL_LIMIT",
-            "SELL_STOP",
-            "SELL_STOP_LIMIT",
-        }
-        stop_limit_types = {"BUY_STOP_LIMIT", "SELL_STOP_LIMIT"}
-        market_side_types = {"BUY", "SELL"}
-        supported_order_types = explicit_pending_types.union(market_side_types)
-        if order_type_norm not in supported_order_types:
-            return _finish(
-                _invalid_order_type_payload(
-                    (
-                        f"Unsupported order_type '{request.order_type}'. "
-                        "Use BUY/SELL, BUY_LIMIT/BUY_STOP/BUY_STOP_LIMIT, or "
-                        "SELL_LIMIT/SELL_STOP/SELL_STOP_LIMIT."
-                    )
-                ),
-                order_type=order_type_norm,
-            )
+        explicit_pending_types = validation._PENDING_ORDER_TYPES
+        stop_limit_types = validation._STOP_LIMIT_ORDER_TYPES
+        market_side_types = validation._MARKET_ORDER_TYPES
 
         price_provided = request.price is not None
         stop_limit_price_provided = request.stop_limit_price is not None

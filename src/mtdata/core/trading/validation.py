@@ -34,7 +34,17 @@ OrderTypeLiteral = Literal[
 MarketOrderTypeInput = MarketOrderTypeLiteral | str
 OrderTypeInput = OrderTypeLiteral | str
 
-_SUPPORTED_ORDER_TYPES = {
+_MARKET_ORDER_TYPES = frozenset({"BUY", "SELL"})
+_STOP_LIMIT_ORDER_TYPES = frozenset({"BUY_STOP_LIMIT", "SELL_STOP_LIMIT"})
+_PENDING_ORDER_TYPES = frozenset({
+    "BUY_LIMIT",
+    "BUY_STOP",
+    "BUY_STOP_LIMIT",
+    "SELL_LIMIT",
+    "SELL_STOP",
+    "SELL_STOP_LIMIT",
+})
+_SUPPORTED_ORDER_TYPE_ORDER = (
     "BUY",
     "SELL",
     "BUY_LIMIT",
@@ -43,7 +53,8 @@ _SUPPORTED_ORDER_TYPES = {
     "SELL_LIMIT",
     "SELL_STOP",
     "SELL_STOP_LIMIT",
-}
+)
+_SUPPORTED_ORDER_TYPES = frozenset(_SUPPORTED_ORDER_TYPE_ORDER)
 
 
 def _protection_level_tolerance(*, point: float) -> float:
