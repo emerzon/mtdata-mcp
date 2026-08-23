@@ -1109,6 +1109,12 @@ class TestGetSharedEnumLists:
         assert enums["SIMPLIFY_METHODS"] == list(_SIMPLIFY_METHODS)
         assert enums["PIVOT_METHODS"] == list(_PIVOT_METHODS)
 
+    def test_denoise_enum_matches_live_registry(self):
+        from mtdata.utils.denoise.base import list_filters
+
+        enums = get_shared_enum_lists()
+        assert set(enums["DENOISE_METHODS"]) == {"none"} | set(list_filters())
+
 
 class TestGetFunctionInfo:
     def test_simple_function(self):

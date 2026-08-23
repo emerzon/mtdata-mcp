@@ -507,7 +507,7 @@ class IndicatorSpec(TypedDict, total=False):
     params: Union[List[float], Dict[str, float]]
 
 # ---- Denoising (spec + application) ----
-# Allowed denoising methods for first phase (no extra dependencies)
+# Keep in sync with `@register_filter` names plus schema-only `"none"`.
 _DENOISE_METHODS = (
     "none",        # no-op
     "ema",         # exponential moving average
