@@ -22,9 +22,6 @@ from ..utils.indicators import (
     _parse_ti_specs as _parse_ti_specs_util,
 )
 from ..utils.utils import parse_kv_or_json as _parse_kv_or_json
-from .common import (
-    pd_freq_from_timeframe as _pd_freq_from_timeframe_common,
-)
 from .target_builder import _log_return_array
 
 ParseKvFn = Callable[[Any], Any]
@@ -44,10 +41,6 @@ _BASE_EXCLUDE_COLUMNS = {
     "real_volume",
 }
 _TECHNICAL_INDICATOR_WARNING_ATTR = "_mtdata_technical_indicator_warning"
-
-def _pd_freq_from_timeframe(tf: str) -> str:
-    """Convert an MT5 timeframe to a pandas frequency string."""
-    return _pd_freq_from_timeframe_common(tf)
 
 
 def _safe_log_return_series(values: pd.Series) -> pd.Series:
@@ -718,7 +711,6 @@ def apply_preprocessing(
 
 
 __all__ = [
-    "_pd_freq_from_timeframe",
     "_create_dimred_reducer",
     "_prepare_base_data",
     "_apply_features_and_target_spec",
