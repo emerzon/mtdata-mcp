@@ -20,6 +20,6 @@ def _read_local_project_version() -> Optional[str]:
 def cli_version() -> str:
     """Return installed package version, falling back to a source checkout."""
     try:
-        return importlib_metadata.version("mtdata")
+        return importlib_metadata.version("mtdata-mcp")
     except importlib_metadata.PackageNotFoundError:
         return _read_local_project_version() or "unknown"

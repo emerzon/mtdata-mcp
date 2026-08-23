@@ -27,7 +27,7 @@ _ARTIFACT_DEPENDENCY_DISTRIBUTIONS = {
     "torch": "torch",
     "transformers": "transformers",
 }
-_APPLICATION_DISTRIBUTION = "mtdata-mcp-server"
+_APPLICATION_DISTRIBUTION = "mtdata-mcp"
 
 
 class ArtifactCompatibilityError(ValueError):
