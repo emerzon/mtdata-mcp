@@ -151,6 +151,23 @@ def _last_finite(values: np.ndarray) -> Optional[float]:
     return None
 
 
+def _match_nearest_cluster(
+    clusters: List[Dict[str, Any]],
+    value: float,
+    tolerance: float,
+) -> Optional[Dict[str, Any]]:
+    best_cluster: Optional[Dict[str, Any]] = None
+    best_delta: Optional[float] = None
+    for cluster in clusters:
+        ref = float(cluster["value"])
+        threshold = max(abs(ref), abs(value), 1e-9) * float(tolerance)
+        delta = abs(ref - value)
+        if delta <= threshold and (best_delta is None or delta < best_delta):
+            best_cluster = cluster
+            best_delta = delta
+    return best_cluster
+
+
 def _weighted_average(items: List[tuple[float, float]]) -> Optional[float]:
     total_weight = 0.0
     total_value = 0.0
@@ -533,15 +550,7 @@ def _cluster_tests(tests: List[Dict[str, Any]], *, tolerance_fraction: float) ->
     clusters: List[Dict[str, Any]] = []
     for test in sorted(tests, key=lambda item: float(item["value"])):
         value = float(test["value"])
-        best_cluster: Optional[Dict[str, Any]] = None
-        best_delta: Optional[float] = None
-        for cluster in clusters:
-            ref = float(cluster["value"])
-            threshold = max(abs(ref), abs(value), 1e-9) * float(tolerance_fraction)
-            delta = abs(ref - value)
-            if delta <= threshold and (best_delta is None or delta < best_delta):
-                best_cluster = cluster
-                best_delta = delta
+        best_cluster = _match_nearest_cluster(clusters, value, tolerance_fraction)
 
         score = max(float(test["score"]), 1e-9)
         timestamp = test.get("timestamp")
@@ -1991,15 +2000,7 @@ def merge_support_resistance_results(  # noqa: C901
             if not math.isfinite(value) or not math.isfinite(weighted_score) or weighted_score <= 0.0:
                 continue
 
-            best_cluster: Optional[Dict[str, Any]] = None
-            best_delta: Optional[float] = None
-            for cluster in clusters:
-                ref = float(cluster["value"])
-                threshold = max(abs(ref), abs(value), 1e-9) * float(merge_tolerance_value)
-                delta = abs(ref - value)
-                if delta <= threshold and (best_delta is None or delta < best_delta):
-                    best_cluster = cluster
-                    best_delta = delta
+            best_cluster = _match_nearest_cluster(clusters, value, merge_tolerance_value)
 
             breakdown = level.get("score_breakdown") if isinstance(level.get("score_breakdown"), dict) else {}
             source_tests = level.get("source_tests") if isinstance(level.get("source_tests"), dict) else {}
