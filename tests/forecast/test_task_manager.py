@@ -724,34 +724,6 @@ class TestHeavyRuntimeScheduling(_TaskManagerTestCase):
         self.assertGreaterEqual(fake_process.join_calls, 2)
 
 
-class TestLightRuntimeFailures(_TaskManagerTestCase):
-    def test_light_task_marks_base_exception_as_failed(self):
-        task = self.tm._create_task("fake", "EURUSD_H1", "hash-1")
-        spec = _TrainingSpec(
-            task_kind="train",
-            method_name="fake",
-            data_scope="EURUSD_H1",
-            params_hash="hash-1",
-            horizon=5,
-            seasonality=1,
-            params={},
-            timeframe="H1",
-            series=_make_series(),
-        )
-        cancel_event = threading.Event()
-
-        with patch(
-            "mtdata.forecast.task_manager._execute_training_spec",
-            side_effect=KeyboardInterrupt("simulated"),
-        ):
-            self.tm._run_light_task(task.task_id, spec, cancel_event)
-
-        status = self.tm.get_status(task.task_id)
-        self.assertIsNotNone(status)
-        self.assertEqual(status.status, "failed")
-        self.assertEqual(status.error, "KeyboardInterrupt: simulated")
-
-
 class TestTaskManagerShutdown(unittest.TestCase):
     def test_submit_after_shutdown_raises(self):
         import tempfile

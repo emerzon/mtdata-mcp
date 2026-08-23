@@ -619,7 +619,6 @@ class TaskManager:
 
         self._tasks: Dict[str, TrainingTask] = {}
         self._futures: Dict[str, Future] = {}
-        self._thread_cancel_events: Dict[str, threading.Event] = {}
         self._process_controls: Dict[str, _HeavyProcessControl] = {}
         self._active_keys: Dict[tuple[str, str, str], str] = {}
         self._lock = threading.Lock()
@@ -883,22 +882,6 @@ class TaskManager:
         )
         return ForecastMethod.hash_fingerprint(fingerprint), fingerprint
 
-    def _get_existing_task(self, method_name: str, data_scope: str, params_hash: str) -> Optional[TrainingTask]:
-        dedup_key = (method_name, data_scope, params_hash)
-        with self._lock:
-            existing_tid = self._active_keys.get(dedup_key)
-            if existing_tid is not None:
-                existing = self._tasks.get(existing_tid)
-                if existing and existing.status in ("pending", "running"):
-                    return _snapshot(existing)
-        persisted = self._job_store.find_active(method_name, data_scope, params_hash)
-        if persisted is None:
-            return None
-        task = _job_record_to_task(persisted)
-        with self._lock:
-            self._cache_task(task)
-        return task
-
     def _get_existing_task_locked(
         self, method_name: str, data_scope: str, params_hash: str
     ) -> Optional[TrainingTask]:
@@ -1133,71 +1116,6 @@ class TaskManager:
             compatibility_fingerprint=compatibility_fingerprint,
         )
         return self._submit_spec(spec, training_category=str(info.get("training_category", "moderate")))
-
-    def _run_light_task(self, task_id: str, spec: _TrainingSpec, cancel_event: threading.Event) -> None:
-        self._mutate_task(
-            task_id,
-            status="running",
-            started_at=time.time(),
-            pid=os.getpid(),
-            heartbeat_at=time.time(),
-        )
-        token = CancelToken(cancel_event.is_set)
-
-        def _on_progress(progress: TrainingProgress) -> None:
-            token.raise_if_cancelled()
-            if self._task_is_terminal(task_id):
-                return
-            self._mutate_task(
-                task_id,
-                progress=progress,
-                heartbeat_at=time.time(),
-            )
-
-        try:
-            handle = _execute_training_spec(
-                spec,
-                store_root=str(self.store.root),
-                progress_callback=_on_progress,
-                cancel_token=token,
-                source_task_id=task_id,
-            )
-        except TrainingCancelledError as exc:
-            if not self._task_is_terminal(task_id):
-                self._mutate_task(
-                    task_id,
-                    status="cancelled",
-                    error=str(exc),
-                    completed_at=time.time(),
-                    heartbeat_at=time.time(),
-                    cancel_requested=True,
-                )
-        except BaseException as exc:
-            logger.exception("Training failed: %s %s", spec.method_name, spec.data_scope)
-            if not self._task_is_terminal(task_id):
-                self._mutate_task(
-                    task_id,
-                    status="failed",
-                    error=_public_training_error(
-                        exc,
-                        exception_type=type(exc).__name__,
-                    ),
-                    completed_at=time.time(),
-                    heartbeat_at=time.time(),
-                )
-        else:
-            if not self._task_is_terminal(task_id):
-                self._mutate_task(
-                    task_id,
-                    result=handle,
-                    status="completed",
-                    completed_at=time.time(),
-                    heartbeat_at=time.time(),
-                )
-                logger.info("Training completed: %s %s → %s", spec.method_name, spec.data_scope, handle.model_id)
-        finally:
-            with self._lock:
-                self._thread_cancel_events.pop(task_id, None)
 
     def _handle_process_event(self, task_id: str, spec: _TrainingSpec, event: Dict[str, Any]) -> bool:
         if self._task_is_terminal(task_id):
@@ -1561,11 +1479,9 @@ class TaskManager:
         cancel_requested = False
         future: Optional[Future] = None
         control: Optional[_HeavyProcessControl] = None
-        cancel_event: Optional[threading.Event] = None
         with self._lock:
             future = self._futures.get(task_id)
             control = self._process_controls.get(task_id)
-            cancel_event = self._thread_cancel_events.get(task_id)
 
         if future and future.cancel():
             self._mutate_task(
@@ -1583,16 +1499,12 @@ class TaskManager:
                 "status": "cancelled",
             }
 
-        if cancel_event is not None or control is not None:
+        if control is not None:
             self._mutate_task(
                 task_id,
                 cancel_requested=True,
                 heartbeat_at=time.time(),
             )
-
-        if cancel_event is not None:
-            cancel_event.set()
-            cancel_requested = True
 
         if control is not None:
             control.cancel_event.set()
@@ -1636,7 +1548,6 @@ class TaskManager:
             for tid in to_remove:
                 task = self._tasks.pop(tid)
                 self._futures.pop(tid, None)
-                self._thread_cancel_events.pop(tid, None)
                 self._process_controls.pop(tid, None)
                 key = (task.method, task.data_scope, task.params_hash)
                 if self._active_keys.get(key) == tid:
@@ -1665,17 +1576,11 @@ class TaskManager:
         self._sweeper_stop.set()
         with self._lock:
             controls = list(self._process_controls.items())
-            cancel_events = list(self._thread_cancel_events.values())
             active_task_ids = [
                 task_id
                 for task_id, task in self._tasks.items()
                 if task.status not in _TERMINAL_STATUSES
             ]
-        for cancel_event in cancel_events:
-            try:
-                cancel_event.set()
-            except Exception:
-                logger.debug("Failed to signal light training worker during shutdown", exc_info=True)
         for task_id, control in controls:
             try:
                 control.cancel_event.set()
