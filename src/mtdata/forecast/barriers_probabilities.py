@@ -472,11 +472,6 @@ def forecast_barrier_hit_probabilities(  # noqa: C901
 
         tp_stats = _stats(t_hit_tp)
         sl_stats = _stats(t_hit_sl)
-        def _finite_or_none(x: float) -> Optional[float]:
-            try:
-                return float(x) if np.isfinite(x) else None
-            except Exception:
-                return None
         # Directional interpretation:
         # - For long: TP is above last_price, SL is below; prob_tp_first is long win probability.
         # - For short: TP is below last_price, SL is above; prob_tp_first is short win probability.
