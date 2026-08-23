@@ -17,7 +17,6 @@ import type {
   ForecastPriceBody,
 } from '../types'
 import { loadJSON, saveJSON } from '../lib/storage'
-import { tfSeconds } from '../lib/timeframes'
 import { formatDateTime } from '../lib/utils'
 import {
   DEFAULT_PIVOT_METHOD,
@@ -203,52 +202,52 @@ export type ForecastSettings = {
   dimredParams?: Record<string, unknown>
 }
 
+const DEFAULT_FORECAST_SETTINGS: ForecastSettings = {
+  method: 'theta',
+  horizon: 12,
+  lookback: '',
+  quantity: 'price',
+  ci_alpha: 0.1,
+  params: {},
+}
+
+export function loadForecastSettings(symbol: string, timeframe: string): ForecastSettings {
+  if (!symbol || !timeframe) return { ...DEFAULT_FORECAST_SETTINGS, params: {} }
+  const storageKey = `fc:${symbol}:${timeframe}`
+  const legacyStorageKey = `fc2:${symbol}:${timeframe}`
+  const saved =
+    loadJSON<
+      Partial<ForecastSettings> & {
+        methodParams?: Record<string, unknown>
+      }
+    >(storageKey) ??
+    loadJSON<
+      Partial<ForecastSettings> & {
+        methodParams?: Record<string, unknown>
+      }
+    >(legacyStorageKey)
+  if (!saved) return { ...DEFAULT_FORECAST_SETTINGS, params: {} }
+  return {
+    ...DEFAULT_FORECAST_SETTINGS,
+    method: saved.method ?? DEFAULT_FORECAST_SETTINGS.method,
+    horizon: saved.horizon ?? DEFAULT_FORECAST_SETTINGS.horizon,
+    lookback: saved.lookback ?? DEFAULT_FORECAST_SETTINGS.lookback,
+    quantity: saved.quantity ?? DEFAULT_FORECAST_SETTINGS.quantity,
+    ci_alpha: saved.ci_alpha ?? DEFAULT_FORECAST_SETTINGS.ci_alpha,
+    params: saved.params ?? saved.methodParams ?? {},
+    denoise: saved.denoise,
+    dimredMethod: saved.dimredMethod,
+    dimredParams: saved.dimredParams,
+  }
+}
+
 export function useForecastSettings(symbol: string, timeframe: string) {
-  const [settings, setSettings] = useState<ForecastSettings>({
-    method: 'theta',
-    horizon: 12,
-    lookback: '',
-    quantity: 'price',
-    ci_alpha: 0.1,
-    params: {},
-  })
+  const [settings, setSettings] = useState<ForecastSettings>(() =>
+    loadForecastSettings(symbol, timeframe)
+  )
 
   const storageKey = symbol && timeframe ? `fc:${symbol}:${timeframe}` : null
-  const legacyStorageKey = symbol && timeframe ? `fc2:${symbol}:${timeframe}` : null
 
-  // Load saved settings when symbol/timeframe changes
-  useEffect(() => {
-    if (!storageKey) return
-    const saved =
-      loadJSON<
-        Partial<ForecastSettings> & {
-          methodParams?: Record<string, unknown>
-        }
-      >(storageKey) ??
-      (legacyStorageKey
-        ? loadJSON<
-            Partial<ForecastSettings> & {
-              methodParams?: Record<string, unknown>
-            }
-          >(legacyStorageKey)
-        : null)
-    if (saved) {
-      setSettings(prev => ({
-        ...prev,
-        method: saved.method ?? prev.method,
-        horizon: saved.horizon ?? prev.horizon,
-        lookback: saved.lookback ?? prev.lookback,
-        quantity: saved.quantity ?? prev.quantity,
-        ci_alpha: saved.ci_alpha ?? prev.ci_alpha,
-        params: saved.params ?? saved.methodParams ?? prev.params,
-        denoise: saved.denoise,
-        dimredMethod: saved.dimredMethod,
-        dimredParams: saved.dimredParams,
-      }))
-    }
-  }, [legacyStorageKey, storageKey])
-
-  // Save settings when they change
   useEffect(() => {
     if (!storageKey) return
     saveJSON(storageKey, settings)
@@ -367,9 +366,6 @@ export function useForecast(
 export function useChartOverlays(
   bars: HistoryBar[],
   forecastOverlays: ChartOverlay[],
-  pivotLevels: PivotLevel[] | null,
-  srLevels: SupportResistanceLevel[] | null,
-  timeframe: string
 ): ChartOverlay[] {
   return useMemo(() => {
     const map = new Map<string, ChartOverlay>()
@@ -379,26 +375,8 @@ export function useChartOverlays(
       map.set(ov.name, ov)
     }
 
-    // Add forecast overlays
     forecastOverlays.forEach(addOverlay)
 
-    // Calculate time boundaries
-    const startTime = bars.length ? bars[0].time : undefined
-    const lastBarTime = bars.length ? bars[bars.length - 1].time : undefined
-    const tfStep = tfSeconds(timeframe) || 0
-    const fallbackStep = tfStep || (bars.length >= 2 ? Math.max(1, bars[1].time - bars[0].time) : 60)
-
-    let maxTime = lastBarTime
-    forecastOverlays.forEach(ov => {
-      ov.points?.forEach(pt => {
-        if (pt?.time !== undefined && Number.isFinite(pt.time)) {
-          maxTime = maxTime === undefined ? pt.time : Math.max(maxTime, pt.time)
-        }
-      })
-    })
-    const lineEnd = maxTime !== undefined ? maxTime + fallbackStep : undefined
-
-    // Add denoised line if present
     if (bars.some((bar) => Number.isFinite(bar.close_dn))) {
       const dnPoints = bars
         .filter((bar): bar is HistoryBar & { close_dn: number } => 
@@ -411,49 +389,6 @@ export function useChartOverlays(
       }
     }
 
-    // Add pivot levels
-    if (pivotLevels?.length && startTime !== undefined && lineEnd !== undefined) {
-      const colorForLevel = (level: string) => {
-        if (level.startsWith('R')) return '#f97316'
-        if (level.startsWith('S')) return '#38bdf8'
-        return '#facc15'
-      }
-
-      pivotLevels.forEach(level => {
-        if (!Number.isFinite(level.value)) return
-        addOverlay({
-          name: `pivot-${level.level}`,
-          points: [
-            { time: startTime, value: level.value },
-            { time: lineEnd, value: level.value },
-          ],
-          color: colorForLevel(level.level),
-          lineStyle: 'dashed',
-          lineWidth: 1,
-          label: level.level,
-        })
-      })
-    }
-
-    // Add support/resistance levels
-    if (srLevels?.length && startTime !== undefined && lineEnd !== undefined) {
-      srLevels.forEach((level, idx) => {
-        if (!Number.isFinite(level?.value)) return
-        const color = level.type === 'resistance' ? '#f87171' : '#34d399'
-        addOverlay({
-          name: `sr-${level.type}-${idx}`,
-          points: [
-            { time: startTime, value: level.value },
-            { time: lineEnd, value: level.value },
-          ],
-          color,
-          lineWidth: 2,
-          lineStyle: 'dotted',
-          label: `${level.type === 'resistance' ? 'Res' : 'Sup'} (${level.touches})`,
-        })
-      })
-    }
-
     return Array.from(map.values())
-  }, [bars, forecastOverlays, pivotLevels, srLevels, timeframe])
+  }, [bars, forecastOverlays])
 }

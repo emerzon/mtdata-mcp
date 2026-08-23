@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getErrorMessage, getHistory, getTick } from '../../api/client'
 import { useConfluenceLevels, useExposureOverlay, useVolumeProfileLevels } from '../../hooks/useGeometry'
@@ -22,6 +22,8 @@ import {
   confluencePriceLines,
   exposurePriceLines,
   ideaGeometryPriceLines,
+  pivotPriceLines,
+  supportResistancePriceLines,
   volumeProfilePriceLines,
 } from '../../lib/geometryOverlays'
 import type {
@@ -38,12 +40,26 @@ export type TimezoneMode = 'utc' | 'local' | 'server'
 
 const QUERY_LIMIT = 1000
 
+function loadChartDenoise(symbol: string, timeframe: string): DenoiseSpecUI | undefined {
+  if (!symbol || !timeframe) return undefined
+  const saved = loadJSON<DenoiseSpecUI | undefined>(`chart_dn:${symbol}:${timeframe}`)
+  const normalized = ensureChartDenoiseCausality(saved || undefined)
+  if (normalized && (!saved?.causality || saved.causality !== normalized.causality)) {
+    saveJSON(`chart_dn:${symbol}:${timeframe}`, normalized)
+  }
+  return normalized
+}
+
+function loadChartIndicators(symbol: string, timeframe: string): ChartIndicatorSelection {
+  if (!symbol || !timeframe) return DEFAULT_CHART_INDICATORS
+  return normalizeChartIndicators(loadJSON(`chart_ti:${symbol}:${timeframe}`))
+}
+
 export function useChartWorkspace() {
   const [symbol, setSymbol] = useState(() => loadJSON<string>('last_symbol') || '')
   const [timeframe, setTimeframe] = useState('H1')
   const [extraHistory, setExtraHistory] = useState<HistoryBar[]>([])
   const [isLoadingMore, setIsLoadingMore] = useState(false)
-  const [end, setEnd] = useState<string | undefined>(undefined)
   const [anchor, setAnchor] = useState<number | undefined>(undefined)
   const [showBid, setShowBid] = useState(false)
   const [showAsk, setShowAsk] = useState(false)
@@ -51,8 +67,12 @@ export function useChartWorkspace() {
   const [isLive, setIsLive] = useState(true)
   const [timezoneMode, setTimezoneMode] = useState<TimezoneMode>('local')
   const [forecastOverlays, setForecastOverlays] = useState<ChartOverlay[]>([])
-  const [chartDenoise, setChartDenoise] = useState<DenoiseSpecUI | undefined>(undefined)
-  const [chartIndicators, setChartIndicators] = useState<ChartIndicatorSelection>(DEFAULT_CHART_INDICATORS)
+  const [chartDenoise, setChartDenoise] = useState<DenoiseSpecUI | undefined>(() =>
+    loadChartDenoise(symbol, timeframe)
+  )
+  const [chartIndicators, setChartIndicators] = useState<ChartIndicatorSelection>(() =>
+    loadChartIndicators(symbol, timeframe)
+  )
   const [metrics, setMetrics] = useState<AnchorMetrics | null>(null)
   const [historyPageError, setHistoryPageError] = useState<string | null>(null)
   const [ideaGeometry, setIdeaGeometry] = useState<TradeIdeaPayload['geometry'] | null>(null)
@@ -83,13 +103,12 @@ export function useChartWorkspace() {
     isLoading: isHistoryLoading,
     isFetched: isHistoryFetched,
   } = useQuery({
-    queryKey: ['hist', symbol, timeframe, QUERY_LIMIT, end, JSON.stringify(chartDenoise || {}), indicatorsQuery, indicatorsOhlcv, isLive],
+    queryKey: ['hist', symbol, timeframe, QUERY_LIMIT, JSON.stringify(chartDenoise || {}), indicatorsQuery, indicatorsOhlcv, isLive],
     queryFn: ({ signal }) =>
       getHistory({
         symbol,
         timeframe,
         limit: QUERY_LIMIT,
-        end,
         denoise: chartDenoise,
         include_incomplete: isLive,
         indicators: indicatorsQuery,
@@ -109,7 +128,7 @@ export function useChartWorkspace() {
       indicators: indicatorsQuery,
       ohlcv: indicatorsOhlcv,
     }, signal),
-    enabled: isLive && !!symbol && !end,
+    enabled: isLive && !!symbol,
     refetchInterval: livePollMs,
   })
 
@@ -119,20 +138,6 @@ export function useChartWorkspace() {
     enabled: !!symbol,
     refetchInterval: livePollMs,
   })
-
-  useEffect(() => {
-    if (!symbol || !timeframe) {
-      setChartDenoise(undefined)
-      return
-    }
-    const saved = loadJSON<DenoiseSpecUI | undefined>(`chart_dn:${symbol}:${timeframe}`)
-    const normalized = ensureChartDenoiseCausality(saved || undefined)
-    setChartDenoise(normalized)
-    if (normalized && (!saved?.causality || saved.causality !== normalized.causality)) {
-      saveJSON(`chart_dn:${symbol}:${timeframe}`, normalized)
-    }
-    setChartIndicators(normalizeChartIndicators(loadJSON(`chart_ti:${symbol}:${timeframe}`)))
-  }, [symbol, timeframe])
 
   const bars = useMemo(() => {
     const base = (histDataResponse?.data ?? []) as HistoryBar[]
@@ -146,7 +151,7 @@ export function useChartWorkspace() {
       combined = [...older, ...base]
     }
 
-    if (!isLive || !live.length || !combined.length || end) return combined
+    if (!isLive || !live.length || !combined.length) return combined
 
     const merged = [...combined]
     live.forEach((bar) => {
@@ -163,7 +168,7 @@ export function useChartWorkspace() {
       }
     })
     return merged
-  }, [end, extraHistory, histDataResponse, isLive, liveDataResponse])
+  }, [extraHistory, histDataResponse, isLive, liveDataResponse])
 
   const serverTimeZone = useMemo(() => {
     const candidate = histDataResponse?.server_timezone
@@ -192,7 +197,6 @@ export function useChartWorkspace() {
   )
 
   const resetWorkspaceView = useCallback(() => {
-    setEnd(undefined)
     setExtraHistory([])
     setForecastOverlays([])
     setAnchor(undefined)
@@ -209,6 +213,8 @@ export function useChartWorkspace() {
   const handleSymbolChange = useCallback(
     (newSymbol: string) => {
       setSymbol(newSymbol)
+      setChartDenoise(loadChartDenoise(newSymbol, timeframe))
+      setChartIndicators(loadChartIndicators(newSymbol, timeframe))
       resetWorkspaceView()
       saveJSON('last_symbol', newSymbol)
 
@@ -218,15 +224,17 @@ export function useChartWorkspace() {
       const updated = [newSymbol, ...recent.filter((item) => item !== newSymbol)].slice(0, 10)
       saveJSON('recent_symbols', updated)
     },
-    [resetWorkspaceView]
+    [resetWorkspaceView, timeframe]
   )
 
   const handleTimeframeChange = useCallback(
     (newTimeframe: string) => {
       setTimeframe(newTimeframe)
+      setChartDenoise(loadChartDenoise(symbol, newTimeframe))
+      setChartIndicators(loadChartIndicators(symbol, newTimeframe))
       resetWorkspaceView()
     },
-    [resetWorkspaceView]
+    [resetWorkspaceView, symbol]
   )
 
   const handleNeedMoreLeft = useCallback(
@@ -453,9 +461,6 @@ export function useChartWorkspace() {
   const chartOverlays = useChartOverlays(
     bars,
     forecastAndIndicatorOverlays,
-    pivotState.levels,
-    srState.levels,
-    timeframe
   )
 
   const priceLines: PriceLineSpec[] = useMemo(() => {
@@ -477,6 +482,8 @@ export function useChartWorkspace() {
 
     return [
       ...lines,
+      ...pivotPriceLines(pivotState.levels),
+      ...supportResistancePriceLines(srState.levels),
       ...confluencePriceLines(confluenceState.data?.levels),
       ...volumeProfilePriceLines(volumeProfileState.data),
       ...ideaGeometryPriceLines(ideaGeometry),
@@ -487,9 +494,11 @@ export function useChartWorkspace() {
     confluenceState.data,
     exposureState.data,
     ideaGeometry,
+    pivotState.levels,
     showAsk,
     showBid,
     showLast,
+    srState.levels,
     tickData,
     volumeProfileState.data,
   ])
@@ -498,7 +507,7 @@ export function useChartWorkspace() {
   const workspaceErrors = useMemo(() => {
     const errors = [
       historyError ? `History: ${getErrorMessage(historyError)}` : null,
-      isLive && !end && liveHistoryError
+      isLive && liveHistoryError
         ? `Live history: ${getErrorMessage(liveHistoryError)}`
         : null,
       tickError ? `Quote: ${getErrorMessage(tickError)}` : null,
@@ -521,7 +530,6 @@ export function useChartWorkspace() {
   }, [
     bars,
     chartIndicators,
-    end,
     histDataResponse?.indicator_columns,
     historyError,
     historyPageError,
@@ -592,7 +600,6 @@ export function useChartWorkspace() {
     exposure: exposureState.data,
     exposureLoading: exposureState.isLoading,
     reload: () => {
-      setEnd(undefined)
       setExtraHistory([])
       void refetch()
     },

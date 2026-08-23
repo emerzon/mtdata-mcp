@@ -84,7 +84,13 @@ export function ForecastPanel({
 
         <div className="flex-1 overflow-y-auto overscroll-contain p-4 min-h-0">
           {tab === 'forecast' && (
-            <ForecastTab symbol={symbol} timeframe={timeframe} anchor={anchor} onResult={onResult} />
+            <ForecastTab
+              key={`${symbol}:${timeframe}`}
+              symbol={symbol}
+              timeframe={timeframe}
+              anchor={anchor}
+              onResult={onResult}
+            />
           )}
           {tab === 'volatility' && <VolatilityTab symbol={symbol} timeframe={timeframe} anchor={anchor} />}
           {tab === 'backtest' && <BacktestTab symbol={symbol} timeframe={timeframe} />}
