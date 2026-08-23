@@ -1,0 +1,55 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.emerzon/mtdata-mcp",
+  "title": "mtdata",
+  "description": "MetaTrader 5 research toolkit: market data, forecasts, regimes, patterns, risk, dry-run trading.",
+  "websiteUrl": "https://github.com/emerzon/mtdata-mcp",
+  "repository": {
+    "url": "https://github.com/emerzon/mtdata-mcp",
+    "source": "github",
+    "id": "1047705820"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "registryBaseUrl": "https://pypi.org",
+      "identifier": "mtdata-mcp",
+      "version": "0.1.0",
+      "runtimeHint": "uvx",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "MT5_LOGIN",
+          "description": "MetaTrader 5 account number (optional if MT5 already logged in interactively)",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "MT5_PASSWORD",
+          "description": "MetaTrader 5 account password",
+          "isRequired": false,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "MT5_SERVER",
+          "description": "Broker server name",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "string"
+        },
+        {
+          "name": "MTDATA_TRADE_GUARDRAILS_ENABLED",
+          "description": "Enable optional pre-trade guardrails (recommended)",
+          "isRequired": false,
+          "isSecret": false,
+          "format": "boolean"
+        }
+      ]
+    }
+  ]
+}

@@ -158,6 +158,8 @@ all-git = [
 [project.scripts]
 mtdata-sse = "mtdata.core.server:main_sse"
 mtdata-stdio = "mtdata.core.server:main_stdio"
+# Alias so Official MCP Registry clients that compose `uvx mtdata-mcp` launch stdio.
+mtdata-mcp = "mtdata.core.server:main_stdio"
 mtdata-streamable-http = "mtdata.core.server:main_streamable_http"
 mtdata-webapi = "mtdata.core.web_api:main_webapi"
 mtdata-cli = "mtdata.core.cli:main"

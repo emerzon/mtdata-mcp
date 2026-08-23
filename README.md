@@ -2,6 +2,8 @@
 
 **Turn MetaTrader 5 into a research lab you can script, query from AI agents, or browse in a local web UI.**
 
+<!-- mcp-name: io.github.emerzon/mtdata-mcp -->
+
 mtdata is a Windows-first toolkit that sits on top of a running MT5 terminal. It gives you **80+ tools** for market data, forecasting, regime detection, patterns, risk, and trading through the command line and an optional AI-assistant plug ([MCP](docs/MCP.md)), plus a local website and HTTP API.
 
 It is a **toolkit for exploration and automation**, not a trading strategy or financial advice.
@@ -173,7 +175,7 @@ Dependency caveats (NeuralForecast optional installs, Python 3.14 exclusions, op
 
 ### Naming
 
-The PyPI package is **`mtdata-mcp`**. The command-line entry is **`mtdata-cli`** (not `mtdata`). That avoids a clash with the unrelated [mtdata](https://pypi.org/project/mtdata/) machine-translation dataset package, which already owns the `mtdata` CLI. The importable Python package remains `mtdata` (`import mtdata`).
+The PyPI package is **`mtdata-mcp`**. The command-line entry is **`mtdata-cli`** (not `mtdata`). That avoids a clash with the unrelated [mtdata](https://pypi.org/project/mtdata/) machine-translation dataset package, which already owns the `mtdata` CLI. The importable Python package remains `mtdata` (`import mtdata`). IDE and assistant configs should still launch **`mtdata-stdio`**. A `mtdata-mcp` console-script alias points at the same stdio entry so Official MCP Registry clients that compose `uvx mtdata-mcp` start that server.
 
 ---
 
