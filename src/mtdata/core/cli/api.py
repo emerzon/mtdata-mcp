@@ -1036,17 +1036,17 @@ def _parse_set_overrides(items: Optional[List[str]]) -> Dict[str, Dict[str, Any]
 
 _merge_dict = _merge_dict_impl
 
-_DENOISE_PIPELINE_KEYS = frozenset(
-    {"columns", "when", "causality", "keep_original", "suffix"}
-)
-
-
 def _apply_denoise_companion_params(
     denoise: Optional[Dict[str, Any]],
     denoise_params: Optional[str],
     *,
     parser: argparse.ArgumentParser,
 ) -> Optional[Dict[str, Any]]:
+    from mtdata.utils.denoise.api import (
+        normalize_denoise_pipeline_values,
+        split_denoise_companion_params,
+    )
+
     if not isinstance(denoise_params, str) or not denoise_params.strip():
         return denoise
     extra = _parse_kv_string(denoise_params)
@@ -1057,23 +1057,15 @@ def _apply_denoise_companion_params(
         )
     if not isinstance(denoise, dict):
         return extra
-    pipeline_values = {
-        key: value for key, value in extra.items() if key in _DENOISE_PIPELINE_KEYS
-    }
-    method_values = {
-        key: value
-        for key, value in extra.items()
-        if key not in _DENOISE_PIPELINE_KEYS
-    }
-    if "keep_original" in pipeline_values:
-        keep_original = _coerce_cli_scalar(str(pipeline_values["keep_original"]))
-        if not isinstance(keep_original, bool):
-            parser.error("denoise keep_original must be true or false.")
-        pipeline_values["keep_original"] = keep_original
-    if "columns" in pipeline_values and isinstance(pipeline_values["columns"], str):
-        pipeline_values["columns"] = _normalize_cli_list_value(
-            pipeline_values["columns"]
+    pipeline_values, method_values = split_denoise_companion_params(extra)
+    try:
+        pipeline_values = normalize_denoise_pipeline_values(
+            pipeline_values,
+            coerce_scalar=_coerce_cli_scalar,
+            normalize_columns=_normalize_cli_list_value,
         )
+    except ValueError as exc:
+        parser.error(str(exc))
     denoise.update(pipeline_values)
     if method_values:
         method_params = denoise.get("params")

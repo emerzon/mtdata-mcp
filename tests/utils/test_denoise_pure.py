@@ -38,7 +38,10 @@ from mtdata.utils.denoise.filters.specialized import (
     _kalman_rts_smoother_1d,
     _tv_denoise_1d,
 )
-from mtdata.utils.denoise.filters.spectral import _butterworth_filter, _lowpass_fft_weights
+from mtdata.utils.denoise.filters.spectral import (
+    _butterworth_filter,
+    _lowpass_fft_weights,
+)
 from mtdata.utils.denoise.filters.trend import (
     _beta_irls_mean,
     _beta_smooth,
@@ -1739,4 +1742,30 @@ class TestDenoiseListMethods:
         result = denoise_list_methods()
         data = get_denoise_methods_data()
         assert len(result["methods"]) == len(data["methods"])
+
+
+class TestDenoiseCompanionParams:
+    def test_splits_pipeline_and_method_keys(self):
+        pipeline, method = denoise_api.split_denoise_companion_params(
+            {"keep_original": "true", "suffix": "_dn", "period": "14"}
+        )
+        assert pipeline == {"keep_original": "true", "suffix": "_dn"}
+        assert method == {"period": "14"}
+
+    def test_normalizes_keep_original_and_columns(self):
+        normalized = denoise_api.normalize_denoise_pipeline_values(
+            {"keep_original": "true", "columns": "close,high"},
+            coerce_scalar=lambda value: {"true": True, "false": False}.get(value, value),
+            normalize_columns=lambda value: [part.strip() for part in value.split(",")],
+        )
+        assert normalized["keep_original"] is True
+        assert normalized["columns"] == ["close", "high"]
+
+    def test_rejects_non_bool_keep_original(self):
+        with pytest.raises(ValueError, match="keep_original must be true or false"):
+            denoise_api.normalize_denoise_pipeline_values(
+                {"keep_original": "maybe"},
+                coerce_scalar=lambda value: value,
+                normalize_columns=lambda value: value,
+            )
 

@@ -492,43 +492,27 @@ def create_command_function(  # noqa: C901
                     extra = parse_kv_string(extra_val)
                     if extra:
                         if param_name == "denoise" and isinstance(arg_value, dict):
-                            pipeline_keys = {
-                                "columns",
-                                "when",
-                                "causality",
-                                "keep_original",
-                                "suffix",
-                            }
-                            pipeline_values = {
-                                key: value
-                                for key, value in extra.items()
-                                if key in pipeline_keys
-                            }
-                            method_values = {
-                                key: value
-                                for key, value in extra.items()
-                                if key not in pipeline_keys
-                            }
-                            if "keep_original" in pipeline_values:
-                                keep_original = coerce_cli_scalar(
-                                    str(pipeline_values["keep_original"])
+                            from mtdata.utils.denoise.api import (
+                                normalize_denoise_pipeline_values,
+                                split_denoise_companion_params,
+                            )
+
+                            pipeline_values, method_values = (
+                                split_denoise_companion_params(extra)
+                            )
+                            try:
+                                pipeline_values = normalize_denoise_pipeline_values(
+                                    pipeline_values,
+                                    coerce_scalar=coerce_cli_scalar,
+                                    normalize_columns=normalize_cli_list_value,
                                 )
-                                if not isinstance(keep_original, bool):
-                                    render_cli_result(
-                                        _build_cli_error(
-                                            "denoise keep_original must be true or false."
-                                        ),
-                                        args=args,
-                                        cmd_name=cmd_name,
-                                    )
-                                    return 2
-                                pipeline_values["keep_original"] = keep_original
-                            if "columns" in pipeline_values and isinstance(
-                                pipeline_values["columns"], str
-                            ):
-                                pipeline_values["columns"] = normalize_cli_list_value(
-                                    pipeline_values["columns"]
+                            except ValueError as exc:
+                                render_cli_result(
+                                    _build_cli_error(str(exc)),
+                                    args=args,
+                                    cmd_name=cmd_name,
                                 )
+                                return 2
                             arg_value.update(pipeline_values)
                             method_params = arg_value.get("params")
                             if not isinstance(method_params, dict):

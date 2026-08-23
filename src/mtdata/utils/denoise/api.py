@@ -1,7 +1,7 @@
 """Canonical denoising API."""
 import logging
 from copy import deepcopy
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Mapping, Optional, Tuple
 
 import numpy as np
 import pandas as pd
@@ -92,6 +92,40 @@ _DENOISE_SPEC_KEYS = {
     "keep_original",
     "suffix",
 }
+DENOISE_PIPELINE_KEYS = frozenset(
+    {"columns", "when", "causality", "keep_original", "suffix"}
+)
+
+
+def split_denoise_companion_params(
+    extra: Mapping[str, Any],
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    pipeline = {
+        key: value for key, value in extra.items() if key in DENOISE_PIPELINE_KEYS
+    }
+    method = {
+        key: value for key, value in extra.items() if key not in DENOISE_PIPELINE_KEYS
+    }
+    return pipeline, method
+
+
+def normalize_denoise_pipeline_values(
+    pipeline_values: Mapping[str, Any],
+    *,
+    coerce_scalar: Callable[[str], Any],
+    normalize_columns: Callable[[Any], Any],
+) -> Dict[str, Any]:
+    out = dict(pipeline_values)
+    if "keep_original" in out:
+        keep_original = coerce_scalar(str(out["keep_original"]))
+        if not isinstance(keep_original, bool):
+            raise ValueError("denoise keep_original must be true or false.")
+        out["keep_original"] = keep_original
+    if "columns" in out and isinstance(out["columns"], str):
+        out["columns"] = normalize_columns(out["columns"])
+    return out
+
+
 _COLUMN_ALIASES_OHLC = frozenset({"ohlc"})
 _COLUMN_ALIASES_CLOSE = frozenset({"price", "close"})
 _COLUMN_ALIASES_OHLCV = frozenset({"ohlcv"})

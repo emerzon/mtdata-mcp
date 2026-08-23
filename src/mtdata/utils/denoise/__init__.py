@@ -13,8 +13,10 @@ from .api import (
     effective_denoise_base_col,
     get_denoise_methods_data,
     is_close_based_denoise_column,
+    normalize_denoise_pipeline_values,
     normalize_denoise_spec,
     resolve_denoise_base_col,
+    split_denoise_companion_params,
 )
 from .base import get_filter, list_filters, register_filter
 
@@ -30,6 +32,8 @@ __all__ = [
     "effective_denoise_base_col",
     "is_close_based_denoise_column",
     "normalize_denoise_spec",
+    "normalize_denoise_pipeline_values",
+    "split_denoise_companion_params",
     "get_denoise_methods_data",
     "denoise_list_methods",
 ]
