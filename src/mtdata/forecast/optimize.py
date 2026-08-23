@@ -122,7 +122,6 @@ def build_comprehensive_search_space(
     timeframes: Optional[List[str]] = None,
     methods: Optional[List[str]] = None,
     method_search_spaces: Optional[Dict[str, Dict[str, Any]]] = None,
-    include_features: bool = False,
 ) -> Dict[str, Any]:
     """Build a comprehensive search space for genetic optimization.
 
@@ -134,14 +133,12 @@ def build_comprehensive_search_space(
             'theta': {'seasonality': {'type': 'int', 'min': 8, 'max': 72}},
             'fourier_ols': {...},
         },
-        'features': {...} (if include_features=True)
     }
 
     Args:
         timeframes: List of timeframes to search (default: ['H1', 'H4', 'D1', 'W1'])
         methods: List of methods to search (default: fast classical baselines)
         method_search_spaces: Optional dict of method-specific parameter spaces
-        include_features: If True, add feature indicator genes (RSI, MACD, etc.)
 
     Returns:
         Dict defining the comprehensive search space
@@ -184,30 +181,6 @@ def build_comprehensive_search_space(
         '_method_spaces': method_search_spaces,
     }
 
-    if include_features:
-        search_space['features'] = {
-            '_shared': {
-                'use_indicators': {
-                    'type': 'categorical',
-                    'choices': [False, True],
-                },
-            },
-            'rsi': {
-                'period': {'type': 'int', 'min': 7, 'max': 21},
-                'oversold': {'type': 'int', 'min': 20, 'max': 40},
-                'overbought': {'type': 'int', 'min': 60, 'max': 80},
-            },
-            'macd': {
-                'fast': {'type': 'int', 'min': 8, 'max': 15},
-                'slow': {'type': 'int', 'min': 20, 'max': 35},
-                'signal': {'type': 'int', 'min': 7, 'max': 12},
-            },
-            'bollinger': {
-                'period': {'type': 'int', 'min': 15, 'max': 30},
-                'std_dev': {'type': 'float', 'min': 1.5, 'max': 2.5},
-            },
-        }
-
     return search_space
 
 
@@ -238,52 +211,9 @@ def extract_method_params_from_genotype(
     return timeframe, method, params
 
 
-def extract_features_from_genotype(genotype: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """Extract feature indicators from a genetic genotype.
-
-    Args:
-        genotype: Individual from the population
-
-    Returns:
-        Dict of feature configs or None if no features enabled
-    """
-    features_spec = genotype.get('_features', {})
-    if not features_spec:
-        return None
-
-    use_indicators = features_spec.get('use_indicators', False)
-    if not use_indicators:
-        return None
-
-    # Build feature dict from genotype
-    features: Dict[str, Any] = {}
-
-    if 'rsi_period' in features_spec:
-        features.setdefault('rsi', {})['period'] = features_spec['rsi_period']
-    if 'rsi_oversold' in features_spec:
-        features.setdefault('rsi', {})['oversold'] = features_spec['rsi_oversold']
-    if 'rsi_overbought' in features_spec:
-        features.setdefault('rsi', {})['overbought'] = features_spec['rsi_overbought']
-
-    if 'macd_fast' in features_spec:
-        features.setdefault('macd', {})['fast'] = features_spec['macd_fast']
-    if 'macd_slow' in features_spec:
-        features.setdefault('macd', {})['slow'] = features_spec['macd_slow']
-    if 'macd_signal' in features_spec:
-        features.setdefault('macd', {})['signal'] = features_spec['macd_signal']
-
-    if 'bollinger_period' in features_spec:
-        features.setdefault('bollinger', {})['period'] = features_spec['bollinger_period']
-    if 'bollinger_std_dev' in features_spec:
-        features.setdefault('bollinger', {})['std_dev'] = features_spec['bollinger_std_dev']
-
-    return features if features else None
-
-
 __all__ = [
     'scale_metric_to_01',
     'composite_fitness_score',
     'build_comprehensive_search_space',
     'extract_method_params_from_genotype',
-    'extract_features_from_genotype',
 ]

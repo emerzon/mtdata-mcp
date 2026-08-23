@@ -112,7 +112,6 @@ _FIELD_OWNERSHIP: Dict[RequestSurface, Dict[str, ContractOwner]] = {
         "max_search_time_seconds": "evaluation",
         "denoise": "data_preparation",
         "features": "data_preparation",
-        "include_feature_genes": "evaluation",
         "top_n": "evaluation",
         "dimred": "data_preparation",
         "detail": "evaluation",

@@ -1290,9 +1290,6 @@ def forecast_optimize_hints(request: ForecastOptimizeHintsRequest) -> Dict[str, 
     top_n : int, optional (default=5)
         Number of top configurations to return (1-20).
     
-    include_feature_genes : bool, optional (default=False)
-        If True, include technical indicator parameters (RSI, MACD, etc.) in search.
-    
     denoise : DenoiseSpec, optional
         Denoising configuration for preprocessing.
     

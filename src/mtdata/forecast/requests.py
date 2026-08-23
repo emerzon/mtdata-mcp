@@ -774,7 +774,6 @@ class ForecastOptimizeHintsRequest(_PublicForecastRequest):
     )
     denoise: Optional[DenoiseSpec] = None
     features: Optional[Dict[str, Any]] = None
-    include_feature_genes: bool = False
     top_n: int = Field(5, ge=1, le=20)
     dimred: Optional[DimensionalityReductionSpec] = None
     detail: DetailLiteral = "compact"

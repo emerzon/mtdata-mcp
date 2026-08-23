@@ -1197,7 +1197,6 @@ def genetic_search_optimize_hints(  # noqa: C901
     slippage_bps: float = 0.0,
     trade_threshold: float = 0.0,
     top_n: int = 5,
-    include_feature_genes: bool = False,
 ) -> Dict[str, Any]:
     """Comprehensive genetic search for optimal forecast settings across timeframes, methods, and parameters.
 
@@ -1205,7 +1204,6 @@ def genetic_search_optimize_hints(  # noqa: C901
     - Timeframes (H1, H4, D1, W1, etc.)
     - Methods (fast classical baselines by default; heavyweight methods are opt-in)
     - Method-specific parameters
-    - Optional feature indicators (RSI, MACD, Bollinger Bands)
 
     Fitness: Composite score combining Sharpe ratio, win rate, inverse drawdown, and return,
     or single metric if fitness_metric != "composite".
@@ -1225,7 +1223,6 @@ def genetic_search_optimize_hints(  # noqa: C901
         max_search_time_seconds: Optional timeout for search
         denoise, features, dimred_method, dimred_params: Preprocessing options
         top_n: Number of top configurations to return
-        include_feature_genes: If True, search over feature indicators
 
     Returns:
         Dict with 'success', 'hints' (list of top-N configs), 'search_summary', etc.
@@ -1250,7 +1247,6 @@ def genetic_search_optimize_hints(  # noqa: C901
         search_space = _build_search_space(
             timeframes=timeframes,
             methods=methods,
-            include_features=include_feature_genes,
         )
     else:
         # Ensure comprehensive space has required keys

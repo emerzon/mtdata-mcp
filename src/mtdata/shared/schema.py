@@ -322,7 +322,6 @@ PARAM_HINTS = {
     "fitness_metric": "Forecast tuning fitness metric, such as composite or a single score name.",
     "fitness_weights": "JSON metric-weight map used when fitness_metric=composite.",
     "max_search_time_seconds": "Maximum tuning search time budget in seconds.",
-    "include_feature_genes": "Include feature/indicator genes in the forecast optimization search.",
     "tradable_only": "Only keep barrier candidates that pass tradability/cost viability checks.",
     "min_ev": "Minimum expected-value threshold for barrier candidates.",
     "min_edge": "Minimum edge over breakeven required for barrier candidates.",
@@ -459,10 +458,6 @@ PARAM_HINTS = {
     "max_regimes": "Maximum regime summary rows to return in compact output.",
     "limit_per_bucket": "Maximum news items returned per bucket.",
     "poll_interval_seconds": "Seconds between polling attempts while waiting for events.",
-    "watch_tick_count_spike": (
-        "Add the abnormal tick-volume watcher to an inferred timeframe wait; "
-        "ignored for timer-only duration waits and explicit watch_for."
-    ),
     "core_only": "Return only methods implemented by the core package.",
 }
 

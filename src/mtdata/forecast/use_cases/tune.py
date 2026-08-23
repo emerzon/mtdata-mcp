@@ -736,7 +736,6 @@ def run_forecast_optimize_hints(
             dimred_method=request.dimred_method,
             dimred_params=request.dimred_params,
             top_n=int(request.top_n),
-            include_feature_genes=bool(request.include_feature_genes),
         )
     except Exception as exc:
         log_operation_exception(

@@ -135,10 +135,8 @@ class TestBuildComprehensiveSearchSpace:
         assert set(space['method']['choices']) == {'theta', 'naive'}
 
     def test_include_features(self):
-        space = build_comprehensive_search_space(include_features=True)
-        assert 'features' in space
-        assert 'rsi' in space['features']
-        assert 'macd' in space['features']
+        space = build_comprehensive_search_space()
+        assert 'features' not in space
 
 
 class TestExtractMethodParamsFromGenotype:
