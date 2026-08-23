@@ -98,16 +98,7 @@ def _is_holiday(
 
 def _get_local_time(tz_name: str) -> datetime:
     """Get current time in specified timezone."""
-    try:
-        import zoneinfo
-        tz = zoneinfo.ZoneInfo(tz_name)
-    except ImportError:
-        try:
-            from dateutil import tz as dateutil_tz
-            tz = dateutil_tz.gettz(tz_name)
-        except Exception:
-            tz = timezone.utc
-    return datetime.now(tz)
+    return datetime.now(ZoneInfo(tz_name))
 
 
 def _normalize_time(dt: datetime) -> datetime:
