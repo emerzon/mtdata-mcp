@@ -669,14 +669,6 @@ def _first_present(row: Dict[str, Any], *keys: str) -> Any:
     return None
 
 
-def _compact_non_empty_mapping(row: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        str(key): value
-        for key, value in row.items()
-        if value is not None and not (isinstance(value, str) and not value.strip())
-    }
-
-
 _TRADE_PRICE_FIELDS = {
     "price",
     "entry_price",
@@ -694,78 +686,7 @@ _TRADE_MILLISECOND_TIME_FIELDS = {
     "time_done_msc",
     "time_update_msc",
 }
-_TRADE_HISTORY_DIAGNOSTIC_FIELDS = {
-    "comment_visible_length",
-    "comment_max_length",
-    "comment_may_be_truncated",
-    "type_code",
-    "entry_code",
-    "state_code",
-    "type_time_code",
-    "type_filling_code",
-    "external_id",
-}
 _TRADE_HISTORY_ROW_METADATA_FIELDS = {"timezone"}
-_TRADE_HISTORY_DEAL_TOP_LEVEL_FIELDS = (
-    "ticket",
-    "deal_ticket",
-    "order",
-    "order_ticket",
-    "time",
-    "time_msc",
-    "type",
-    "type_label",
-    "entry",
-    "entry_label",
-    "magic",
-    "position_id",
-    "position_by_id",
-    "position_ticket",
-    "reason",
-    "reason_label",
-    "reason_code",
-    "volume",
-    "price",
-    "commission",
-    "swap",
-    "profit",
-    "fee",
-    "symbol",
-    "comment",
-    "exit_trigger",
-    "exit_trigger_price",
-    "exit_trigger_source",
-    "timestamp_anomaly",
-    "original_fill_time",
-    "fill_time_future_seconds",
-)
-_TRADE_HISTORY_ORDER_TOP_LEVEL_FIELDS = (
-    "ticket",
-    "order_ticket",
-    "time_setup",
-    "time_done",
-    "time_setup_msc",
-    "time_done_msc",
-    "type",
-    "state",
-    "state_label",
-    "reason",
-    "reason_label",
-    "reason_code",
-    "magic",
-    "position_id",
-    "position_by_id",
-    "position_ticket",
-    "volume_initial",
-    "volume_current",
-    "price_open",
-    "price_current",
-    "price_stoplimit",
-    "sl",
-    "tp",
-    "symbol",
-    "comment",
-)
 _TRADE_HISTORY_COMPACT_DEAL_FIELDS = (
     "fill_time",
     "deal_ticket",
@@ -1029,69 +950,6 @@ def _full_trade_history_row(
     if raw:
         full["raw"] = raw
     return full
-
-
-def _public_trade_history_details(row: Dict[str, Any]) -> Dict[str, Any]:
-    return {
-        key: value
-        for key, value in _compact_non_empty_mapping(row).items()
-        if str(key) not in _TRADE_HISTORY_DIAGNOSTIC_FIELDS
-        and str(key) not in _TRADE_HISTORY_ROW_METADATA_FIELDS
-    }
-
-
-def _normalize_trade_history_row(
-    row: Dict[str, Any],
-    *,
-    history_kind: Optional[str],
-) -> Dict[str, Any]:
-    row = _round_trade_money_fields(row)
-    item_kind = "order" if history_kind == "orders" else "deal"
-    if item_kind == "order":
-        price = _first_present(row, "price_current", "price_open", "price")
-        native_key = "order_details"
-        top_level_fields = _TRADE_HISTORY_ORDER_TOP_LEVEL_FIELDS
-    else:
-        price = _first_present(row, "price")
-        native_key = "deal_details"
-        top_level_fields = _TRADE_HISTORY_DEAL_TOP_LEVEL_FIELDS
-
-    normalized: Dict[str, Any] = {
-        "ticket": _first_present(row, "ticket", "order", "deal"),
-        "symbol": row.get("symbol"),
-        "volume": _first_present(row, "volume", "volume_initial", "volume_current"),
-        "price": price,
-    }
-    action = validation._trade_history_action(
-        row,
-        history_kind=history_kind,
-    )
-    if action is not None:
-        normalized["action"] = action
-        normalized["deal_effect"] = action
-    position_side = validation._trade_history_position_side(
-        row,
-        action=action,
-        history_kind=history_kind,
-    )
-    if position_side is not None:
-        normalized["position_side"] = position_side
-    public_details = _public_trade_history_details(row)
-    for key in top_level_fields:
-        if key in public_details:
-            normalized[key] = public_details[key]
-    remaining_details = {
-        key: value
-        for key, value in public_details.items()
-        if key not in top_level_fields
-    }
-    if remaining_details:
-        normalized[native_key] = remaining_details
-    return {
-        key: value
-        for key, value in normalized.items()
-        if value is not None and value != {}
-    }
 
 
 def _trade_history_request_echo(request: Any, *, history_kind: Any) -> Dict[str, Any]:
