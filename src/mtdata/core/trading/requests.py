@@ -496,14 +496,6 @@ class TradeJournalAnalyzeRequest(_SideNormalizedRequest):
         description="Return sample sufficiency metadata without computing journal statistics.",
     )
 
-    @field_validator("breakdown_limit", "min_sample")
-    @classmethod
-    def _validate_positive_count(cls, value: int) -> int:
-        value_i = int(value)
-        if value_i <= 0:
-            raise ValueError("value must be greater than 0.")
-        return value_i
-
 
 class TradeRiskAnalyzeRequest(BaseModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")

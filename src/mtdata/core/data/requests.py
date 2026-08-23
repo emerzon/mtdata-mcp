@@ -247,12 +247,6 @@ def _normalize_indicator_specs(value: Any) -> Any:
     return value
 
 
-def _validate_positive_limit(value: int) -> int:
-    if int(value) <= 0:
-        raise ValueError("limit must be greater than 0.")
-    return int(value)
-
-
 def _validate_non_negative(value: Optional[float], name: str) -> Optional[float]:
     if value is None:
         return None
@@ -473,11 +467,6 @@ class DataFetchCandlesRequest(_DetailNormalizedRequest):
             error_message="Symbol is required and cannot be empty",
         )
 
-    @field_validator("limit")
-    @classmethod
-    def _validate_limit(cls, value: int) -> int:
-        return _validate_positive_limit(value)
-
 
 class DataFetchTicksRequest(_DetailNormalizedRequest):
     symbol: str
@@ -530,16 +519,6 @@ class DataFetchTicksRequest(_DetailNormalizedRequest):
     def _reject_removed_output(cls, values: Any) -> Any:
         values = reject_removed_field(values, field_name="output", replacement="json")
         return reject_removed_field(values, field_name="output_mode", replacement="detail")
-
-    @field_validator("limit")
-    @classmethod
-    def _validate_limit(cls, value: int) -> int:
-        validated = _validate_positive_limit(value)
-        if validated > DATA_FETCH_TICKS_MAX_LIMIT:
-            raise ValueError(
-                f"limit must be at most {DATA_FETCH_TICKS_MAX_LIMIT} for tick requests."
-            )
-        return validated
 
 
 class WaitEventWindow(BaseModel):
@@ -694,13 +673,6 @@ class PriceBreakLevelEventSpec(BaseModel):
     @classmethod
     def _validate_tolerance(cls, value: float) -> float:
         return _validate_non_negative_default_zero(value, "tolerance")
-
-    @field_validator("confirm_ticks")
-    @classmethod
-    def _validate_confirm_ticks(cls, value: int) -> int:
-        if int(value) < 1:
-            raise ValueError("confirm_ticks must be greater than or equal to 1.")
-        return int(value)
 
 
 class PriceEnterZoneEventSpec(BaseModel):
