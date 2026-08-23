@@ -109,11 +109,11 @@ class TestCreateReducer:
     @pytest.mark.parametrize(
         ("method", "exc", "match"),
         [
-            ("lda", RuntimeError, "supervised"),
+            ("lda", ValueError, "Unknown"),
             ("invalid_method", ValueError, "Unknown"),
-            ("deep_diffusion_maps", RuntimeError, None),
-            ("dreams", RuntimeError, None),
-            ("pcc", RuntimeError, None),
+            ("deep_diffusion_maps", ValueError, "Unknown"),
+            ("dreams", ValueError, "Unknown"),
+            ("pcc", ValueError, "Unknown"),
         ],
     )
     def test_unsupported_methods_raise(self, method, exc, match):

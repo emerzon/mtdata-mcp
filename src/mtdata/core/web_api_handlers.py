@@ -395,30 +395,11 @@ def get_dimred_methods_response(*, list_dimred_methods: Callable[[], Dict[str, A
             {"name": "n_neighbors", "type": "int", "default": 15},
             {"name": "min_dist", "type": "float", "default": 0.1},
         ],
-        "diffusion": [
-            {"name": "n_components", "type": "int", "default": 2},
-            {"name": "alpha", "type": "float", "default": 0.5},
-            {"name": "epsilon", "type": "float|null", "default": None},
-            {"name": "k", "type": "int|null", "default": None},
-        ],
         "tsne": [
             {"name": "n_components", "type": "int", "default": 2},
             {"name": "perplexity", "type": "float", "default": 30.0},
             {"name": "learning_rate", "type": "float", "default": 200.0},
             {"name": "n_iter", "type": "int", "default": 1000},
-        ],
-        "dreams_cne": [
-            {"name": "n_components", "type": "int", "default": 2},
-            {"name": "k", "type": "int", "default": 15},
-            {"name": "negative_samples", "type": "int", "default": 500},
-            {"name": "n_epochs", "type": "int", "default": 250},
-            {"name": "batch_size", "type": "int", "default": 4096},
-            {"name": "learning_rate", "type": "float", "default": 0.001},
-            {"name": "parametric", "type": "bool", "default": True},
-            {"name": "device", "type": "str", "default": "auto"},
-            {"name": "regularizer", "type": "bool", "default": True},
-            {"name": "reg_lambda", "type": "float", "default": 0.0005},
-            {"name": "reg_scaling", "type": "str", "default": "norm"},
         ],
     }
     items = []

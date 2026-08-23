@@ -202,59 +202,6 @@ class LaplacianReducer(DimReducer):
         return {"method": self.name, "n_components": int(self.n_components), "n_neighbors": int(self.n_neighbors), "supports_transform": False}
 
 
-class DiffusionMapsReducer(DimReducer):
-    name = "diffusion"
-
-    def __init__(self, n_components: int = 2, alpha: float = 0.5, epsilon: Optional[float] = None, k: Optional[int] = None) -> None:
-        dmap_module = _require_dependency(
-            "pydiffmap",
-            "diffusion_map",
-            "pydiffmap not available; `pip install pydiffmap` to use diffusion maps",
-        )
-        self.n_components = int(max(1, n_components))
-        self.alpha = float(alpha)
-        self.epsilon = None if epsilon is None else float(epsilon)
-        self.k = None if k is None else int(k)
-        # Construct DiffusionMap model; pydiffmap API
-        # Use kwargs only if provided to avoid overriding library defaults
-        kwargs: Dict[str, Any] = {"alpha": self.alpha}
-        if self.epsilon is not None:
-            kwargs["epsilon"] = self.epsilon
-        if self.k is not None:
-            kwargs["k"] = self.k
-        self._model = dmap_module.DiffusionMap(n_evecs=self.n_components, **kwargs)
-
-    def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> "DiffusionMapsReducer":
-        # Fit is equivalent to computing eigenvectors on training data
-        self._model.fit(X)
-        return self
-
-    def transform(self, X: np.ndarray) -> np.ndarray:
-        # Nyström extension for new samples
-        if not hasattr(self._model, "transform"):
-            raise RuntimeError("This diffusion map implementation does not support transforming new samples")
-        return np.asarray(self._model.transform(X), dtype=np.float32)
-
-    def fit_transform(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> np.ndarray:
-        if hasattr(self._model, "fit_transform"):
-            return np.asarray(self._model.fit_transform(X), dtype=np.float32)
-        self.fit(X)
-        # If fit_transform not available, attempt eigenvectors on fitted model
-        if hasattr(self._model, "_evecs"):
-            Y = np.asarray(self._model._evecs[:, : self.n_components])
-            return Y.astype(np.float32)
-        # Fallback to transform itself
-        return self.transform(X)
-
-    def info(self) -> Dict[str, Any]:
-        return {
-            "method": self.name,
-            "n_components": int(self.n_components),
-            "alpha": float(self.alpha),
-            "epsilon": None if self.epsilon is None else float(self.epsilon),
-            "k": None if self.k is None else int(self.k),
-        }
-
 class IsomapReducer(_SkModelMixin, DimReducer):
     name = "isomap"
 
@@ -340,125 +287,6 @@ class TSNEReducer(DimReducer):
         }
 
 
-class DreamsCNEReducer(DimReducer):
-    name = "dreams_cne"
-
-    def __init__(
-        self,
-        n_components: int = 2,
-        # CNE graph / training params
-        k: int = 15,
-        negative_samples: int = 500,
-        n_epochs: int = 250,
-        batch_size: int = 4096,
-        learning_rate: float = 1e-3,
-        parametric: bool = True,
-        device: str = "auto",
-        # DREAMS regularizer params
-        regularizer: bool = True,
-        reg_lambda: float = 5e-4,
-        reg_scaling: str = "norm",
-        # Optional: explicit reg_embedding, else computed from PCA(X)
-        reg_embedding: Optional[np.ndarray] = None,
-        seed: int = 0,
-    ) -> None:
-        self._cne_module = _require_dependency(
-            "cne",
-            None,
-            "DREAMS-CNE not available; `pip install git+https://github.com/berenslab/DREAMS-CNE@tp` and its deps",
-        )
-        self.n_components = int(max(1, n_components))
-        self.k = int(max(1, k))
-        self.negative_samples = int(max(1, negative_samples))
-        self.n_epochs = int(max(1, n_epochs))
-        self.batch_size = int(max(32, batch_size))
-        self.learning_rate = float(learning_rate)
-        self.parametric = bool(parametric)
-        self.device = str(device)
-        self.regularizer = bool(regularizer)
-        self.reg_lambda = float(reg_lambda)
-        self.reg_scaling = str(reg_scaling)
-        self.reg_embedding = reg_embedding  # may be None; computed at fit
-        self.seed = int(seed)
-        self._model = None  # type: ignore
-
-    def supports_transform(self) -> bool:
-        # Only the parametric variant can transform new samples efficiently
-        return bool(self.parametric)
-
-    def fit(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> "DreamsCNEReducer":
-        X = np.asarray(X, dtype=np.float32)
-        # Compute default reg embedding if needed (PCA to target dims, scaled by std of first component)
-        reg_emb = self.reg_embedding
-        if self.regularizer and reg_emb is None:
-            try:
-                # Use PCA with n_components matching embedding size
-                from sklearn.decomposition import (
-                    PCA as _SKPCA_local,  # local import to avoid hard dep if unused
-                )
-                pca = _SKPCA_local(n_components=self.n_components)
-                reg_emb = pca.fit_transform(X)
-                if reg_emb.shape[1] >= 1:
-                    s = float(np.std(reg_emb[:, 0]))
-                    if s > 0:
-                        reg_emb = reg_emb / s
-            except Exception:
-                # Fallback: first n_components columns or zeros if insufficient dims
-                reg_emb = X[:, : self.n_components]
-        # Build CNE embedder
-        kwargs: Dict[str, Any] = dict(
-            negative_samples=self.negative_samples,
-            n_epochs=self.n_epochs,
-            batch_size=self.batch_size,
-            learning_rate=self.learning_rate,
-            device=self.device,
-            regularizer=self.regularizer,
-            reg_lambda=self.reg_lambda,
-            reg_scaling=self.reg_scaling,
-        )
-        if self.regularizer and reg_emb is not None:
-            kwargs["reg_embedding"] = np.asarray(reg_emb, dtype=np.float32)
-        self._embedder = self._cne_module.CNE(
-            k=self.k,
-            parametric=self.parametric,
-            decoder=False,
-            embd_dim=self.n_components,
-            seed=self.seed,
-            **kwargs,
-        )
-        # Fit model; we don't need graph override here
-        self._embedder.fit(X)
-        return self
-
-    def transform(self, X: np.ndarray) -> np.ndarray:
-        if not hasattr(self, "_embedder") or self._embedder is None:
-            raise RuntimeError("DREAMS-CNE reducer not fitted")
-        # Parametric transform returns new embeddings; non-param returns train embeddings only (we forbid by supports_transform)
-        emb = self._embedder.transform(np.asarray(X, dtype=np.float32))
-        # If decoder mode were used, transform may return tuple; we don’t use decoder here
-        if isinstance(emb, tuple):
-            emb = emb[0]
-        return np.asarray(emb, dtype=np.float32)
-
-    def fit_transform(self, X: np.ndarray, y: Optional[np.ndarray] = None) -> np.ndarray:
-        self.fit(X, y)
-        return self.transform(X)
-
-    def info(self) -> Dict[str, Any]:
-        return {
-            "method": self.name,
-            "n_components": int(self.n_components),
-            "k": int(self.k),
-            "negative_samples": int(self.negative_samples),
-            "n_epochs": int(self.n_epochs),
-            "batch_size": int(self.batch_size),
-            "learning_rate": float(self.learning_rate),
-            "parametric": bool(self.parametric),
-            "regularizer": bool(self.regularizer),
-            "reg_lambda": float(self.reg_lambda),
-            "reg_scaling": str(self.reg_scaling),
-        }
-
 def create_reducer(method: Optional[str], params: Optional[Dict[str, Any]] = None) -> Tuple[DimReducer, Dict[str, Any]]:
     """Factory: create a dimensionality reducer from a method string and params.
 
@@ -513,59 +341,6 @@ def create_reducer(method: Optional[str], params: Optional[Dict[str, Any]] = Non
         md = float(p.get("min_dist", 0.1))
         r = UMAPReducer(n_components=n, n_neighbors=k, min_dist=md)
         return r, r.info()
-    if m == "diffusion":
-        n = int(p.get("n_components", 2))
-        alpha = float(p.get("alpha", 0.5))
-        eps = p.get("epsilon", None)
-        eps = None if eps in (None, "none", "null", "") else float(eps)
-        k = p.get("k", None)
-        k = None if k in (None, "none", "null", "") else int(k)
-        r = DiffusionMapsReducer(n_components=n, alpha=alpha, epsilon=eps, k=k)
-        return r, r.info()
-    if m == "dreams_cne":
-        # Map common params with sane defaults
-        n = int(p.get("n_components", 2))
-        k = int(p.get("k", 15))
-        neg = int(p.get("negative_samples", 500))
-        epochs = int(p.get("n_epochs", 250))
-        bs = int(p.get("batch_size", 4096))
-        lr = float(p.get("learning_rate", 1e-3))
-        parametric = bool(p.get("parametric", True))
-        device = str(p.get("device", "auto"))
-        regularizer = bool(p.get("regularizer", True))
-        reg_lambda = float(p.get("reg_lambda", 5e-4))
-        reg_scaling = str(p.get("reg_scaling", "norm"))
-        r = DreamsCNEReducer(
-            n_components=n,
-            k=k,
-            negative_samples=neg,
-            n_epochs=epochs,
-            batch_size=bs,
-            learning_rate=lr,
-            parametric=parametric,
-            device=device,
-            regularizer=regularizer,
-            reg_lambda=reg_lambda,
-            reg_scaling=reg_scaling,
-        )
-        return r, r.info()
-    if m == "dreams_cne_fast":
-        # Tuned for speed on moderate index sizes
-        n = int(p.get("n_components", 2))
-        r = DreamsCNEReducer(
-            n_components=n,
-            k=int(p.get("k", 10)),
-            negative_samples=int(p.get("negative_samples", 200)),
-            n_epochs=int(p.get("n_epochs", 60)),
-            batch_size=int(p.get("batch_size", 1024)),
-            learning_rate=float(p.get("learning_rate", 5e-3)),
-            parametric=bool(p.get("parametric", True)),
-            device=str(p.get("device", "auto")),
-            regularizer=bool(p.get("regularizer", True)),
-            reg_lambda=float(p.get("reg_lambda", 5e-4)),
-            reg_scaling=str(p.get("reg_scaling", "norm")),
-        )
-        return r, r.info()
     if m == "tsne":
         n = int(p.get("n_components", 2))
         perplexity = float(p.get("perplexity", 30.0))
@@ -573,30 +348,13 @@ def create_reducer(method: Optional[str], params: Optional[Dict[str, Any]] = Non
         iters = int(p.get("n_iter", 1000))
         r = TSNEReducer(n_components=n, perplexity=perplexity, learning_rate=lr, n_iter=iters)
         return r, r.info()
-    if m == "lda":
-        # LDA is supervised and requires class labels (y) to fit;
-        # pattern_search does not provide labels, so we error out here with guidance.
-        _require_dependency(
-            "sklearn.discriminant_analysis",
-            "LinearDiscriminantAnalysis",
-            "scikit-learn not available; cannot use LDA",
-        )
-        raise RuntimeError("LDA is supervised and requires labels; not supported for unsupervised pattern search")
-    if m == "deep_diffusion_maps":
-        # Placeholder for research implementations
-        raise RuntimeError("Deep Diffusion Maps not available. Provide an implementation or plugin.")
-    if m == "dreams":
-        raise RuntimeError("DREAMS (Dimensionality Reduction Enhanced Across Multiple Scales) not available. Provide an implementation or plugin.")
-    if m == "pcc":
-        raise RuntimeError("PCC (Preserving Clusters and Correlations) not available. Provide an implementation or plugin.")
     raise ValueError(f"Unknown dimensionality reduction method: {method}")
 
 
 def list_dimred_methods() -> Dict[str, Dict[str, Any]]:
     """Return available dimension reduction methods and availability flags."""
     sklearn_available = _dependency_available("sklearn")
-    cne_available = _dependency_available("cne")
-    out: Dict[str, Dict[str, Any]] = {
+    return {
         "none": {"available": True, "description": "No reduction; pass-through."},
         "pca": {"available": sklearn_available, "description": "Principal Component Analysis (sklearn)."},
         "svd": {"available": sklearn_available, "description": "Truncated SVD (sklearn)."},
@@ -605,13 +363,5 @@ def list_dimred_methods() -> Dict[str, Dict[str, Any]]:
         "isomap": {"available": sklearn_available, "description": "Isomap manifold learning (sklearn)."},
         "laplacian": {"available": sklearn_available, "description": "Laplacian Eigenmaps / Spectral Embedding (sklearn)."},
         "umap": {"available": _dependency_available("umap"), "description": "UMAP dimensionality reduction (umap-learn)."},
-        "diffusion": {"available": _dependency_available("pydiffmap"), "description": "Diffusion Maps (pydiffmap)."},
         "tsne": {"available": sklearn_available, "description": "t-SNE (sklearn); no transform for new samples."},
-        "lda": {"available": sklearn_available, "description": "Linear Discriminant Analysis (supervised; requires labels)."},
-        "dreams_cne": {"available": cne_available, "description": "DREAMS-CNE (parametric supports transform; heavy Torch training)."},
-        "dreams_cne_fast": {"available": cne_available, "description": "DREAMS-CNE with faster defaults (smaller k/epochs/batch)."},
-        "deep_diffusion_maps": {"available": False, "description": "Deep Diffusion Maps (research; plugin required)."},
-        "dreams": {"available": False, "description": "DREAMS (Across Multiple Scales) (research; plugin required)."},
-        "pcc": {"available": False, "description": "Preserving Clusters and Correlations (research; plugin required)."},
     }
-    return out
