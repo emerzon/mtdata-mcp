@@ -414,7 +414,7 @@ class ForecastConformalIntervalsRequest(_PublicForecastRequest):
         return self
 
 
-class ForecastTuneGeneticRequest(_PublicForecastRequest):
+class _ForecastTuneRequestBase(_PublicForecastRequest):
     symbol: str
     timeframe: TimeframeLiteral = "H1"
     methods: List[str] = Field(
@@ -452,6 +452,42 @@ class ForecastTuneGeneticRequest(_PublicForecastRequest):
         "auto",
         description="Objective direction. auto uses the standard direction for the selected metric.",
     )
+    seed: int = 42
+    slippage_bps: float = Field(
+        0.0,
+        ge=0.0,
+        description="Execution slippage in basis points per side, deducted from every simulated trade.",
+    )
+    trade_threshold: float = Field(0.0, ge=0.0)
+    denoise: Optional[DenoiseSpec] = None
+    features: Optional[Dict[str, Any]] = None
+    dimred: Optional[DimensionalityReductionSpec] = None
+    detail: DetailLiteral = "compact"
+
+    @property
+    def method(self) -> Optional[str]:
+        return self.methods[0] if len(self.methods) == 1 else None
+
+    @field_validator("methods")
+    @classmethod
+    def _unique_methods(cls, value: List[str]) -> List[str]:
+        normalized = [str(item).strip() for item in value if str(item).strip()]
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("methods must contain unique method names")
+        return normalized
+
+    @model_validator(mode="after")
+    def _validate_time_window(self) -> "_ForecastTuneRequestBase":
+        validate_as_of_time_window(self.as_of, self.start, self.end)
+        _validate_backtest_spacing(
+            steps=self.steps,
+            spacing=self.spacing,
+            horizon=self.horizon,
+        )
+        return self
+
+
+class ForecastTuneGeneticRequest(_ForecastTuneRequestBase):
     population: int = Field(
         12,
         ge=2,
@@ -472,7 +508,6 @@ class ForecastTuneGeneticRequest(_PublicForecastRequest):
     )
     crossover_rate: float = Field(0.6, ge=0.0, le=1.0)
     mutation_rate: float = Field(0.3, ge=0.0, le=1.0)
-    seed: int = 42
     max_search_time_seconds: Optional[float] = Field(
         None,
         gt=0.0,
@@ -481,78 +516,9 @@ class ForecastTuneGeneticRequest(_PublicForecastRequest):
             "the best completed candidate with partial-search accounting."
         ),
     )
-    slippage_bps: float = Field(
-        0.0,
-        ge=0.0,
-        description="Execution slippage in basis points per side, deducted from every simulated trade.",
-    )
-    trade_threshold: float = Field(0.0, ge=0.0)
-    denoise: Optional[DenoiseSpec] = None
-    features: Optional[Dict[str, Any]] = None
-    dimred: Optional[DimensionalityReductionSpec] = None
-    detail: DetailLiteral = "compact"
-
-    @property
-    def method(self) -> Optional[str]:
-        return self.methods[0] if len(self.methods) == 1 else None
-
-    @field_validator("methods")
-    @classmethod
-    def _unique_methods(cls, value: List[str]) -> List[str]:
-        normalized = [str(item).strip() for item in value if str(item).strip()]
-        if len(normalized) != len(set(normalized)):
-            raise ValueError("methods must contain unique method names")
-        return normalized
-
-    @model_validator(mode="after")
-    def _validate_time_window(self) -> "ForecastTuneGeneticRequest":
-        validate_as_of_time_window(self.as_of, self.start, self.end)
-        _validate_backtest_spacing(
-            steps=self.steps,
-            spacing=self.spacing,
-            horizon=self.horizon,
-        )
-        return self
 
 
-class ForecastTuneOptunaRequest(_PublicForecastRequest):
-    symbol: str
-    timeframe: TimeframeLiteral = "H1"
-    methods: List[str] = Field(
-        default_factory=lambda: ["fourier_ols"],
-        min_length=1,
-        json_schema_extra={"uniqueItems": True},
-    )
-    horizon: int = Field(12, ge=1, le=MAX_FORECAST_HORIZON, description="Bars forecast after each tuning backtest anchor.")
-    as_of: Optional[str] = None
-    start: Optional[str] = None
-    end: Optional[str] = None
-    lookback: Optional[int] = Field(
-        None,
-        ge=1,
-        description=(
-            "Training bars available at each rolling-origin anchor. When set, "
-            "tuning uses a fixed window matching forecast_generate lookback. "
-            "When omitted, candidate backtests use the expanding ~400-bar default."
-        ),
-    )
-    steps: int = Field(5, ge=1, le=MAX_BACKTEST_STEPS, description="Number of rolling-origin backtest anchors per trial.")
-    spacing: int = Field(
-        20,
-        ge=1,
-        le=MAX_BACKTEST_SPACING,
-        description=(
-            "Bars between consecutive tuning backtest anchors. Must be at least "
-            "horizon when steps is greater than 1."
-        ),
-    )
-    quantity: Literal["price", "return", "volatility"] = "price"
-    search_space: Optional[Dict[str, Any]] = None
-    metric: TuningMetricLiteral = "avg_rmse"
-    mode: TuningModeLiteral = Field(
-        "auto",
-        description="Objective direction. auto uses the standard direction for the selected metric.",
-    )
+class ForecastTuneOptunaRequest(_ForecastTuneRequestBase):
     n_trials: int = Field(
         40,
         ge=1,
@@ -570,39 +536,6 @@ class ForecastTuneOptunaRequest(_PublicForecastRequest):
     sampler: Literal["tpe", "random", "cmaes"] = "tpe"
     study_name: Optional[str] = None
     storage: Optional[str] = None
-    seed: int = 42
-    slippage_bps: float = Field(
-        0.0,
-        ge=0.0,
-        description="Execution slippage in basis points per side, deducted from every simulated trade.",
-    )
-    trade_threshold: float = Field(0.0, ge=0.0)
-    denoise: Optional[DenoiseSpec] = None
-    features: Optional[Dict[str, Any]] = None
-    dimred: Optional[DimensionalityReductionSpec] = None
-    detail: DetailLiteral = "compact"
-
-    @property
-    def method(self) -> Optional[str]:
-        return self.methods[0] if len(self.methods) == 1 else None
-
-    @field_validator("methods")
-    @classmethod
-    def _unique_methods(cls, value: List[str]) -> List[str]:
-        normalized = [str(item).strip() for item in value if str(item).strip()]
-        if len(normalized) != len(set(normalized)):
-            raise ValueError("methods must contain unique method names")
-        return normalized
-
-    @model_validator(mode="after")
-    def _validate_time_window(self) -> "ForecastTuneOptunaRequest":
-        validate_as_of_time_window(self.as_of, self.start, self.end)
-        _validate_backtest_spacing(
-            steps=self.steps,
-            spacing=self.spacing,
-            horizon=self.horizon,
-        )
-        return self
 
 
 class ForecastBarrierProbRequest(_PublicForecastRequest):
