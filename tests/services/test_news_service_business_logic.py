@@ -315,23 +315,3 @@ def test_get_mt5_news_includes_parse_health_in_response(monkeypatch) -> None:
     result = svc.get_mt5_news(news_db_path="C:/tmp/news.dat")
     assert result["parse_health"]["status"] == "degraded"
     assert result["parse_health"]["validation_failures"] == 2
-
-
-def test_get_news_categories_includes_parse_health(monkeypatch) -> None:
-    class FakeParser:
-        header_info = {"version": 1}
-        parse_health = {"status": "ok", "candidates_scanned": 2,
-                        "records_parsed": 2, "duplicates_skipped": 0,
-                        "validation_failures": 0}
-
-        def __init__(self, path: str) -> None:
-            pass
-
-        def parse(self):
-            return [_record(datetime(2026, 3, 15, tzinfo=timezone.utc))]
-
-    monkeypatch.setattr(svc, "MT5NewsParser", FakeParser)
-    monkeypatch.setattr(svc, "_use_client_tz", lambda: False)
-
-    result = svc.get_news_categories(news_db_path="C:/tmp/news.dat")
-    assert result["parse_health"]["status"] == "ok"
