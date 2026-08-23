@@ -204,9 +204,6 @@ class NewsEmbeddingService:
     def _get_query_embedding(self, text: str) -> Optional[tuple[float, ...]]:
         return self._cache_or_compute(self._query_cache, text, mode="query")
 
-    def _get_document_embedding(self, text: str) -> Optional[tuple[float, ...]]:
-        return self._cache_or_compute(self._document_cache, text, mode="document")
-
     def _get_document_embeddings(
         self,
         texts: Iterable[str],
