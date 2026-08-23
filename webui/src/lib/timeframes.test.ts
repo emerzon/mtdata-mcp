@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { chartWorkspaceLivePollMs, tfSeconds } from './timeframes'
+import { afterEach, describe, expect, it } from 'vitest'
+import { chartWorkspaceLivePollMs, setTimeframeSeconds, tfSeconds } from './timeframes'
 
 describe('tfSeconds', () => {
   it('maps known timeframes and normalizes case', () => {
@@ -11,6 +11,17 @@ describe('tfSeconds', () => {
   it('falls back to H1 seconds for unknown frames', () => {
     expect(tfSeconds('UNKNOWN')).toBe(3600)
   })
+
+  it('prefers live catalog seconds when set', () => {
+    setTimeframeSeconds({ m5: 301 })
+    expect(tfSeconds('M5')).toBe(301)
+    setTimeframeSeconds(null)
+    expect(tfSeconds('M5')).toBe(300)
+  })
+})
+
+afterEach(() => {
+  setTimeframeSeconds(null)
 })
 
 describe('chartWorkspaceLivePollMs', () => {

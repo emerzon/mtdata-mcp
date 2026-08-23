@@ -1,4 +1,4 @@
-const TIMEFRAME_SECONDS: Record<string, number> = {
+const FALLBACK_TIMEFRAME_SECONDS: Record<string, number> = {
   M1: 60,
   M2: 120,
   M3: 180,
@@ -22,16 +22,33 @@ const TIMEFRAME_SECONDS: Record<string, number> = {
   MN1: 2592000,
 }
 
+let liveTimeframeSeconds: Record<string, number> | null = null
+
 function normalizeTimeframe(tf: string): string {
   return tf?.trim().toUpperCase() ?? ''
 }
 
+export function setTimeframeSeconds(seconds: Record<string, number> | null | undefined): void {
+  if (!seconds || Object.keys(seconds).length === 0) {
+    liveTimeframeSeconds = null
+    return
+  }
+  liveTimeframeSeconds = Object.fromEntries(
+    Object.entries(seconds).map(([name, value]) => [normalizeTimeframe(name), Number(value)]),
+  )
+}
+
+function secondsFor(tf: string): number | undefined {
+  const key = normalizeTimeframe(tf)
+  return liveTimeframeSeconds?.[key] ?? FALLBACK_TIMEFRAME_SECONDS[key]
+}
+
 export function tfSeconds(tf: string): number {
-  return TIMEFRAME_SECONDS[normalizeTimeframe(tf)] ?? 3600
+  return secondsFor(tf) ?? 3600
 }
 
 export function chartWorkspaceLivePollMs(tf: string): number {
-  const seconds = TIMEFRAME_SECONDS[normalizeTimeframe(tf)]
+  const seconds = secondsFor(tf)
   if (seconds === undefined) return 2000
   if (seconds <= 15 * 60) return 2000
   if (seconds <= 60 * 60) return 5000

@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { setTimeframeSeconds } from '../lib/timeframes'
 import type {
   HistoryBar,
   HistoryResponse,
@@ -100,7 +101,11 @@ function extractErrorText(value: unknown): string | null {
 // ============================================================================
 
 export async function getTimeframes(): Promise<string[]> {
-  const { data } = await api.get<{ timeframes: string[] }>(apiPath('/timeframes'))
+  const { data } = await api.get<{
+    timeframes: string[]
+    seconds?: Record<string, number>
+  }>(apiPath('/timeframes'))
+  setTimeframeSeconds(data.seconds)
   return data.timeframes ?? []
 }
 

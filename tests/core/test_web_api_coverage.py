@@ -353,6 +353,8 @@ class TestGetTimeframes:
         assert "H1" in res["timeframes"]
         assert "D1" in res["timeframes"]
         assert "M1" in res["timeframes"]
+        assert res["seconds"]["H1"] == 3600
+        assert res["seconds"]["M1"] == 60
 
 
 # ===========================================================================

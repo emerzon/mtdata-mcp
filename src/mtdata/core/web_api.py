@@ -23,7 +23,7 @@ from ..forecast.volatility import (
     get_volatility_methods_data as _get_vol_methods,
 )
 from ..services.data_service import fetch_candles as _fetch_candles_impl
-from ..shared.constants import TIMEFRAME_MAP
+from ..shared.constants import TIMEFRAME_MAP, TIMEFRAME_SECONDS
 from ..shared.schema import DetailLiteral
 from ..utils.denoise import get_denoise_methods_data as _get_denoise_methods
 from ..utils.denoise import normalize_denoise_spec as _norm_dn
@@ -304,7 +304,10 @@ def _readiness_payload() -> tuple[Dict[str, Any], int]:
 
 @api_router.get("/timeframes")
 def get_timeframes() -> Dict[str, Any]:
-    return {"timeframes": list(TIMEFRAME_MAP)}
+    return {
+        "timeframes": list(TIMEFRAME_MAP),
+        "seconds": dict(TIMEFRAME_SECONDS),
+    }
 
 
 @api_router.get("/instruments")
