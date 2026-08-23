@@ -32,30 +32,19 @@ import type {
 import type { PivotMethod, SrQueryParams } from '../lib/overlayParams'
 import type { ToolCatalogEntry } from '../lib/toolCatalog'
 
-// Use environment variable or default to empty (same origin)
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const baseURL = (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_API_BASE) || ''
-const API_PREFIX = '/api/v1'
+const apiOrigin = String(import.meta.env.VITE_API_BASE ?? '').replace(/\/$/, '')
 
-export const api = axios.create({ baseURL })
-
-let apiToken = ''
-
-export function setApiToken(token: string): void {
-  apiToken = token.trim()
-}
-
-api.interceptors.request.use((config) => {
-  if (apiToken) {
-    config.headers.set('Authorization', `Bearer ${apiToken}`)
-  } else {
-    config.headers.delete('Authorization')
-  }
-  return config
+export const api = axios.create({
+  baseURL: `${apiOrigin}/api/v1`,
 })
 
-function apiPath(path: string): string {
-  return `${API_PREFIX}${path}`
+export function setApiToken(token: string): void {
+  const value = token.trim()
+  if (value) {
+    api.defaults.headers.common.Authorization = `Bearer ${value}`
+  } else {
+    delete api.defaults.headers.common.Authorization
+  }
 }
 
 /**
@@ -104,13 +93,13 @@ export async function getTimeframes(): Promise<string[]> {
   const { data } = await api.get<{
     timeframes: string[]
     seconds?: Record<string, number>
-  }>(apiPath('/timeframes'))
+  }>('timeframes')
   setTimeframeSeconds(data.seconds)
   return data.timeframes ?? []
 }
 
 export async function searchInstruments(search?: string, limit?: number, signal?: AbortSignal): Promise<Instrument[]> {
-  const { data } = await api.get<{ items: Instrument[] }>(apiPath('/instruments'), {
+  const { data } = await api.get<{ items: Instrument[] }>('instruments', {
     params: { search, limit },
     signal,
   })
@@ -164,7 +153,7 @@ export async function getHistory(params: HistoryParams, signal?: AbortSignal): P
     }
   }
 
-  const { data } = await api.get<HistoryResponse>(apiPath('/history'), { params: query, signal })
+  const { data } = await api.get<HistoryResponse>('history', { params: query, signal })
   return {
     ...data,
     data: data.data ?? [],
@@ -172,7 +161,7 @@ export async function getHistory(params: HistoryParams, signal?: AbortSignal): P
 }
 
 export async function getTick(symbol: string, signal?: AbortSignal): Promise<Tick> {
-  const { data } = await api.get<Tick>(apiPath('/tick'), { params: { symbol }, signal })
+  const { data } = await api.get<Tick>('tick', { params: { symbol }, signal })
   return data
 }
 
@@ -181,37 +170,37 @@ export async function getTick(symbol: string, signal?: AbortSignal): Promise<Tic
 // ============================================================================
 
 export async function getMethods(): Promise<MethodsMeta> {
-  const { data } = await api.get<MethodsMeta>(apiPath('/methods'))
+  const { data } = await api.get<MethodsMeta>('methods')
   return data
 }
 
 export async function getVolatilityMethods(): Promise<VolatilityMethodsMeta> {
-  const { data } = await api.get<VolatilityMethodsMeta>(apiPath('/volatility/methods'))
+  const { data } = await api.get<VolatilityMethodsMeta>('volatility/methods')
   return data
 }
 
 export async function getDenoiseMethods(): Promise<DenoiseMethodsMeta> {
-  const { data } = await api.get<DenoiseMethodsMeta>(apiPath('/denoise/methods'))
+  const { data } = await api.get<DenoiseMethodsMeta>('denoise/methods')
   return data
 }
 
 export async function getDimredMethods(): Promise<DimredMethodsMeta> {
-  const { data } = await api.get<DimredMethodsMeta>(apiPath('/dimred/methods'))
+  const { data } = await api.get<DimredMethodsMeta>('dimred/methods')
   return data
 }
 
 export async function getWavelets(): Promise<WaveletsResponse> {
-  const { data } = await api.get<WaveletsResponse>(apiPath('/denoise/wavelets'))
+  const { data } = await api.get<WaveletsResponse>('denoise/wavelets')
   return data
 }
 
 export async function getSktimeEstimators(): Promise<SktimeEstimatorsResponse> {
-  const { data } = await api.get<SktimeEstimatorsResponse>(apiPath('/sktime/estimators'))
+  const { data } = await api.get<SktimeEstimatorsResponse>('sktime/estimators')
   return data
 }
 
 export async function getModels(method?: string, signal?: AbortSignal): Promise<ModelsResponse> {
-  const { data } = await api.get<ModelsResponse>(apiPath('/models'), {
+  const { data } = await api.get<ModelsResponse>('models', {
     params: method ? { method } : undefined,
     signal,
   })
@@ -227,17 +216,17 @@ export async function getModels(method?: string, signal?: AbortSignal): Promise<
 // ============================================================================
 
 export async function forecastPrice(body: ForecastPriceBody): Promise<ForecastPayload> {
-  const { data } = await api.post<ForecastPayload>(apiPath('/forecast/price'), body)
+  const { data } = await api.post<ForecastPayload>('forecast/price', body)
   return data
 }
 
 export async function forecastVolatility(body: ForecastVolBody): Promise<VolatilityPayload> {
-  const { data } = await api.post<VolatilityPayload>(apiPath('/forecast/volatility'), body)
+  const { data } = await api.post<VolatilityPayload>('forecast/volatility', body)
   return data
 }
 
 export async function runBacktest(body: BacktestBody): Promise<BacktestResult> {
-  const { data } = await api.post<BacktestResult>(apiPath('/backtest'), body)
+  const { data } = await api.post<BacktestResult>('backtest', body)
   return data
 }
 
@@ -252,7 +241,7 @@ export type PivotParams = {
 }
 
 export async function getPivots(params: PivotParams): Promise<PivotResponse> {
-  const { data } = await api.get<PivotResponse>(apiPath('/pivots'), { params })
+  const { data } = await api.get<PivotResponse>('pivots', { params })
   return data
 }
 
@@ -268,7 +257,7 @@ export type SupportResistanceParams = Pick<SrQueryParams, 'symbol'> &
 export async function getSupportResistance(
   params: SupportResistanceParams
 ): Promise<SupportResistanceResponse> {
-  const { data } = await api.get<SupportResistanceResponse>(apiPath('/support-resistance'), { params })
+  const { data } = await api.get<SupportResistanceResponse>('support-resistance', { params })
   return data
 }
 
@@ -277,7 +266,7 @@ export async function getConfluence(params: {
   pivot_timeframe?: string
   sr_timeframe?: string
 }): Promise<ConfluenceResponse> {
-  const { data } = await api.get<ConfluenceResponse>(apiPath('/confluence'), { params })
+  const { data } = await api.get<ConfluenceResponse>('confluence', { params })
   return data
 }
 
@@ -285,12 +274,12 @@ export async function getVolumeProfile(params: {
   symbol: string
   timeframe?: string
 }): Promise<VolumeProfileResponse> {
-  const { data } = await api.get<VolumeProfileResponse>(apiPath('/volume-profile'), { params })
+  const { data } = await api.get<VolumeProfileResponse>('volume-profile', { params })
   return data
 }
 
 export async function getExposure(symbol: string): Promise<ExposureResponse> {
-  const { data } = await api.get<ExposureResponse>(apiPath('/exposure'), { params: { symbol } })
+  const { data } = await api.get<ExposureResponse>('exposure', { params: { symbol } })
   return data
 }
 
@@ -300,7 +289,7 @@ export async function getRadar(params: {
   rank_by?: string
   limit?: number
 }): Promise<RadarResponse> {
-  const { data } = await api.get<RadarResponse>(apiPath('/radar'), { params })
+  const { data } = await api.get<RadarResponse>('radar', { params })
   return {
     ...data,
     rows: Array.isArray(data?.rows) ? data.rows : [],
@@ -308,7 +297,7 @@ export async function getRadar(params: {
 }
 
 export async function getSessionStrip(symbol?: string): Promise<SessionStripResponse> {
-  const { data } = await api.get<SessionStripResponse>(apiPath('/session-strip'), {
+  const { data } = await api.get<SessionStripResponse>('session-strip', {
     params: symbol ? { symbol } : undefined,
   })
   return data
@@ -324,7 +313,7 @@ export async function composeTradeIdea(body: {
   as_of?: string
   detail?: string
 }): Promise<TradeIdeaPayload> {
-  const { data } = await api.post<TradeIdeaPayload>(apiPath('/trade-ideas'), body)
+  const { data } = await api.post<TradeIdeaPayload>('trade-ideas', body)
   return data
 }
 
@@ -333,7 +322,7 @@ export async function composeTradeIdea(body: {
 // ============================================================================
 
 export async function healthCheck(signal?: AbortSignal): Promise<{ service: string; status: string }> {
-  const { data } = await api.get<{ service: string; status: string }>(apiPath('/health'), { signal })
+  const { data } = await api.get<{ service: string; status: string }>('health', { signal })
   return data
 }
 
@@ -342,7 +331,7 @@ export async function healthCheck(signal?: AbortSignal): Promise<{ service: stri
  * can show a non-blocking "not ready" state without treating it as a hard crash.
  */
 export async function readyCheck(signal?: AbortSignal): Promise<{ ok: boolean; payload: ReadyResponse }> {
-  const { data, status } = await api.get<ReadyResponse>(apiPath('/ready'), {
+  const { data, status } = await api.get<ReadyResponse>('ready', {
     signal,
     validateStatus: () => true,
   })
@@ -379,7 +368,7 @@ export async function listTools(
   params?: { category?: string; search?: string; include_fields?: boolean },
   signal?: AbortSignal
 ): Promise<ToolsListResponse> {
-  const { data } = await api.get<ToolsListResponse>(apiPath('/tools'), {
+  const { data } = await api.get<ToolsListResponse>('tools', {
     params: {
       detail: 'standard',
       category: params?.category || undefined,
@@ -396,7 +385,7 @@ export async function listTools(
 }
 
 export async function getTool(toolName: string, signal?: AbortSignal): Promise<ToolDetailResponse> {
-  const { data } = await api.get<ToolDetailResponse>(apiPath(`/tools/${encodeURIComponent(toolName)}`), {
+  const { data } = await api.get<ToolDetailResponse>(`tools/${encodeURIComponent(toolName)}`, {
     signal,
   })
   return {
@@ -410,7 +399,7 @@ export async function invokeTool(
   body: { arguments?: Record<string, unknown>; confirm?: boolean }
 ): Promise<ToolInvokeResponse> {
   const { data } = await api.post<ToolInvokeResponse>(
-    apiPath(`/tools/${encodeURIComponent(toolName)}/invoke`),
+    `tools/${encodeURIComponent(toolName)}/invoke`,
     {
       arguments: body.arguments ?? {},
       confirm: Boolean(body.confirm),

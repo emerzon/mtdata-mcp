@@ -22,13 +22,13 @@ describe('getModels / readyCheck client surface', () => {
     vi.resetModules()
   })
 
-  it('getModels normalizes missing models array and calls /api/v1/models', async () => {
+  it('getModels normalizes missing models array and calls models', async () => {
     getMock.mockResolvedValueOnce({ data: { success: true } })
     const { getModels } = await import('./client')
     const result = await getModels('theta')
     expect(getMock).toHaveBeenCalled()
     const [path, config] = getMock.mock.calls[0]
-    expect(String(path)).toContain('/api/v1/models')
+    expect(String(path)).toBe('models')
     expect(config?.params).toEqual({ method: 'theta' })
     expect(result.models).toEqual([])
     expect(result.count).toBe(0)

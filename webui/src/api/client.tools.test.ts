@@ -24,11 +24,11 @@ describe('tools client adapters', () => {
     vi.resetModules()
   })
 
-  it('listTools normalizes missing tools array and hits /api/v1/tools', async () => {
+  it('listTools normalizes missing tools array and hits tools', async () => {
     getMock.mockResolvedValueOnce({ data: { success: true } })
     const { listTools } = await import('./client')
     const result = await listTools({ search: 'regime' })
-    expect(String(getMock.mock.calls[0][0])).toContain('/api/v1/tools')
+    expect(String(getMock.mock.calls[0][0])).toBe('tools')
     expect(getMock.mock.calls[0][1]?.params?.search).toBe('regime')
     expect(result.tools).toEqual([])
     expect(result.count).toBe(0)
@@ -43,7 +43,7 @@ describe('tools client adapters', () => {
       arguments: { limit: 1 },
       confirm: false,
     })
-    expect(String(postMock.mock.calls[0][0])).toContain('/api/v1/tools/tools_list/invoke')
+    expect(String(postMock.mock.calls[0][0])).toBe('tools/tools_list/invoke')
     expect(postMock.mock.calls[0][1]).toEqual({
       arguments: { limit: 1 },
       confirm: false,
