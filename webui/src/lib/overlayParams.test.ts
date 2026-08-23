@@ -51,7 +51,7 @@ describe('SR controls', () => {
         lookback: 500,
         min_touches: 3,
         max_levels: 6,
-        tolerance_pct: 0.002,
+        tolerance_pct: 0.25,
       })
     ).toEqual({
       symbol: 'XAUUSD',
@@ -59,7 +59,7 @@ describe('SR controls', () => {
       lookback: 500,
       min_touches: 3,
       max_levels: 6,
-      tolerance_pct: 0.002,
+      tolerance_pct: 0.25,
     })
   })
 })

@@ -177,11 +177,11 @@ export function OverlayControls({
                   max={5}
                   step={0.01}
                   className="mt-0.5 w-full bg-slate-800 text-slate-200 text-xs rounded px-2 py-1.5 border border-slate-700"
-                  value={Number((srControls.tolerance_pct * 100).toFixed(3))}
+                  value={srControls.tolerance_pct}
                   disabled={disabled}
                   onChange={(event) =>
                     void onSrControlsChange({
-                      tolerance_pct: Number(event.target.value) / 100,
+                      tolerance_pct: Number(event.target.value),
                     })
                   }
                 />

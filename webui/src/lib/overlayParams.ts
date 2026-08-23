@@ -11,7 +11,7 @@ export type SupportResistanceControls = {
   lookback: number
   min_touches: number
   max_levels: number
-  /** Fraction, e.g. 0.0015 = 0.15% */
+  /** Percentage points, e.g. 0.15 = 0.15% */
   tolerance_pct: number
 }
 
@@ -19,7 +19,7 @@ export const DEFAULT_SR_CONTROLS: SupportResistanceControls = {
   lookback: 200,
   min_touches: 2,
   max_levels: 4,
-  tolerance_pct: 0.0015,
+  tolerance_pct: 0.15,
 }
 
 /** API allows lookback ge=100, le=20000 when provided. */
@@ -40,7 +40,7 @@ export function clampMaxLevels(value: number): number {
 
 export function clampTolerancePct(value: number): number {
   if (!Number.isFinite(value)) return DEFAULT_SR_CONTROLS.tolerance_pct
-  return Math.min(0.05, Math.max(0, value))
+  return Math.min(5, Math.max(0, value))
 }
 
 export function normalizePivotMethod(value: string | undefined | null): PivotMethod {
