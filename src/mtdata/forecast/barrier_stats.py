@@ -83,30 +83,6 @@ def _confidence_interval_wilson_proportion(
     return float(lo), float(hi)
 
 
-def confidence_interval_wilson(
-    successes: int,
-    n_trials: int,
-    confidence: float = 0.95,
-) -> Tuple[float, float]:
-    """Wilson score interval for binomial proportion.
-    
-    Better than normal approximation for small n or extreme probabilities.
-    
-    Args:
-        successes: Number of successes
-        n_trials: Total number of trials
-        confidence: Confidence level (default 0.95)
-        
-    Returns:
-        (lower_bound, upper_bound) tuple
-    """
-    if n_trials <= 0:
-        return float("nan"), float("nan")
-
-    p_hat = float(np.clip(successes / n_trials, 0.0, 1.0))
-    return _confidence_interval_wilson_proportion(p_hat, n_trials, confidence=confidence)
-
-
 def mc_convergence_diagnostic(
     cumulative_successes: np.ndarray,
     cumulative_trials: np.ndarray,

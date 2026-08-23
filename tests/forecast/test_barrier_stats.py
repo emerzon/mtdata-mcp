@@ -16,7 +16,6 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../s
 from mtdata.forecast.barrier_stats import (
     _confidence_interval_wilson_proportion,
     bootstrap_metric_uncertainty,
-    confidence_interval_wilson,
     cross_seed_stability,
     mc_convergence_diagnostic,
     minimum_simulations_for_ci_width,
@@ -78,24 +77,6 @@ class TestBarrierStats(unittest.TestCase):
             conservative=False,
         )
         self.assertGreater(n_conservative, n_non_conservative)
-    
-    def test_confidence_interval_wilson_basic(self):
-        """Test Wilson interval with known values."""
-        lo, hi = confidence_interval_wilson(successes=50, n_trials=100)
-        self.assertLess(lo, 0.5)
-        self.assertGreater(hi, 0.5)
-        self.assertGreater(lo, 0.0)
-        self.assertLess(hi, 1.0)
-    
-    def test_confidence_interval_wilson_extreme_cases(self):
-        """Test Wilson interval with 0 and 100% success rates."""
-        lo_zero, hi_zero = confidence_interval_wilson(successes=0, n_trials=10)
-        self.assertEqual(lo_zero, 0.0)
-        self.assertGreater(hi_zero, 0.0)
-        
-        lo_full, hi_full = confidence_interval_wilson(successes=10, n_trials=10)
-        self.assertLess(lo_full, 1.0)
-        self.assertAlmostEqual(hi_full, 1.0, places=12)
 
     def test_binomial_wilson_95_matches_shared_proportion_helper(self):
         lo, hi = _binomial_wilson_95(0.37, 200)
