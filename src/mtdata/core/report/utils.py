@@ -17,13 +17,6 @@ from ...utils.time import format_datetime_utc
 from ...utils.utils import _parse_end_datetime
 from ..tool_calling import call_tool_sync_structured
 from .shared import (
-    _as_float,
-    _format_decimal,
-    _format_probability,
-    _format_series_preview,
-    _format_signed,
-    _format_state_shares,
-    _format_table,
     _get_indicator_value,
     _indicator_key_variants,
     format_number,

@@ -12,13 +12,7 @@ from unittest.mock import patch
 import pytest
 
 from mtdata.core.report.utils import (
-    _as_float,
     _extract_base_timeframe,
-    _format_decimal,
-    _format_probability,
-    _format_series_preview,
-    _format_signed,
-    _format_state_shares,
     _get_indicator_value,
     _indicator_key_variants,
     apply_market_gates,
@@ -336,76 +330,6 @@ class TestGetIndicatorValue:
 
     def test_empty_base_key(self):
         assert _get_indicator_value({"a": 1}, "") is None
-
-
-# ---------------------------------------------------------------------------
-# 5. _format_series_preview
-# ---------------------------------------------------------------------------
-class TestFormatSeriesPreview:
-    def test_empty_list(self):
-        assert _format_series_preview([]) == "n=0 []"
-
-    def test_not_list(self):
-        assert _format_series_preview("string") is None
-        assert _format_series_preview(None) is None
-
-    def test_all_numeric(self):
-        result = _format_series_preview([1.0, 2.0, 3.0])
-        assert "n=3" in result
-        assert "start=" in result
-        assert "end=" in result
-        assert "min=" in result
-        assert "max=" in result
-
-    def test_non_numeric_items(self):
-        result = _format_series_preview(["a", "b", "c"])
-        assert "n=3" in result
-        assert "[" in result
-
-    def test_mixed_with_nan_falls_to_string(self):
-        result = _format_series_preview([1.0, float("nan"), 3.0])
-        assert result is not None
-        # nan breaks numeric path, falls to string-style
-        assert "n=3" in result
-
-    def test_long_list_ellipsis(self):
-        result = _format_series_preview(["a"] * 10, head=3, tail=3)
-        assert "..." in result
-
-    def test_short_list_no_ellipsis(self):
-        result = _format_series_preview(["x", "y"], head=3, tail=3)
-        assert "..." not in result
-
-    def test_custom_decimals(self):
-        result = _format_series_preview([1.123456789], decimals=2)
-        assert "n=1" in result
-
-
-# ---------------------------------------------------------------------------
-# 6. _format_state_shares
-# ---------------------------------------------------------------------------
-class TestFormatStateShares:
-    def test_basic(self):
-        result = _format_state_shares({"0": 0.5, "1": 0.5})
-        assert "0:50.0%" in result
-        assert "1:50.0%" in result
-
-    def test_sorted_numeric_keys(self):
-        result = _format_state_shares({"2": 0.3, "1": 0.7})
-        assert result.index("1:") < result.index("2:")
-
-    def test_empty_dict(self):
-        assert _format_state_shares({}) is None
-
-    def test_none_input(self):
-        assert _format_state_shares(None) is None
-
-    def test_non_dict(self):
-        assert _format_state_shares("nope") is None
-
-    def test_non_numeric_value(self):
-        result = _format_state_shares({"a": "bad"})
-        assert "a:bad" in result
 
 
 # ---------------------------------------------------------------------------
@@ -816,85 +740,6 @@ class TestFormatNumber:
 
     def test_float(self):
         assert "3.14" in format_number(3.14)
-
-
-# ---------------------------------------------------------------------------
-# 18. _format_signed
-# ---------------------------------------------------------------------------
-class TestFormatSigned:
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [
-            (1.5, "+1.5"),
-            (-0.5, "-0.5"),
-            (0.0, "+0.0"),
-            (None, "n/a"),
-        ],
-    )
-    def test_signed_matrix(self, value, expected):
-        assert _format_signed(value) == expected
-
-
-# ---------------------------------------------------------------------------
-# 19. _format_decimal
-# ---------------------------------------------------------------------------
-class TestFormatDecimal:
-    def test_basic(self):
-        result = _format_decimal(1.23456, 2)
-        assert result is not None
-        assert "1.23" in result
-
-    @pytest.mark.parametrize("value", [None, "abc", float("inf"), float("nan")])
-    def test_invalid_inputs_return_none(self, value):
-        assert _format_decimal(value) is None
-
-    def test_zero_decimals(self):
-        result = _format_decimal(3.7, 0)
-        assert result is not None
-
-
-# ---------------------------------------------------------------------------
-# 20. _format_probability
-# ---------------------------------------------------------------------------
-class TestFormatProbability:
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [
-            (0.5, "50.0%"),
-            (1.0, "100.0%"),
-            (0.0, "0.0%"),
-            (None, "n/a"),
-            ("bad", "n/a"),
-            (float("inf"), "n/a"),
-        ],
-    )
-    def test_probability_matrix(self, value, expected):
-        assert _format_probability(value) == expected
-
-
-# ---------------------------------------------------------------------------
-# 21. _as_float
-# ---------------------------------------------------------------------------
-class TestAsFloat:
-    @pytest.mark.parametrize(
-        ("value", "expected"),
-        [
-            (42, 42.0),
-            (3.14, 3.14),
-            ("2.5", 2.5),
-            (None, None),
-            ("abc", None),
-            (float("inf"), None),
-            (float("-inf"), None),
-            (True, 1.0),
-            (False, 0.0),
-        ],
-    )
-    def test_as_float_matrix(self, value, expected):
-        assert _as_float(value) == expected
-
-    def test_nan(self):
-        assert _as_float(float("nan")) is None
 
 
 class TestAttachMultiTimeframes:
