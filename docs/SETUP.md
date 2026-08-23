@@ -520,3 +520,6 @@ Once candles list and a simple forecast run:
 5. [LIMITATIONS.md](LIMITATIONS.md) — Caveats before deep integrations
 
 Also useful later: [FINVIZ.md](FINVIZ.md) (company, screens, calendars) · [TEMPORAL.md](TEMPORAL.md) · [FORECAST.md](FORECAST.md)
+
+Publishing the PyPI package and Official MCP Registry listing is a
+Contributor task: [PUBLISHING.md](PUBLISHING.md).
