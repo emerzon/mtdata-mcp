@@ -3,7 +3,6 @@ from __future__ import annotations
 import pytest
 
 from mtdata.core.asset_performance import asset_performance
-from mtdata.services.research.registry import reset_research_registry
 
 
 def _unwrap(fn):
@@ -17,7 +16,6 @@ def test_asset_performance_forex_stamps_research_quote_role(monkeypatch) -> None
         "mtdata.core.finviz.finviz_forex",
         lambda **kwargs: {"success": True, "pairs": [{"symbol": "EURUSD"}]},
     )
-    reset_research_registry()
 
     result = _unwrap(asset_performance)(universe="forex")
 
@@ -28,7 +26,6 @@ def test_asset_performance_forex_stamps_research_quote_role(monkeypatch) -> None
 
 
 def test_asset_performance_rejects_inapplicable_universe_selectors(monkeypatch) -> None:
-    reset_research_registry()
     monkeypatch.setattr(
         "mtdata.core.finviz.finviz_crypto",
         lambda **_kwargs: pytest.fail("crypto must not fetch with a forex symbol"),
@@ -42,7 +39,6 @@ def test_asset_performance_rejects_inapplicable_universe_selectors(monkeypatch) 
 
 
 def test_asset_performance_rejects_insider_offset(monkeypatch) -> None:
-    reset_research_registry()
     monkeypatch.setattr(
         "mtdata.core.finviz.finviz_insider_activity",
         lambda **_kwargs: pytest.fail("insider must not fetch with offset"),

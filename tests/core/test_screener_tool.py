@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from mtdata.core.screener import screener
-from mtdata.services.research.registry import reset_research_registry
 
 
 def _unwrap(fn):
@@ -15,7 +14,6 @@ def test_screener_list_filters_uses_finviz_catalog(monkeypatch) -> None:
         "mtdata.core.finviz.finviz_filters_list",
         lambda **kwargs: {"success": True, "items": [{"filter": "Exchange"}]},
     )
-    reset_research_registry()
 
     result = _unwrap(screener)(list_filters=True)
 

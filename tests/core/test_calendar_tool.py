@@ -4,7 +4,6 @@ import pytest
 
 from mtdata.core.calendar import calendar
 from mtdata.services.research.capabilities import CALENDAR
-from mtdata.services.research.registry import reset_research_registry
 
 
 def _unwrap(fn):
@@ -24,7 +23,6 @@ def test_calendar_range_uses_finviz_adapter(monkeypatch) -> None:
         "mtdata.core.finviz.run_finviz_calendar",
         _fake_run_finviz_calendar,
     )
-    reset_research_registry()
 
     result = _unwrap(calendar)(kind="economic", impact="high", currency="USD")
 
@@ -37,8 +35,6 @@ def test_calendar_range_uses_finviz_adapter(monkeypatch) -> None:
 
 
 def test_calendar_period_view_requires_earnings() -> None:
-    reset_research_registry()
-
     result = _unwrap(calendar)(kind="economic", view="period")
 
     assert result["success"] is False
@@ -55,7 +51,6 @@ def test_calendar_mt5_pin_is_capability_unsupported() -> None:
 
 
 def test_calendar_period_view_rejects_range_controls(monkeypatch) -> None:
-    reset_research_registry()
     monkeypatch.setattr(
         "mtdata.core.finviz.finviz_earnings",
         lambda **_kwargs: pytest.fail("period view must not fetch with range controls"),
@@ -76,7 +71,6 @@ def test_calendar_period_view_rejects_range_controls(monkeypatch) -> None:
 
 
 def test_calendar_range_view_rejects_period_controls(monkeypatch) -> None:
-    reset_research_registry()
     monkeypatch.setattr(
         "mtdata.core.finviz.run_finviz_calendar",
         lambda **_kwargs: pytest.fail("range view must not fetch with period controls"),
@@ -103,7 +97,6 @@ def test_calendar_period_view_uses_earnings_alias(monkeypatch) -> None:
         }
 
     monkeypatch.setattr("mtdata.core.finviz.finviz_earnings", _fake_earnings)
-    reset_research_registry()
 
     result = _unwrap(calendar)(
         kind="earnings",

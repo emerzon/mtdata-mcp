@@ -1,35 +1,9 @@
-"""Capability-specific research source protocols."""
+"""Capability-specific research request types."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict, Optional, Protocol, runtime_checkable
-
-
-@runtime_checkable
-class ResearchSource(Protocol):
-    """Minimal adapter identity shared by every research source."""
-
-    name: str
-
-    def is_available(self) -> bool:
-        """Return whether the source can currently be queried."""
-        ...
-
-
-@runtime_checkable
-class CalendarSource(Protocol):
-    """Structured event calendar adapter."""
-
-    name: str
-
-    def is_available(self) -> bool:
-        """Return whether the source can currently be queried."""
-        ...
-
-    def fetch_events(self, request: "CalendarRequest") -> Dict[str, Any]:
-        """Fetch a canonical calendar payload for ``request``."""
-        ...
+from typing import Optional
 
 
 @dataclass(frozen=True)

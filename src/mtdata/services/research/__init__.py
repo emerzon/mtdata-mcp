@@ -1,8 +1,4 @@
-"""Pluggable research-source registry.
-
-Public tools name the job (news, calendar, equity profile). Adapters such as
-Finviz and MT5 register here and are selected with ``source=auto`` or a pin.
-"""
+"""Shared research-source capabilities, errors, and calendar request types."""
 
 from .capabilities import (
     CALENDAR,
@@ -15,8 +11,7 @@ from .capabilities import (
 )
 from .errors import capability_unsupported_error, source_unavailable_error
 from .payload import stamp_provider
-from .protocols import CalendarRequest, CalendarSource, ResearchSource
-from .registry import ResearchRegistry, get_research_registry, reset_research_registry
+from .protocols import CalendarRequest
 
 __all__ = [
     "CALENDAR",
@@ -27,12 +22,7 @@ __all__ = [
     "ResearchSourcePin",
     "SCREENER",
     "CalendarRequest",
-    "CalendarSource",
-    "ResearchRegistry",
-    "ResearchSource",
     "capability_unsupported_error",
-    "get_research_registry",
-    "reset_research_registry",
     "source_unavailable_error",
     "stamp_provider",
 ]

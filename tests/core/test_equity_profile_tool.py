@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from mtdata.core.equity_profile import equity_profile
-from mtdata.services.research.registry import reset_research_registry
 
 
 def _unwrap(fn):
@@ -19,7 +18,6 @@ def test_equity_profile_default_summary_uses_fundamentals(monkeypatch) -> None:
             "category": category,
         },
     )
-    reset_research_registry()
 
     result = _unwrap(equity_profile)("AAPL")
 
