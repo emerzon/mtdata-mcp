@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from ..utils.utils import to_float_np
-from .common import PatternResultBase
+from .common import PatternResultBase, _coerce_pattern_time_epoch
 
 
 @dataclass
@@ -319,8 +319,8 @@ def detect_fractal_patterns(
         return []
 
     if "time" in df.columns:
-        times = to_float_np(df["time"])
-        if times.size != n_bars:
+        times = _coerce_pattern_time_epoch(df["time"], n_bars)
+        if times.size != n_bars or not np.any(np.isfinite(times)):
             times = np.arange(n_bars, dtype=float)
     else:
         times = np.arange(n_bars, dtype=float)

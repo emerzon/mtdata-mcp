@@ -20,7 +20,9 @@ from mtdata.patterns.elliott import (
     ElliottWaveConfig,
     _enforce_min_distance_on_pivots,
     _ohlc_zigzag_pivots_indices,
+    detect_elliott_waves,
 )
+from mtdata.patterns.fractal import detect_fractal_patterns
 
 
 def test_effective_flat_slope_scales_with_index_prices() -> None:
@@ -108,6 +110,38 @@ def test_prepare_ohlc_accepts_datetime64_index_column() -> None:
     _, times, *_ = prepared
     assert times.size == 120
     assert float(times[0]) == pytest.approx(df["time"].iloc[0].timestamp(), abs=1.0)
+
+
+def test_elliott_and_fractal_datetime_times_are_epoch_seconds(monkeypatch) -> None:
+    n = 80
+    times = pd.date_range("2024-01-01", periods=n, freq="h", tz="UTC")
+    close = np.linspace(1.0, 1.2, n)
+    df = pd.DataFrame(
+        {
+            "time": times,
+            "open": close,
+            "high": close + 0.01,
+            "low": close - 0.01,
+            "close": close,
+        }
+    )
+    captured: list[np.ndarray] = []
+    real = _coerce_pattern_time_epoch
+
+    def _capture(values, expected_size):
+        out = real(values, expected_size)
+        captured.append(out)
+        return out
+
+    monkeypatch.setattr("mtdata.patterns.elliott._coerce_pattern_time_epoch", _capture)
+    monkeypatch.setattr("mtdata.patterns.fractal._coerce_pattern_time_epoch", _capture)
+    detect_elliott_waves(df)
+    detect_fractal_patterns(df)
+    assert len(captured) == 2
+    for seconds in captured:
+        assert seconds.size == n
+        assert float(np.nanmax(seconds)) < 1e12
+        assert seconds[0] == pytest.approx(times[0].timestamp(), abs=1.0)
 
 
 def test_invalid_elliott_scan_timeframes_do_not_become_m1() -> None:

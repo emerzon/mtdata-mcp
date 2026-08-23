@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from ...utils.utils import to_float_np
 from ..common import (
     PatternResultBase,
     detect_pivots,
@@ -206,19 +205,6 @@ def _last_touch_indexes(bound_y: np.ndarray, idxs: np.ndarray, y: np.ndarray, to
         if abs(bound_y[i] - y[i]) <= tol:
             out.append(int(i))
     return out
-
-
-def _build_time_array(df: pd.DataFrame) -> np.ndarray:
-    t = df.get('time')
-    if t is None:
-        return np.asarray([], dtype=float)
-    try:
-        arr = to_float_np(t)
-    except (TypeError, ValueError):
-        return np.asarray([], dtype=float)
-    if arr.size == 0 or not np.isfinite(arr).any():
-        return np.asarray([], dtype=float)
-    return arr
 
 
 def _tol_abs_from_close(close: np.ndarray, tol_pct: float) -> float:

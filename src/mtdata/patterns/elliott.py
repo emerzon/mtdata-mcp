@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from sklearn.preprocessing import StandardScaler
 
 from ..utils.utils import to_float_np
-from .common import PatternResultBase
+from .common import PatternResultBase, _coerce_pattern_time_epoch
 from .common import interval_overlap_ratio as _interval_overlap_ratio
 from .elliott_adaptation import resolve_elliott_adaptation
 
@@ -2438,9 +2438,8 @@ def detect_elliott_waves(  # noqa: C901 - orchestration kept explicit for scan a
         return []
 
     if "time" in df.columns:
-        try:
-            t = to_float_np(df["time"])
-        except (TypeError, ValueError):
+        t = _coerce_pattern_time_epoch(df["time"], int(df["close"].shape[0]))
+        if t.size == 0 or not np.any(np.isfinite(t)):
             t = np.asarray([], dtype=float)
     else:
         t = np.asarray([], dtype=float)

@@ -9,7 +9,6 @@ import mtdata.patterns.classic_impl.utils as utils_mod
 import mtdata.patterns.common as patterns_common
 from mtdata.patterns.classic_impl.config import ClassicDetectorConfig
 from mtdata.patterns.classic_impl.utils import (
-    _build_time_array,
     _calibrate_confidence,
     _collect_calibration_points,
     _conf,
@@ -391,18 +390,6 @@ class TestFindRecentBreakout:
 
         assert direction == "up"
         assert idx == 1
-
-
-class TestBuildTimeArray:
-    def test_missing_time_column_returns_empty_array(self):
-        df = pd.DataFrame({"close": [100.0, 101.0, 102.0]})
-        result = _build_time_array(df)
-        assert result.size == 0
-
-    def test_invalid_time_values_return_empty_array(self):
-        df = pd.DataFrame({"time": ["bad", object(), None]})
-        result = _build_time_array(df)
-        assert result.size == 0
 
 
 class TestCalibrateConfidence:
