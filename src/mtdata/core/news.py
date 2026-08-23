@@ -91,17 +91,14 @@ _NEWS_PROVIDER_DELIVERY = {
 
 def _news_datetime_utc(value: Any) -> Optional[datetime]:
     if isinstance(value, datetime):
-        published_at = value
-    else:
-        text = str(value or "").strip()
-        if not text:
-            return None
-        try:
-            published_at = parse_iso_utc(text)
-        except ValueError:
-            return None
-
-    return parse_iso_utc(published_at)
+        return parse_iso_utc(value)
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return parse_iso_utc(text)
+    except ValueError:
+        return None
 
 
 def _news_time_utc_text(value: datetime) -> str:
@@ -886,12 +883,11 @@ def news(
             )
         if view == "ticker":
             if symbol in (None, ""):
-                return {
-                    "success": False,
-                    "error": "view='ticker' requires a symbol.",
-                    "error_code": "news_symbol_required",
-                    "operation": "news",
-                }
+                return build_error_payload(
+                    "view='ticker' requires a symbol.",
+                    code="news_symbol_required",
+                    operation="news",
+                )
             payload = finviz_news(
                 symbol=str(symbol),
                 limit=int(effective_limit or 20),

@@ -12,6 +12,7 @@ from ...bootstrap.settings import mt5_config
 from ...shared.constants import TIMEFRAME_SECONDS
 from ...shared.validators import unsupported_timeframe_seconds_error
 from ...utils.freshness import closed_session_context
+from ...utils.time import format_epoch_utc
 
 ExpirationValue = Union[int, float, str, datetime]
 _GTC_EXPIRATION_TOKENS = {"GTC"}
@@ -48,11 +49,7 @@ class PendingExpirationValidationError(ValueError):
 
 
 def _format_expiration_utc(epoch_seconds: int) -> str:
-    return (
-        datetime.fromtimestamp(epoch_seconds, tz=timezone.utc)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
+    return format_epoch_utc(epoch_seconds) or ""
 
 
 def _validate_pending_expiration_timestamp(

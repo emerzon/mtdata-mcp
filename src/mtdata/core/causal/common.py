@@ -17,7 +17,6 @@ from mtdata.services.data_service.candles import (
     _parse_candle_calendar_bound,
 )
 from mtdata.shared.constants import (
-    TIME_DISPLAY_FORMAT,
     TIMEFRAME_MAP,
 )
 from mtdata.utils.mt5 import (
@@ -33,6 +32,7 @@ from mtdata.utils.symbol import (
 from mtdata.utils.symbol import (
     _normalize_group_path_query,
 )
+from mtdata.utils.time import format_datetime_utc
 from mtdata.utils.utils import (
     _parse_end_datetime,
     _parse_start_datetime,
@@ -773,7 +773,7 @@ def _format_sample_time(value: Any) -> str:
     timestamp = pd.Timestamp(value)
     if timestamp.tzinfo is not None:
         timestamp = timestamp.tz_convert("UTC")
-    return timestamp.strftime(TIME_DISPLAY_FORMAT)
+    return format_datetime_utc(timestamp.to_pydatetime(), timespec="minutes")
 
 
 def _pairwise_analysis_context(rows: List[Dict[str, Any]], *, timeframe: Any) -> Dict[str, Any]:

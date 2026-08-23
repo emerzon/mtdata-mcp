@@ -7,7 +7,6 @@ from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
 from ...shared.constants import (
     CALENDAR_TIMEFRAMES,
-    TIME_DISPLAY_FORMAT,
     TIMEFRAME_SECONDS,
 )
 from ...shared.market_units import forex_pip_size
@@ -72,18 +71,22 @@ def report_runtime_expired() -> bool:
 
 
 def report_runtime_error(operation: str) -> Dict[str, Any]:
-    return {
-        "error": (
+    from ..error_envelope import build_error_payload
+
+    payload = build_error_payload(
+        (
             "Report max_runtime budget was exhausted before "
             f"{operation} could start."
         ),
-        "error_code": "report_runtime_budget_exhausted",
-        "runtime_budget_exhausted": True,
-    }
+        code="report_runtime_budget_exhausted",
+        operation=str(operation),
+    )
+    payload["runtime_budget_exhausted"] = True
+    return payload
 
 
 def now_utc_iso() -> str:
-    return datetime.now(timezone.utc).strftime(TIME_DISPLAY_FORMAT)
+    return format_datetime_utc(datetime.now(timezone.utc), timespec="minutes")
 
 
 def resolve_report_context_end(end: Any, timeframe: str) -> Any:

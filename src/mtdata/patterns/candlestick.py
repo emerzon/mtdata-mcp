@@ -7,10 +7,14 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from ..shared.constants import TIME_DISPLAY_FORMAT, TIMEFRAME_SECONDS
+from ..shared.constants import TIMEFRAME_SECONDS
 from ..shared.validators import invalid_timeframe_error
 from ..utils.freshness import completed_bar_freshness_fields
-from ..utils.time import _format_time_minimal_local, _use_client_tz
+from ..utils.time import (
+    _format_time_minimal,
+    _format_time_minimal_local,
+    _use_client_tz,
+)
 from ..utils.utils import (
     _parse_end_datetime,
     _parse_start_datetime,
@@ -808,14 +812,9 @@ def detect_candlestick_patterns(  # noqa: C901
             warnings.simplefilter("ignore")
             df["time"] = df["time"].apply(_format_time_minimal_local)
     else:
-        time_fmt = TIME_DISPLAY_FORMAT
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            df["time"] = df["time"].apply(
-                lambda t: datetime.fromtimestamp(float(t), tz=timezone.utc).strftime(
-                    time_fmt
-                )
-            )
+            df["time"] = df["time"].apply(_format_time_minimal)
 
     for col in ["open", "high", "low", "close"]:
         if col not in df.columns:

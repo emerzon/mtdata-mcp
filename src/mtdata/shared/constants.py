@@ -11,9 +11,6 @@ PRECISION_MAX_DECIMALS = 10
 # MT5 order and position volume is expressed in broker-defined lots.
 BROKER_VOLUME_UNIT = "broker_lot"
 
-# Canonical minute-resolution UTC timestamp for machine-readable outputs.
-TIME_DISPLAY_FORMAT = "%Y-%m-%dT%H:%MZ"
-
 # Approximate seconds per bar for each timeframe (no MT5 dependency)
 TIMEFRAME_SECONDS = {
     "M1": 60,
