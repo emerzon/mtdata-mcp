@@ -400,12 +400,6 @@ def pivot_compute_points(  # noqa: C901
 
             digits = symbol_price_digits(_info_before) if _info_before is not None else 0
 
-            def _round(v: float) -> float:
-                try:
-                    return round(float(v), digits) if digits >= 0 else float(v)
-                except Exception:
-                    return float(v)
-
             def _round_context(v: float) -> float:
                 try:
                     return round(float(v), max(int(digits) + 2, 8))
