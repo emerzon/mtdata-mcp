@@ -1,39 +1,24 @@
-"""Tests for CandlestickRuntime container."""
+"""Tests for candlestick lazy-load guards."""
 
-from mtdata.patterns.candlestick import CandlestickRuntime
+from mtdata.patterns import candlestick as candlestick_mod
 
 
-class TestCandlestickRuntime:
-    """Runtime init and thread-safety."""
+class TestEnsureCandlestickRuntime:
+    def test_preserves_existing_globals(self, monkeypatch):
+        monkeypatch.setattr(candlestick_mod, "ta", "ta")
+        monkeypatch.setattr(candlestick_mod, "mt5", "mt5")
+        monkeypatch.setattr(candlestick_mod, "TIMEFRAME_MAP", {"H1": 1})
+        monkeypatch.setattr(candlestick_mod, "_mt5_copy_rates_from", "from")
+        monkeypatch.setattr(candlestick_mod, "_mt5_copy_rates_range", "range")
+        monkeypatch.setattr(candlestick_mod, "_rates_to_df", "df")
+        monkeypatch.setattr(candlestick_mod, "_symbol_ready_guard", "guard")
 
-    def test_initial_state(self):
-        rt = CandlestickRuntime()
-        assert rt.ta is None
-        assert rt.mt5 is None
-        assert rt.TIMEFRAME_MAP is None
-        assert rt._mt5_copy_rates_from is None
-        assert rt._rates_to_df is None
-        assert rt._symbol_ready_guard is None
-        assert rt.ready is False
+        candlestick_mod._ensure_candlestick_runtime()
 
-    def test_manual_assignment(self):
-        rt = CandlestickRuntime()
-        rt.ta = "fake_ta"
-        rt.mt5 = "fake_mt5"
-        assert rt.ta == "fake_ta"
-        assert rt.mt5 == "fake_mt5"
-
-    def test_ensure_loaded_idempotent(self):
-        """After loading, repeated calls don't re-import."""
-        rt = CandlestickRuntime()
-        # Pre-populate to avoid real imports
-        rt.ta = "ta"
-        rt.mt5 = "mt5"
-        rt.TIMEFRAME_MAP = {"H1": 1}
-        rt._mt5_copy_rates_from = lambda: None
-        rt._rates_to_df = lambda: None
-        rt._symbol_ready_guard = lambda: None
-        rt._loaded = True
-        # Second call does nothing
-        rt.ensure_loaded()
-        assert rt.ta == "ta"  # unchanged
+        assert candlestick_mod.ta == "ta"
+        assert candlestick_mod.mt5 == "mt5"
+        assert candlestick_mod.TIMEFRAME_MAP == {"H1": 1}
+        assert candlestick_mod._mt5_copy_rates_from == "from"
+        assert candlestick_mod._mt5_copy_rates_range == "range"
+        assert candlestick_mod._rates_to_df == "df"
+        assert candlestick_mod._symbol_ready_guard == "guard"

@@ -33,107 +33,6 @@ from .enrichment import (
 logger = logging.getLogger(__name__)
 
 
-class CandlestickRuntime:
-    """Container for lazily-loaded candlestick detection dependencies.
-
-    Replaces scattered module-level mutable globals with a single
-    object whose attributes can still be monkeypatched in tests
-    via ``candlestick_mod._runtime.ta = ...``.
-    """
-
-    __slots__ = (
-        "ta",
-        "mt5",
-        "TIMEFRAME_MAP",
-        "_mt5_copy_rates_from",
-        "_mt5_copy_rates_range",
-        "_rates_to_df",
-        "_symbol_ready_guard",
-        "_lock",
-        "_loaded",
-    )
-
-    def __init__(self) -> None:
-        self.ta: Any = None
-        self.mt5: Any = None
-        self.TIMEFRAME_MAP: Optional[Dict[str, Any]] = None
-        self._mt5_copy_rates_from: Any = None
-        self._mt5_copy_rates_range: Any = None
-        self._rates_to_df: Any = None
-        self._symbol_ready_guard: Any = None
-        self._lock = Lock()
-        self._loaded = False
-
-    @property
-    def ready(self) -> bool:
-        return self._loaded
-
-    def ensure_loaded(self) -> None:
-        """Lazily load all runtime deps (idempotent, thread-safe)."""
-        if self._loaded:
-            return
-        with self._lock:
-            if self._loaded:
-                return
-            if self.ta is None:
-                try:
-                    import pandas_ta as ta_mod  # type: ignore
-                except ModuleNotFoundError:
-                    try:
-                        import pandas_ta_classic as ta_mod  # type: ignore
-                    except ModuleNotFoundError as e:
-                        raise ModuleNotFoundError(
-                            "pandas_ta not found. Install 'pandas-ta-classic' (or 'pandas-ta')."
-                        ) from e
-                self.ta = ta_mod
-
-            if self.mt5 is None:
-                try:
-                    from ..utils.mt5 import mt5 as mt5_mod
-                except ModuleNotFoundError as e:
-                    raise ModuleNotFoundError(
-                        "MetaTrader5 not found. Install 'MetaTrader5' to use candlestick detection."
-                    ) from e
-                self.mt5 = mt5_mod
-
-            if self.TIMEFRAME_MAP is None:
-                from ..shared.constants import TIMEFRAME_MAP as timeframe_map
-
-                self.TIMEFRAME_MAP = timeframe_map
-
-            if (
-                self._mt5_copy_rates_from is None
-                or self._mt5_copy_rates_range is None
-                or self._rates_to_df is None
-                or self._symbol_ready_guard is None
-            ):
-                from ..utils.mt5 import (
-                    _mt5_copy_rates_from as copy_rates_from,
-                )
-                from ..utils.mt5 import (
-                    _mt5_copy_rates_range as copy_rates_range,
-                )
-                from ..utils.mt5 import (
-                    _rates_to_df as rates_to_df,
-                )
-                from ..utils.mt5 import (
-                    _symbol_ready_guard as symbol_ready_guard,
-                )
-
-                self._mt5_copy_rates_from = copy_rates_from
-                self._mt5_copy_rates_range = copy_rates_range
-                self._rates_to_df = rates_to_df
-                self._symbol_ready_guard = symbol_ready_guard
-
-            self._loaded = True
-
-
-_runtime = CandlestickRuntime()
-
-# Module-level handles populated lazily from ``_runtime`` by
-# ``_ensure_candlestick_runtime()``.  They are kept as module globals (rather
-# than read off ``_runtime`` directly) so tests can monkeypatch them; the lazy
-# loader only fills in values that are still ``None``, preserving overrides.
 ta: Any = None
 mt5: Any = None
 TIMEFRAME_MAP: Optional[Dict[str, Any]] = None
@@ -309,9 +208,16 @@ def _candlestick_strength_score(
     span_bonus = min(0.10, 0.05 * max(0, span_bars - 1))
     detector_bonus = 0.05
     geometry = float(np.clip(float(geometry_score), 0.0, 1.0))
-    return float(
-        max(0.0, min(1.0, base + span_bonus + detector_bonus + 0.40 * geometry))
-    )
+    return float(_combine_candlestick_strength(base, span_bonus, geometry, detector_bonus))
+
+
+def _combine_candlestick_strength(
+    base: Any,
+    span_bonus: Any,
+    geometry_score: Any,
+    detector_bonus: float = 0.05,
+) -> Any:
+    return np.clip(base + span_bonus + detector_bonus + 0.40 * geometry_score, 0.0, 1.0)
 
 
 def _candlestick_span_bars(pattern_name: str) -> int:
@@ -341,22 +247,57 @@ def _ensure_candlestick_runtime() -> None:
     ):
         return
 
-    _runtime.ensure_loaded()
-    # Only populate globals that are still None (preserves monkeypatches)
-    if ta is None:
-        ta = _runtime.ta
-    if mt5 is None:
-        mt5 = _runtime.mt5
-    if TIMEFRAME_MAP is None:
-        TIMEFRAME_MAP = _runtime.TIMEFRAME_MAP
-    if _mt5_copy_rates_from is None:
-        _mt5_copy_rates_from = _runtime._mt5_copy_rates_from
-    if _mt5_copy_rates_range is None:
-        _mt5_copy_rates_range = _runtime._mt5_copy_rates_range
-    if _rates_to_df is None:
-        _rates_to_df = _runtime._rates_to_df
-    if _symbol_ready_guard is None:
-        _symbol_ready_guard = _runtime._symbol_ready_guard
+    with _CANDLESTICK_PATTERN_METHOD_CACHE_LOCK:
+        if ta is None:
+            try:
+                import pandas_ta as ta_mod  # type: ignore
+            except ModuleNotFoundError:
+                try:
+                    import pandas_ta_classic as ta_mod  # type: ignore
+                except ModuleNotFoundError as e:
+                    raise ModuleNotFoundError(
+                        "pandas_ta not found. Install 'pandas-ta-classic' (or 'pandas-ta')."
+                    ) from e
+            ta = ta_mod
+        if mt5 is None:
+            try:
+                from ..utils.mt5 import mt5 as mt5_mod
+            except ModuleNotFoundError as e:
+                raise ModuleNotFoundError(
+                    "MetaTrader5 not found. Install 'MetaTrader5' to use candlestick detection."
+                ) from e
+            mt5 = mt5_mod
+        if TIMEFRAME_MAP is None:
+            from ..shared.constants import TIMEFRAME_MAP as timeframe_map
+
+            TIMEFRAME_MAP = timeframe_map
+        if (
+            _mt5_copy_rates_from is None
+            or _mt5_copy_rates_range is None
+            or _rates_to_df is None
+            or _symbol_ready_guard is None
+        ):
+            from ..utils.mt5 import (
+                _mt5_copy_rates_from as copy_rates_from,
+            )
+            from ..utils.mt5 import (
+                _mt5_copy_rates_range as copy_rates_range,
+            )
+            from ..utils.mt5 import (
+                _rates_to_df as rates_to_df,
+            )
+            from ..utils.mt5 import (
+                _symbol_ready_guard as symbol_ready_guard,
+            )
+
+            if _mt5_copy_rates_from is None:
+                _mt5_copy_rates_from = copy_rates_from
+            if _mt5_copy_rates_range is None:
+                _mt5_copy_rates_range = copy_rates_range
+            if _rates_to_df is None:
+                _rates_to_df = rates_to_df
+            if _symbol_ready_guard is None:
+                _symbol_ready_guard = symbol_ready_guard
 
 
 def _discover_candlestick_pattern_methods(ta_accessor: Any) -> Tuple[str, ...]:
@@ -596,10 +537,10 @@ def _extract_candlestick_rows(
                     + 0.30 * np.clip(directional_location, 0.0, 1.0)
                     + 0.20 * range_expansion
                 )
-        strength_values[:, col_idx] = np.clip(
-            base_strength + span_bonus + 0.05 + 0.40 * geometry_score,
-            0.0,
-            1.0,
+        strength_values[:, col_idx] = _combine_candlestick_strength(
+            base_strength,
+            span_bonus,
+            geometry_score,
         )
 
     active_mask = (
@@ -998,9 +939,12 @@ def detect_candlestick_patterns(  # noqa: C901
                     failed_detectors.extend(str(name) for name in dispatch_names)
 
     for detector_name, method_name in sorted(direct_methods.items()):
-        if selected_names is not None and detector_name not in selected_names:
-            continue
-        if robust_only and detector_name not in _ROBUST_CANDLESTICK_WHITELIST:
+        if not _is_candlestick_allowed(
+            detector_name,
+            robust_only=robust_only,
+            robust_set=_ROBUST_CANDLESTICK_WHITELIST,
+            whitelist_set=selected_names,
+        ):
             continue
         if dispatcher_succeeded and detector_name in dispatch_catalog:
             continue
