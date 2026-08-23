@@ -1001,37 +1001,20 @@ def _passes_related_gate(item: NewsItem, context: InstrumentContext) -> bool:
     return False
 
 
-def _passes_upcoming_event_gate(item: NewsItem, context: InstrumentContext) -> bool:
+def _passes_event_gate(
+    item: NewsItem,
+    context: InstrumentContext,
+    *,
+    require_future: bool,
+) -> bool:
     event_time = item.event_time()
     if item.kind != "economic_event" or event_time is None:
         return False
-    if event_time <= datetime.now(timezone.utc):
-        return False
-
-    event_for = _safe_text(item.metadata.get("event_for")).upper()
-    if not event_for:
-        return False
-
-    if context.asset_class == "forex":
-        return event_for in {context.base_asset or "", context.quote_asset or ""}
-
-    if context.asset_class == "index":
-        return event_for == _INDEX_EXPOSURE_CURRENCIES.get(context.base_asset or "")
-
-    if context.asset_class in {"crypto", "commodity"}:
-        return event_for == (context.quote_asset or "")
-
-    if context.asset_class == "equity":
-        return event_for in _equity_calendar_currencies(context)
-
-    return False
-
-
-def _passes_recent_event_gate(item: NewsItem, context: InstrumentContext) -> bool:
-    event_time = item.event_time()
-    if item.kind != "economic_event" or event_time is None:
-        return False
-    if event_time > datetime.now(timezone.utc):
+    now = datetime.now(timezone.utc)
+    if require_future:
+        if event_time <= now:
+            return False
+    elif event_time > now:
         return False
 
     event_for = _safe_text(item.metadata.get("event_for")).upper()
@@ -2211,9 +2194,9 @@ class NewsAggregator:
             recent_candidates: List[NewsItem] = []
             filtered_related: List[NewsItem] = []
             for item in related_pool:
-                if _passes_upcoming_event_gate(item, context):
+                if _passes_event_gate(item, context, require_future=True):
                     upcoming_candidates.append(item)
-                if _passes_recent_event_gate(item, context):
+                if _passes_event_gate(item, context, require_future=False):
                     recent_candidates.append(item)
                 if item.kind == "economic_event":
                     continue
