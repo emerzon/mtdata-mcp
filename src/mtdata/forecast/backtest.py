@@ -9,6 +9,7 @@ from ..core.output_contract import normalize_output_verbosity_detail
 from ..shared.constants import TIMEFRAME_MAP, TIMEFRAME_SECONDS
 from ..shared.schema import DenoiseSpec, DetailLiteral, TimeframeLiteral
 from ..shared.validators import invalid_timeframe_error
+from ..utils.coercion import coerce_finite_float
 from ..utils.denoise import normalize_denoise_spec as _normalize_denoise_spec
 from ..utils.mt5 import mt5, symbol_candle_price_basis_for
 from ..utils.time import _format_time_minimal, bar_close_epoch
@@ -588,14 +589,7 @@ def _compute_performance_metrics(
     if max_drawdown > 0 and math.isfinite(max_drawdown) and math.isfinite(annual_return):
         calmar = float(annual_return / max_drawdown)
 
-    def _finite_or_none(value: float) -> Optional[float]:
-        try:
-            value_f = float(value)
-        except Exception:
-            return None
-        if not math.isfinite(value_f):
-            return None
-        return value_f
+    _finite_or_none = coerce_finite_float
 
     win_rate_value = _finite_or_none(win_rate)
     win_rate_pct = (

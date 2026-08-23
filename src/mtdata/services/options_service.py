@@ -5,7 +5,6 @@ from __future__ import annotations
 import datetime as _dt
 import email.utils as _email_utils
 import logging
-import math
 import re
 import threading as _threading
 import time as _time
@@ -15,6 +14,7 @@ from zoneinfo import ZoneInfo
 import requests
 
 from ..bootstrap.settings import options_data_config
+from ..utils.coercion import coerce_finite_float as _finite_option_quote
 from ..utils.time import parse_iso_utc
 
 logger = logging.getLogger(__name__)
@@ -194,14 +194,6 @@ def _options_catalog_metadata() -> Dict[str, Any]:
         "catalog_cached": False,
         "catalog_freshness": "fetched_now",
     }
-
-
-def _finite_option_quote(value: Any) -> Optional[float]:
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return None
-    return numeric if math.isfinite(numeric) else None
 
 
 def _option_contract_market_metadata(

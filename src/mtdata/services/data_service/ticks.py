@@ -17,6 +17,7 @@ from ...shared.constants import (
 )
 from ...shared.market_units import forex_points_per_pip
 from ...shared.schema import SimplifySpec
+from ...utils.coercion import coerce_finite_float as _finite_or_none
 from ...utils.market_metadata import build_tick_freshness_context
 from ...utils.mt5 import (
     _mt5_copy_ticks_range,
@@ -478,16 +479,6 @@ def _observed_tick_flags_decoded(flags: List[int]) -> Dict[str, List[str]]:
         str(flag): _decode_tick_flags(flag)
         for flag in sorted(set(int(value) for value in flags if int(value) != 0))
     }
-
-
-def _finite_or_none(value: Any) -> Optional[float]:
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return None
-    if not math.isfinite(numeric):
-        return None
-    return numeric
 
 
 def _normalize_tick_missing_values(value: Any) -> Any:

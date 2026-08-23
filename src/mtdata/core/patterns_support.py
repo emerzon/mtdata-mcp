@@ -2305,13 +2305,8 @@ def _map_stock_pattern_name(row: Dict[str, Any]) -> str:
 
 
 def _to_float_safe(value: Any, default: float = 0.6) -> float:
-    try:
-        v = float(value)
-        if np.isfinite(v):
-            return v
-    except Exception:
-        pass
-    return float(default)
+    parsed = _safe_float(value, default)
+    return default if parsed is None else parsed
 
 
 def _infer_stock_pattern_confidence(row: Dict[str, Any]) -> float:

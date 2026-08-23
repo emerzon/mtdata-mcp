@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
+from ...utils.coercion import coerce_finite_float as _finite_float
 from .smoothing import _canonicalize_regime_labels
 
 # Direction label requires mean return to be at least this many standard errors
@@ -125,16 +126,6 @@ def _hmm_trading_interpretation(label: str) -> str:
             return "Constructive downward regime with normal volatility; bearish trend strategies are better aligned."
         return "Downward bias with elevated volatility; defensive positioning and tighter risk limits are warranted."
     return "Statistical regime with mixed directional evidence; inspect mean return and volatility before acting."
-
-
-def _finite_float(value: Any) -> Optional[float]:
-    try:
-        out = float(value)
-    except (TypeError, ValueError):
-        return None
-    if not np.isfinite(out):
-        return None
-    return out
 
 
 def _wavelet_volatility_label(level: Optional[str]) -> Optional[str]:

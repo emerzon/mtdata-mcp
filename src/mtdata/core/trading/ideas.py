@@ -14,7 +14,7 @@ from typing import Any, Callable, Dict, List, Optional
 from ...forecast.requests import MAX_FORECAST_HORIZON
 from ...shared.schema import normalize_required_symbol
 from ...utils.barriers import barrier_prices_are_valid
-from ...utils.coercion import coerce_finite_float
+from ...utils.coercion import coerce_finite_float as _as_float
 from ...utils.time import format_datetime_utc
 from .._mcp_instance import mcp
 from ..error_envelope import build_error_payload
@@ -89,10 +89,6 @@ _COMPACT_KEYS = (
     "related_tools",
     "source",
 )
-
-
-def _as_float(value: Any) -> Optional[float]:
-    return coerce_finite_float(value)
 
 
 def _section_failed(payload: Any) -> bool:

@@ -16,7 +16,8 @@ from ..utils.barriers import (
     resolve_barrier_prices,
     resolve_same_bar_probabilities,
 )
-from ..utils.coercion import UNPARSED_BOOL, coerce_finite_float, parse_bool_like
+from ..utils.coercion import UNPARSED_BOOL, parse_bool_like
+from ..utils.coercion import coerce_finite_float as _optional_finite_float
 from ..utils.utils import parse_kv_or_json as _parse_kv_or_json
 from .barrier_constants import barrier_simulation_param_keys
 from .barrier_outcomes import (
@@ -362,10 +363,6 @@ def _barrier_candidate_filter_config(
     if min_kelly is not None:
         out["min_kelly"] = _safe_float(min_kelly)
     return out
-
-
-def _optional_finite_float(value: Any) -> Optional[float]:
-    return coerce_finite_float(value)
 
 
 def _candidate_passes_threshold_filters(

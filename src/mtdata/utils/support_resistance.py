@@ -11,6 +11,7 @@ import pandas as pd
 from ..shared.constants import (
     TIMEFRAME_SECONDS as _TIMEFRAME_SECONDS,
 )
+from .coercion import coerce_finite_float as _as_finite_float
 from .time import _format_time_minimal, format_epoch_utc, parse_iso_utc
 
 _METHOD_NAME = "weighted_retests"
@@ -163,14 +164,6 @@ def _weighted_average(items: List[tuple[float, float]]) -> Optional[float]:
     if total_weight <= 0.0:
         return None
     return total_value / total_weight
-
-
-def _as_finite_float(value: Any) -> Optional[float]:
-    try:
-        out = float(value)
-    except Exception:
-        return None
-    return out if math.isfinite(out) else None
 
 
 def _round_output_price(value: Any) -> Optional[float]:

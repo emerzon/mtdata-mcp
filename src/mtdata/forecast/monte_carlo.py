@@ -27,6 +27,8 @@ try:
 except Exception:  # pragma: no cover - defensive fallback
     _SklearnConvergenceWarning = Warning
 
+from ..utils.coercion import coerce_finite_float
+
 HmmSimulationValue = Union[np.ndarray, str]
 
 
@@ -543,11 +545,8 @@ def simulate_gbm_mc(
 
 
 def _finite_positive(value: Any) -> Optional[float]:
-    try:
-        parsed = float(value)
-    except (TypeError, ValueError):
-        return None
-    if not np.isfinite(parsed) or parsed <= 0.0:
+    parsed = coerce_finite_float(value)
+    if parsed is None or parsed <= 0.0:
         return None
     return parsed
 

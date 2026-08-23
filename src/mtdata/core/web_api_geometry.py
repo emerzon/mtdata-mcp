@@ -4,14 +4,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from ..utils.coercion import coerce_finite_float
+from ..utils.coercion import coerce_finite_float as _as_float
 from .output_contract import apply_output_verbosity
 from .tool_calling import call_tool_sync_structured
 from .web_api_handlers import _http_error, _raise_tool_error
-
-
-def _as_float(value: Any) -> Optional[float]:
-    return coerce_finite_float(value)
 
 
 def compact_confluence_payload(payload: Dict[str, Any]) -> Dict[str, Any]:

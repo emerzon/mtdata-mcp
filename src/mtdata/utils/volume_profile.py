@@ -15,7 +15,7 @@ from typing import (
     get_args,
 )
 
-from .coercion import round_finite
+from .coercion import coerce_finite_float, round_finite
 from .tick_flags import is_mt5_trade_event
 
 VolumeProfilePriceSourceLiteral = Literal["mid", "last", "bid", "ask"]
@@ -262,13 +262,7 @@ def _materialize_rows(rows: Iterable[Any]) -> List[Any]:
 def _finite_number(value: Any) -> Optional[float]:
     if isinstance(value, bool):
         return None
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return None
-    if not math.isfinite(numeric):
-        return None
-    return numeric
+    return coerce_finite_float(value)
 
 
 def _finite_positive(value: Any) -> Optional[float]:

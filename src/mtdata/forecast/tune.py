@@ -8,6 +8,7 @@ import time
 import warnings
 from typing import Any, Dict, List, Optional, Tuple
 
+from ..utils.coercion import coerce_finite_float
 from .backtest import _backtest_units
 from .backtest import forecast_backtest as _forecast_backtest
 from .optimize import (
@@ -58,11 +59,7 @@ def _suppress_noisy_forecast_tune_loggers() -> None:
 
 
 def _finite_metric(metrics: Dict[str, Any], key: str) -> Optional[float]:
-    try:
-        value = float(metrics.get(key))
-    except (TypeError, ValueError):
-        return None
-    return value if math.isfinite(value) else None
+    return coerce_finite_float(metrics.get(key))
 
 
 def _extract_method_backtest_metrics(
