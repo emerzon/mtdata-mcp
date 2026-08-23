@@ -8,9 +8,9 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 
 from ...utils.regime_heuristics import infer_market_regime
+from ...utils.time import _format_time_minimal
 from .. import features as _features_module
 from ..features import extract_rolling_features
-from ..tool_calling import call_tool_sync_structured
 from .ensemble import (
     _ENSEMBLE_STATE_METHODS,
     _aggregate_precomputed_ensemble,
@@ -1776,9 +1776,14 @@ def _detect_garch(  # noqa: C901
     try:
         from arch import arch_model
     except ImportError:
-        return {
-                "error": "arch package required for GARCH regime detection. Install: pip install arch"
-            }
+        from ..error_envelope import build_error_payload
+
+        return build_error_payload(
+            "arch package required for GARCH regime detection. Install: pip install arch",
+            code="missing_dependency",
+            operation="regime_detect",
+            details={"method": "garch", "requires": ["arch"]},
+        )
 
     # Auto-detect optimal n_states if not explicitly provided
     # Based on volatility distribution characteristics
@@ -2063,8 +2068,6 @@ def _detect_rule_based(  # noqa: C901
     price_times: np.ndarray,
     global_warnings: List[str],
 ) -> Dict[str, Any]:
-    from .api import _format_time_minimal
-
     # Rule-based trend/ranging/transition detection
     if rule_based_config is None:
         return {"error": "Internal error resolving rule_based parameters."}
@@ -2566,6 +2569,162 @@ def _detect_wavelet(  # noqa: C901
         )
 
 
+def _run_regime_method(
+    *,
+    method: str,
+    symbol: str,
+    timeframe: str,
+    target: str,
+    x: np.ndarray,
+    t_fmt: List[Any],
+    p: Dict[str, Any],
+    lookback: int,
+    output: str,
+    include_series: bool,
+    max_regimes: int,
+    min_regime_bars_val: int,
+    threshold: Optional[float] = None,
+    min_regime_bars: Optional[int] = None,
+    calibration_returns: Optional[np.ndarray] = None,
+    price_series: Optional[np.ndarray] = None,
+    price_times: Optional[np.ndarray] = None,
+    rule_based_config: Optional[Dict[str, Any]] = None,
+    global_warnings: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """Run one private regime method against already-prepared series."""
+    if method == "bocpd":
+        returns = (
+            np.asarray(calibration_returns, dtype=float)
+            if calibration_returns is not None
+            else np.asarray(x, dtype=float)
+        )
+        return _detect_bocpd(
+            symbol=symbol,
+            timeframe=timeframe,
+            target=target,
+            method=method,
+            x=x,
+            t_fmt=t_fmt,
+            p=p,
+            lookback=lookback,
+            output=output,
+            include_series=include_series,
+            max_regimes=max_regimes,
+            min_regime_bars_val=min_regime_bars_val,
+            threshold=threshold,
+            min_regime_bars=min_regime_bars,
+            calibration_returns=returns,
+        )
+    if method == "pelt":
+        return _detect_pelt(
+            symbol=symbol,
+            timeframe=timeframe,
+            target=target,
+            x=x,
+            t_fmt=t_fmt,
+            p=p,
+            output=output,
+            include_series=include_series,
+            max_regimes=max_regimes,
+            min_regime_bars_val=min_regime_bars_val,
+        )
+    if method == "ms_ar":
+        return _detect_ms_ar(
+            symbol=symbol,
+            timeframe=timeframe,
+            target=target,
+            method=method,
+            x=x,
+            t_fmt=t_fmt,
+            p=p,
+            lookback=lookback,
+            output=output,
+            include_series=include_series,
+            max_regimes=max_regimes,
+            min_regime_bars_val=min_regime_bars_val,
+        )
+    if method in {"hmm", "gmm"}:
+        return _detect_hmm_or_gmm(
+            symbol=symbol,
+            timeframe=timeframe,
+            target=target,
+            method=method,
+            x=x,
+            t_fmt=t_fmt,
+            p=p,
+            lookback=lookback,
+            output=output,
+            include_series=include_series,
+            max_regimes=max_regimes,
+            min_regime_bars_val=min_regime_bars_val,
+        )
+    if method == "clustering":
+        return _detect_clustering(
+            symbol=symbol,
+            timeframe=timeframe,
+            target=target,
+            method=method,
+            x=x,
+            t_fmt=t_fmt,
+            p=p,
+            lookback=lookback,
+            output=output,
+            include_series=include_series,
+            max_regimes=max_regimes,
+            min_regime_bars_val=min_regime_bars_val,
+        )
+    if method == "garch":
+        return _detect_garch(
+            symbol=symbol,
+            timeframe=timeframe,
+            target=target,
+            method=method,
+            x=x,
+            t_fmt=t_fmt,
+            p=p,
+            lookback=lookback,
+            output=output,
+            include_series=include_series,
+            max_regimes=max_regimes,
+            min_regime_bars_val=min_regime_bars_val,
+        )
+    if method == "wavelet":
+        return _detect_wavelet(
+            symbol=symbol,
+            timeframe=timeframe,
+            target=target,
+            method=method,
+            x=x,
+            t_fmt=t_fmt,
+            p=p,
+            lookback=lookback,
+            output=output,
+            include_series=include_series,
+            max_regimes=max_regimes,
+            min_regime_bars_val=min_regime_bars_val,
+        )
+    if method == "rule_based":
+        config = rule_based_config or {
+            "efficiency_threshold": 0.35,
+            "trend_strength_threshold": 1.25,
+            "window_bars": 160,
+        }
+        series = price_series if price_series is not None else x
+        times = price_times if price_times is not None else np.asarray([], dtype=float)
+        return _detect_rule_based(
+            symbol=symbol,
+            timeframe=timeframe,
+            target=target,
+            method=method,
+            output=output,
+            rule_based_config=config,
+            price_series=np.asarray(series, dtype=float),
+            price_times=np.asarray(times, dtype=float),
+            global_warnings=list(global_warnings or []),
+        )
+    return {"error": f"Unsupported regime method: {method}"}
+
+
 def _detect_ensemble(  # noqa: C901
     *,
     symbol: str,
@@ -2588,7 +2747,6 @@ def _detect_ensemble(  # noqa: C901
     from .api import (
         _normalize_regime_method_name,
         _regime_params_for_method,
-        regime_detect,
     )
 
     # Consensus regime detection: run multiple fast methods and
@@ -2657,21 +2815,21 @@ def _detect_ensemble(  # noqa: C901
         sub_params.pop("voting", None)
         sub_params.setdefault("n_states", n_states_ens)
         try:
-            sr = call_tool_sync_structured(
-                regime_detect,
+            sr = _run_regime_method(
+                method=sm,
                 symbol=symbol,
                 timeframe=timeframe,
-                fetch_limit=fetch_limit,
-                method=sm,  # type: ignore[arg-type]
                 target=target,
-                params=sub_params,
-                denoise=denoise,
-                threshold=threshold,
-                detail="full",
+                x=x,
+                t_fmt=t_fmt,
+                p=sub_params,
                 lookback=lookback,
+                output="full",
                 include_series=True,
+                max_regimes=max_regimes,
+                min_regime_bars_val=min_regime_bars_val,
+                threshold=threshold,
                 min_regime_bars=min_regime_bars,
-                raw_tool_output=True,
             )
         except Exception as exc:
             sub_errors.append(f"{sm}: {exc}")
@@ -2729,8 +2887,13 @@ def _detect_all(  # noqa: C901
     denoise: Any,
     min_regime_bars: Optional[int],
     verbosity_output: str,
+    calibration_returns: Optional[np.ndarray] = None,
+    price_series: Optional[np.ndarray] = None,
+    price_times: Optional[np.ndarray] = None,
+    rule_based_config: Optional[Dict[str, Any]] = None,
+    global_warnings: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    from .api import _regime_params_for_method, regime_detect
+    from .api import _regime_params_for_method
 
     # Run all methods and return individual results for comparison
     detail_value = output
@@ -2763,27 +2926,28 @@ def _detect_all(  # noqa: C901
                 sub_params.setdefault("n_states", 2)
             # GARCH: if n_states not explicitly set, leave it out for auto-detection
             ensemble_eligible = m in _ENSEMBLE_STATE_METHODS
-            sr = call_tool_sync_structured(
-                regime_detect,
+            sr = _run_regime_method(
+                method=m,
                 symbol=symbol,
                 timeframe=timeframe,
-                fetch_limit=fetch_limit,
-                method=m,  # type: ignore[arg-type]
                 target=target,
-                params=sub_params,
-                denoise=denoise,
-                threshold=threshold,
-                detail=(
-                    "full" if ensemble_eligible else sub_detail
-                ),  # type: ignore[arg-type]
+                x=x,
+                t_fmt=t_fmt,
+                p=sub_params,
                 lookback=lookback,
+                output="full" if ensemble_eligible else sub_detail,
                 include_series=(
-                    True
-                    if ensemble_eligible
-                    else include_series_for_subcalls
+                    True if ensemble_eligible else include_series_for_subcalls
                 ),
+                max_regimes=max_regimes,
+                min_regime_bars_val=min_regime_bars_val,
+                threshold=threshold,
                 min_regime_bars=min_regime_bars,
-                raw_tool_output=True,
+                calibration_returns=calibration_returns,
+                price_series=price_series,
+                price_times=price_times,
+                rule_based_config=rule_based_config,
+                global_warnings=global_warnings,
             )
             if isinstance(sr, dict) and not sr.get("error"):
                 if ensemble_eligible:

@@ -865,6 +865,11 @@ def regime_detect(  # noqa: C901
                 denoise=denoise,
                 min_regime_bars=min_regime_bars,
                 verbosity_output=verbosity_output,
+                calibration_returns=calibration_returns,
+                price_series=price_series,
+                price_times=price_times,
+                rule_based_config=rule_based_config,
+                global_warnings=global_warnings,
             ))
 
     except Exception as e:

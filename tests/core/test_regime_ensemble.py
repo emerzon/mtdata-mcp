@@ -142,7 +142,7 @@ class TestEnsembleRegime:
             np.quantile(returns, [0.25, 0.5, 0.75]),
         ).astype(int)
 
-        def _sub_result(_tool, **kwargs):
+        def _sub_result(**kwargs):
             states = hmm_states if kwargs["method"] == "hmm" else cluster_states
             state_count = 2 if kwargs["method"] == "hmm" else 4
             probabilities = np.eye(state_count, dtype=float)[states]
@@ -155,7 +155,7 @@ class TestEnsembleRegime:
             }
 
         with patch(
-            "mtdata.core.regime.detect.call_tool_sync_structured",
+            "mtdata.core.regime.detect._run_regime_method",
             side_effect=_sub_result,
         ):
             res = regime_detect(

@@ -173,7 +173,7 @@ def test_regime_detect_all_respects_full_and_summary_detail(monkeypatch) -> None
 
     def fake_recursive(*args, **kwargs):
         method_name = str(kwargs.get("method") or "")
-        detail_name = str(kwargs.get("detail") or "")
+        detail_name = str(kwargs.get("output") or kwargs.get("detail") or "")
         include_series = bool(kwargs.get("include_series"))
         subcall_details.append((method_name, detail_name, include_series))
         result = {
@@ -192,7 +192,7 @@ def test_regime_detect_all_respects_full_and_summary_detail(monkeypatch) -> None
                 }
         return result
 
-    monkeypatch.setattr(regime_api, "regime_detect", fake_recursive)
+    monkeypatch.setattr(regime_detect_mod, "_run_regime_method", fake_recursive)
 
     full = real("EURUSD", method="all", detail="full", include_series=True)
     assert full["detail"] == "full"
@@ -268,7 +268,7 @@ def test_regime_detect_all_reports_runtime_diagnostics_for_partial_results(monke
             }
         return result
 
-    monkeypatch.setattr(regime_api, "regime_detect", fake_recursive)
+    monkeypatch.setattr(regime_detect_mod, "_run_regime_method", fake_recursive)
 
     result = real("EURUSD", method="all", detail="compact")
 
@@ -322,7 +322,7 @@ def test_regime_detect_all_promotes_excluded_successful_voter(monkeypatch) -> No
             }
         return result
 
-    monkeypatch.setattr(regime_api, "regime_detect", fake_recursive)
+    monkeypatch.setattr(regime_detect_mod, "_run_regime_method", fake_recursive)
 
     result = real("EURUSD", method="all", detail="compact")
 
@@ -522,6 +522,7 @@ def test_rule_based_uses_price_window_metrics_for_return_target() -> None:
         patch("mtdata.core.regime.api._fetch_history", return_value=history),
         patch("mtdata.core.regime.api.resolve_denoise_base_col", return_value="close"),
         patch("mtdata.core.regime.api._format_time_minimal", side_effect=lambda x: f"T{x}"),
+        patch("mtdata.core.regime.detect._format_time_minimal", side_effect=lambda x: f"T{x}"),
     ):
         out = raw(
             symbol="TEST",
@@ -549,6 +550,7 @@ def test_rule_based_exposes_classification_window_without_segment_claims() -> No
         patch("mtdata.core.regime.api._fetch_history", return_value=_downtrend_df(100)),
         patch("mtdata.core.regime.api.resolve_denoise_base_col", return_value="close"),
         patch("mtdata.core.regime.api._format_time_minimal", side_effect=lambda x: f"T{x}"),
+        patch("mtdata.core.regime.detect._format_time_minimal", side_effect=lambda x: f"T{x}"),
     ):
         out = raw(
             symbol="TEST",
@@ -612,6 +614,7 @@ def test_rule_based_explicit_fetch_limit_controls_default_window(
         patch("mtdata.core.regime.api._fetch_history", side_effect=fake_fetch_history),
         patch("mtdata.core.regime.api.resolve_denoise_base_col", return_value="close"),
         patch("mtdata.core.regime.api._format_time_minimal", side_effect=lambda x: f"T{x}"),
+        patch("mtdata.core.regime.detect._format_time_minimal", side_effect=lambda x: f"T{x}"),
     ):
         out = raw(
             symbol="TEST",
@@ -681,6 +684,7 @@ def test_rule_based_ranging_confidence_uses_ranging_evidence() -> None:
         patch("mtdata.core.regime.api._fetch_history", return_value=_flat_df()),
         patch("mtdata.core.regime.api.resolve_denoise_base_col", return_value="close"),
         patch("mtdata.core.regime.api._format_time_minimal", side_effect=lambda x: f"T{x}"),
+        patch("mtdata.core.regime.detect._format_time_minimal", side_effect=lambda x: f"T{x}"),
     ):
         out = raw(
             symbol="TEST",
@@ -703,6 +707,7 @@ def test_rule_based_explains_ranging_direction_bias() -> None:
         patch("mtdata.core.regime.api._fetch_history", return_value=_choppy_bearish_df()),
         patch("mtdata.core.regime.api.resolve_denoise_base_col", return_value="close"),
         patch("mtdata.core.regime.api._format_time_minimal", side_effect=lambda x: f"T{x}"),
+        patch("mtdata.core.regime.detect._format_time_minimal", side_effect=lambda x: f"T{x}"),
     ):
         out = raw(
             symbol="TEST",
@@ -732,6 +737,7 @@ def test_rule_based_compact_explains_direction_bias() -> None:
         patch("mtdata.core.regime.api._fetch_history", return_value=_choppy_bearish_df()),
         patch("mtdata.core.regime.api.resolve_denoise_base_col", return_value="close"),
         patch("mtdata.core.regime.api._format_time_minimal", side_effect=lambda x: f"T{x}"),
+        patch("mtdata.core.regime.detect._format_time_minimal", side_effect=lambda x: f"T{x}"),
     ):
         out = raw(
             symbol="TEST",
@@ -776,6 +782,7 @@ def test_rule_based_summary_explains_direction_bias() -> None:
         patch("mtdata.core.regime.api._fetch_history", return_value=_choppy_bearish_df()),
         patch("mtdata.core.regime.api.resolve_denoise_base_col", return_value="close"),
         patch("mtdata.core.regime.api._format_time_minimal", side_effect=lambda x: f"T{x}"),
+        patch("mtdata.core.regime.detect._format_time_minimal", side_effect=lambda x: f"T{x}"),
     ):
         out = raw(
             symbol="TEST",
@@ -803,6 +810,7 @@ def test_rule_based_warns_for_inapplicable_parameters() -> None:
         patch("mtdata.core.regime.api._fetch_history", return_value=_choppy_bearish_df()),
         patch("mtdata.core.regime.api.resolve_denoise_base_col", return_value="close"),
         patch("mtdata.core.regime.api._format_time_minimal", side_effect=lambda x: f"T{x}"),
+        patch("mtdata.core.regime.detect._format_time_minimal", side_effect=lambda x: f"T{x}"),
     ):
         out = raw(
             symbol="TEST",
@@ -830,6 +838,7 @@ def test_rule_based_lookback_controls_window_when_window_bars_omitted() -> None:
         patch("mtdata.core.regime.api._fetch_history", return_value=_choppy_bearish_df()),
         patch("mtdata.core.regime.api.resolve_denoise_base_col", return_value="close"),
         patch("mtdata.core.regime.api._format_time_minimal", side_effect=lambda x: f"T{x}"),
+        patch("mtdata.core.regime.detect._format_time_minimal", side_effect=lambda x: f"T{x}"),
     ):
         out = raw(
             symbol="TEST",
@@ -861,6 +870,7 @@ def test_gmm_reports_distinct_method_and_common_reliability() -> None:
         patch("mtdata.core.regime.api._fetch_history", return_value=history),
         patch("mtdata.core.regime.api.resolve_denoise_base_col", return_value="close"),
         patch("mtdata.core.regime.api._format_time_minimal", side_effect=lambda x: f"T{x}"),
+        patch("mtdata.core.regime.detect._format_time_minimal", side_effect=lambda x: f"T{x}"),
         patch(
             "mtdata.core.regime.detect.fit_gaussian_mixture_1d",
             return_value=(weights, mu, sigma, gamma, None),
@@ -901,7 +911,8 @@ def test_ensemble_rejects_bocpd_change_point_votes() -> None:
         patch("mtdata.core.regime.api._fetch_history", return_value=history),
         patch("mtdata.core.regime.api.resolve_denoise_base_col", return_value="close"),
         patch("mtdata.core.regime.api._format_time_minimal", side_effect=lambda x: f"T{x}"),
-        patch("mtdata.core.regime.detect.call_tool_sync_structured") as call_tool,
+        patch("mtdata.core.regime.detect._format_time_minimal", side_effect=lambda x: f"T{x}"),
+        patch("mtdata.core.regime.detect._run_regime_method") as call_tool,
     ):
         out = raw(
             symbol="TEST",
@@ -932,8 +943,8 @@ def test_ensemble_discloses_kurtosis_state_count_heuristic() -> None:
     )
     ref_len = n - 1
 
-    def fake_call_tool(_tool, **kwargs):
-        n_states = int(kwargs["params"]["n_states"])
+    def fake_call_tool(**kwargs):
+        n_states = int(kwargs["p"]["n_states"])
         return {
             "success": True,
             "method": "hmm",
@@ -949,9 +960,10 @@ def test_ensemble_discloses_kurtosis_state_count_heuristic() -> None:
         patch("mtdata.core.regime.api._fetch_history", return_value=history),
         patch("mtdata.core.regime.api.resolve_denoise_base_col", return_value="close"),
         patch("mtdata.core.regime.api._format_time_minimal", side_effect=lambda x: f"T{x}"),
+        patch("mtdata.core.regime.detect._format_time_minimal", side_effect=lambda x: f"T{x}"),
         patch("mtdata.core.regime.ensemble._finite_raw_kurtosis", return_value=4.0),
         patch(
-            "mtdata.core.regime.detect.call_tool_sync_structured",
+            "mtdata.core.regime.detect._run_regime_method",
             side_effect=fake_call_tool,
         ),
     ):
@@ -988,7 +1000,7 @@ def test_ensemble_keeps_invalid_leading_submethod_rows_undefined() -> None:
     states = [-1, -1] + [1] * (ref_len - 2)
     probs = [[0.0, 0.0], [0.0, 0.0]] + [[0.1, 0.9]] * (ref_len - 2)
 
-    def fake_call_tool(_tool, **_kwargs):
+    def fake_call_tool(**_kwargs):
         return {
             "success": True,
             "method": "hmm",
@@ -1002,7 +1014,8 @@ def test_ensemble_keeps_invalid_leading_submethod_rows_undefined() -> None:
         patch("mtdata.core.regime.api._fetch_history", return_value=history),
         patch("mtdata.core.regime.api.resolve_denoise_base_col", return_value="close"),
         patch("mtdata.core.regime.api._format_time_minimal", side_effect=lambda x: f"T{x}"),
-        patch("mtdata.core.regime.detect.call_tool_sync_structured", side_effect=fake_call_tool),
+        patch("mtdata.core.regime.detect._format_time_minimal", side_effect=lambda x: f"T{x}"),
+        patch("mtdata.core.regime.detect._run_regime_method", side_effect=fake_call_tool),
     ):
         out = raw(
             symbol="TEST",
