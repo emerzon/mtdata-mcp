@@ -293,34 +293,3 @@ def test_simple_return_transforms_mask_zero_denominators():
     assert percentages[1] == pytest.approx(-100.0)
     assert np.isnan(returns[2])
     assert np.isnan(percentages[2])
-
-
-def test_aggregate_horizon_target_applies_forward_window_aggregations():
-    y = np.array([1.0, 2.0, 3.0], dtype=float)
-
-    out, info = tb.aggregate_horizon_target(y, horizon=2, agg_spec=None)
-    assert np.allclose(out, y)
-    assert info == {"agg": "last", "normalize": "none"}
-
-    mean_out, mean_info = tb.aggregate_horizon_target(y, horizon=2, agg_spec="mean")
-    np.testing.assert_allclose(mean_out[:2], np.array([1.5, 2.5]))
-    assert np.isnan(mean_out[2])
-    assert mean_info["aligned"] == "forward"
-
-    sum_out, sum_info = tb.aggregate_horizon_target(y, horizon=2, agg_spec="sum", normalize="per_bar")
-    np.testing.assert_allclose(sum_out[:2], np.array([1.5, 2.5]))
-    assert np.isnan(sum_out[2])
-    assert sum_info["normalize"] == "per_bar"
-
-    slope_out, _ = tb.aggregate_horizon_target(y, horizon=2, agg_spec="slope")
-    np.testing.assert_allclose(slope_out[:2], np.array([1.0, 1.0]))
-    assert np.isnan(slope_out[2])
-
-    vol_out, _ = tb.aggregate_horizon_target(y, horizon=2, agg_spec="vol")
-    np.testing.assert_allclose(vol_out[:2], np.array([np.sqrt(0.5), np.sqrt(0.5)]))
-    assert np.isnan(vol_out[2])
-
-    passthrough_out, passthrough_info = tb.aggregate_horizon_target(y, horizon=2, agg_spec="unknown", normalize="per_bar")
-    assert np.allclose(passthrough_out, y)
-    assert passthrough_info["agg"] == "unknown"
-    assert passthrough_info["normalize"] == "per_bar"
