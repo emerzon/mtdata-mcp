@@ -419,7 +419,12 @@ class TestDenoiseSeriesDispatch:
         step = np.concatenate([np.zeros(128), np.ones(128)])
         s = _make_series(step)
 
-        tapered = _denoise_series(s, method="lowpass_fft", params={"cutoff_ratio": 0.1}).to_numpy()
+        tapered = denoise_series(
+            s,
+            method="lowpass_fft",
+            params={"cutoff_ratio": 0.1},
+            causality="zero_phase",
+        ).to_numpy()
 
         spectrum = np.fft.rfft(step)
         brick = np.zeros_like(spectrum)

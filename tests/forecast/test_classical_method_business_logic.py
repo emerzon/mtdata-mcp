@@ -58,7 +58,11 @@ def test_seasonal_naive_validation_and_repeating_pattern():
     assert out.params_used == {"m": 2}
 
 
-def test_theta_forecast_tracks_trend_and_reports_alpha_and_slope():
+def test_theta_forecast_tracks_trend_and_reports_alpha_and_slope(monkeypatch):
+    monkeypatch.setattr(
+        "mtdata.forecast.methods.statsforecast.GenericStatsForecastMethod.forecast",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("unavailable")),
+    )
     method = cl.ThetaMethod()
     series = pd.Series([2.0, 4.0, 6.0, 8.0])
     out = method.forecast(series, horizon=2, seasonality=0, params={})
@@ -80,7 +84,11 @@ def test_theta_forecast_rejects_non_finite_series_values():
         method.forecast(pd.Series([2.0, np.nan, 6.0]), horizon=2, seasonality=0, params={})
 
 
-def test_theta_forecast_deseasonalizes_and_restores_requested_cycle():
+def test_theta_forecast_deseasonalizes_and_restores_requested_cycle(monkeypatch):
+    monkeypatch.setattr(
+        "mtdata.forecast.methods.statsforecast.GenericStatsForecastMethod.forecast",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("unavailable")),
+    )
     method = cl.ThetaMethod()
     trend = 10.0 + 0.5 * np.arange(24, dtype=float)
     seasonal = np.tile(np.array([-2.0, 1.0, 3.0, -2.0]), 6)
