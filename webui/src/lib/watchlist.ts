@@ -1,15 +1,5 @@
 export const WATCHLIST_STORAGE_KEY = 'mtdata.watchlist'
 export const WATCHLIST_MAX = 20
-export const DEFAULT_MAJORS = [
-  'EURUSD',
-  'GBPUSD',
-  'USDJPY',
-  'USDCHF',
-  'AUDUSD',
-  'USDCAD',
-  'XAUUSD',
-  'BTCUSD',
-] as const
 
 export function normalizeSymbol(value: string | null | undefined): string {
   return String(value || '').trim().toUpperCase()
@@ -27,31 +17,6 @@ export function normalizeWatchlist(value: unknown, max = WATCHLIST_MAX): string[
     if (symbols.length >= max) break
   }
   return symbols
-}
-
-export function seedWatchlist(
-  lastSymbol: string | undefined,
-  available: string[],
-  majors: readonly string[] = DEFAULT_MAJORS,
-  max = WATCHLIST_MAX
-): string[] {
-  const catalog = new Set(available.map((item) => normalizeSymbol(item)).filter(Boolean))
-  const seed: string[] = []
-  const last = normalizeSymbol(lastSymbol)
-  if (last && (catalog.size === 0 || catalog.has(last))) seed.push(last)
-  for (const major of majors) {
-    const symbol = normalizeSymbol(major)
-    if (!symbol || seed.includes(symbol)) continue
-    if (catalog.size === 0 || catalog.has(symbol)) seed.push(symbol)
-    if (seed.length >= max) return seed
-  }
-  if (seed.length === 0) {
-    for (const symbol of catalog) {
-      seed.push(symbol)
-      if (seed.length >= Math.min(8, max)) break
-    }
-  }
-  return seed
 }
 
 export function addWatchlistSymbol(list: string[], symbol: string, max = WATCHLIST_MAX): string[] {

@@ -4,7 +4,6 @@ import {
   moveWatchlistSymbol,
   normalizeWatchlist,
   removeWatchlistSymbol,
-  seedWatchlist,
 } from './watchlist'
 
 describe('watchlist helpers', () => {
@@ -13,14 +12,6 @@ describe('watchlist helpers', () => {
       'EURUSD',
       'GBPUSD',
     ])
-  })
-
-  it('seeds last symbol plus broker majors', () => {
-    expect(seedWatchlist('xauusd', ['EURUSD', 'XAUUSD', 'US500'])).toEqual(['XAUUSD', 'EURUSD'])
-  })
-
-  it('falls back to catalog names when majors are absent', () => {
-    expect(seedWatchlist(undefined, ['US500', 'DE40', 'JP225'])).toEqual(['US500', 'DE40', 'JP225'])
   })
 
   it('adds, removes, and reorders', () => {

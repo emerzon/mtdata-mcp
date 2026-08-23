@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { getErrorMessage, getRadar, getSessionStrip, searchInstruments } from '../api/client'
+import { getErrorMessage, getRadar, getSessionStrip } from '../api/client'
 import { radarPanelPlacementClass, type LayoutBreakpoint } from '../lib/layout'
 import { useEscapeKey } from '../lib/useEscapeKey'
 import { loadJSON, saveJSON } from '../lib/storage'
@@ -11,7 +11,6 @@ import {
   moveWatchlistSymbol,
   normalizeWatchlist,
   removeWatchlistSymbol,
-  seedWatchlist,
 } from '../lib/watchlist'
 import type { RadarRow } from '../types'
 
@@ -48,40 +47,8 @@ export function RadarPanel({
   const [watchlist, setWatchlist] = useState<string[]>(() =>
     normalizeWatchlist(loadJSON<string[]>(WATCHLIST_STORAGE_KEY))
   )
-  const [seeded, setSeeded] = useState(false)
   const [draft, setDraft] = useState('')
   useEscapeKey(open, onClose)
-
-  useEffect(() => {
-    if (!open || seeded) return
-    let cancelled = false
-    void searchInstruments(undefined, 80)
-      .then((items) => {
-        if (cancelled) return
-        const available = items.map((item) => item.symbol).filter(Boolean)
-        setWatchlist((current) => {
-          const next =
-            current.length > 0
-              ? current
-              : seedWatchlist(symbol || loadJSON<string>('last_symbol'), available)
-          saveJSON(WATCHLIST_STORAGE_KEY, next)
-          return next
-        })
-        setSeeded(true)
-      })
-      .catch(() => {
-        if (cancelled) return
-        setWatchlist((current) => {
-          const next = current.length > 0 ? current : seedWatchlist(symbol, [])
-          saveJSON(WATCHLIST_STORAGE_KEY, next)
-          return next
-        })
-        setSeeded(true)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [open, seeded, symbol])
 
   const persist = (next: string[]) => {
     setWatchlist(next)
@@ -90,11 +57,24 @@ export function RadarPanel({
 
   const symbolsKey = watchlist.join(',')
   const radarQuery = useQuery({
-    queryKey: ['radar', symbolsKey, timeframe],
-    queryFn: () => getRadar({ symbols: symbolsKey, timeframe, rank_by: 'watchlist', limit: WATCHLIST_MAX }),
-    enabled: open && watchlist.length > 0,
+    queryKey: ['radar', symbolsKey || 'seed', timeframe],
+    queryFn: () =>
+      getRadar({
+        symbols: watchlist.length > 0 ? symbolsKey : undefined,
+        timeframe,
+        rank_by: 'watchlist',
+        limit: WATCHLIST_MAX,
+      }),
+    enabled: open,
     refetchInterval: 20_000,
   })
+
+  useEffect(() => {
+    if (watchlist.length > 0 || !radarQuery.data?.rows?.length) return
+    const symbols = radarQuery.data.rows.map((row) => row.symbol).filter(Boolean)
+    const last = symbol || loadJSON<string>('last_symbol') || undefined
+    persist(normalizeWatchlist(last ? [last, ...symbols] : symbols))
+  }, [radarQuery.data, symbol, watchlist.length])
   const sessionQuery = useQuery({
     queryKey: ['session-strip', symbol],
     queryFn: () => getSessionStrip(symbol || undefined),
