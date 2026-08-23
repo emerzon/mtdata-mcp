@@ -20,6 +20,7 @@ from typing import Any, Dict, Iterator, Optional, Tuple
 from uuid import uuid4
 
 from ..bootstrap.settings import mt5_config
+from ..shared.constants import DATA_POLL_INTERVAL, DATA_READY_TIMEOUT
 from ..shared.symbols import _alnum_upper
 from .quote import tick_epoch
 from .symbol import symbol_suggestions_from_gateway
@@ -59,13 +60,7 @@ def _safe_mt5_error_code(error: Any) -> str:
 
 
 def _data_ready_timing() -> tuple[float, float]:
-    """Load symbol-readiness timing constants lazily to avoid import cycles."""
-    try:
-        from ..shared.constants import DATA_POLL_INTERVAL, DATA_READY_TIMEOUT
-
-        return float(DATA_READY_TIMEOUT), float(DATA_POLL_INTERVAL)
-    except Exception:
-        return 3.0, 0.2
+    return float(DATA_READY_TIMEOUT), float(DATA_POLL_INTERVAL)
 
 
 def _load_mt5_module() -> Any:

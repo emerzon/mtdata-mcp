@@ -3,7 +3,7 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
-from ..shared.constants import CALENDAR_TIMEFRAMES
+from ..shared.constants import CALENDAR_TIMEFRAMES, TIMEFRAME_SECONDS
 
 
 def bar_close_epoch(open_epoch: Any, timeframe: str) -> float:
@@ -36,8 +36,6 @@ def bar_close_epoch(open_epoch: Any, timeframe: str) -> float:
             closed_local_naive,
         )
         return float(closed_at.astimezone(timezone.utc).timestamp())
-
-    from ..shared.constants import TIMEFRAME_SECONDS
 
     seconds = TIMEFRAME_SECONDS.get(normalized_timeframe)
     if seconds is None:

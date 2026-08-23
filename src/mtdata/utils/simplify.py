@@ -10,25 +10,17 @@ import numpy as np
 import pandas as pd
 import ruptures as rpt
 
+from ..shared.constants import (
+    SIMPLIFY_DEFAULT_MAX_POINTS,
+    SIMPLIFY_DEFAULT_MIN_POINTS,
+    SIMPLIFY_DEFAULT_MODE,
+    SIMPLIFY_DEFAULT_RATIO,
+)
+
 try:
     from tsdownsample import MinMaxLTTBDownsampler
 except Exception:
     MinMaxLTTBDownsampler = None
-
-# Import defaults from shared.constants to avoid duplication.
-# Use a lazy import to prevent circular imports during initialization.
-def _get_simplify_defaults() -> Tuple[float, int, int]:
-    """Lazy-load simplify defaults from shared.constants to avoid circular imports."""
-    try:
-        from ..shared.constants import (
-            SIMPLIFY_DEFAULT_MAX_POINTS,
-            SIMPLIFY_DEFAULT_MIN_POINTS,
-            SIMPLIFY_DEFAULT_RATIO,
-        )
-        return (SIMPLIFY_DEFAULT_RATIO, SIMPLIFY_DEFAULT_MIN_POINTS, SIMPLIFY_DEFAULT_MAX_POINTS)
-    except ImportError:
-        # Fallback if shared.constants is not available (e.g., during isolated testing)
-        return (0.25, 100, 500)
 
 
 def _default_target_points(total: int) -> int:
@@ -37,13 +29,9 @@ def _default_target_points(total: int) -> int:
     Uses SIMPLIFY_DEFAULT_RATIO bounded by
     [SIMPLIFY_DEFAULT_MIN_POINTS, SIMPLIFY_DEFAULT_MAX_POINTS].
     """
-    try:
-        ratio, min_pts, max_pts = _get_simplify_defaults()
-        t = int(round(total * ratio))
-        t = max(min_pts, min(max_pts, t))
-        return max(3, min(t, total))
-    except Exception:
-        return max(3, min(100, total))
+    t = int(round(total * SIMPLIFY_DEFAULT_RATIO))
+    t = max(SIMPLIFY_DEFAULT_MIN_POINTS, min(SIMPLIFY_DEFAULT_MAX_POINTS, t))
+    return max(3, min(t, total))
 
 
 def _choose_simplify_points(total: int, spec: Dict[str, Any]) -> int:
@@ -1009,8 +997,6 @@ def _simplify_dataframe_rows_ext(
     """Extended simplify dispatcher shared by core and service adapters."""
     if df.empty:
         return df, None
-
-    from ..shared.constants import SIMPLIFY_DEFAULT_MODE
 
     spec = dict(simplify) if simplify else {}
     mode = str(spec.get('mode', SIMPLIFY_DEFAULT_MODE)).lower().strip() or SIMPLIFY_DEFAULT_MODE
