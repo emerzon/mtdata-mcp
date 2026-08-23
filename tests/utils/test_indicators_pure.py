@@ -25,7 +25,6 @@ from mtdata.shared.schema import (
     _allow_null,
     _ensure_defs,
     _is_typed_dict_type,
-    _load_indicator_doc_choices,
     _parameters_obj,
     _type_hint_to_schema,
     apply_param_hints,
@@ -884,43 +883,6 @@ class TestSharedDefs:
         vals = defs["TimeframeSpec"]["enum"]
         assert vals == sorted(vals)
 
-    def test_load_indicator_doc_choices_uses_single_loader_call(self):
-        calls = []
-
-        def fake_loader(*, detailed=False):
-            calls.append(detailed)
-            return [
-                {"category": "trend", "name": "ema"},
-                {"category": "momentum", "name": "rsi"},
-                {"category": "trend", "name": "ema"},
-            ]
-
-        categories, names = _load_indicator_doc_choices(fake_loader)
-
-        assert calls == [False]
-        assert categories == ["momentum", "trend"]
-        assert names == []
-
-    def test_load_indicator_doc_choices_falls_back_on_loader_error(self):
-        categories, names = _load_indicator_doc_choices(
-            lambda *, detailed=False: (_ for _ in ()).throw(RuntimeError("boom"))
-        )
-
-        assert categories == []
-        assert names == []
-
-    def test_load_indicator_doc_choices_logs_loader_error(self, caplog):
-        with caplog.at_level(logging.WARNING):
-            categories, names = _load_indicator_doc_choices(
-                lambda *, detailed=False: (_ for _ in ()).throw(RuntimeError("boom"))
-            )
-
-        assert categories == []
-        assert names == []
-        assert any(
-            "indicator metadata loading failed" in record.message.lower()
-            for record in caplog.records
-        )
 
 
 class TestComplexDefs:

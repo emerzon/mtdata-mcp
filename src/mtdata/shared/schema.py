@@ -5,7 +5,6 @@ Provides reusable $defs such as TimeframeSpec and helpers to apply them
 to per-tool parameter schemas.
 """
 import inspect
-import logging
 import types
 from typing import (
     Any,
@@ -26,8 +25,6 @@ from typing_extensions import TypedDict
 from .annotations import get_runtime_annotations, get_runtime_signature
 from .constants import TIMEFRAME_MAP
 from .parameter_contracts import PARAMETER_HELP
-
-_logger = logging.getLogger(__name__)
 
 
 class DimensionalityReductionSpec(BaseModel):
@@ -474,47 +471,7 @@ _TIMEFRAME_CHOICES = tuple(TIMEFRAME_MAP.keys())
 TimeframeLiteral = Literal[_TIMEFRAME_CHOICES]  # type: ignore
 AutoTimeframeLiteral = Union[TimeframeLiteral, Literal["auto"]]
 CANONICAL_OUTPUT_SHAPE_DETAILS = ("compact", "standard", "summary", "full")
-CANONICAL_OUTPUT_DETAIL_ALIASES = types.MappingProxyType({})
 DetailLiteral = Literal["compact", "standard", "summary", "full"]
-
-# ---- Technical Indicators (dynamic discovery and application) ----
-def _load_indicator_doc_choices(
-    list_ta_indicators_docs: Optional[Any] = None,
-) -> Tuple[List[str], List[str]]:
-    """Load small schema enums for indicator docs.
-
-    Indicator names intentionally stay runtime-validated strings to avoid
-    inflating MCP schemas with the full indicator registry.
-    """
-    if list_ta_indicators_docs is None:
-        try:
-            from ..utils.indicators import list_ta_indicators as list_ta_indicators_docs
-        except Exception as ex:
-            _logger.warning(
-                "Indicator schema choices are unavailable because indicator metadata could not be imported: %s",
-                ex,
-            )
-            return [], []
-    try:
-        docs = list_ta_indicators_docs(detailed=False)
-    except Exception as ex:
-        _logger.warning(
-            "Indicator schema choices are unavailable because indicator metadata loading failed: %s",
-            ex,
-        )
-        return [], []
-    if not isinstance(docs, list):
-        _logger.warning(
-            "Indicator schema choices are unavailable because indicator metadata returned %s instead of a list.",
-            type(docs).__name__,
-        )
-        return [], []
-
-    categories = sorted(
-        {it.get("category") for it in docs if isinstance(it, dict) and it.get("category")}
-    )
-    return categories, []
-
 
 # pandas-ta-classic categories are part of this public request contract. Keep
 # the small, stable vocabulary local so importing shared schemas does not import
@@ -530,7 +487,6 @@ _CATEGORY_CHOICES = [
     "volatility",
     "volume",
 ]
-_INDICATOR_NAME_CHOICES: List[str] = []
 
 if _CATEGORY_CHOICES:
     # Create a Literal type alias dynamically
@@ -996,8 +952,6 @@ def get_shared_enum_lists() -> Dict[str, List[str]]:
     }
     if _CATEGORY_CHOICES:
         enums["CATEGORY_CHOICES"] = list(_CATEGORY_CHOICES)
-    if _INDICATOR_NAME_CHOICES:
-        enums["INDICATOR_NAME_CHOICES"] = list(_INDICATOR_NAME_CHOICES)
     return enums
 
 

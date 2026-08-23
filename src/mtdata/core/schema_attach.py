@@ -87,8 +87,6 @@ def server_shared_defs(shared_enums: Dict[str, Any]) -> Dict[str, Any]:
     }
     if shared_enums.get("CATEGORY_CHOICES"):
         defs["IndicatorCategory"] = {"type": "string", "enum": list(shared_enums["CATEGORY_CHOICES"])}
-    if shared_enums.get("INDICATOR_NAME_CHOICES"):
-        defs["IndicatorName"] = {"type": "string", "enum": list(shared_enums["INDICATOR_NAME_CHOICES"])}
     return defs
 
 

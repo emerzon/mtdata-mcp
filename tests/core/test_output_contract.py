@@ -13,24 +13,11 @@ from mtdata.core.output_contract import (
     output_extras_shape_detail,
     resolve_output_contract,
 )
-from mtdata.shared.schema import CANONICAL_OUTPUT_DETAIL_ALIASES
 
 
 def test_normalize_output_detail_preserves_summary_and_standard() -> None:
-    assert (
-        normalize_output_detail(
-            " Summary ",
-            aliases=CANONICAL_OUTPUT_DETAIL_ALIASES,
-        )
-        == "summary"
-    )
-    assert (
-        normalize_output_detail(
-            " Standard ",
-            aliases=CANONICAL_OUTPUT_DETAIL_ALIASES,
-        )
-        == "standard"
-    )
+    assert normalize_output_detail(" Summary ") == "summary"
+    assert normalize_output_detail(" Standard ") == "standard"
 
 
 def test_normalize_output_detail_rejects_removed_summary_only_alias() -> None:
@@ -70,7 +57,6 @@ def test_resolve_output_contract_maps_full_detail_to_full_state() -> None:
 def test_resolve_output_contract_preserves_summary_detail() -> None:
     state = resolve_output_contract(
         {"detail": " summary "},
-        aliases=CANONICAL_OUTPUT_DETAIL_ALIASES,
     )
 
     assert state.detail == "summary"
@@ -119,7 +105,6 @@ def test_resolve_output_contract_prefers_explicit_verbose_when_detail_is_none() 
         {"detail": "summary"},
         detail=None,
         verbose=True,
-        aliases=CANONICAL_OUTPUT_DETAIL_ALIASES,
     )
 
     assert state.detail == "full"

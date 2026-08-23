@@ -28,7 +28,6 @@ from ..shared.parameter_contracts import (
     OUTPUT_EXTRAS as _OUTPUT_EXTRAS,
 )
 from ..shared.schema import (
-    CANONICAL_OUTPUT_DETAIL_ALIASES,
     CANONICAL_OUTPUT_SHAPE_DETAILS,
 )
 from ..utils.coercion import UNPARSED_BOOL, parse_bool_like
@@ -245,7 +244,7 @@ def _normalize_detail_token(value: Any, *, default: str) -> str:
 
 
 def _normalize_detail_aliases(aliases: Optional[Mapping[str, str]]) -> dict[str, str]:
-    normalized: dict[str, str] = dict(CANONICAL_OUTPUT_DETAIL_ALIASES)
+    normalized: dict[str, str] = {}
     if aliases:
         for key, value in aliases.items():
             normalized[_normalize_detail_token(key, default="")] = _normalize_detail_token(
