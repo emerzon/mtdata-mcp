@@ -79,52 +79,6 @@ _CAUSAL_DISCOVER_REQUEST_KEYS = frozenset(
 )
 
 
-def _format_summary(
-    rows: List[Dict[str, object]],
-    symbols: List[str],
-    transform: str,
-    alpha: float,
-    group_hint: str | None = None,
-) -> str:
-    if not rows:
-        return "No valid pairings available for Granger predictive-link discovery."
-    rows_sorted = sorted(
-        rows, key=lambda item: (item["p_value"], item["effect"], item["cause"])
-    )
-    header = [
-        f"Granger predictive-link discovery (transform={transform}, alpha={alpha:.4f})",
-        f"Symbols analysed: {', '.join(symbols)}",
-        "",
-        "Effect <- Cause | Lag | p-value | Samples | Conclusion",
-        "-----------------------------------------------",
-    ]
-    if group_hint:
-        header.insert(1, f"Group: {group_hint}")
-    lines = header
-    for row in rows_sorted:
-        conclusion = (
-            "granger-predictive-link"
-            if row["p_value"] < alpha
-            else "no-granger-link"
-        )
-        lines.append(
-            f"{row['effect']} <- {row['cause']} | {row['lag']} | {row['p_value']:.4f} | {row['samples']} | {conclusion}"
-        )
-    lines.append("")
-    lines.append(
-        "Lag refers to the history length of the cause series used in the best-performing test (ssr_ftest)."
-    )
-    lines.append(
-        "Displayed p-values use Bonferroni correction across tested lags and "
-        "all successfully tested directed pairs."
-    )
-    lines.append(
-        "Results are pairwise predictive lag associations; they do not establish "
-        "structural or economic causality."
-    )
-    return "\n".join(lines)
-
-
 def _compact_causal_pair_rows(
     rows: List[Dict[str, Any]], *, limit: int = 20
 ) -> List[Dict[str, Any]]:

@@ -23,7 +23,6 @@ from mtdata.core.causal.common import (
     _standardize_frame,
     _transform_frame,
 )
-from mtdata.core.causal.discover import _format_summary
 from mtdata.utils.mt5 import MT5ConnectionError
 
 
@@ -306,44 +305,6 @@ class TestFetchSeries:
         assert len(series) == 2
         assert not series.index.has_duplicates
         assert series.iloc[0] == 1.20
-
-
-# ---------------------------------------------------------------------------
-# _format_summary (lines 117-139)
-# ---------------------------------------------------------------------------
-
-
-class TestFormatSummary:
-    def test_empty_rows(self):
-        assert "No valid pairings" in _format_summary([], ["A", "B"], "log_return", 0.05)
-
-    def test_causal_link(self):
-        rows = [{"effect": "B", "cause": "A", "lag": 2, "p_value": 0.01, "samples": 100}]
-        text = _format_summary(rows, ["A", "B"], "log_return", 0.05)
-        assert "causal" in text
-        assert "B <- A" in text
-        assert "tested lags and all successfully tested directed pairs" in text
-
-    def test_no_link(self):
-        rows = [{"effect": "B", "cause": "A", "lag": 1, "p_value": 0.99, "samples": 50}]
-        text = _format_summary(rows, ["A", "B"], "log_return", 0.05)
-        assert "no-granger-link" in text
-
-    def test_group_hint(self):
-        rows = [{"effect": "B", "cause": "A", "lag": 1, "p_value": 0.02, "samples": 80}]
-        text = _format_summary(rows, ["A", "B"], "log_return", 0.05, group_hint="Forex\\Majors")
-        assert "Forex\\Majors" in text
-
-    def test_sorting(self):
-        rows = [
-            {"effect": "B", "cause": "A", "lag": 1, "p_value": 0.50, "samples": 80},
-            {"effect": "A", "cause": "B", "lag": 2, "p_value": 0.01, "samples": 80},
-        ]
-        text = _format_summary(rows, ["A", "B"], "pct", 0.05)
-        lines = text.split("\n")
-        # skip header lines (contain "Effect <- Cause"); find data lines with " | "
-        data_lines = [l for l in lines if "<-" in l and "|" in l and "Effect" not in l]
-        assert "A <- B" in data_lines[0]
 
 
 # ---------------------------------------------------------------------------

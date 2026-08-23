@@ -29,7 +29,6 @@ from mtdata.core.causal.correlation import (
     _build_correlation_summary,
     _rank_correlation_pairs,
 )
-from mtdata.core.causal.discover import _format_summary
 from mtdata.core.output_contract import related_tools_for
 
 
@@ -464,35 +463,3 @@ class TestCorrelationHelpers:
             == "holm_adjusted_p_value_then_raw_p_value_then_test_statistic"
             for item in summary["best_pairs"]
         )
-
-
-class TestFormatSummary:
-    def test_empty_rows(self):
-        result = _format_summary([], ["EURUSD"], "log_return", 0.05)
-        assert "No valid pairings" in result
-
-    def test_with_rows(self):
-        rows = [
-            {"effect": "EURUSD", "cause": "GBPUSD", "lag": 3, "p_value": 0.01, "samples": 100},
-            {"effect": "EURUSD", "cause": "USDJPY", "lag": 2, "p_value": 0.20, "samples": 100},
-        ]
-        result = _format_summary(rows, ["EURUSD", "GBPUSD", "USDJPY"], "log_return", 0.05)
-        assert "granger-predictive-link" in result
-        assert "no-granger-link" in result
-        assert "EURUSD <- GBPUSD" in result
-
-    def test_group_hint(self):
-        rows = [{"effect": "A", "cause": "B", "lag": 1, "p_value": 0.01, "samples": 50}]
-        result = _format_summary(rows, ["A", "B"], "diff", 0.05, group_hint="Forex\\Major")
-        assert "Forex\\Major" in result
-
-    def test_sorted_by_pvalue(self):
-        rows = [
-            {"effect": "A", "cause": "B", "lag": 1, "p_value": 0.50, "samples": 50},
-            {"effect": "C", "cause": "D", "lag": 2, "p_value": 0.01, "samples": 50},
-        ]
-        result = _format_summary(rows, ["A", "B", "C", "D"], "pct", 0.05)
-        lines = result.strip().split("\n")
-        data_lines = [l for l in lines if "<-" in l and "Effect" not in l and "|" in l]
-        # First data line should be the one with lower p-value
-        assert "C <- D" in data_lines[0]
