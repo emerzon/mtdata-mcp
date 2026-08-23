@@ -1091,49 +1091,6 @@ def nf_predict_from_fitted(
                 return nf.predict()
 
 
-def nf_setup_and_predict(
-    *,
-    model_class,
-    fh: int,
-    timeframe: str,
-    Y_df: pd.DataFrame,
-    input_size: int,
-    batch_size: int,
-    steps: int,
-    learning_rate: Optional[float] = None,
-    exog_used: Optional[np.ndarray] = None,
-    exog_future: Optional[np.ndarray] = None,
-    future_times: Optional[List[float]] = None,
-) -> pd.DataFrame:
-    accel = _nf_resolve_accelerator()
-    model_kwargs = nf_build_model_kwargs(
-        model_class=model_class,
-        fh=int(fh),
-        input_size=int(input_size),
-        batch_size=int(batch_size),
-        steps=int(steps),
-        learning_rate=learning_rate,
-        accel=accel,
-    )
-    with _NF_ENV_LOCK:
-        with _NfEnvGuard(accel):
-            nf = nf_create_and_fit(
-                model_class=model_class,
-                model_kwargs=model_kwargs,
-                timeframe=timeframe,
-                Y_df=Y_df,
-                exog_used=exog_used,
-                exog_future=exog_future,
-                future_times=future_times,
-            )
-            return nf_predict_from_fitted(
-                nf,
-                fh=int(fh),
-                exog_future=exog_future,
-                future_times=future_times,
-            )
-
-
 def fetch_history(
     symbol: str,
     timeframe: str,
