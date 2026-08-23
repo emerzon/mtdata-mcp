@@ -1973,13 +1973,6 @@ class NewsAggregator:
 
     def register_source(self, source: NewsSource) -> None:
         self._sources[source.name] = source
-        from .research.capabilities import NEWS
-        from .research.registry import get_research_registry
-
-        get_research_registry().register(source, capabilities={NEWS})
-
-    def get_available_sources(self) -> List[str]:
-        return [name for name, source in self._sources.items() if source.is_available()]
 
     def fetch_news(  # noqa: C901
         self,
@@ -2480,15 +2473,3 @@ def fetch_unified_news(
 
     aggregator = get_news_aggregator()
     return aggregator.fetch_news(symbol=symbol, source=source)
-
-
-def register_news_source(source: NewsSource) -> None:
-    """Register a custom news source for future extension."""
-
-    get_news_aggregator().register_source(source)
-
-
-def get_available_news_sources() -> List[str]:
-    """Return the currently available source names."""
-
-    return get_news_aggregator().get_available_sources()
