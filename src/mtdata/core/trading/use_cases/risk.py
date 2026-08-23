@@ -885,16 +885,6 @@ def run_trade_risk_analyze(  # noqa: C901
                 else:
                     portfolio_positions_total = len(list(portfolio_positions))
 
-            position_type_buy = validation._safe_int_attr(
-                gateway,
-                "POSITION_TYPE_BUY",
-                validation._safe_int_attr(gateway, "ORDER_TYPE_BUY", 0),
-            )
-            position_type_sell = validation._safe_int_attr(
-                gateway,
-                "POSITION_TYPE_SELL",
-                validation._safe_int_attr(gateway, "ORDER_TYPE_SELL", 1),
-            )
             position_risks: List[Dict[str, Any]] = []
             pending_order_risks: List[Dict[str, Any]] = []
             risk_calculation_failures: List[Dict[str, Any]] = []
@@ -981,10 +971,9 @@ def run_trade_risk_analyze(  # noqa: C901
                     rr_ratio = None
                     reward_status = "undefined"
                     risk_status = "undefined"
-                    position_type = validation._safe_int_attr(
-                        pos, "type", position_type_sell
-                    )
-                    is_buy_position = int(position_type) == int(position_type_buy)
+                    is_buy_position = (
+                        validation._resolve_position_side(pos, gateway) or "SELL"
+                    ) == "BUY"
 
                     if sl_price and tick_size > 0 and tick_value_valid:
                         risk_ticks = (
@@ -2468,11 +2457,6 @@ def run_trade_stress_test(
     positions = list(positions)
     equity = validation._safe_float_attr(account, "equity", 0.0) if account is not None else 0.0
     currency = str(getattr(account, "currency", "") or "").strip() if account is not None else ""
-    position_type_buy = validation._safe_int_attr(
-        gateway,
-        "POSITION_TYPE_BUY",
-        validation._safe_int_attr(gateway, "ORDER_TYPE_BUY", 0),
-    )
     rows: List[Dict[str, Any]] = []
     evaluated_positions: List[Any] = []
     warnings_out: List[Dict[str, Any]] = []
@@ -2518,11 +2502,7 @@ def run_trade_stress_test(
             )
             continue
         shocked_price = current_price * (1.0 + shock_value / 100.0)
-        side = (
-            "BUY"
-            if validation._safe_int_attr(position, "type", 1) == int(position_type_buy)
-            else "SELL"
-        )
+        side = validation._resolve_position_side(position, gateway) or "SELL"
         side_sign = 1.0 if side == "BUY" else -1.0
         ticks_moved = (shocked_price - current_price) / tick_size
         raw_pnl_sign = side_sign * ticks_moved
@@ -2992,16 +2972,6 @@ def run_trade_var_cvar_calculate(  # noqa: C901
             result["currency"] = summary["currency"]
         return _finish(result)
 
-    position_type_buy = validation._safe_int_attr(
-        gateway,
-        "POSITION_TYPE_BUY",
-        validation._safe_int_attr(gateway, "ORDER_TYPE_BUY", 0),
-    )
-    position_type_sell = validation._safe_int_attr(
-        gateway,
-        "POSITION_TYPE_SELL",
-        validation._safe_int_attr(gateway, "ORDER_TYPE_SELL", 1),
-    )
     mt5_timeframe = TIMEFRAME_MAP[timeframe_value]
     symbol_info_cache: Dict[str, Any] = {}
     history_failures: List[Dict[str, Any]] = []
@@ -3070,8 +3040,7 @@ def run_trade_var_cvar_calculate(  # noqa: C901
             )
             continue
 
-        position_type = validation._safe_int_attr(position, "type", position_type_sell)
-        side = "BUY" if int(position_type) == int(position_type_buy) else "SELL"
+        side = validation._resolve_position_side(position, gateway) or "SELL"
         side_sign = 1.0 if side == "BUY" else -1.0
         account_notional = _linearized_account_currency_notional(
             volume=volume,
