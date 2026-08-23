@@ -221,24 +221,6 @@ def parse_finviz_earnings_date(
     return None
 
 
-def strip_string_fields_in_rows(
-    rows: List[Dict[str, Any]], *keys: str
-) -> List[Dict[str, Any]]:
-    """Strip whitespace from specified string columns in row dictionaries."""
-    out: List[Dict[str, Any]] = []
-    wanted = set(keys)
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        row_out = dict(row)
-        for key in wanted:
-            value = row_out.get(key)
-            if isinstance(value, str):
-                row_out[key] = value.strip()
-        out.append(row_out)
-    return out
-
-
 def resolve_date_range(
     *, date_from: Optional[str], date_to: Optional[str], default_days: int = 7
 ) -> tuple[str, str]:
@@ -293,7 +275,6 @@ __all__ = [
     "parse_finviz_datetime",
     "finviz_earnings_period_window",
     "parse_finviz_earnings_date",
-    "strip_string_fields_in_rows",
     "resolve_date_range",
     "align_to_next_monday_if_weekend",
 ]
