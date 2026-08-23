@@ -7,8 +7,6 @@ import numbers
 from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Tuple, Union
 
 from ...shared.market_units import (
-    forex_points_per_pip,
-    quote_points_per_pip,
     snap_to_increment,
 )
 from ...utils.coercion import coerce_finite_float, coerce_scalar
@@ -299,77 +297,6 @@ def _validate_deviation(deviation: Union[int, float]) -> Tuple[Optional[int], Op
     if dev < 0:
         return None, "deviation must be >= 0"
     return dev, None
-
-
-def _resolve_slippage_to_deviation(
-    *,
-    deviation: Optional[Union[int, float]] = None,
-    slippage_pips: Optional[float] = None,
-    symbol: Optional[str] = None,
-    symbol_info: Any = None,
-) -> Tuple[Optional[int], Optional[Dict[str, Any]], Optional[str]]:
-    """Convert user-facing slippage inputs to MT5 deviation (points).
-
-    Precedence: explicit *deviation* wins; then *slippage_pips* is converted
-    using the symbol's ``point`` attribute.  Returns ``(deviation, metadata, error)``.
-    """
-    # Explicit deviation takes precedence
-    if deviation is not None:
-        dev, err = _validate_deviation(deviation)
-        if err:
-            return None, None, err
-        return dev, {"source": "deviation", "deviation": dev}, None
-
-    if slippage_pips is None:
-        return 20, {"source": "default", "deviation": 20}, None
-
-    pips = coerce_finite_float(slippage_pips)
-    if pips is None:
-        return None, None, "slippage_pips must be numeric."
-    if pips < 0:
-        return None, None, "slippage_pips must be >= 0 and finite."
-
-    point = None
-    if symbol_info is not None:
-        point = coerce_finite_float(getattr(symbol_info, "point", None))
-
-    if point is None or point <= 0:
-        return None, None, (
-            "Cannot convert slippage_pips: symbol point value unavailable."
-        )
-
-    digits = 0
-    if symbol_info is not None:
-        try:
-            digits = int(getattr(symbol_info, "digits", 0))
-        except (TypeError, ValueError):
-            digits = 0
-
-    symbol_name = str(symbol or getattr(symbol_info, "name", "") or "")
-    symbol_path = str(getattr(symbol_info, "path", "") or "")
-    points_per_pip = forex_points_per_pip(
-        symbol_name,
-        path=symbol_path,
-        point=point,
-        digits=digits,
-    )
-    if points_per_pip is None and not symbol_name and not symbol_path:
-        # Preserve compatibility for callers that only provide quote metadata.
-        points_per_pip = quote_points_per_pip(point=point, digits=digits)
-    if points_per_pip is None:
-        return None, None, (
-            "Cannot convert slippage_pips for a non-FX or unidentified symbol; "
-            "provide deviation in broker points instead."
-        )
-
-    dev = max(0, int(round(pips * points_per_pip)))
-    meta = {
-        "source": "slippage_pips",
-        "slippage_pips": pips,
-        "points_per_pip": points_per_pip,
-        "deviation": dev,
-    }
-    return dev, meta, None
 
 
 def _safe_int_attr(obj: Any, name: str, default: int) -> int:
