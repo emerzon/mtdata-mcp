@@ -342,20 +342,13 @@ export async function healthCheck(signal?: AbortSignal): Promise<{ service: stri
  * can show a non-blocking "not ready" state without treating it as a hard crash.
  */
 export async function readyCheck(signal?: AbortSignal): Promise<{ ok: boolean; payload: ReadyResponse }> {
-  try {
-    const { data, status } = await api.get<ReadyResponse>(apiPath('/ready'), {
-      signal,
-      validateStatus: () => true,
-    })
-    const payload = data && typeof data === 'object' ? data : {}
-    const ok = status >= 200 && status < 300
-    return { ok, payload }
-  } catch (error) {
-    return {
-      ok: false,
-      payload: { status: 'error', message: getErrorMessage(error) },
-    }
-  }
+  const { data, status } = await api.get<ReadyResponse>(apiPath('/ready'), {
+    signal,
+    validateStatus: () => true,
+  })
+  const payload = data && typeof data === 'object' ? data : {}
+  const ok = status >= 200 && status < 300
+  return { ok, payload }
 }
 
 // ============================================================================

@@ -67,4 +67,10 @@ describe('getModels / readyCheck client surface', () => {
     const result = await readyCheck()
     expect(result.ok).toBe(true)
   })
+
+  it('readyCheck lets transport failures reject', async () => {
+    getMock.mockRejectedValueOnce(new Error('network down'))
+    const { readyCheck } = await import('./client')
+    await expect(readyCheck()).rejects.toThrow('network down')
+  })
 })
