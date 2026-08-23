@@ -502,7 +502,6 @@ def _repair_denoised_ohlc_geometry(
 def apply_denoise(
     df: pd.DataFrame,
     spec: Optional[Dict[str, Any]],
-    default_when: str = 'post_ti',
 ) -> List[str]:
     """Apply denoising to DataFrame columns. Returns list of added column names."""
     added_cols: List[str] = []
@@ -615,13 +614,12 @@ def resolve_denoise_base_col(
     denoise: Optional[Dict[str, Any]],
     *,
     base_col: str = "close",
-    default_when: str = "pre_ti",
 ) -> str:
     """Apply denoise when requested and return the effective base column name."""
     if not denoise:
         return base_col
     try:
-        added = apply_denoise(df, denoise, default_when=default_when)
+        added = apply_denoise(df, denoise)
         return effective_denoise_base_col(
             df,
             denoise,

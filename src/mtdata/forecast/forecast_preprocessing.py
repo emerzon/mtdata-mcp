@@ -697,7 +697,7 @@ def apply_preprocessing(
     if denoise:
         denoise_spec = _normalize_denoise_spec(denoise, default_when="pre_ti")
         added = (
-            apply_denoise(df, denoise_spec, default_when="pre_ti")
+            apply_denoise(df, denoise_spec)
             if denoise_spec
             else []
         )

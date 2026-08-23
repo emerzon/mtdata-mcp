@@ -928,7 +928,6 @@ class TestApplyDenoise:
         apply_denoise(
             df,
             {"method": "ema", "columns": "ohlc", "keep_original": False},
-            default_when="pre_ti",
         )
 
         assert (df["high"] >= df[["open", "close"]].max(axis=1)).all()
@@ -1076,7 +1075,7 @@ class TestResolveDenoisBaseCol:
     def test_with_denoise_returns_dn_col(self):
         df = pd.DataFrame({"close": NOISY_SIGNAL})
         spec = {"method": "sma", "params": {"window": 5}, "columns": ["close"], "keep_original": True, "suffix": "_dn"}
-        result = resolve_denoise_base_col(df, spec, default_when="post_ti")
+        result = resolve_denoise_base_col(df, spec)
         assert result == "close_dn"
         assert "close_dn" in df.columns
 

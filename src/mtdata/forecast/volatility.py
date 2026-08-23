@@ -1387,7 +1387,7 @@ def forecast_volatility(  # noqa: C901
                 observed_times=df.get("time"),
             )
             if denoise:
-                apply_denoise(df, denoise, default_when='pre_ti')
+                apply_denoise(df, denoise)
             close_col = _volatility_price_column(df, denoise, "close")
             r = _log_returns_from_prices(df[close_col].astype(float).to_numpy())
             r = r[np.isfinite(r)]
@@ -1507,7 +1507,7 @@ def forecast_volatility(  # noqa: C901
                 dfrv = pd.DataFrame(rates_rv)
                 if dn_spec_used:
                     try:
-                        apply_denoise(dfrv, dn_spec_used, default_when='pre_ti')
+                        apply_denoise(dfrv, dn_spec_used)
                     except Exception:
                         pass
                 bpy, annualization_basis = _annualization_context(
@@ -1688,7 +1688,7 @@ def forecast_volatility(  # noqa: C901
                 user_columns=user_denoise_columns,
             )
             if dn_spec_used:
-                apply_denoise(df, dn_spec_used, default_when='pre_ti')
+                apply_denoise(df, dn_spec_used)
 
         # Compute returns and helpers
         close_col = _volatility_price_column(df, dn_spec_used, "close")

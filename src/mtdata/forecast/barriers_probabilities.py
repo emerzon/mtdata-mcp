@@ -255,7 +255,7 @@ def forecast_barrier_hit_probabilities(  # noqa: C901
         if denoise:
             try:
                 normalized = _denoise_api.normalize_denoise_spec(denoise, default_when='pre_ti') or denoise
-                added = _denoise_api.apply_denoise(df, normalized, default_when='pre_ti')
+                added = _denoise_api.apply_denoise(df, normalized)
                 base_col = _denoise_api.effective_denoise_base_col(
                     df,
                     normalized if isinstance(normalized, dict) else denoise,
@@ -633,7 +633,7 @@ def forecast_barrier_closed_form(  # noqa: C901
         if denoise:
             try:
                 normalized = _denoise_api.normalize_denoise_spec(denoise, default_when='pre_ti') or denoise
-                added = _denoise_api.apply_denoise(df, normalized, default_when='pre_ti')
+                added = _denoise_api.apply_denoise(df, normalized)
                 base_col = _denoise_api.effective_denoise_base_col(
                     df,
                     normalized if isinstance(normalized, dict) else denoise,

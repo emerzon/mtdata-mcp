@@ -1314,7 +1314,7 @@ def _apply_stage_denoise(
     normalized = _normalize_denoise_spec(denoise, default_when=when)
     if not normalized or str(normalized.get("when", when)).lower() != when:
         return
-    added_columns = apply_denoise_util(df, normalized, default_when=when)
+    added_columns = apply_denoise_util(df, normalized)
     last_application = df.attrs.get("denoise_last_application")
     overwritten_columns = (
         list(last_application.get("overwrote_columns") or [])
@@ -1405,7 +1405,7 @@ def _apply_indicator_stage(
             dn_ti['columns'] = list(ti_cols)
             dn_ti.setdefault('when', 'post_ti')
             dn_ti.setdefault('keep_original', False)
-            apply_denoise_util(df, dn_ti, default_when='post_ti')
+            apply_denoise_util(df, dn_ti)
 
     return ti_cols
 
@@ -1476,7 +1476,7 @@ def _rebuild_candle_indicator_window(
     if denoise:
         normalized = _normalize_denoise_spec(denoise, default_when='pre_ti')
         if normalized and str(normalized.get('when', 'pre_ti')).lower() == 'pre_ti':
-            apply_denoise_util(df, normalized, default_when='pre_ti')
+            apply_denoise_util(df, normalized)
     ti_cols = _apply_indicator_stage(df, headers, ti_spec, denoise)
     return df, ti_cols
 

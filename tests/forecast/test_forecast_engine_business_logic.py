@@ -996,7 +996,7 @@ def test_forecast_engine_applies_denoise_to_prefetched_raw_history(monkeypatch):
     monkeypatch.setattr(fe, "ForecastRegistry", FakeRegistry)
     monkeypatch.setattr(fe, "get_symbol_info_cached", lambda symbol: None)
 
-    def fakeapply_denoise(df, spec, default_when=None):
+    def fakeapply_denoise(df, spec):
         df["close_dn"] = df["close"] * 10.0
         return ["close_dn"]
 

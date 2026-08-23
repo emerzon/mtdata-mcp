@@ -288,7 +288,7 @@ def _fetch_pattern_data_after_select(  # noqa: C901
         try:
             dn = _normalize_denoise_spec(denoise, default_when='pre_ti')
             if dn:
-                apply_denoise_util(df, dn, default_when='pre_ti')
+                apply_denoise_util(df, dn)
                 df.attrs["pattern_denoise_applied"] = _materialize_denoise_for_detectors(df, dn)
         except Exception as exc:
             warning = f"Denoise failed for pattern detection on {symbol} {timeframe}; raw prices were used."

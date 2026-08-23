@@ -642,7 +642,7 @@ def regime_detect(  # noqa: C901
         if len(df) < 10:
             return _finish({"error": "Insufficient history"})
         base_col = resolve_denoise_base_col(
-            df, denoise, base_col="close", default_when="pre_ti"
+            df, denoise, base_col="close"
         )
         y = df[base_col].astype(float).to_numpy()
         times = df["time"].astype(float).to_numpy()

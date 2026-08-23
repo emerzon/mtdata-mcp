@@ -772,7 +772,7 @@ def detect_candlestick_patterns(  # noqa: C901
 
             dn = _normalize_denoise_spec(denoise, default_when="pre_ti")
             if dn:
-                apply_denoise_util(df, dn, default_when="pre_ti")
+                apply_denoise_util(df, dn)
                 suffix = str(dn.get("suffix") or "_dn")
                 for name in ("open", "high", "low", "close", "volume", "tick_volume"):
                     candidate = f"{name}{suffix}"

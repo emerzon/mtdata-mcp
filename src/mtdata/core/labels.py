@@ -572,7 +572,7 @@ def labels_triple_barrier(  # noqa: C901
                 else None
             )
             base_col = resolve_denoise_base_col(
-                df, normalized_denoise, base_col="close", default_when="pre_ti"
+                df, normalized_denoise, base_col="close"
             )
             denoise_application = df.attrs.get("denoise_last_application")
             if not isinstance(denoise_application, dict):

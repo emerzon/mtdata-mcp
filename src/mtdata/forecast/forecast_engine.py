@@ -360,7 +360,7 @@ def _resolve_history_context(
             )
         elif denoise:
             normalized = _normalize_denoise_spec(denoise, default_when='pre_ti')
-            added = apply_denoise(df, normalized, default_when='pre_ti') if normalized else []
+            added = apply_denoise(df, normalized) if normalized else []
             dn_spec_used = normalized
             if not prefetched_base_col:
                 base_col = effective_denoise_base_col(
@@ -393,7 +393,7 @@ def _resolve_history_context(
     dn_spec_used = None
     if denoise:
         normalized = _normalize_denoise_spec(denoise, default_when='pre_ti')
-        added = apply_denoise(df, normalized, default_when='pre_ti') if normalized else []
+        added = apply_denoise(df, normalized) if normalized else []
         dn_spec_used = normalized
         base_col = effective_denoise_base_col(
             df,
