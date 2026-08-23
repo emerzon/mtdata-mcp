@@ -27,7 +27,7 @@ from ..shared.schema import (
     get_function_info as _get_function_info,
 )
 from ._mcp_tools import _is_public_tool_name, get_mcp_registry
-from .cli.parsing.discovery import _COMMAND_PARAM_HELP_OVERRIDES
+from .param_help import COMMAND_PARAM_HELP_OVERRIDES
 
 logger = logging.getLogger(__name__)
 _PUBLIC_TOOL_SCHEMAS: Dict[str, Dict[str, Any]] = {}
@@ -444,7 +444,7 @@ def _apply_command_parameter_help(schema: Dict[str, Any], command_name: str) -> 
     for name, property_schema in properties.items():
         if not isinstance(property_schema, dict):
             continue
-        description = _COMMAND_PARAM_HELP_OVERRIDES.get(
+        description = COMMAND_PARAM_HELP_OVERRIDES.get(
             (str(command_name), str(name))
         )
         if description:

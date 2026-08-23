@@ -487,9 +487,9 @@ def _tool_catalog_full_parameters(
             property_schema["default"] = None
         description = str(property_schema.get("description") or "").strip()
         if not description or description.startswith("Value for "):
-            from .cli.parsing.discovery import _COMMAND_PARAM_HELP_OVERRIDES
+            from .param_help import COMMAND_PARAM_HELP_OVERRIDES
 
-            description = _COMMAND_PARAM_HELP_OVERRIDES.get(
+            description = COMMAND_PARAM_HELP_OVERRIDES.get(
                 (str(tool_name), str(name)),
                 f"Input parameter '{name}' for {tool_name}.",
             )
