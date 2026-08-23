@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   getDenoiseMethods,
@@ -17,25 +17,9 @@ import {
   type ChartIndicatorSelection,
 } from '../../lib/indicatorSpec'
 import { loadJSON } from '../../lib/storage'
-import { useEscapeKey } from '../../lib/useEscapeKey'
+import { useDismissiblePanel } from '../../lib/useDismissiblePanel'
 import type { DenoiseMethodInfo, DenoiseSpecUI } from '../../types'
 import { ChevronDown, IndicatorIcon } from './toolbarIcons'
-
-function useDismissiblePanel(onClose: () => void, enabled = true) {
-  const ref = useRef<HTMLDivElement>(null)
-  useEscapeKey(enabled, onClose)
-
-  useEffect(() => {
-    if (!enabled) return
-    const handleClick = (event: MouseEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) onClose()
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [enabled, onClose])
-
-  return ref
-}
 
 export function SymbolSelector({
   value,

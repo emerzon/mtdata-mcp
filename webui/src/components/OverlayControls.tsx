@@ -4,7 +4,7 @@ import {
   type PivotMethod,
   type SupportResistanceControls,
 } from '../lib/overlayParams'
-import { useEscapeKey } from '../lib/useEscapeKey'
+import { useDismissiblePanel } from '../lib/useDismissiblePanel'
 
 type Props = {
   disabled?: boolean
@@ -55,10 +55,10 @@ export function OverlayControls({
   exposureLoading,
 }: Props) {
   const [open, setOpen] = useState(false)
-  useEscapeKey(open, () => setOpen(false))
+  const panelRef = useDismissiblePanel(() => setOpen(false), open)
 
   return (
-    <div className="relative">
+    <div className="relative" ref={panelRef}>
       <button
         type="button"
         className={`toolbar-btn text-xs ${open || hasPivots || hasSR || hasConfluence || hasVolumeProfile || hasExposure ? 'text-sky-300' : ''}`}

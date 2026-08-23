@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import type { DenoiseSpecUI } from '../types'
 import type { PivotMethod, SupportResistanceControls } from '../lib/overlayParams'
 import { toolbarUsesOverflowMenu, type LayoutBreakpoint } from '../lib/layout'
-import { useEscapeKey } from '../lib/useEscapeKey'
+import { useDismissiblePanel } from '../lib/useDismissiblePanel'
 import { ApiAuthControl } from './ApiAuthControl'
 import { ConnectionStatus } from './ConnectionStatus'
 import { OverlayControls } from './OverlayControls'
@@ -123,18 +123,7 @@ export function ChartToolbar({
 }: Props) {
   const overflow = toolbarUsesOverflowMenu(layoutBreakpoint)
   const [moreOpen, setMoreOpen] = useState(false)
-  const moreRef = useRef<HTMLDivElement>(null)
-  useEscapeKey(moreOpen, () => setMoreOpen(false))
-  useEffect(() => {
-    if (!moreOpen) return
-    const handleClick = (event: MouseEvent) => {
-      if (moreRef.current && !moreRef.current.contains(event.target as Node)) {
-        setMoreOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [moreOpen])
+  const moreRef = useDismissiblePanel(() => setMoreOpen(false), moreOpen)
 
   const analysisGroup = (
     <>
