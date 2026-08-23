@@ -96,7 +96,7 @@ def test_simplify_dataframe_rows_resample_uses_shared_bucketed_aggregation():
     df = _sample_ohlc_df()
     headers = ["time", "open", "high", "low", "close", "volume"]
 
-    result_df, meta = simp._simplify_dataframe_rows(
+    result_df, meta = simp._simplify_dataframe_rows_ext(
         df,
         headers,
         {"mode": "resample", "bucket_seconds": 3600},

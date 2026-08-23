@@ -26,7 +26,6 @@ from mtdata.utils.simplify import (
     _rdp_select_indices,
     _segment_endpoints_to_indices,
     _select_indices_for_timeseries,
-    _simplify_dataframe_rows,
     _simplify_dataframe_rows_ext,
 )
 
@@ -483,62 +482,6 @@ class TestSimplifyDataframeRowsExt:
         assert len(out) < len(df)
         assert meta["non_ohlc_numeric_aggregation"] == "segment_mean"
         assert meta["segment_mean_columns"] == ["RSI_14"]
-
-
-# ===== _simplify_dataframe_rows (main dispatcher) =====
-
-class TestSimplifyDataframeRows:
-    def test_none_simplify(self):
-        df = _make_df(50)
-        out, meta = _simplify_dataframe_rows(df, ["time", "close"], None)
-        assert meta is None
-        assert len(out) == 50
-
-    def test_small_df(self):
-        df = _make_df(3)
-        out, meta = _simplify_dataframe_rows(df, ["time", "close"], {"method": "lttb"})
-        assert meta is None
-
-    def test_select_mode_dispatch(self):
-        df = _make_df(100)
-        out, meta = _simplify_dataframe_rows(
-            df, ["time", "close"], {"method": "lttb", "points": 20}
-        )
-        assert meta is not None
-
-    def test_encode_method_promotes_to_mode(self):
-        df = _make_df(100)
-        out, meta = _simplify_dataframe_rows(
-            df, ["time", "close"], {"method": "encode"}
-        )
-        assert meta is not None
-        assert meta.get("mode") == "encode"
-
-    def test_symbolic_method_promotes_to_mode(self):
-        df = _make_df(100)
-        out, meta = _simplify_dataframe_rows(
-            df, ["time", "close"], {"method": "symbolic"}
-        )
-        assert meta is not None
-        assert meta.get("mode") == "symbolic"
-
-    def test_segment_method_promotes_to_mode(self):
-        df = _make_df(100)
-        out, meta = _simplify_dataframe_rows(
-            df, ["time", "close"], {"method": "segment"}
-        )
-        assert meta is not None
-        assert meta.get("mode") == "segment"
-
-    def test_resample_mode_with_epoch(self):
-        df = _make_df(100)
-        out, meta = _simplify_dataframe_rows(
-            df, ["time", "close", "open", "high", "low"],
-            {"mode": "resample", "method": "lttb", "bucket_seconds": 600},
-        )
-        assert meta is not None
-        assert meta.get("mode") == "resample"
-        assert len(out) < 100
 
 
 # ===== _handle_encode_mode =====
