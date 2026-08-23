@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import difflib
-import importlib
 import inspect
 import json
 import os
-import pkgutil
 import sys
 import tempfile
 import warnings
@@ -153,70 +151,39 @@ def _discover_sktime_forecasters() -> Dict[str, Tuple[str, str]]:
                 message=r".*swigvarlink.*",
                 category=DeprecationWarning,
             )
-            import sktime.forecasting as _sf  # type: ignore
-            from sktime.forecasting.base import BaseForecaster  # type: ignore
+            from sktime.registry import all_estimators  # type: ignore
     except Exception:
         return {}
 
     mapping: Dict[str, Tuple[str, str]] = {}
-
-    def _skip_module(mod_name: str) -> bool:
-        parts = mod_name.split(".")
-        if "tests" in parts:
-            return True
-        if any(part.startswith("test") for part in parts):
-            return True
-        return False
-
-    for mod in pkgutil.walk_packages(getattr(_sf, "__path__", []), _sf.__name__ + "."):
-        mod_name = getattr(mod, "name", None)
-        if not isinstance(mod_name, str) or _skip_module(mod_name):
+    try:
+        estimators = all_estimators(estimator_types="forecaster", return_names=True)
+    except Exception:
+        return {}
+    for name, obj in estimators:
+        if not isinstance(name, str) or not name or name.startswith("_"):
+            continue
+        if not isinstance(obj, type):
             continue
         try:
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore", category=DeprecationWarning)
-                warnings.filterwarnings(
-                    "ignore",
-                    message=r".*swigvarlink.*",
-                    category=DeprecationWarning,
-                )
-                module = importlib.import_module(mod_name)
-        except Exception:
+            constructor = inspect.signature(obj)
+        except (TypeError, ValueError):
             continue
-        for _, obj in vars(module).items():
-            if not isinstance(obj, type):
-                continue
-            if obj is BaseForecaster:
-                continue
-            name = getattr(obj, "__name__", None)
-            if not isinstance(name, str) or not name or name.startswith("_"):
-                continue
-            try:
-                if not issubclass(obj, BaseForecaster):
-                    continue
-            except Exception:
-                continue
-            if inspect.isabstract(obj):
-                continue
-            try:
-                constructor = inspect.signature(obj)
-            except (TypeError, ValueError):
-                continue
-            required_constructor_params = [
-                parameter
-                for parameter in constructor.parameters.values()
-                if parameter.default is inspect.Parameter.empty
-                and parameter.kind
-                not in {
-                    inspect.Parameter.VAR_POSITIONAL,
-                    inspect.Parameter.VAR_KEYWORD,
-                }
-            ]
-            if required_constructor_params:
-                continue
-            key = name.lower()
-            if key not in mapping:
-                mapping[key] = (name, f"{obj.__module__}.{name}")
+        required_constructor_params = [
+            parameter
+            for parameter in constructor.parameters.values()
+            if parameter.default is inspect.Parameter.empty
+            and parameter.kind
+            not in {
+                inspect.Parameter.VAR_POSITIONAL,
+                inspect.Parameter.VAR_KEYWORD,
+            }
+        ]
+        if required_constructor_params:
+            continue
+        key = name.lower()
+        if key not in mapping:
+            mapping[key] = (name, f"{obj.__module__}.{name}")
     _store_sktime_forecaster_index(mapping)
     return mapping
 

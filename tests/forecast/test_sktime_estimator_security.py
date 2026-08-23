@@ -5,6 +5,7 @@ from types import ModuleType
 import pytest
 
 from mtdata.forecast.methods import sktime as sktime_methods
+from mtdata.forecast.use_cases import sktime_index as forecast_sktime_index
 
 
 @pytest.mark.parametrize(
@@ -16,6 +17,14 @@ def test_generic_sktime_rejects_estimators_outside_forecasting_namespace(
 ) -> None:
     with pytest.raises(ValueError, match="must be inside sktime.forecasting"):
         sktime_methods._validated_estimator_path(estimator_path)
+
+
+def test_sktime_catalog_does_not_advertise_internal_pytorch_adapter() -> None:
+    forecast_sktime_index._discover_sktime_forecasters.cache_clear()
+    mapping = forecast_sktime_index._discover_sktime_forecasters()
+    if not mapping:
+        pytest.skip("sktime forecaster catalog unavailable")
+    assert "basedeepnetworkpytorch" not in mapping
 
 
 def test_generic_sktime_defaults_to_theta_forecaster() -> None:

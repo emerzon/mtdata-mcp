@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import importlib
 import logging
-import pkgutil
 import sys
 from inspect import signature
 from types import ModuleType, SimpleNamespace
@@ -204,7 +203,7 @@ def test_sktime_forecaster_index_round_trip(tmp_path, monkeypatch):
     assert forecast_use_cases._load_sktime_forecaster_index() == mapping
 
 
-def test_discover_sktime_forecasters_filters_test_and_non_forecaster_modules(monkeypatch):
+def test_discover_sktime_forecasters_uses_registry_and_skips_required_ctors(monkeypatch):
     cf._clear_discover_sktime_forecasters_cache()
     monkeypatch.setattr(
         forecast_sktime_index,
@@ -212,60 +211,38 @@ def test_discover_sktime_forecasters_filters_test_and_non_forecaster_modules(mon
         lambda _mapping: None,
     )
 
-    class BaseForecaster:
-        pass
+    class ThetaForecaster:
+        def __init__(self, sp=1):
+            self.sp = sp
 
-    theta_mod = ModuleType("sktime.forecasting.theta")
-    theta_mod.ThetaForecaster = type(
-        "ThetaForecaster",
-        (BaseForecaster,),
-        {"__module__": "sktime.forecasting.theta"},
-    )
-    theta_mod.NotAForecaster = type(
-        "NotAForecaster",
-        (),
-        {"__module__": "sktime.forecasting.theta"},
-    )
-    theta_mod._PrivateForecaster = type(
-        "_PrivateForecaster",
-        (BaseForecaster,),
-        {"__module__": "sktime.forecasting.theta"},
-    )
+    class NeedsArgForecaster:
+        def __init__(self, required):
+            self.required = required
 
-    fake_sktime = ModuleType("sktime")
-    fake_forecasting = ModuleType("sktime.forecasting")
-    fake_forecasting.__path__ = ["fake"]
-    fake_base = ModuleType("sktime.forecasting.base")
-    fake_base.BaseForecaster = BaseForecaster
+    class BaseDeepNetworkPyTorch:
+        def __init__(self):
+            pass
 
-    modules = {
-        "sktime.forecasting.theta": theta_mod,
-        "sktime.forecasting.tests.something": ModuleType("sktime.forecasting.tests.something"),
-    }
+    fake_registry = ModuleType("sktime.registry")
 
-    def fake_import_module(name):
-        if name in modules:
-            return modules[name]
-        return importlib.import_module(name)
+    def fake_all_estimators(*, estimator_types, return_names):
+        assert estimator_types == "forecaster"
+        assert return_names is True
+        return [
+            ("ThetaForecaster", ThetaForecaster),
+            ("NeedsArgForecaster", NeedsArgForecaster),
+            ("_PrivateForecaster", ThetaForecaster),
+        ]
 
-    monkeypatch.setitem(sys.modules, "sktime", fake_sktime)
-    monkeypatch.setitem(sys.modules, "sktime.forecasting", fake_forecasting)
-    monkeypatch.setitem(sys.modules, "sktime.forecasting.base", fake_base)
-    monkeypatch.setattr(
-        pkgutil,
-        "walk_packages",
-        lambda _path, _prefix: [
-            SimpleNamespace(name="sktime.forecasting.tests.something"),
-            SimpleNamespace(name="sktime.forecasting.theta"),
-        ],
-    )
-    monkeypatch.setattr(importlib, "import_module", fake_import_module)
+    fake_registry.all_estimators = fake_all_estimators
+    monkeypatch.setitem(sys.modules, "sktime.registry", fake_registry)
 
     mapping = cf._discover_sktime_forecasters()
 
-    assert "thetaforecaster" in mapping
-    assert mapping["thetaforecaster"][0] == "ThetaForecaster"
-    assert "privateforecaster" not in mapping
+    assert mapping == {
+        "thetaforecaster": ("ThetaForecaster", f"{ThetaForecaster.__module__}.ThetaForecaster"),
+    }
+    assert "basedeepnetworkpytorch" not in mapping
     cf._clear_discover_sktime_forecasters_cache()
 
 
