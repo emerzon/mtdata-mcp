@@ -246,6 +246,10 @@ class TestNormalizeDenoiseSec:
         out = normalize_denoise_spec({"method": "sma", "columns": "price"})
         assert out["columns"] == "price"
 
+    def test_keeps_concrete_close_column_as_list(self):
+        out = normalize_denoise_spec({"method": "sma", "columns": ["close"]})
+        assert out["columns"] == ["close"]
+
     def test_preserves_list_wrapped_alias(self):
         out = normalize_denoise_spec({"method": "sma", "columns": ["ohlc"]})
         assert out["columns"] == "ohlc"

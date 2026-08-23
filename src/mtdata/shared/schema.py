@@ -547,7 +547,7 @@ DenoiseMethodLiteral = Literal[_DENOISE_METHODS]  # type: ignore
 class DenoiseSpec(TypedDict, total=False):
     method: DenoiseMethodLiteral  # type: ignore
     params: Dict[str, Any]
-    columns: List[str]
+    columns: Union[str, List[str]]
     when: Literal['pre_ti', 'post_ti']  # type: ignore
     causality: Literal['causal', 'zero_phase']  # type: ignore
     keep_original: bool

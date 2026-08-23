@@ -127,7 +127,7 @@ def normalize_denoise_pipeline_values(
 
 
 _COLUMN_ALIASES_OHLC = frozenset({"ohlc"})
-_COLUMN_ALIASES_CLOSE = frozenset({"price", "close"})
+_COLUMN_ALIASES_CLOSE = frozenset({"price"})
 _COLUMN_ALIASES_OHLCV = frozenset({"ohlcv"})
 _COLUMN_ALIASES_ALL = frozenset({"all", "*", "numeric"})
 _COLUMN_ALIASES = (
