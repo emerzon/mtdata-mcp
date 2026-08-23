@@ -57,6 +57,7 @@ from ..utils.time import (
     _use_client_tz,
     bar_close_epoch,
     format_datetime_utc,
+    timezone_label as _timezone_object_label,
 )
 from ..utils.utils import (
     _parse_end_datetime,
@@ -610,11 +611,7 @@ def pivot_compute_points(  # noqa: C901
                         period_start,
                         tz=broker_tz,
                     ).date().isoformat()
-                    payload["period"]["broker_timezone"] = (
-                        getattr(broker_tz, "zone", None)
-                        or getattr(broker_tz, "key", None)
-                        or str(broker_tz)
-                    )
+                    payload["period"]["broker_timezone"] = _timezone_object_label(broker_tz)
             if period_note:
                 payload["period_note"] = period_note
             payload["timezone"] = timezone_label

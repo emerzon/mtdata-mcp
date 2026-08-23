@@ -184,6 +184,19 @@ def _format_datetime_explicit(dt: datetime, *, timespec: str) -> str:
     return f"{text[:-6]}Z" if text.endswith("+00:00") else text
 
 
+def timezone_label(tz: Any, default: str = "UTC") -> str:
+    if tz is None:
+        return default
+    name = getattr(tz, "key", None) or getattr(tz, "zone", None)
+    if isinstance(name, str) and name.strip():
+        return name.strip()
+    try:
+        text = str(tz).strip()
+    except Exception:
+        return default
+    return text or default
+
+
 def _use_client_tz() -> bool:
     """Return True when a client timezone is configured."""
     return _resolve_client_tz() is not None

@@ -43,6 +43,7 @@ from ..utils.time import (
     _resolve_client_tz,
     _use_client_tz,
     bar_close_epoch,
+    timezone_label,
 )
 from ..utils.utils import (
     parse_kv_or_json as _parse_kv_or_json,
@@ -1493,11 +1494,7 @@ def _forecast_timezone_label(*, use_client_tz: bool, client_tz: Any) -> str:
         return "UTC"
     if client_tz is None:
         return "local"
-    return (
-        getattr(client_tz, "key", None)
-        or getattr(client_tz, "zone", None)
-        or str(client_tz)
-    )
+    return timezone_label(client_tz, default="local")
 
 
 def _last_price_freshness_fields(

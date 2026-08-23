@@ -47,6 +47,7 @@ from ...utils.time import (
     _format_time_explicit,
     _format_time_explicit_local,
     _resolve_client_tz,
+    timezone_label,
 )
 from ...utils.utils import (
     _normalize_limit,
@@ -104,13 +105,7 @@ def _nonempty_symbol_string(value: Any) -> Optional[str]:
     return text or None
 
 def _client_timezone_label(client_tz: Any) -> str:
-    if client_tz is None:
-        return "UTC"
-    return (
-        getattr(client_tz, "key", None)
-        or getattr(client_tz, "zone", None)
-        or str(client_tz)
-    )
+    return timezone_label(client_tz, default="UTC")
 
 _SYMBOL_DESCRIBE_PRICE_FIELDS = frozenset(
     {

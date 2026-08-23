@@ -255,13 +255,10 @@ def display_timezone_label(
             from ..utils.time import _resolve_client_tz as default_resolver
 
             resolve_client_tz = default_resolver
+        from ..utils.time import timezone_label
+
         client_tz = resolve_client_tz()
-        return str(
-            getattr(client_tz, "key", None)
-            or getattr(client_tz, "zone", None)
-            or client_tz
-            or fallback
-        )
+        return timezone_label(client_tz, default=fallback)
     except Exception:
         return fallback
 
