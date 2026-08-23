@@ -39,6 +39,7 @@ from ..utils.time import (
     _broker_calendar_timezone,
     _format_datetime_minute_explicit,
     _resolve_client_tz,
+    timezone_label,
 )
 from ..utils.utils import (
     _parse_end_datetime,
@@ -154,12 +155,22 @@ def _default_temporal_lookback(timeframe: str, group_by: str) -> int:
 
 
 def _timezone_label(value: Any, *, default: str = "UTC") -> str:
-    try:
-        label = getattr(value, "key", None) or getattr(value, "zone", None) or str(value)
-    except Exception:
-        return default
-    text = str(label or "").strip()
-    return text or default
+    return timezone_label(value, default=default)
+
+
+def _reliable_best(rows: Any) -> Optional[Dict[str, Any]]:
+    best = max(
+        (
+            row
+            for row in rows
+            if isinstance(row, dict) and row.get("avg_return_pct") is not None
+        ),
+        key=lambda row: float(row.get("avg_return_pct") or 0.0),
+        default=None,
+    )
+    if best is not None and int(best.get("bars", 0) or 0) < _TEMPORAL_RELIABLE_GROUP_BARS:
+        return None
+    return best
 
 
 def _format_epoch_in_timezone(epoch_seconds: float, analysis_tz: Any) -> str:
@@ -434,17 +445,7 @@ def _flatten_temporal_dimension_groups(
         _copy_pagination_meta(item, page_meta)
         if page_meta:
             pagination[dimension] = page_meta
-        best = max(
-            (
-                row
-                for row in formatted_rows
-                if row.get("avg_return_pct") is not None
-            ),
-            key=lambda row: float(row.get("avg_return_pct") or 0.0),
-            default=None,
-        )
-        if best and int(best.get("bars", 0) or 0) < _TEMPORAL_RELIABLE_GROUP_BARS:
-            best = None
+        best = _reliable_best(formatted_rows)
         if best:
             best_row = {"dimension": dimension}
             best_row.update(
@@ -527,33 +528,12 @@ def _temporal_best_summary(groups: Any) -> Any:
         breakdown = item.get("breakdown")
         if not isinstance(breakdown, list):
             continue
-        best = max(
-            (
-                row
-                for row in breakdown
-                if isinstance(row, dict) and row.get("avg_return_pct") is not None
-            ),
-            key=lambda row: float(row.get("avg_return_pct") or 0.0),
-            default=None,
-        )
-        if best is not None and int(best.get("bars", 0) or 0) < _TEMPORAL_RELIABLE_GROUP_BARS:
-            best = None
+        best = _reliable_best(breakdown)
         if best is not None:
             best_rows.append({"dimension": item.get("dimension"), **best})
     if best_rows:
         return best_rows
-    best = max(
-        (
-            row
-            for row in groups
-            if isinstance(row, dict) and row.get("avg_return_pct") is not None
-        ),
-        key=lambda row: float(row.get("avg_return_pct") or 0.0),
-        default=None,
-    )
-    if best is not None and int(best.get("bars", 0) or 0) < _TEMPORAL_RELIABLE_GROUP_BARS:
-        return None
-    return best
+    return _reliable_best(groups)
 
 
 def _base_temporal_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -643,18 +623,11 @@ def _compact_temporal_payload(
         ]
         out["groups"] = compact_groups
         best_source = summary_groups if isinstance(summary_groups, list) else groups
-        best = max(
-            (
-                _compact_temporal_stats(row)
-                for row in best_source
-                if isinstance(row, dict)
-                if row.get("avg_return_pct") is not None
-            ),
-            key=lambda row: float(row.get("avg_return_pct") or 0.0),
-            default=None,
+        best = _reliable_best(
+            _compact_temporal_stats(row)
+            for row in best_source
+            if isinstance(row, dict)
         )
-        if best and int(best.get("bars", 0) or 0) < _TEMPORAL_RELIABLE_GROUP_BARS:
-            best = None
         if best:
             out["best"] = {
                 key: best[key]
@@ -779,18 +752,11 @@ def _standard_temporal_payload(
             ]
             out["groups"] = standard_groups
             best_source = summary_groups if isinstance(summary_groups, list) else groups
-            best = max(
-                (
-                    _standard_temporal_stats(row)
-                    for row in best_source
-                    if isinstance(row, dict)
-                    if row.get("avg_return_pct") is not None
-                ),
-                key=lambda row: float(row.get("avg_return_pct") or 0.0),
-                default=None,
+            best = _reliable_best(
+                _standard_temporal_stats(row)
+                for row in best_source
+                if isinstance(row, dict)
             )
-            if best and int(best.get("bars", 0) or 0) < _TEMPORAL_RELIABLE_GROUP_BARS:
-                best = None
         if best:
             out["best"] = {
                 key: best[key]
