@@ -375,7 +375,7 @@ def _denoise_targets_close(spec: Dict[str, Any]) -> bool:
         return False
     return bool(
         "close" in values
-        or {"ohlcv", "ohlc", "price", "all", "*", "numeric"}.intersection(values)
+        or {"ohlcv", "ohlc", "price", "close", "all", "*", "numeric"}.intersection(values)
     )
 
 

@@ -239,6 +239,10 @@ class TestNormalizeDenoiseSec:
         out = normalize_denoise_spec({"method": "sma", "columns": "ohlcv"})
         assert out["columns"] == "ohlcv"
 
+    def test_preserves_price_alias_as_close(self):
+        out = normalize_denoise_spec({"method": "sma", "columns": "price"})
+        assert out["columns"] == "price"
+
     def test_preserves_list_wrapped_alias(self):
         out = normalize_denoise_spec({"method": "sma", "columns": ["ohlc"]})
         assert out["columns"] == "ohlc"
@@ -893,6 +897,14 @@ class TestApplyDenoise:
         )
         assert "volume_dn" not in added
         assert {"open_dn", "high_dn", "low_dn", "close_dn"} <= set(added)
+
+    def test_price_alias_denoises_close_only(self):
+        df = self._make_df()
+        added = apply_denoise(
+            df,
+            {"method": "sma", "params": {"window": 5}, "columns": "price", "keep_original": True},
+        )
+        assert added == ["close_dn"]
 
     def test_missing_columns_defaults_to_close_only(self):
         df = self._make_df()

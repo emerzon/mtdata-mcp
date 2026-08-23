@@ -92,10 +92,16 @@ _DENOISE_SPEC_KEYS = {
     "keep_original",
     "suffix",
 }
-_COLUMN_ALIASES_OHLC = frozenset({"ohlc", "price"})
+_COLUMN_ALIASES_OHLC = frozenset({"ohlc"})
+_COLUMN_ALIASES_CLOSE = frozenset({"price", "close"})
 _COLUMN_ALIASES_OHLCV = frozenset({"ohlcv"})
 _COLUMN_ALIASES_ALL = frozenset({"all", "*", "numeric"})
-_COLUMN_ALIASES = _COLUMN_ALIASES_OHLC | _COLUMN_ALIASES_OHLCV | _COLUMN_ALIASES_ALL
+_COLUMN_ALIASES = (
+    _COLUMN_ALIASES_OHLC
+    | _COLUMN_ALIASES_CLOSE
+    | _COLUMN_ALIASES_OHLCV
+    | _COLUMN_ALIASES_ALL
+)
 
 _DENOISE_METHOD_DEFAULT_PARAMS: Dict[str, Dict[str, Any]] = {
     "ema": {"span": 10},
@@ -232,6 +238,8 @@ def _expand_column_selection(cols: Any, df: pd.DataFrame) -> List[str]:
     selection = _as_column_selection(cols)
     if not isinstance(selection, str):
         return list(selection)
+    if selection in _COLUMN_ALIASES_CLOSE:
+        return ["close"] if "close" in df.columns else list(_DENOISE_BASE_DEFAULTS["columns"])
     if selection in _COLUMN_ALIASES_OHLC or selection in _COLUMN_ALIASES_OHLCV:
         selected = [
             name for name in ("open", "high", "low", "close") if name in df.columns
