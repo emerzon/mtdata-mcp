@@ -89,14 +89,15 @@ def _invalid_finviz_screen_filters_error(
     return payload
 
 
-def _finviz_screen_shorthand_token_map() -> Optional[Dict[str, tuple[str, str]]]:
-    try:
-        from finvizfinance.screener.base import filter_dict
-    except ImportError:
-        return None
+def _finviz_filter_dict() -> Dict[str, Any]:
+    from finvizfinance.screener.base import filter_dict
 
+    return filter_dict
+
+
+def _finviz_screen_shorthand_token_map() -> Dict[str, tuple[str, str]]:
     reverse_filters: Dict[str, tuple[str, str]] = {}
-    for filter_name, spec in filter_dict.items():
+    for filter_name, spec in _finviz_filter_dict().items():
         prefix = str(spec.get("prefix") or "").strip()
         for option_name, option_code in (spec.get("option") or {}).items():
             code = str(option_code or "").strip()
@@ -106,18 +107,11 @@ def _finviz_screen_shorthand_token_map() -> Optional[Dict[str, tuple[str, str]]]
 
 
 def _finviz_screen_filter_name_examples(limit: int = 12) -> List[str]:
-    try:
-        from finvizfinance.screener.base import filter_dict
-    except ImportError:
-        return []
-    return [str(name) for name in list(filter_dict.keys())[: max(1, int(limit))]]
+    return [str(name) for name in list(_finviz_filter_dict().keys())[: max(1, int(limit))]]
 
 
 def _parse_finviz_screen_shorthand(raw: str) -> Optional[Dict[str, Any]]:
     reverse_filters = _finviz_screen_shorthand_token_map()
-    if reverse_filters is None:
-        return None
-
     filters: Dict[str, Any] = {}
     for token in [part.strip() for part in raw.split(",") if part.strip()]:
         match = reverse_filters.get(token)
@@ -129,8 +123,6 @@ def _parse_finviz_screen_shorthand(raw: str) -> Optional[Dict[str, Any]]:
 
 def _unknown_finviz_screen_shorthand_tokens(raw: str) -> List[str]:
     reverse_filters = _finviz_screen_shorthand_token_map()
-    if reverse_filters is None:
-        return []
     tokens = [part.strip() for part in raw.split(",") if part.strip()]
     return [token for token in tokens if token not in reverse_filters]
 
@@ -182,11 +174,8 @@ def _split_finviz_filter_operator_key(raw_key: str) -> tuple[str, Optional[str]]
 def _parse_finviz_screen_key_value_filters(raw: str) -> Optional[Dict[str, Any]]:
     if "=" not in raw and ":" not in raw:
         return None
-    try:
-        from finvizfinance.screener.base import filter_dict
-    except ImportError:
-        return None
 
+    filter_dict = _finviz_filter_dict()
     filter_names = {
         _compact_finviz_filter_token(name): str(name)
         for name in filter_dict
@@ -224,11 +213,7 @@ def _parse_finviz_screen_key_value_filters(raw: str) -> Optional[Dict[str, Any]]
 def _normalize_finviz_screen_filter_dict(
     filters: Dict[str, Any],
 ) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
-    try:
-        from finvizfinance.screener.base import filter_dict
-    except ImportError:
-        return filters, None
-
+    filter_dict = _finviz_filter_dict()
     filter_names = {
         _compact_finviz_filter_token(name): str(name)
         for name in filter_dict
@@ -315,11 +300,7 @@ def finviz_filters_list(
     detail: DetailLiteral = "compact",  # type: ignore
 ) -> Dict[str, Any]:
     """List valid Finviz screener filters and accepted values."""
-    try:
-        from finvizfinance.screener.base import filter_dict
-    except ImportError as exc:
-        return {"error": f"Unable to load Finviz filter metadata: {exc}"}
-
+    filter_dict = _finviz_filter_dict()
     detail_mode = normalize_output_verbosity_detail(detail, default="compact")
     query = str(search or "").strip().lower()
     filter_query = str(filter_name or "").strip().lower()
