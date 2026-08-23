@@ -21,6 +21,25 @@ _QUANTLIB_CALENDAR_TIMEZONES = {
 }
 
 
+def _build_bs_merton_process(
+    ql: Any,
+    ql_today: Any,
+    calendar_obj: Any,
+    spot: float,
+    rf: float,
+    div: float,
+    vol: float,
+    day_count: Any,
+) -> Any:
+    spot_h = ql.QuoteHandle(ql.SimpleQuote(float(spot)))
+    rf_ts = ql.YieldTermStructureHandle(ql.FlatForward(ql_today, float(rf), day_count))
+    div_ts = ql.YieldTermStructureHandle(ql.FlatForward(ql_today, float(div), day_count))
+    vol_ts = ql.BlackVolTermStructureHandle(
+        ql.BlackConstantVol(ql_today, calendar_obj, float(vol), day_count)
+    )
+    return ql.BlackScholesMertonProcess(spot_h, div_ts, rf_ts, vol_ts)
+
+
 def _quantlib_pricing_assumptions(
     model: str,
     *,
@@ -310,18 +329,16 @@ def price_barrier_option_quantlib(
     )
 
     def _price_with(spot_local: float, vol_local: float) -> float:
-        spot_h = ql.QuoteHandle(ql.SimpleQuote(float(spot_local)))
-        rf_ts = ql.YieldTermStructureHandle(ql.FlatForward(ql_today, float(rf), day_count))
-        div_ts = ql.YieldTermStructureHandle(ql.FlatForward(ql_today, float(div), day_count))
-        vol_ts = ql.BlackVolTermStructureHandle(
-            ql.BlackConstantVol(
-                ql_today,
-                calendar_obj,
-                float(vol_local),
-                day_count,
-            )
+        process = _build_bs_merton_process(
+            ql,
+            ql_today,
+            calendar_obj,
+            spot_local,
+            rf,
+            div,
+            vol_local,
+            day_count,
         )
-        process = ql.BlackScholesMertonProcess(spot_h, div_ts, rf_ts, vol_ts)
         barrier_opt.setPricingEngine(ql.AnalyticBarrierEngine(process))
         return float(barrier_opt.NPV())
 
@@ -460,13 +477,16 @@ def _price_knocked_in_as_vanilla(
     )
     exercise = ql.EuropeanExercise(maturity)
     option = ql.VanillaOption(payoff, exercise)
-    spot_h = ql.QuoteHandle(ql.SimpleQuote(float(spot_val)))
-    rf_ts = ql.YieldTermStructureHandle(ql.FlatForward(ql_today, float(rf), day_count))
-    div_ts = ql.YieldTermStructureHandle(ql.FlatForward(ql_today, float(div), day_count))
-    vol_ts = ql.BlackVolTermStructureHandle(
-        ql.BlackConstantVol(ql_today, calendar_obj, float(vol), day_count)
+    process = _build_bs_merton_process(
+        ql,
+        ql_today,
+        calendar_obj,
+        spot_val,
+        rf,
+        div,
+        vol,
+        day_count,
     )
-    process = ql.BlackScholesMertonProcess(spot_h, div_ts, rf_ts, vol_ts)
     option.setPricingEngine(ql.AnalyticEuropeanEngine(process))
     try:
         npv = float(option.NPV())
