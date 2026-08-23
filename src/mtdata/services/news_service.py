@@ -16,6 +16,23 @@ from .news_text import normalize_news_text
 logger = logging.getLogger(__name__)
 
 
+def _finalize_news_payload(payload: Dict[str, Any], use_client_tz: bool) -> Dict[str, Any]:
+    timezone_meta_input: Dict[str, Any] = dict(payload)
+    if not use_client_tz:
+        timezone_meta_input["timezone"] = "UTC"
+        payload["timezone"] = "UTC"
+    payload["meta"] = {
+        "runtime": {
+            "timezone": build_runtime_timezone_meta(
+                timezone_meta_input,
+                include_local=False,
+                include_now=False,
+            )
+        }
+    }
+    return payload
+
+
 class MT5NewsRecord:
     """Represents a single MT5 news item."""
     
@@ -514,20 +531,7 @@ def get_mt5_news(
                 "news": [],
                 "warning": "from_date is after to_date; returning no results",
             }
-            timezone_meta_input: Dict[str, Any] = dict(payload)
-            if not use_client_tz:
-                timezone_meta_input["timezone"] = "UTC"
-                payload["timezone"] = "UTC"
-            payload["meta"] = {
-                "runtime": {
-                    "timezone": build_runtime_timezone_meta(
-                        timezone_meta_input,
-                        include_local=False,
-                        include_now=False,
-                    )
-                }
-            }
-            return payload
+            return _finalize_news_payload(payload, use_client_tz)
 
         # Apply filters
         filtered = records
@@ -570,22 +574,7 @@ def get_mt5_news(
             "available_sources": all_sources[:20],
             "news": news_list
         }
-
-        timezone_meta_input: Dict[str, Any] = dict(payload)
-        if not use_client_tz:
-            timezone_meta_input["timezone"] = "UTC"
-            payload["timezone"] = "UTC"
-        payload["meta"] = {
-            "runtime": {
-                "timezone": build_runtime_timezone_meta(
-                    timezone_meta_input,
-                    include_local=False,
-                    include_now=False,
-                )
-            }
-        }
-
-        return payload
+        return _finalize_news_payload(payload, use_client_tz)
         
     except FileNotFoundError as e:
         logger.error(f"News database not found: {e}")
@@ -674,22 +663,7 @@ def get_news_categories(news_db_path: Optional[str] = None) -> Dict[str, Any]:
             "parse_health": parser.parse_health,
         }
 
-        use_client_tz = _use_client_tz()
-        timezone_meta_input: Dict[str, Any] = dict(payload)
-        if not use_client_tz:
-            timezone_meta_input["timezone"] = "UTC"
-            payload["timezone"] = "UTC"
-        payload["meta"] = {
-            "runtime": {
-                "timezone": build_runtime_timezone_meta(
-                    timezone_meta_input,
-                    include_local=False,
-                    include_now=False,
-                )
-            }
-        }
-
-        return payload
+        return _finalize_news_payload(payload, _use_client_tz())
         
     except Exception as e:
         logger.exception(f"Error getting news categories: {e}")
