@@ -22,9 +22,9 @@ sys.modules["MetaTrader5"] = _mt5_mock
 
 from mtdata.forecast.backtest import (
     _compute_performance_metrics,
-    _get_forecast_methods_data_safe,
     forecast_backtest,
 )
+from mtdata.forecast.forecast_registry import get_forecast_methods_data
 from mtdata.forecast.common import bars_per_year as _bars_per_year
 from mtdata.utils.time import _format_time_minimal, bar_close_epoch
 
@@ -37,25 +37,14 @@ def _make_df(n: int, base_time: float = 1700000000.0, base_close: float = 100.0)
     return pd.DataFrame({"time": times, "close": closes})
 
 
-# ── _get_forecast_methods_data_safe  (lines 22-29 fallback) ──────────────────
-
-class TestGetForecastMethodsDataSafe:
+class TestGetForecastMethodsData:
     def test_returns_dict(self):
-        result = _get_forecast_methods_data_safe()
+        result = get_forecast_methods_data()
         assert isinstance(result, dict)
         assert "methods" in result
 
-    def test_fallback_on_mock(self):
-        with patch("mtdata.forecast.backtest._get_forecast_methods_data_safe") as mock_fn:
-            mock_fn.return_value = {
-                "methods": [{"method": "naive", "available": True}]
-            }
-            r = mock_fn()
-            assert "methods" in r
-
-    def test_actual_fallback_path(self):
-        """Verify the real function returns something usable."""
-        result = _get_forecast_methods_data_safe()
+    def test_actual_registry_path(self):
+        result = get_forecast_methods_data()
         assert isinstance(result, dict)
         methods = result.get("methods", [])
         assert len(methods) >= 1

@@ -40,6 +40,7 @@ from .contracts import (
 )
 from .exceptions import ForecastError, raise_if_error_result
 from .forecast import forecast
+from .forecast_registry import get_forecast_methods_data
 from .forecast_validation import attach_denoise_causality_disclosure
 from .gpu_runtime import cleanup_forecast_gpu_runtime, forecast_methods_may_use_gpu
 from .target_builder import _log_return_array
@@ -252,28 +253,6 @@ def _attach_metrics_status(
     payload["slippage_bps"] = float(slippage_bps)
 
 
-def _get_forecast_methods_data_safe() -> Dict[str, Any]:
-    """Safely fetch forecast methods metadata.
-
-    Falls back to a minimal set of classical methods if discovery fails.
-    Only 'method' and 'available' keys are required by this module.
-    """
-    try:
-        from .forecast_registry import get_forecast_methods_data as _get
-        data = _get()
-        if isinstance(data, dict) and 'methods' in data:
-            return data
-    except Exception:
-        pass
-    return {
-        'methods': [
-            {'method': 'naive', 'available': True},
-            {'method': 'drift', 'available': True},
-            {'method': 'seasonal_naive', 'available': True},
-            {'method': 'theta', 'available': True},
-            {'method': 'fourier_ols', 'available': True},
-        ]
-    }
 _MIN_ANNUALIZATION_TRADES = 30
 _MIN_ANNUALIZATION_YEARS = 0.25
 _TRADE_BACKTEST_UNITS = {
@@ -2272,7 +2251,7 @@ def forecast_backtest(  # noqa: C901
             if quantity == 'volatility':
                 methods = ['ewma', 'parkinson']
             else:
-                methods_info = _get_forecast_methods_data_safe()
+                methods_info = get_forecast_methods_data()
                 avail = [m['method'] for m in methods_info.get('methods', []) if m.get('available')]
                 preferred = ['naive', 'drift', 'theta']
                 methods = [m for m in preferred if m in avail]
