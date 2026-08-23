@@ -165,6 +165,9 @@ def _normalize_side(value: Any) -> Optional[str]:
 
 
 def _model_has_values(model: Any) -> bool:
+    predicate = getattr(model, "has_configured_values", None)
+    if callable(predicate):
+        return bool(predicate())
     if hasattr(model, "model_dump"):
         values = model.model_dump().values()
     elif isinstance(model, dict):

@@ -208,6 +208,20 @@ class _GuardrailSection:
             if not str(key).startswith("_")
         }
 
+    def has_configured_values(self) -> bool:
+        for value in self.model_dump().values():
+            if isinstance(value, bool):
+                if value:
+                    return True
+                continue
+            if isinstance(value, (dict, list)):
+                if value:
+                    return True
+                continue
+            if value is not None:
+                return True
+        return False
+
 
 class TradeSafetyPolicyConfig(_GuardrailSection):
     def __init__(self) -> None:
@@ -257,9 +271,9 @@ class TradeGuardrailsRuntimeConfig(_GuardrailSection):
             or self.blocked_symbols
             or self.max_volume is not None
             or self.max_volume_by_symbol
-            or any(self.safety_policy.model_dump().values())
-            or any(self.account_risk_limits.model_dump().values())
-            or any(self.wallet_risk_limits.model_dump().values())
+            or self.safety_policy.has_configured_values()
+            or self.account_risk_limits.has_configured_values()
+            or self.wallet_risk_limits.has_configured_values()
         )
 
     def reload_from_env(self) -> None:

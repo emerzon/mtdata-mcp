@@ -80,6 +80,36 @@ def test_ignore_on_demo_does_not_activate_guardrails_by_itself(monkeypatch):
     assert config.is_enabled() is False
 
 
+def test_runtime_guardrails_treat_zero_caps_as_configured():
+    config = TradeGuardrailsRuntimeConfig()
+    config.enabled = False
+    config.trading_enabled = True
+    config.allowed_symbols = []
+    config.blocked_symbols = []
+    config.max_volume = None
+    config.max_volume_by_symbol = {}
+    config.safety_policy.max_volume = None
+    config.safety_policy.require_stop_loss = False
+    config.safety_policy.max_deviation = None
+    config.safety_policy.reduce_only = False
+    config.account_risk_limits.min_margin_level_pct = None
+    config.account_risk_limits.max_floating_loss = None
+    config.account_risk_limits.max_total_exposure_lots = None
+    config.wallet_risk_limits.max_risk_pct_of_equity = None
+    config.wallet_risk_limits.max_risk_pct_of_balance = None
+    config.wallet_risk_limits.max_risk_pct_of_free_margin = None
+    assert config.is_enabled() is False
+    config.wallet_risk_limits.max_risk_pct_of_equity = 0.0
+    assert config.wallet_risk_limits.has_configured_values() is True
+    assert config.is_enabled() is True
+    config.wallet_risk_limits.max_risk_pct_of_equity = None
+    config.account_risk_limits.max_floating_loss = 0.0
+    assert config.is_enabled() is True
+    config.account_risk_limits.max_floating_loss = None
+    config.safety_policy.max_volume = 0.0
+    assert config.is_enabled() is True
+
+
 def test_preview_trade_guardrails_reports_dynamic_checks(restore_trade_guardrails):
     trade_guardrails_config.enabled = True
     trade_guardrails_config.wallet_risk_limits.max_risk_pct_of_equity = 1.0

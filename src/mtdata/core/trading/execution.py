@@ -206,7 +206,7 @@ def _evaluate_position_modify_guardrails(
         risk_increased = float(candidate_stop_loss) > float(current_stop_loss)
     stop_loss_required = bool(
         trade_guardrails_config.safety_policy.require_stop_loss
-        or any(trade_guardrails_config.wallet_risk_limits.model_dump().values())
+        or trade_guardrails_config.wallet_risk_limits.has_configured_values()
     )
     if not risk_increased and not (stop_loss_required and not candidate_has_stop):
         return None
