@@ -19,9 +19,9 @@ from ._mcp_tools import (
     registered_tool_catalog,
 )
 from .cli.runtime.commands import LIVE_TRADE_MUTATION_TOOLS, LIVE_TRADE_MUTATION_WARNING
-from .error_envelope import build_error_payload
 from .schema_attach import get_public_tool_schema
 from .tool_calling import resolve_sync_tool_result, unwrap_tool_callable
+from .web_api_handlers import _http_error
 
 logger = logging.getLogger(__name__)
 
@@ -265,38 +265,32 @@ def invoke_tool_for_webapi(
             output_fields=output_fields,
         )
     except DenoiseCausalityError as exc:
-        payload = build_error_payload(
-            str(exc), code="tool_domain_error", operation=name
-        )
-        raise HTTPException(status_code=400, detail=payload) from exc
+        raise _http_error(
+            400, str(exc), code="tool_domain_error", operation=name
+        ) from exc
     except (TypeError, ValueError, ValidationError) as exc:
-        payload = build_error_payload(
+        raise _http_error(
+            422,
             f"Invalid parameters for {name}: {exc}",
             code="tool_param_error",
             operation=name,
-        )
-        raise HTTPException(
-            status_code=422,
-            detail=payload,
         ) from exc
     except MT5ConnectionError as exc:
-        payload = build_error_payload(
-            str(exc), code="mt5_connection_error", operation=name
-        )
-        raise HTTPException(status_code=503, detail=payload) from exc
+        raise _http_error(
+            503, str(exc), code="mt5_connection_error", operation=name
+        ) from exc
     except ForecastError as exc:
-        payload = build_error_payload(
-            str(exc), code="tool_domain_error", operation=name
-        )
-        raise HTTPException(status_code=400, detail=payload) from exc
+        raise _http_error(
+            400, str(exc), code="tool_domain_error", operation=name
+        ) from exc
     except Exception as exc:
         logger.exception("Web API tool invoke failed for %s", name)
-        payload = build_error_payload(
+        raise _http_error(
+            500,
             "Tool invocation failed.",
             code="tool_invoke_internal_error",
             operation=name,
-        )
-        raise HTTPException(status_code=500, detail=payload) from exc
+        ) from exc
 
     return {
         "success": True,
