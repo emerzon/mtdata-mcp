@@ -1660,7 +1660,7 @@ class TestHarRvBlock:
 
     def test_session_limited_horizon_uses_observed_session_density(self):
         with _mock_env(rates_side_effect=self._har_rv_side_effect()), patch(
-            f"{MOD}._volatility_annualization_context",
+            f"{MOD}._annualization_context",
             return_value=(1764.0, "252_trading_days_observed_session"),
         ):
             result = forecast_volatility(

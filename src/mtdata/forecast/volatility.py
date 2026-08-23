@@ -422,21 +422,6 @@ def _annualize_horizon_sigma(
     return float(horizon_volatility * math.sqrt(bars_per_year / horizon_bars))
 
 
-def _volatility_annualization_context(
-    symbol: str,
-    timeframe: str,
-    *,
-    observed_times: Any = None,
-    observed_timeframe: Optional[str] = None,
-) -> tuple[float, str]:
-    return _annualization_context(
-        timeframe,
-        symbol,
-        observed_times=observed_times,
-        observed_timeframe=observed_timeframe,
-    )
-
-
 def _bars_per_session_from_annualization(
     bars_per_year_value: float,
     annualization_basis: str,
@@ -761,9 +746,9 @@ def _finalize_volatility_with_context(
     data_timeframe: Optional[str] = None,
     forecast_grid_anchor_epoch: Optional[float] = None,
 ) -> Dict[str, Any]:
-    annualization_bars, annualization_basis = _volatility_annualization_context(
-        symbol,
+    annualization_bars, annualization_basis = _annualization_context(
         timeframe,
+        symbol,
         observed_times=df.get("time"),
         observed_timeframe=data_timeframe or timeframe,
     )
@@ -1110,7 +1095,7 @@ def forecast_volatility(  # noqa: C901
         if not tf_secs:
             return {"error": unsupported_timeframe_seconds_error(timeframe)}
         annualization_bars_per_year, annualization_basis = (
-            _volatility_annualization_context(symbol, timeframe)
+            _annualization_context(timeframe, symbol)
         )
         method_l = str(method).lower().strip()
         garch_family = {'garch','egarch','gjr_garch','garch_t','egarch_t','gjr_garch_t','figarch'}
@@ -1396,9 +1381,9 @@ def forecast_volatility(  # noqa: C901
             df = pd.DataFrame(rates)
             if len(df) < 5:
                 return {"error": "Not enough closed bars"}
-            bpy, _ = _volatility_annualization_context(
-                symbol,
+            bpy, _ = _annualization_context(
                 timeframe,
+                symbol,
                 observed_times=df.get("time"),
             )
             if denoise:
@@ -1525,9 +1510,9 @@ def forecast_volatility(  # noqa: C901
                         apply_denoise(dfrv, dn_spec_used, default_when='pre_ti')
                     except Exception:
                         pass
-                bpy, annualization_basis = _volatility_annualization_context(
-                    symbol,
+                bpy, annualization_basis = _annualization_context(
                     timeframe,
+                    symbol,
                     observed_times=dfrv.get("time"),
                     observed_timeframe=rv_tf,
                 )
@@ -1685,9 +1670,9 @@ def forecast_volatility(  # noqa: C901
                 df = df.iloc[-history_bars:].copy()
         if len(df) < 3:
             return {"error": "Not enough closed bars"}
-        bpy, _ = _volatility_annualization_context(
-            symbol,
+        bpy, _ = _annualization_context(
             timeframe,
+            symbol,
             observed_times=df.get("time"),
         )
         # Normalize and apply denoise spec (uniform behavior)

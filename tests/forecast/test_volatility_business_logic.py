@@ -115,21 +115,21 @@ def test_volatility_metadata_and_helper_functions(monkeypatch):
 
     assert bars_per_year("H1") == 6048.0
     assert math.isnan(bars_per_year("BAD"))
-    assert vol._volatility_annualization_context("EURUSD", "H1") == (
+    assert vol._annualization_context("H1", "EURUSD") == (
         6240.0,
         "260_fx_weekdays_24h",
     )
-    assert vol._volatility_annualization_context("BTCUSD", "H1") == (
+    assert vol._annualization_context("H1", "BTCUSD") == (
         8760.0,
         "365_calendar_days_24h_crypto",
     )
     session_times = [row["time"] for row in _session_rates()]
-    assert vol._volatility_annualization_context(
-        "AAPL",
+    assert vol._annualization_context(
         "H1",
+        "AAPL",
         observed_times=session_times,
     ) == (1764.0, "252_trading_days_observed_session")
-    assert vol._volatility_annualization_context("AAPL", "H1") == (
+    assert vol._annualization_context("H1", "AAPL") == (
         6048.0,
         "252_trading_days_assumed_24h",
     )
