@@ -175,24 +175,6 @@ def _build_default_wait_event_watchers(
     return _dedupe_wait_event_watchers(watch_for)
 
 
-def _build_default_wait_event_basket_watchers(
-    *,
-    symbols: List[str],
-    timeframe: TimeframeLiteral,
-    watch_tick_count_spike: bool,
-) -> List[Dict[str, Any]]:
-    watch_for: List[Dict[str, Any]] = []
-    for symbol in symbols:
-        watch_for.extend(
-            _build_default_wait_event_watchers(
-                symbol=symbol,
-                timeframe=timeframe,
-                watch_tick_count_spike=watch_tick_count_spike,
-            )
-        )
-    return _dedupe_wait_event_watchers(watch_for)
-
-
 def _support_resistance_watchers(
     *,
     symbol: str,
