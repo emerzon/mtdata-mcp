@@ -271,7 +271,6 @@ def test_attach_schemas_to_tools_patches_wait_event_with_discriminated_watch_spe
                     "symbol": {"type": "string"},
                     "symbols": {"type": "array", "items": {"type": "string"}},
                     "timeframe": {"type": "string"},
-                    "watch_tick_count_spike": {"type": "boolean"},
                     "max_wait_seconds": {"type": "number"},
                     "poll_interval_seconds": {"type": "number"},
                     "watch_for": {"type": "array", "items": {"type": "object"}},

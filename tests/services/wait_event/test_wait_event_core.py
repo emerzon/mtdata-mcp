@@ -319,29 +319,16 @@ def test_wait_event_tool_exposes_minimal_public_contract(monkeypatch) -> None:
         _mock_run_wait_event,
     )
     monkeypatch.setattr(core_data, "create_mt5_gateway", lambda ensure_connection_impl=None: object())
-    monkeypatch.setattr(
-        core_data,
-        "_build_default_wait_event_watchers",
-        lambda symbol, timeframe, watch_tick_count_spike: [
-            {"type": "position_opened", "symbol": symbol},
-            {"type": "tick_count_spike", "symbol": symbol},
-            {"type": "price_touch_level", "symbol": symbol, "level": 100.0},
-        ] if watch_tick_count_spike else [
-            {"type": "position_opened", "symbol": symbol},
-            {"type": "price_touch_level", "symbol": symbol, "level": 100.0},
-        ],
-    )
 
     sig = inspect.signature(core_data.wait_event)
     assert tuple(sig.parameters.keys()) == (
         "symbol",
         "symbols",
         "timeframe",
-        "watch_tick_count_spike",
-            "max_wait_seconds",
-            "poll_interval_seconds",
-            "accept_preexisting",
-            "watch_for",
+        "max_wait_seconds",
+        "poll_interval_seconds",
+        "accept_preexisting",
+        "watch_for",
         "end_on",
         "detail",
         "json",
@@ -377,14 +364,9 @@ def test_wait_event_tool_exposes_minimal_public_contract(monkeypatch) -> None:
     assert result["watch_for_inferred"] is False
     assert result["watcher_count"] == 0
 
-    without_tick_count = raw(symbol="BTCUSD", timeframe="M1", watch_tick_count_spike=False)
-    assert "criteria" not in without_tick_count
-    assert without_tick_count["watcher_count"] == 0
-
     explicit = raw(
         symbol="BTCUSD",
         timeframe="M1",
-        watch_tick_count_spike=True,
         watch_for=[{"type": "price_touch_level", "symbol": "BTCUSD", "level": 100.0}],
         end_on=[{"type": "candle_close", "timeframe": "M1"}],
         detail="full",
@@ -723,7 +705,6 @@ def test_wait_event_tool_compacts_matched_event_by_default(monkeypatch) -> None:
     result = raw(
         symbol="BTCUSD",
         timeframe="M1",
-        watch_tick_count_spike=True,
         watch_for=[{"type": "price_touch_level", "symbol": "BTCUSD", "level": 100.0}],
         end_on=None,
         detail="compact",
@@ -792,7 +773,6 @@ def test_wait_event_tool_preserves_shared_account_identity_fields(monkeypatch) -
     result = raw(
         symbol="EURUSD",
         timeframe="M1",
-        watch_tick_count_spike=True,
         watch_for=[{"type": "order_created", "symbol": "EURUSD"}],
         end_on=None,
         detail="compact",

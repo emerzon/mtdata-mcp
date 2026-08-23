@@ -326,10 +326,6 @@ def test_wait_event_prefers_public_symbol_name(mock_run_wait, _mock_compact, _mo
     assert request.symbol == "EURUSD"
 
 
-@patch(
-    "mtdata.core.data._build_default_wait_event_watchers",
-    side_effect=lambda symbol, **_: [{"type": "order_filled", "symbol": symbol}],
-)
 @patch("mtdata.core.data.create_mt5_gateway", return_value=object())
 @patch("mtdata.core.data._compact_wait_event_public_result", side_effect=lambda result, **_: result)
 @patch("mtdata.core.data.run_wait_event", return_value={"success": True})
@@ -337,7 +333,6 @@ def test_wait_event_builds_default_watchers_for_normalized_basket(
     mock_run_wait,
     _mock_compact,
     _mock_gateway,
-    _mock_default_watchers,
 ) -> None:
     result = _raw_wait_event()(symbols=["eurusd", " gbpusd "], timeframe="M5")
 

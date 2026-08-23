@@ -647,10 +647,6 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
     ("wait_event", "poll_interval_seconds"): (
         "Seconds between polls; must be at least 0.1. Omit to use 0.5."
     ),
-    ("wait_event", "watch_tick_count_spike"): (
-        "Include the inferred timeframe tick-count-spike watcher. Ignored in timer-only "
-        "duration mode and with explicit watch_for."
-    ),
     ("wait_event", "watch_for"): (
         "Event names or event objects. Examples: order_filled, "
         "'{\"type\":\"order_filled\",\"symbol\":\"EURUSD\"}'. "

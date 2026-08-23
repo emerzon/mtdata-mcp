@@ -80,9 +80,8 @@ connect to MT5 or poll order, position, or market state. Completion reports
 event wait whose deadline expires.
 
 Pass an explicit `--watch-for` when the wait should return early for an event,
-as in the fill example above. In timeframe mode, omitted watchers still include
-the lightweight order/position lifecycle, pending-stop proximity, activity,
-and tick-count set. They do **not** fetch support/resistance or pivot zones.
+as in the fill example above. In timeframe mode, omitting `--watch-for` waits
+only for the candle boundary.
 
 ---
 

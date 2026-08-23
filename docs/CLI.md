@@ -754,8 +754,8 @@ mtdata-cli wait_event --max-wait-seconds 30 --json
 
 The first command is boundary-only and bounded to one H1 close plus its buffer.
 The 300-second form refuses to start until that close is within the shorter
-budget. Omitting `--watch-for` in timeframe mode installs inferred market and
-account watchers, which may complete before the candle boundary.
+budget. Omitting `--watch-for` in timeframe mode waits only for the candle
+boundary.
 
 ### Place Orders
 `trade_place` requires `symbol`, `volume`, and `order_type`.
