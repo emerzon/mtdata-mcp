@@ -251,7 +251,7 @@ def _fetch_recent_ticks_backwards(
                     tick
                     for tick in candidate_rows
                     if (
-                        tick_epoch_value := _tick_epoch_seconds_from_row(tick)
+                        tick_epoch_value := tick_epoch(tick)
                     )
                     is not None
                     and chunk_start_epoch <= tick_epoch_value <= chunk_end_epoch
@@ -262,8 +262,8 @@ def _fetch_recent_ticks_backwards(
                     tick
                     for tick in candidate_rows
                     if (
-                        (tick_epoch := _tick_epoch_seconds_from_row(tick)) is None
-                        or tick_epoch < boundary_epoch
+                        (tick_epoch_value := tick_epoch(tick)) is None
+                        or tick_epoch_value < boundary_epoch
                     )
                 ]
             if candidate_rows:
@@ -334,7 +334,7 @@ def _fetch_ticks_forward(
             candidate_rows = [
                 tick
                 for tick in list(ticks_candidate)
-                if (tick_epoch_value := _tick_epoch_seconds_from_row(tick)) is not None
+                if (tick_epoch_value := tick_epoch(tick)) is not None
                 and boundary_epoch <= tick_epoch_value <= requested_end_epoch
             ]
             collected.extend(candidate_rows)
@@ -350,16 +350,12 @@ def _fetch_ticks_forward(
 
     if collected:
         collected.sort(
-            key=lambda tick: _tick_epoch_seconds_from_row(tick) or float("-inf")
+            key=lambda tick: tick_epoch(tick) or float("-inf")
         )
         return collected[:limit]
     if saw_response:
         return []
     return None
-
-
-def _tick_epoch_seconds_from_row(tick: Any) -> Optional[float]:
-    return tick_epoch(tick)
 
 
 def _live_tick_spread_reference(
