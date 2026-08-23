@@ -16,6 +16,8 @@ export type PriceLineSpec = {
   price: number
   color: string
   title: string
+  lineStyle?: LineStyle
+  lineWidth?: 1 | 2 | 3 | 4
 }
 
 export type OHLCChartProps = {
@@ -324,8 +326,8 @@ export function OHLCChart({
       const line = series.createPriceLine({
         price: pl.price,
         color: pl.color,
-        lineWidth: 1,
-        lineStyle: LineStyle.Dotted,
+        lineWidth: pl.lineWidth ?? 1,
+        lineStyle: pl.lineStyle ?? LineStyle.Dotted,
         axisLabelVisible: true,
         title: pl.title,
       })

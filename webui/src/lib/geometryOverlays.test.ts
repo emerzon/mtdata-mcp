@@ -1,12 +1,32 @@
 import { describe, expect, it } from 'vitest'
+import { LineStyle } from 'lightweight-charts'
 import {
   confluencePriceLines,
   exposurePriceLines,
   ideaGeometryPriceLines,
+  pivotPriceLines,
+  supportResistancePriceLines,
   volumeProfilePriceLines,
 } from './geometryOverlays'
 
 describe('geometryOverlays', () => {
+  it('maps pivot and support/resistance levels to native price lines', () => {
+    const pivots = pivotPriceLines([
+      { level: 'R1', value: 1.2 },
+      { level: 'PP', value: 1.1 },
+    ])
+    expect(pivots).toEqual([
+      expect.objectContaining({ title: 'R1', lineStyle: LineStyle.Dashed, lineWidth: 1 }),
+      expect.objectContaining({ title: 'PP', color: '#facc15' }),
+    ])
+    const sr = supportResistancePriceLines([
+      { type: 'resistance', value: 1.25, touches: 3 },
+      { type: 'support', value: 1.05, touches: 2 },
+    ])
+    expect(sr.map((row) => row.title)).toEqual(['Res (3)', 'Sup (2)'])
+    expect(sr[0].lineStyle).toBe(LineStyle.Dotted)
+  })
+
   it('maps confluence types to colored lines', () => {
     const lines = confluencePriceLines([
       { price: 1.1, type: 'support' },

@@ -1,7 +1,10 @@
+import { LineStyle } from 'lightweight-charts'
 import type { PriceLineSpec } from '../components/OHLCChart'
 import type {
   ConfluenceResponse,
   ExposureResponse,
+  PivotLevel,
+  SupportResistanceLevel,
   TradeIdeaPayload,
   VolumeProfileResponse,
 } from '../types'
@@ -11,9 +14,41 @@ export type VolumeProfileLevels = Pick<VolumeProfileResponse, 'poc' | 'vah' | 'v
 export type ExposureRow = NonNullable<ExposureResponse['positions']>[number]
 export type IdeaGeometry = NonNullable<TradeIdeaPayload['geometry']>
 
-function line(price: number | undefined, color: string, title: string): PriceLineSpec | null {
+function line(
+  price: number | undefined,
+  color: string,
+  title: string,
+  extras?: Pick<PriceLineSpec, 'lineStyle' | 'lineWidth'>
+): PriceLineSpec | null {
   if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) return null
-  return { price, color, title }
+  return { price, color, title, ...extras }
+}
+
+export function pivotPriceLines(levels: PivotLevel[] | null | undefined): PriceLineSpec[] {
+  if (!levels?.length) return []
+  return levels
+    .map((level) => {
+      const name = String(level.level || '')
+      const color = name.startsWith('R') ? '#f97316' : name.startsWith('S') ? '#38bdf8' : '#facc15'
+      return line(level.value, color, name, { lineStyle: LineStyle.Dashed, lineWidth: 1 })
+    })
+    .filter((item): item is PriceLineSpec => item !== null)
+}
+
+export function supportResistancePriceLines(
+  levels: SupportResistanceLevel[] | null | undefined
+): PriceLineSpec[] {
+  if (!levels?.length) return []
+  return levels
+    .map((level, idx) => {
+      const color = level.type === 'resistance' ? '#f87171' : '#34d399'
+      const title = `${level.type === 'resistance' ? 'Res' : 'Sup'} (${level.touches})`
+      return line(level.value, color, title || `sr-${idx}`, {
+        lineStyle: LineStyle.Dotted,
+        lineWidth: 2,
+      })
+    })
+    .filter((item): item is PriceLineSpec => item !== null)
 }
 
 export function confluencePriceLines(levels: ConfluenceLevel[] | null | undefined): PriceLineSpec[] {
