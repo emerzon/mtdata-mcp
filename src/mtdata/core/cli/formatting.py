@@ -589,41 +589,6 @@ def _normalize_candle_cli_payload(result: Any, *, fmt: str) -> Any:
     return out
 
 
-def _render_mt5_news_cli_compact(result: Any) -> Any:
-    if not isinstance(result, dict):
-        return result
-
-    news_rows = result.get("news")
-    if not isinstance(news_rows, list):
-        return result
-
-    lines: list[str] = []
-    success = result.get("success")
-    if isinstance(success, bool):
-        lines.append(f"success: {str(success).lower()}")
-
-    for key in ("count", "total_records", "database_path"):
-        value = result.get(key)
-        if _is_empty_value(value):
-            continue
-        lines.append(f"{key}: {value}")
-
-    lines.append(f"news[{len(news_rows)}]:")
-    for row in news_rows:
-        if not isinstance(row, dict):
-            continue
-        relative_time = str(row.get("relative_time") or "").strip()
-        subject = str(row.get("subject") or "").strip()
-        if not relative_time and not subject:
-            continue
-        if relative_time and subject:
-            lines.append(f"  {relative_time}  {subject}")
-        else:
-            lines.append(f"  {relative_time or subject}")
-
-    return "\n".join(lines)
-
-
 _CLI_PRESENTATION_ADAPTERS: Dict[str, Callable[..., Any]] = {
     "market_ticker": _normalize_market_ticker_cli_payload,
     "trade_session_context": _normalize_trade_session_context_cli_payload,
@@ -669,9 +634,6 @@ def _prepare_cli_payload(
         prepared = adapter(prepared, verbose=verbose)
     elif adapter is _normalize_market_scan_cli_payload and fmt == CLI_FORMAT_TOON:
         prepared = adapter(prepared, verbose=verbose)
-
-    if fmt == CLI_FORMAT_TOON and cmd_name == "mt5_news" and not verbose:
-        return _render_mt5_news_cli_compact(prepared)
 
     if adapter is _normalize_candle_cli_payload:
         prepared = adapter(prepared, fmt=fmt)
