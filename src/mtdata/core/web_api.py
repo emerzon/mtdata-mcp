@@ -33,6 +33,10 @@ from ..utils.mt5 import (
     mt5,
     mt5_connection,
 )
+from ..utils.volume_profile import (
+    VolumeProfilePriceSourceLiteral,
+    VolumeProfileVolumeSourceLiteral,
+)
 from .error_envelope import build_error_payload
 from .forecast import (
     forecast_backtest_run as _forecast_backtest_tool,
@@ -51,7 +55,10 @@ from .symbols.catalog import symbols_list
 from .tool_calling import call_tool_sync_structured, unwrap_tool_callable
 from .trading.ideas_requests import TradeIdeaComposeRequest
 from .trading.positions import trade_get_open, trade_get_pending
-from .volume_profile import volume_profile_levels
+from .volume_profile import (
+    VolumeProfileSourceLiteral,
+    volume_profile_levels,
+)
 from .web_api_geometry import (
     get_confluence_response as _get_confluence_response,
 )
@@ -499,11 +506,43 @@ def get_confluence(
 @api_router.get("/volume-profile")
 def get_volume_profile(
     symbol: str = Query(...),
-    timeframe: str = Query("H1"),
+    timeframe: Optional[str] = Query("H1"),
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
+    lookback: Optional[int] = Query(None, ge=1),
+    source: VolumeProfileSourceLiteral = Query("auto"),
+    price_source: VolumeProfilePriceSourceLiteral = Query("mid"),
+    volume_source: VolumeProfileVolumeSourceLiteral = Query("auto"),
+    bucket_size: Optional[float] = Query(None),
+    bucket_points: Optional[float] = Query(None),
+    bucket_count: Optional[int] = Query(None),
+    max_buckets: int = Query(120, ge=1),
+    value_area_pct: float = Query(70.0, gt=0.0, le=100.0),
+    reference_price: Optional[float] = Query(None),
+    max_tick_window_days: int = Query(1, ge=1),
+    max_ticks: int = Query(50_000, ge=1),
+    max_m1_bars: int = Query(20_000, ge=1),
+    detail: DetailLiteral = "compact",
 ) -> Dict[str, Any]:
     return _get_volume_profile_response(
         symbol=symbol,
         timeframe=timeframe,
+        start=start,
+        end=end,
+        lookback=lookback,
+        source=source,
+        price_source=price_source,
+        volume_source=volume_source,
+        bucket_size=bucket_size,
+        bucket_points=bucket_points,
+        bucket_count=bucket_count,
+        max_buckets=max_buckets,
+        value_area_pct=value_area_pct,
+        reference_price=reference_price,
+        max_tick_window_days=max_tick_window_days,
+        max_ticks=max_ticks,
+        max_m1_bars=max_m1_bars,
+        detail=detail,
         volume_profile_tool=volume_profile_levels,
     )
 

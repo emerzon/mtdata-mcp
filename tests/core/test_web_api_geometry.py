@@ -105,6 +105,36 @@ def test_get_volume_profile_route_404_when_empty() -> None:
     assert response.status_code == 404
 
 
+def test_get_volume_profile_route_forwards_window_params() -> None:
+    with patch(
+        "mtdata.core.web_api_geometry.call_tool_sync_structured",
+        return_value={
+            "success": True,
+            "symbol": "EURUSD",
+            "poc": {"price": 1.1},
+        },
+    ) as mocked:
+        response = _client.get(
+            "/api/v1/volume-profile",
+            params={
+                "symbol": "EURUSD",
+                "timeframe": "M15",
+                "lookback": 300,
+                "source": "ticks",
+                "start": "2026-01-01",
+                "end": "2026-01-02",
+                "bucket_count": 40,
+            },
+        )
+    assert response.status_code == 200
+    assert mocked.call_args.kwargs["timeframe"] == "M15"
+    assert mocked.call_args.kwargs["lookback"] == 300
+    assert mocked.call_args.kwargs["source"] == "ticks"
+    assert mocked.call_args.kwargs["start"] == "2026-01-01"
+    assert mocked.call_args.kwargs["end"] == "2026-01-02"
+    assert mocked.call_args.kwargs["bucket_count"] == 40
+
+
 def test_get_exposure_route_returns_both_legs() -> None:
     def _fake(tool, **kwargs):
         name = getattr(tool, "__name__", "")
