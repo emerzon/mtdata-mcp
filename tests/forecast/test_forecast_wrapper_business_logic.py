@@ -26,16 +26,16 @@ def _sample_df(n: int = 40) -> pd.DataFrame:
     )
 
 
-def test_create_dimred_reducer_selectkbest_and_identity():
-    reducer, meta = ff._create_dimred_reducer("selectkbest", {"k": "bad"})
+def test_create_dimred_reducer_selectkbest_and_unknown():
+    from mtdata.forecast.forecast_preprocessing import _create_dimred_reducer
+
+    reducer, meta = _create_dimred_reducer("selectkbest", {"k": "bad"})
     out = reducer.fit_transform(np.asarray([[1.0, 2.0], [2.0, 4.0], [3.0, 6.0]], dtype=float))
     assert out.shape == (3, 2)
     assert meta["k"] == 5
 
-    reducer, meta = ff._create_dimred_reducer("unknown", {})
-    out = reducer.fit_transform([[1, 2], [3, 4]])
-    assert out == [[1, 2], [3, 4]]
-    assert meta == {"method": "identity"}
+    with pytest.raises(ValueError, match="Unknown dimensionality reduction method"):
+        _create_dimred_reducer("unknown", {})
 
 
 def test_forecast_validates_timeframe_and_seconds(monkeypatch):

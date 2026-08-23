@@ -98,11 +98,9 @@ class TestCreateDimredReducerSelectKBest:
         reducer, meta = _create_dimred_reducer("selectkbest", {"k": "bad"})
         assert meta["k"] == 5
 
-    def test_identity_fallback(self):
-        reducer, meta = _create_dimred_reducer("unknown_method", None)
-        assert meta["method"] == "identity"
-        X = np.random.randn(5, 3)
-        assert np.array_equal(reducer.fit_transform(X), X)
+    def test_unknown_method_raises(self):
+        with pytest.raises(ValueError, match="Unknown dimensionality reduction method"):
+            _create_dimred_reducer("unknown_method", None)
 
 
 class TestApplyDimensionalityReduction:

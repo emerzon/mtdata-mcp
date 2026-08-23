@@ -53,21 +53,7 @@ def _safe_log_return_series(values: pd.Series) -> pd.Series:
 def _create_dimred_reducer(method: Any, params: Optional[Dict[str, Any]]) -> Any:
     """Create a dimensionality-reduction transformer."""
     m = str(method).lower().strip()
-    p = params or {}
-    if m == "pca":
-        try:
-            from sklearn.decomposition import PCA
-        except Exception as ex:
-            raise RuntimeError(f"dimred dependencies missing: {ex}")
-        n_components = p.get("n_components", None)
-        return PCA(n_components=n_components), {"n_components": n_components}
-    if m == "tsne":
-        try:
-            from sklearn.manifold import TSNE
-        except Exception as ex:
-            raise RuntimeError(f"dimred dependencies missing: {ex}")
-        n_components = p.get("n_components", 2)
-        return TSNE(n_components=n_components, random_state=42), {"n_components": n_components}
+    p = dict(params or {})
     if m == "selectkbest":
         try:
             k = int(p.get("k", 5))
@@ -93,11 +79,18 @@ def _create_dimred_reducer(method: Any, params: Optional[Dict[str, Any]]) -> Any
 
         return _TopKVarianceReducer(k), {"k": k, "score_func": "variance"}
 
-    class _Identity:
-        def fit_transform(self, X):
-            return X
+    if m == "pca":
+        n_components = p.get("n_components", p.get("components"))
+        if n_components in (None, "", "none", "null"):
+            try:
+                from sklearn.decomposition import PCA
+            except Exception as ex:
+                raise RuntimeError(f"dimred dependencies missing: {ex}") from ex
+            return PCA(n_components=None), {"n_components": None}
 
-    return _Identity(), {"method": "identity"}
+    from ..utils.dimred import create_reducer
+
+    return create_reducer(m, p)
 
 
 def _prepare_base_data(df: pd.DataFrame, quantity: str, base_col: str = "close") -> str:
