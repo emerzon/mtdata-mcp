@@ -1408,39 +1408,6 @@ def _place_market_order(  # noqa: C901
             )
             if tick_freshness_error is not None:
                 return tick_freshness_error
-            validate_reference_price = validate_tick.bid if side == "BUY" else validate_tick.ask
-
-            # SL/TP validation for market orders
-            if norm_sl is not None:
-                if side == "BUY" and norm_sl >= validate_reference_price:
-                    return {
-                        "error": (
-                            "stop_loss must be below the live bid for BUY orders. "
-                            f"sl={norm_sl}, bid={validate_tick.bid}, ask={validate_tick.ask}"
-                        )
-                    }
-                if side == "SELL" and norm_sl <= validate_reference_price:
-                    return {
-                        "error": (
-                            "stop_loss must be above the live ask for SELL orders. "
-                            f"sl={norm_sl}, bid={validate_tick.bid}, ask={validate_tick.ask}"
-                        )
-                    }
-            if norm_tp is not None:
-                if side == "BUY" and norm_tp <= validate_reference_price:
-                    return {
-                        "error": (
-                            "take_profit must be above the live bid for BUY orders. "
-                            f"tp={norm_tp}, bid={validate_tick.bid}, ask={validate_tick.ask}"
-                        )
-                    }
-                if side == "SELL" and norm_tp >= validate_reference_price:
-                    return {
-                        "error": (
-                            "take_profit must be below the live ask for SELL orders. "
-                            f"tp={norm_tp}, bid={validate_tick.bid}, ask={validate_tick.ask}"
-                        )
-                    }
             live_protection_error = validation._validate_live_protection_levels(
                 symbol_info=symbol_info,
                 tick=validate_tick,
@@ -1462,37 +1429,6 @@ def _place_market_order(  # noqa: C901
             if tick_freshness_error is not None:
                 return tick_freshness_error
             price = send_tick.ask if side == "BUY" else send_tick.bid
-            send_reference_price = send_tick.bid if side == "BUY" else send_tick.ask
-            if norm_sl is not None:
-                if side == "BUY" and norm_sl >= send_reference_price:
-                    return {
-                        "error": (
-                            "stop_loss must be below the live bid for BUY orders at send time. "
-                            f"sl={norm_sl}, bid={send_tick.bid}, ask={send_tick.ask}"
-                        )
-                    }
-                if side == "SELL" and norm_sl <= send_reference_price:
-                    return {
-                        "error": (
-                            "stop_loss must be above the live ask for SELL orders at send time. "
-                            f"sl={norm_sl}, bid={send_tick.bid}, ask={send_tick.ask}"
-                        )
-                    }
-            if norm_tp is not None:
-                if side == "BUY" and norm_tp <= send_reference_price:
-                    return {
-                        "error": (
-                            "take_profit must be above the live bid for BUY orders at send time. "
-                            f"tp={norm_tp}, bid={send_tick.bid}, ask={send_tick.ask}"
-                        )
-                    }
-                if side == "SELL" and norm_tp >= send_reference_price:
-                    return {
-                        "error": (
-                            "take_profit must be below the live ask for SELL orders at send time. "
-                            f"tp={norm_tp}, bid={send_tick.bid}, ask={send_tick.ask}"
-                        )
-                    }
             live_protection_error = validation._validate_live_protection_levels(
                 symbol_info=symbol_info,
                 tick=send_tick,
