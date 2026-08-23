@@ -16,12 +16,8 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../s
 from mtdata.forecast.barrier_stats import (
     _confidence_interval_wilson_proportion,
     bootstrap_metric_uncertainty,
-    confidence_interval_agresti_coull,
-    confidence_interval_bootstrap,
-    confidence_interval_jeffreys,
     confidence_interval_wilson,
     cross_seed_stability,
-    ensemble_ci_from_multiple_methods,
     mc_convergence_diagnostic,
     minimum_simulations_for_ci_width,
     statistical_power_analysis,
@@ -114,43 +110,6 @@ class TestBarrierStats(unittest.TestCase):
             with self.assertRaises(ValueError, msg=f"confidence={bad} should raise"):
                 _confidence_interval_wilson_proportion(0.5, 100, confidence=bad)
 
-    def test_confidence_interval_agresti_coull(self):
-        """Test Agresti-Coull interval."""
-        lo, hi = confidence_interval_agresti_coull(successes=50, n_trials=100)
-        self.assertLess(lo, 0.5)
-        self.assertGreater(hi, 0.5)
-    
-    def test_confidence_interval_jeffreys(self):
-        """Test Jeffreys interval (Bayesian)."""
-        lo, hi = confidence_interval_jeffreys(successes=50, n_trials=100)
-        self.assertLess(lo, 0.5)
-        self.assertGreater(hi, 0.5)
-    
-    def test_confidence_interval_bootstrap(self):
-        """Test bootstrap confidence interval."""
-        lo, hi = confidence_interval_bootstrap(
-            successes=50,
-            n_trials=100,
-            n_bootstrap=100,
-            seed=42,
-        )
-        self.assertLess(lo, 0.5)
-        self.assertGreater(hi, 0.5)
-    
-    def test_confidence_interval_methods_agree(self):
-        """Test that different CI methods produce similar results."""
-        successes, n_trials = 60, 100
-        
-        wilson = confidence_interval_wilson(successes, n_trials)
-        agresti = confidence_interval_agresti_coull(successes, n_trials)
-        jeffreys = confidence_interval_jeffreys(successes, n_trials)
-        
-        all_lo = [wilson[0], agresti[0], jeffreys[0]]
-        all_hi = [wilson[1], agresti[1], jeffreys[1]]
-        
-        self.assertLess(max(all_lo) - min(all_lo), 0.1)
-        self.assertLess(max(all_hi) - min(all_hi), 0.1)
-    
     def test_mc_convergence_diagnostic_converged(self):
         """Test convergence diagnostic with converged simulation."""
         n_sims = 500
@@ -429,28 +388,6 @@ class TestBarrierStats(unittest.TestCase):
         )
 
         self.assertEqual(result, {"error": "base_prob must be in (0, 1)"})
-    
-    def test_ensemble_ci_from_multiple_methods(self):
-        """Test ensemble confidence interval combination."""
-        method_results = [
-            {'best': {'prob_win': 0.55}},
-            {'best': {'prob_win': 0.57}},
-            {'best': {'prob_win': 0.53}},
-            {'best': {'prob_win': 0.56}},
-        ]
-        
-        result = ensemble_ci_from_multiple_methods(
-            method_results=method_results,
-            metric='prob_win',
-            confidence=0.95,
-        )
-        
-        self.assertEqual(result['n_methods'], 4)
-        self.assertIn('mean', result)
-        self.assertIn('ci_low', result)
-        self.assertIn('ci_high', result)
-        self.assertLess(result['ci_low'], result['mean'])
-        self.assertGreater(result['ci_high'], result['mean'])
 
 
 class TestBarrierOptimizationWithStats(_BarrierOptimizationPatchMixin, unittest.TestCase):
@@ -817,74 +754,6 @@ if __name__ == '__main__':
 
 class TestBarrierSanityCheckFixes(unittest.TestCase):
     """Tests for bugs caught during the deep barrier sanity check."""
-
-    # -- ensemble_ci_from_multiple_methods should not clamp non-probability metrics --
-
-    def test_ensemble_ci_does_not_clamp_ev(self):
-        """EV can be negative; CI bounds must not be clamped to [0, 1]."""
-        results = [
-            {"best": {"ev": -0.12}},
-            {"best": {"ev": -0.08}},
-            {"best": {"ev": -0.15}},
-        ]
-        ci = ensemble_ci_from_multiple_methods(results, metric="ev", confidence=0.95)
-        self.assertLess(ci["ci_low"], 0.0, "EV CI lower bound should be allowed below 0")
-
-    def test_ensemble_ci_does_not_clamp_kelly_above_one(self):
-        """Kelly can exceed 1.0 in degenerate cases; CI must not be clamped."""
-        results = [
-            {"best": {"kelly": 1.2}},
-            {"best": {"kelly": 1.5}},
-            {"best": {"kelly": 1.3}},
-        ]
-        ci = ensemble_ci_from_multiple_methods(results, metric="kelly", confidence=0.95)
-        self.assertGreater(ci["ci_high"], 1.0, "Kelly CI upper bound should be allowed above 1")
-
-    def test_ensemble_ci_clamps_probability_metric(self):
-        """Probability metrics should still be clamped to [0, 1]."""
-        results = [
-            {"best": {"prob_win": 0.02}},
-            {"best": {"prob_win": 0.01}},
-            {"best": {"prob_win": 0.03}},
-        ]
-        ci = ensemble_ci_from_multiple_methods(results, metric="prob_win", confidence=0.95)
-        self.assertGreaterEqual(ci["ci_low"], 0.0)
-        self.assertLessEqual(ci["ci_high"], 1.0)
-
-    # -- CI input validation guards --
-
-    def test_agresti_coull_invalid_successes_clamped(self):
-        """Successes outside [0, n_trials] should be clamped, not crash."""
-        lo, hi = confidence_interval_agresti_coull(successes=-5, n_trials=100)
-        self.assertTrue(np.isfinite(lo) and np.isfinite(hi))
-        lo2, hi2 = confidence_interval_agresti_coull(successes=200, n_trials=100)
-        self.assertTrue(np.isfinite(lo2) and np.isfinite(hi2))
-
-    def test_jeffreys_invalid_successes_clamped(self):
-        lo, hi = confidence_interval_jeffreys(successes=-5, n_trials=100)
-        self.assertTrue(np.isfinite(lo) and np.isfinite(hi))
-        lo2, hi2 = confidence_interval_jeffreys(successes=200, n_trials=100)
-        self.assertTrue(np.isfinite(lo2) and np.isfinite(hi2))
-
-    def test_bootstrap_invalid_successes_clamped(self):
-        lo, hi = confidence_interval_bootstrap(successes=-5, n_trials=100, seed=1)
-        self.assertTrue(np.isfinite(lo) and np.isfinite(hi))
-        lo2, hi2 = confidence_interval_bootstrap(successes=200, n_trials=100, seed=1)
-        self.assertTrue(np.isfinite(lo2) and np.isfinite(hi2))
-
-    def test_ci_functions_reject_bad_confidence(self):
-        """Confidence outside (0, 1) should return NaN."""
-        for fn in (confidence_interval_agresti_coull, confidence_interval_jeffreys):
-            lo, hi = fn(successes=50, n_trials=100, confidence=0.0)
-            self.assertTrue(np.isnan(lo) and np.isnan(hi))
-            lo2, hi2 = fn(successes=50, n_trials=100, confidence=1.0)
-            self.assertTrue(np.isnan(lo2) and np.isnan(hi2))
-        lo, hi = confidence_interval_bootstrap(
-            successes=50, n_trials=100, confidence=0.0, seed=1,
-        )
-        self.assertTrue(np.isnan(lo) and np.isnan(hi))
-
-    # -- resolve_barrier_prices direction alias handling --
 
     def test_resolve_barrier_prices_accepts_buy_sell_aliases(self):
         """buy/sell/up/down should be normalized to long/short."""
