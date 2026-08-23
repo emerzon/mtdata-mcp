@@ -134,11 +134,16 @@ def _bounded_training_diagnostic(value: Any) -> str:
     return marker + text[-keep:]
 
 
+def scrub_local_paths(text: str) -> str:
+    """Replace local filesystem paths in public error text."""
+    text = re.sub(r"(?i)\b[A-Z]:[\\/][^\s'\"]+", "<local-path>", text)
+    return re.sub(r"(?<!\w)/(?:[^\s/'\"]+/)+[^\s'\"]+", "<local-path>", text)
+
+
 def _public_training_error(message: Any, *, exception_type: Any = None) -> str:
     """Return a bounded one-line worker error without local filesystem paths."""
     text = " ".join(str(message or "Training failed").split())
-    text = re.sub(r"(?i)\b[A-Z]:[\\/][^\s'\"]+", "<local-path>", text)
-    text = re.sub(r"(?<!\w)/(?:[^\s/'\"]+/)+[^\s'\"]+", "<local-path>", text)
+    text = scrub_local_paths(text)
     error_type = str(exception_type or "").strip()
     if error_type and not text.startswith(f"{error_type}:"):
         text = f"{error_type}: {text}"

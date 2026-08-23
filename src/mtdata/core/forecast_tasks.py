@@ -611,12 +611,13 @@ def _attach_task_failure_guidance(payload: Dict[str, Any], error: Any) -> None:
 
 def _public_task_error(value: Any) -> str:
     """Project current and legacy task diagnostics to a concise public summary."""
+    from ..forecast.task_manager import scrub_local_paths
+
     text = str(value or "Forecast training failed.").strip()
     for marker in ("\nWorker traceback:", "\nTraceback", "\nWorker diagnostic tail:"):
         text = text.split(marker, 1)[0]
     text = " ".join(text.split())
-    text = re.sub(r"(?i)\b[A-Z]:[\\/][^\s'\"]+", "<local-path>", text)
-    text = re.sub(r"(?<!\w)/(?:[^\s/'\"]+/)+[^\s'\"]+", "<local-path>", text)
+    text = scrub_local_paths(text)
     if len(text) > _PUBLIC_TASK_ERROR_LIMIT:
         text = text[: _PUBLIC_TASK_ERROR_LIMIT - 3].rstrip() + "..."
     return text
