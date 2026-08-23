@@ -401,20 +401,6 @@ def _fit_hmmlearn_gaussian_hmm_1d(
     )
 
 
-def estimate_transition_matrix_from_gamma(gamma: np.ndarray) -> np.ndarray:
-    """Estimate a Markov transition matrix from soft assignments gamma.
-
-    Uses expected pairwise transitions xi_t(i->j) ≈ gamma[t,i] * gamma[t+1,j].
-    Returns a KxK row-stochastic matrix.
-    """
-    gamma = np.asarray(gamma, dtype=float)
-    N, K = gamma.shape
-    if N <= 1 or K <= 0:
-        return np.eye(max(1, K), dtype=float)
-    counts = gamma[:-1].T @ gamma[1:]
-    return _normalize_transition_matrix(counts)
-
-
 def simulate_markov_chain(A: np.ndarray, init: np.ndarray, steps: int, sims: int, rng: Optional[np.random.RandomState] = None) -> np.ndarray:
     """Simulate discrete Markov states.
 
@@ -921,39 +907,6 @@ def simulate_bootstrap_mc(
         'return_paths': sim_rets,
         'block_size': np.array(block_size) # store as array for consistency
     }
-
-
-def summarize_paths(
-    price_paths: np.ndarray,
-    return_paths: Optional[np.ndarray] = None,
-    alpha: float = 0.05,
-) -> Dict[str, np.ndarray]:
-    """Summarize simulated paths into per-step statistics: mean and CI bounds.
-
-    Returns keys:
-    - price_mean, price_lower, price_upper
-    - return_mean, return_lower, return_upper (when return_paths provided)
-    """
-    q_lo = float(alpha / 2.0)
-    q_hi = float(1.0 - alpha / 2.0)
-    price_mean = np.nanmean(price_paths, axis=0)
-    price_lower = np.nanquantile(price_paths, q_lo, axis=0)
-    price_upper = np.nanquantile(price_paths, q_hi, axis=0)
-    out: Dict[str, np.ndarray] = {
-        'price_mean': price_mean,
-        'price_lower': price_lower,
-        'price_upper': price_upper,
-    }
-    if return_paths is not None:
-        ret_mean = np.nanmean(return_paths, axis=0)
-        ret_lower = np.nanquantile(return_paths, q_lo, axis=0)
-        ret_upper = np.nanquantile(return_paths, q_hi, axis=0)
-        out.update({
-            'return_mean': ret_mean,
-            'return_lower': ret_lower,
-            'return_upper': ret_upper,
-        })
-    return out
 
 
 def gbm_single_barrier_upcross_prob(
