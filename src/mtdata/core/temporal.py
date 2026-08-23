@@ -47,6 +47,7 @@ from ..utils.utils import (
     validate_historical_range,
 )
 from ._mcp_instance import mcp
+from .error_envelope import build_error_payload
 from .mt5_gateway import create_mt5_gateway
 from .output_contract import build_pagination_meta, normalize_output_detail
 from .runtime_metadata import run_mt5_logged_operation
@@ -97,6 +98,17 @@ def _fx_trading_weekday(value: Any) -> int:
     return (weekday + (1 if int(local.hour) >= 17 else 0)) % 7
 
 
+_STAGE_ERROR_CODES = {
+    "validate": "temporal_invalid_input",
+    "symbol": "temporal_symbol_failed",
+    "fetch": "temporal_fetch_failed",
+    "process": "temporal_process_failed",
+    "trim": "temporal_insufficient_data",
+    "filter": "temporal_insufficient_data",
+    "internal": "temporal_internal_error",
+}
+
+
 def _error_response(
     message: str,
     stage: str,
@@ -105,12 +117,15 @@ def _error_response(
     details: Optional[Any] = None,
     bars: Optional[int] = None,
     filters: Optional[Dict[str, Any]] = None,
+    code: Optional[str] = None,
 ) -> Dict[str, Any]:
-    payload: Dict[str, Any] = {
-        "success": False,
-        "error": message,
-        "stage": stage,
-    }
+    error_code = str(code or _STAGE_ERROR_CODES.get(stage) or f"temporal_{stage}")
+    payload = build_error_payload(
+        message,
+        code=error_code,
+        operation="temporal_analyze",
+    )
+    payload["stage"] = stage
     if context:
         payload["context"] = context
     if details is not None:
@@ -935,14 +950,13 @@ def temporal_analyze(  # noqa: C901
             context["error_code"] = range_error["error_code"]
             if range_error.get("remediation"):
                 context["remediation"] = range_error["remediation"]
-            error_payload = _error_response(
+            return _error_response(
                 str(range_error["error"]),
                 stage="validate",
                 context=context,
                 details=range_error.get("details"),
+                code=range_error["error_code"],
             )
-            error_payload["error_code"] = range_error["error_code"]
-            return error_payload
         try:
             mt5_gateway = create_mt5_gateway(
                 adapter=mt5,
@@ -1634,7 +1648,12 @@ def temporal_analyze(  # noqa: C901
                 )
             return payload
         except MT5ConnectionError as exc:
-            return {"error": str(exc)}
+            return _error_response(
+                str(exc),
+                stage="fetch",
+                context=context,
+                code="mt5_connection_error",
+            )
         except Exception as exc:
             return _error_response(
                 f"Error computing temporal analysis: {str(exc)}",
