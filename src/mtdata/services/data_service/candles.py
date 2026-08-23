@@ -86,6 +86,7 @@ from ...utils.time import (
     _resolve_client_tz,
     bar_close_epoch,
     format_epoch_utc,
+    timezone_label,
 )
 from ...utils.utils import (
     _format_numeric_rows_from_df,
@@ -820,7 +821,7 @@ def _timezone_label(*, use_client_tz: bool, client_tz: Any) -> str:
         return "UTC"
     if client_tz is None:
         return "local"
-    return getattr(client_tz, "key", None) or getattr(client_tz, "zone", None) or str(client_tz)
+    return timezone_label(client_tz, default="local")
 
 
 def _build_rates_df(rates: Any, use_client_tz: bool) -> pd.DataFrame:
@@ -1294,41 +1295,48 @@ def _latest_indicator_values_missing(df: pd.DataFrame, columns: List[str]) -> bo
     return False
 
 
-def _apply_pre_ti_denoise(
+def _apply_stage_denoise(
     df: pd.DataFrame,
     headers: List[str],
     denoise: Optional[DenoiseSpec],
     denoise_apps: List[Dict[str, Any]],
+    *,
+    when: str,
+    require_explicit_when: bool = False,
 ) -> None:
     if not denoise:
         return
+    if require_explicit_when and not (
+        isinstance(denoise, dict) and denoise.get("when") not in (None, "")
+    ):
+        return
 
-    normalized = _normalize_denoise_spec(denoise, default_when='pre_ti')
-    added_columns: List[str] = []
-    if normalized and str(normalized.get('when', 'pre_ti')).lower() == 'pre_ti':
-        added_columns = apply_denoise_util(df, normalized, default_when='pre_ti')
-        last_application = df.attrs.get("denoise_last_application")
-        overwritten_columns = (
-            list(last_application.get("overwrote_columns") or [])
-            if isinstance(last_application, dict)
-            else []
-        )
-        ohlc_geometry_repaired = (
-            int(last_application.get("ohlc_geometry_repaired") or 0)
-            if isinstance(last_application, dict)
-            else 0
-        )
-        _extend_unique_headers(headers, added_columns)
-        _append_denoise_application(
-            denoise_apps,
-            normalized,
-            default_when='pre_ti',
-            default_causality='causal',
-            default_keep_original=True,
-            added_columns=added_columns,
-            overwritten_columns=overwritten_columns,
-            ohlc_geometry_repaired=ohlc_geometry_repaired,
-        )
+    normalized = _normalize_denoise_spec(denoise, default_when=when)
+    if not normalized or str(normalized.get("when", when)).lower() != when:
+        return
+    added_columns = apply_denoise_util(df, normalized, default_when=when)
+    last_application = df.attrs.get("denoise_last_application")
+    overwritten_columns = (
+        list(last_application.get("overwrote_columns") or [])
+        if isinstance(last_application, dict)
+        else []
+    )
+    ohlc_geometry_repaired = (
+        int(last_application.get("ohlc_geometry_repaired") or 0)
+        if isinstance(last_application, dict)
+        else 0
+    )
+    _extend_unique_headers(headers, added_columns)
+    _append_denoise_application(
+        denoise_apps,
+        normalized,
+        default_when=when,
+        default_causality="causal",
+        default_keep_original=True,
+        added_columns=added_columns,
+        overwritten_columns=overwritten_columns,
+        ohlc_geometry_repaired=ohlc_geometry_repaired,
+    )
 
 
 def _apply_indicator_stage(
@@ -1453,45 +1461,6 @@ def _drop_incomplete_indicator_rows(
         return df, 0, []
 
     return df.loc[~missing_mask].copy(), dropped_rows, missing_cols
-
-
-def _apply_post_ti_denoise(
-    df: pd.DataFrame,
-    headers: List[str],
-    denoise: Optional[DenoiseSpec],
-    denoise_apps: List[Dict[str, Any]],
-) -> None:
-    if not denoise:
-        return
-    if not (isinstance(denoise, dict) and denoise.get('when') not in (None, "")):
-        return
-
-    normalized = _normalize_denoise_spec(denoise, default_when='post_ti')
-    added_columns: List[str] = []
-    if normalized and str(normalized.get('when', 'post_ti')).lower() == 'post_ti':
-        added_columns = apply_denoise_util(df, normalized, default_when='post_ti')
-        last_application = df.attrs.get("denoise_last_application")
-        overwritten_columns = (
-            list(last_application.get("overwrote_columns") or [])
-            if isinstance(last_application, dict)
-            else []
-        )
-        ohlc_geometry_repaired = (
-            int(last_application.get("ohlc_geometry_repaired") or 0)
-            if isinstance(last_application, dict)
-            else 0
-        )
-        _extend_unique_headers(headers, added_columns)
-        _append_denoise_application(
-            denoise_apps,
-            normalized,
-            default_when='post_ti',
-            default_causality='causal',
-            default_keep_original=True,
-            added_columns=added_columns,
-            overwritten_columns=overwritten_columns,
-            ohlc_geometry_repaired=ohlc_geometry_repaired,
-        )
 
 
 def _rebuild_candle_indicator_window(
@@ -2151,7 +2120,7 @@ def fetch_candles(  # noqa: C901
                 f"bars; request at least {recommended_denoise_bars} bars to reduce "
                 "initial-state effects."
             )
-        _apply_pre_ti_denoise(df, headers, denoise, denoise_apps)
+        _apply_stage_denoise(df, headers, denoise, denoise_apps, when="pre_ti")
         denoise_warnings.extend(consume_denoise_warnings(df))
         ti_cols = _apply_indicator_stage(df, headers, ti_spec, denoise)
         denoise_warnings.extend(consume_denoise_warnings(df))
@@ -2300,7 +2269,14 @@ def fetch_candles(  # noqa: C901
             )
 
         # Optional post-TI denoising (adds new columns by default)
-        _apply_post_ti_denoise(df, headers, denoise, denoise_apps)
+        _apply_stage_denoise(
+            df,
+            headers,
+            denoise,
+            denoise_apps,
+            when="post_ti",
+            require_explicit_when=True,
+        )
         denoise_warnings.extend(consume_denoise_warnings(df))
 
         # Ensure headers are unique and exist in df
