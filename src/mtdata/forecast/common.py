@@ -816,6 +816,7 @@ def nf_build_model_kwargs(
     learning_rate: Optional[float] = None,
     accel: Optional[str] = None,
     enable_progress_bar: bool = False,
+    early_stop_patience_steps: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Build keyword arguments for a NeuralForecast model constructor.
 
@@ -848,6 +849,8 @@ def nf_build_model_kwargs(
             model_kwargs['learning_rate'] = float(learning_rate)
         except Exception:
             pass
+    if early_stop_patience_steps is not None and "early_stop_patience_steps" in ctor_params:
+        model_kwargs["early_stop_patience_steps"] = int(early_stop_patience_steps)
 
     base_trainer: Dict[str, Any] = {
         'accelerator': accel,
@@ -980,6 +983,7 @@ def nf_create_and_fit(
     exog_used: Optional[np.ndarray] = None,
     exog_future: Optional[np.ndarray] = None,
     future_times: Optional[List[float]] = None,
+    val_size: int = 0,
 ) -> Any:
     """Instantiate a NeuralForecast wrapper, fit it, and return the fitted NF object.
 
@@ -1026,6 +1030,9 @@ def nf_create_and_fit(
         except Exception:
             _fit_params = {}
         supports_x = 'X_df' in _fit_params
+        fit_kwargs: Dict[str, Any] = {"df": Y_df, "verbose": False}
+        if "val_size" in _fit_params and int(val_size) > 0:
+            fit_kwargs["val_size"] = int(val_size)
 
         exog_used_2d = _as_2d_exog_array(exog_used, name="exog_used")
         if exog_used_2d is not None and supports_x:
@@ -1033,9 +1040,9 @@ def nf_create_and_fit(
             cols = [f'x{i}' for i in range(exog_used_2d.shape[1])]
             for j, cname in enumerate(cols):
                 X_df[cname] = exog_used_2d[:, j]
-            nf.fit(df=Y_df, X_df=X_df, verbose=False)
+            nf.fit(X_df=X_df, **fit_kwargs)
         else:
-            nf.fit(df=Y_df, verbose=False)
+            nf.fit(**fit_kwargs)
 
     return nf
 

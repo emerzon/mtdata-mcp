@@ -45,6 +45,7 @@ from mtdata.forecast.methods.neural import (
     PatchTSTMethod,
     TFTMethod,
     _neural_resolve_hyperparams,
+    _neural_resolve_validation_settings,
     _resolve_nf_model_class,
 )
 
@@ -99,6 +100,16 @@ class TestNeuralHyperparams:
             {}, 100, 12, 0
         )
         assert input_size == 88
+
+    def test_auto_validation_uses_horizon_or_fifth(self):
+        val_size, patience = _neural_resolve_validation_settings({}, n=100, fh=12, steps=50)
+        assert val_size == 20
+        assert patience == 10
+
+    def test_short_series_disables_early_stopping(self):
+        val_size, patience = _neural_resolve_validation_settings({}, n=5, fh=4, steps=50)
+        assert val_size == 0
+        assert patience is None
 
 
 # ── NeuralForecastMethod and subclasses  (lines 90-177) ─────────────────────
