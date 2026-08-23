@@ -1916,44 +1916,27 @@ def symbols_top_markets(  # noqa: C901
             if raw_symbols is None:
                 return {"error": f"Failed to get symbols: {mt5_gateway.last_error()}"}
             all_symbols = list(raw_symbols)
-
             tradable_symbols = [
                 symbol
                 for symbol in all_symbols
                 if _market_scan_is_tradable(symbol)
             ]
-            selected_symbols = [
-                symbol
-                for symbol in tradable_symbols
-                if universe_value == "all" or bool(getattr(symbol, "visible", False))
-            ]
-            filters: Dict[str, Any] = {}
-            group_has_no_universe_members = False
-            if group_filter:
-                resolved_groups, group_error = _resolve_market_scan_group_path(
-                    tradable_symbols,
-                    group_filter,
-                )
-                if group_error or not resolved_groups:
-                    return {"error": group_error or f"No symbol group matched '{group_filter}'."}
-                resolved_group_set = {
-                    _normalize_group_path_query(group_path).lower()
-                    for group_path in resolved_groups
+
+            selected_symbols, selection_meta, selection_error = _select_market_scan_symbols(
+                all_symbols,
+                group=group_filter,
+                universe=universe_value,
+            )
+            if selection_error:
+                return {
+                    "error": selection_error
+                    or f"No symbol group matched '{group_filter}'.",
                 }
-                selected_symbols = [
-                    symbol
-                    for symbol in selected_symbols
-                    if _normalize_group_path_query(
-                        str(_extract_group_path_util(symbol) or "")
-                    ).lower()
-                    in resolved_group_set
-                ]
-                group_has_no_universe_members = not selected_symbols
-                filters["group"] = (
-                    resolved_groups[0]
-                    if len(resolved_groups) == 1
-                    else str(group_filter).strip()
-                )
+            filters: Dict[str, Any] = {}
+            group_has_no_universe_members = bool(group_filter) and not selected_symbols
+            if group_filter:
+                resolved_groups = list(selection_meta.get("groups") or [])
+                filters["group"] = selection_meta.get("group") or str(group_filter).strip()
                 if len(resolved_groups) > 1:
                     filters["groups"] = resolved_groups
             if category_filter:
