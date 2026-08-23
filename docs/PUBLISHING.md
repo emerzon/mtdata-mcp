@@ -61,6 +61,17 @@ twine upload dist/*
 Upload only after the README marker is present. PyPI forbids replacing an
 already-published version, so do not re-upload `0.1.0` once it is live.
 
+PyPI also rejects distributions whose metadata contains a Direct URL
+dependency (`pkg @ git+https://...`), even when it lives in an extra.
+`news-ycnbc` must depend on the PyPI `ycnbc` package, not a Git pin.
+Inspect the built wheel before upload:
+
+```bash
+python -c "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1]); print(z.read([n for n in z.namelist() if n.endswith('METADATA')][0]).decode())" dist/mtdata_mcp-0.1.0-py3-none-any.whl
+```
+
+Confirm every `Requires-Dist` line is a package-index requirement.
+
 ---
 
 ## 3. Install mcp-publisher and publish `server.json`

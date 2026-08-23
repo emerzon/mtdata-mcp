@@ -1420,7 +1420,7 @@ class YCNBCNewsSource:
         return "the optional ycnbc package is not installed"
 
     def install_hint(self) -> str:
-        return 'pip install -e ".[news-ycnbc]"'
+        return 'pip install "mtdata-mcp[news-ycnbc]"'
 
     def fetch_general_candidates(self, limit: int) -> List[NewsItem]:
         if not self.is_available():

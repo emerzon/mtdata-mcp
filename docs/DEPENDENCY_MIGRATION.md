@@ -21,6 +21,7 @@ unresolvable or where a dependent framework has not migrated yet.
 | StatsForecast | 1.7.6 | 2.1.1 | Windows cp314 wheel resolution plus a real `Naive` forecast |
 | sktime | 1.0.1 | 1.1.0 | Resolver check plus a real `NaiveForecaster` forecast |
 | TimesFM | Git commit / 2.0.0 | PyPI 2.0.2 | Package API/import tests; added to `[all]` |
+| ycnbc | Git commit `d5e5029` | PyPI 1.0.12 | Same 1.0.12 release; `[news-ycnbc]` / `[all-git]` no longer use a Direct URL (PyPI rejects git extras) |
 | Foundation stack | Torch 2.11 / Transformers 5.12 floor | Torch 2.13 / Transformers 5.15.1 floor | Windows cp314 wheel resolution |
 | Scientific/runtime packages | Earlier compatible floors | Latest compatible releases | Full `[all]` resolver pass |
 | HNSW search | Opt-in helper only | `[pattern-search-hnsw]` and `[all]` | Fresh local cp314 wheel built from `hnswlib` 0.8.0 source; CI installs the extra |

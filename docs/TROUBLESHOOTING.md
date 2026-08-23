@@ -346,24 +346,19 @@ MTDATA_CLI_DEBUG=1 mtdata-cli forecast_generate EURUSD --horizon 12
 
 ## Optional Dependency Issues
 
-### Git-backed Extra Fails to Install
+### Manual stock-pattern Extra Fails to Install
 
-**Symptom:** `pip install -e .[patterns-ext]` or `pip install -e .[news-ycnbc]` fails during clone/build on Windows.
+**Symptom:** `pip install -e .[patterns-ext]` does not install `stock-pattern` because that repository has no packaging metadata.
 
 **Solution:**
-1. Install Visual Studio Build Tools 2022 with the **Desktop development with C++** workload.
-2. Make sure Git is installed and available on `PATH`.
-3. Install the stable base stack first:
+1. Make sure Git is installed and available on `PATH`.
+2. Install the stable base stack first:
    ```bash
    pip install -r requirements.txt
    ```
-4. From the repository root, retry only the extra you need:
-   ```bash
-   pip install -e .[patterns-ext]
-   pip install -e .[news-ycnbc]
-   ```
+3. Follow the manual copy steps in [SETUP.md](SETUP.md#6-manual-stock-pattern-installation).
 
-If a Git-backed extra still fails, leave it out and use the rest of mtdata without that integration. TimesFM, `chronos2`, and `chronos_bolt` are available from package-index install paths.
+If that still fails, leave it out and use the rest of mtdata without that integration. CNBC news (`ycnbc`), TimesFM, `chronos2`, and `chronos_bolt` are available from package-index extras.
 
 ### Optional hnswlib Source Build Fails
 

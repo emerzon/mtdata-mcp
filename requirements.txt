@@ -1,7 +1,7 @@
 # Full-feature local/dev install for Python 3.14 using package-index releases only.
 # The base package is intentionally leaner; use this file when you want
-# the validated research/web stack without Git-backed extras.
-# Optional Git/manual add-ons (stock-pattern and ycnbc) are documented in docs/SETUP.md.
+# the validated research/web stack without opt-in extras such as CNBC news.
+# Optional add-ons (stock-pattern and ycnbc) are documented in docs/SETUP.md.
 # The full stack includes the source-built hnswlib accelerator. Lean installs can
 # add it separately through requirements-optional-src.txt or [pattern-search-hnsw].
 

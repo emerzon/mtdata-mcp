@@ -109,7 +109,8 @@ context, not a live tape.
   headline will move the price.
 - Optional embedding rerank (downloads a model on first use) is **off** by
   default. See [ENV_VARS.md](ENV_VARS.md#news-embeddings).
-- CNBC via `ycnbc` is an opt-in extra (`pip install -e ".[news-ycnbc]"`).
+- CNBC via `ycnbc` is an opt-in extra (`pip install "mtdata-mcp[news-ycnbc]"`
+  or, from a checkout, `pip install -e ".[news-ycnbc]"`).
   When `--source ycnbc` is pinned but that extra is unavailable, the command
   returns `source_unavailable` with install/restart guidance instead of
   presenting the missing adapter as an empty result.

@@ -97,7 +97,7 @@ news-embeddings = [
     "huggingface-hub>=1.28.0,<2",
 ]
 news-ycnbc = [
-    "ycnbc @ git+https://github.com/codestorm-official/ycnbc.git@d5e50293be499b617edaa10a03467b4184193a4e",
+    "ycnbc>=1.0.12",
 ]
 dimred-ext = [
     "umap-learn>=0.5.12",
@@ -153,7 +153,7 @@ all-git = [
     "uvicorn[standard]>=0.52.4",
     "sentence-transformers>=5.7.0,<6",
     "umap-learn>=0.5.12",
-    "ycnbc @ git+https://github.com/codestorm-official/ycnbc.git@d5e50293be499b617edaa10a03467b4184193a4e",
+    "ycnbc>=1.0.12",
 ]
 
 [project.scripts]

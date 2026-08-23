@@ -46,7 +46,8 @@ timezones, website and assistant entry points.
 | Web API / UI backend only | `pip install -e .[web]` |
 | Heavy forecast extras | `pip install -e .[forecast-classical]` and/or `pip install -e .[forecast-foundation]` |
 | TimesFM | `pip install -e .[forecast-timesfm]` (PyPI release) |
-| Git/manual experiments (`stock-pattern`, `ycnbc`) | Install only when needed |
+| CNBC news | `pip install -e .[news-ycnbc]` (PyPI `ycnbc`) |
+| Manual experiments (`stock-pattern`) | Install only when needed |
 
 ---
 
@@ -80,7 +81,7 @@ For the validated research/web environment used in local development and most do
 pip install -r requirements.txt
 ```
 
-This path intentionally stays on package-index releases. TimesFM 2.0.2 is now included from PyPI; Git/manual add-ons such as `stock-pattern` and `ycnbc` stay opt-in so the default install does not depend on Git checkouts.
+This path intentionally stays on package-index releases. TimesFM 2.0.2 is now included from PyPI; the CNBC extra (`ycnbc`) stays opt-in via `[news-ycnbc]`, and the manual `stock-pattern` add-on stays out of the default install.
 NeuralForecast-based models are also kept out of this default path: on Windows Python 3.14, `neuralforecast` cannot resolve because its required `ray` dependency does not publish Windows wheels for 3.14 (Ray has cp314 wheels for Linux/macOS only). Treat `nhits`, `tft`, `patchtst`, and `nbeatsx` as manual/nonstandard setup.
 
 ## Deeper detail: optional extras
@@ -91,7 +92,7 @@ Skip this block until candles and a simple Theta forecast already work.
 
 The base package is intentionally lean. Install extras as needed:
 
-> Windows note: install Visual Studio Build Tools 2022 with the **Desktop development with C++** workload before the full install or any Git-backed extra. Several optional dependencies include native extensions, and pip may need MSVC when a compatible wheel is unavailable. Git-backed extras also require Git on `PATH`.
+> Windows note: install Visual Studio Build Tools 2022 with the **Desktop development with C++** workload before the full install. Several optional dependencies include native extensions, and pip may need MSVC when a compatible wheel is unavailable. The manual `stock-pattern` path also requires Git on `PATH`.
 
 - Classical forecasting / optimization:
   `pip install -e .[forecast-classical]`
@@ -105,15 +106,15 @@ The base package is intentionally lean. Install extras as needed:
   `pip install -e .[dimred-ext]`
 - HNSW pattern-search accelerator (source build):
   `pip install -e .[pattern-search-hnsw]`
-- Experimental pattern engines (Git-backed, requires manual install):
+- Experimental pattern engines (requires manual install):
   `pip install -e .[patterns-ext]` (Note: stock-pattern requires manual copy to site-packages; see below)
 - News embeddings (semantic reranking):
   `pip install -e .[news-embeddings]`
-- CNBC news source (Git-backed):
+- CNBC news source (PyPI):
   `pip install -e .[news-ycnbc]`
-- Everything from package indexes:
+- Everything from package indexes except CNBC:
   `pip install -e .[all]`
-- Everything including Git-backed extras:
+- Everything including the CNBC extra:
   `pip install -e .[all-git]`
 
 Feature notes:
