@@ -52,15 +52,6 @@ _BARRIER_PROB_METHODS = (
 )
 _BARRIER_OPTIMIZE_METHODS = (*BARRIER_MONTE_CARLO_METHODS, "ensemble")
 
-_TRADE_PLACE_STRING_ORDER_TYPES = [
-    "BUY",
-    "SELL",
-    "BUY_LIMIT",
-    "BUY_STOP",
-    "SELL_LIMIT",
-    "SELL_STOP",
-]
-
 _SchemaPatcher = Callable[[Dict[str, Any]], None]
 
 
@@ -240,6 +231,8 @@ def _patch_forecast_barrier_optimize_schema(schema: Dict[str, Any]) -> None:
 
 
 def _patch_trade_place_schema(schema: Dict[str, Any]) -> None:
+    from .trading.validation import _SUPPORTED_ORDER_TYPE_ORDER
+
     params_obj = _schema_obj(schema)
     if isinstance(params_obj, dict):
         params_obj["required"] = ["symbol", "volume", "order_type"]
@@ -247,10 +240,11 @@ def _patch_trade_place_schema(schema: Dict[str, Any]) -> None:
     if "order_type" in params:
         params["order_type"] = {
             "type": "string",
-            "enum": list(_TRADE_PLACE_STRING_ORDER_TYPES),
+            "enum": list(_SUPPORTED_ORDER_TYPE_ORDER),
             "description": (
-                "Canonical order type: BUY/SELL for market orders or "
-                "BUY_LIMIT/BUY_STOP/SELL_LIMIT/SELL_STOP for pending orders."
+                "Order type: BUY/SELL for market orders, or "
+                "BUY_LIMIT/BUY_STOP/BUY_STOP_LIMIT/SELL_LIMIT/SELL_STOP/"
+                "SELL_STOP_LIMIT for pending orders."
             ),
         }
     if "expiration" in params:

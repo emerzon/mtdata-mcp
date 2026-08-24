@@ -353,8 +353,10 @@ def test_attach_schemas_to_tools_patches_trade_place(monkeypatch) -> None:
         "SELL",
         "BUY_LIMIT",
         "BUY_STOP",
+        "BUY_STOP_LIMIT",
         "SELL_LIMIT",
         "SELL_STOP",
+        "SELL_STOP_LIMIT",
     ]
     assert params["expiration"]["anyOf"] == [
         {"type": "string"},
