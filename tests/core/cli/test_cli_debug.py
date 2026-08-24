@@ -123,3 +123,30 @@ class TestConfigureCliLogging:
         finally:
             logger.setLevel(previous)
             logger.propagate = previous_propagate
+
+
+def test_cli_finish_log_matches_exit_predicate(caplog) -> None:
+    from mtdata.core.cli.api import _invoke_cli_tool_function
+
+    logger = logging.getLogger("mtdata.core.cli.api")
+    previous_propagate = logger.propagate
+    previous_level = logger.level
+    logger.propagate = True
+    logger.setLevel(logging.WARNING)
+    try:
+        with caplog.at_level(logging.WARNING, logger="mtdata.core.cli.api"):
+            result = _invoke_cli_tool_function(
+                lambda **_kwargs: {"message": "No action taken", "no_action": True},
+                args=argparse.Namespace(),
+                cmd_name="noop_tool",
+                kwargs={},
+            )
+    finally:
+        logger.propagate = previous_propagate
+        logger.setLevel(previous_level)
+
+    assert result == {"message": "No action taken", "no_action": True}
+    assert any(
+        "event=finish" in record.message and "success=False" in record.message
+        for record in caplog.records
+    )

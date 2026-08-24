@@ -43,7 +43,6 @@ from .._mcp_tools import (
 )
 from .._mcp_tools import get_tool_registry as get_registered_tools
 from ..error_envelope import build_error_payload
-from ..execution_logging import infer_result_success
 from ..output_contract import resolve_output_contract
 from ..output_serialization import json_default as _json_default
 from ..request_context import ensure_request_id_scope
@@ -248,7 +247,7 @@ def _invoke_cli_tool_function(
                 request_id,
             )
             raise
-        success = infer_result_success(result)
+        success = not _result_has_tool_error(result)
         log = logger.debug if success else logger.warning
         log(
             "transport=cli event=finish operation=%s success=%s request_id=%s",
