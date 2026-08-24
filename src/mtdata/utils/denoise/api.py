@@ -31,40 +31,9 @@ except Exception:
     _EMD = _EEMD = _CEEMDAN = None  # type: ignore
 
 try:
-    from scipy import sparse as _sps
-    from scipy.sparse import linalg as _sps_linalg
-except Exception:
-    _sps = _sps_linalg = None  # type: ignore
-
-try:
-    from scipy.signal import savgol_filter as _savgol_filter
-except Exception:
-    _savgol_filter = None  # type: ignore
-
-try:
-    from scipy.signal import butter as _butter
-except Exception:
-    _butter = None  # type: ignore
-
-try:
-    from scipy.ndimage import gaussian_filter1d as _gaussian_filter1d
-except Exception:
-    _gaussian_filter1d = None  # type: ignore
-
-try:
     from skimage.restoration import denoise_tv_chambolle as _skimage_tv_chambolle
 except Exception:
     _skimage_tv_chambolle = None  # type: ignore
-
-try:
-    from statsmodels.nonparametric.smoothers_lowess import lowess as _lowess
-except Exception:
-    _lowess = None  # type: ignore
-
-try:
-    from statsmodels.tsa.seasonal import STL as _STL
-except Exception:
-    _STL = None  # type: ignore
 
 try:
     from vmdpy import VMD as _VMD
@@ -344,7 +313,7 @@ def is_close_based_denoise_column(
 
 
 def _denoise_availability(name: str) -> tuple[bool, str]:
-    if name == 'wavelet':
+    if name in ('wavelet', 'wavelet_packet'):
         return (_pywt is not None, 'PyWavelets')
     if name == 'tv':
         return (_skimage_tv_chambolle is not None, 'scikit-image')
@@ -354,20 +323,6 @@ def _denoise_availability(name: str) -> tuple[bool, str]:
         return (_EEMD is not None, 'EMD-signal')
     if name == 'ceemdan':
         return (_CEEMDAN is not None, 'EMD-signal')
-    if name in ('hp', 'whittaker'):
-        return (_sps is not None and _sps_linalg is not None, 'scipy.sparse')
-    if name == 'savgol':
-        return (_savgol_filter is not None, 'scipy.signal')
-    if name == 'butterworth':
-        return (_butter is not None, 'scipy.signal')
-    if name == 'gaussian':
-        return (_gaussian_filter1d is not None, 'scipy.ndimage')
-    if name == 'wavelet_packet':
-        return (_pywt is not None, 'PyWavelets')
-    if name == 'loess':
-        return (_lowess is not None, 'statsmodels')
-    if name == 'stl':
-        return (_STL is not None, 'statsmodels')
     if name == 'vmd':
         return (_VMD is not None, 'vmdpy')
     return (True, '')

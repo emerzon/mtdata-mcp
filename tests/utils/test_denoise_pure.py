@@ -1731,6 +1731,14 @@ class TestGetDenoiseMethodsData:
 
         assert methods["tv"]["available"] is False
 
+    def test_hard_dependency_methods_are_core_available(self):
+        data = get_denoise_methods_data()
+        methods = {entry["method"]: entry for entry in data["methods"]}
+
+        for name in ("hp", "whittaker", "savgol", "butterworth", "gaussian", "loess", "stl"):
+            assert methods[name]["available"] is True
+            assert methods[name]["requires"] == ""
+
 
 # ======================================================================
 # 7. denoise_list_methods
