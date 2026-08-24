@@ -31,7 +31,7 @@ from ..utils.dimred import list_dimred_methods as _list_dimred_methods
 from ..utils.mt5 import (
     ensure_mt5_connection_or_raise,
     mt5,
-    mt5_connection,
+    mt5_connection,  # noqa: F401
 )
 from ..utils.volume_profile import (
     VolumeProfilePriceSourceLiteral,
@@ -267,7 +267,7 @@ def _forecast_vol_impl(request: Any) -> Dict[str, Any]:
 def _web_api_gateway():
     return create_mt5_gateway(
         adapter=mt5,
-        ensure_connection_impl=mt5_connection._ensure_connection,
+        ensure_connection_impl=ensure_mt5_connection_or_raise,
     )
 
 

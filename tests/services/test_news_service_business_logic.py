@@ -315,3 +315,21 @@ def test_get_mt5_news_includes_parse_health_in_response(monkeypatch) -> None:
     result = svc.get_mt5_news(news_db_path="C:/tmp/news.dat")
     assert result["parse_health"]["status"] == "degraded"
     assert result["parse_health"]["validation_failures"] == 2
+
+
+def test_terminal_root_from_mt5_api_uses_shared_adapter(tmp_path, monkeypatch) -> None:
+    root = tmp_path / "terminal"
+    root.mkdir()
+    monkeypatch.setattr(
+        svc.mt5,
+        "terminal_info",
+        lambda: SimpleNamespace(data_path=str(root)),
+    )
+
+    assert svc._terminal_root_from_mt5_api() == root
+
+
+def test_terminal_root_from_mt5_api_returns_none_without_session(monkeypatch) -> None:
+    monkeypatch.setattr(svc.mt5, "terminal_info", lambda: None)
+
+    assert svc._terminal_root_from_mt5_api() is None

@@ -3,13 +3,12 @@
 import logging
 import mmap
 import struct
-import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from ..core.runtime_metadata import build_runtime_timezone_meta
-from ..utils.mt5 import _mt5_epoch_to_utc
+from ..utils.mt5 import _mt5_epoch_to_utc, mt5
 from ..utils.time import _resolve_client_tz, _use_client_tz, format_relative_time
 from .news_text import normalize_news_text
 
@@ -352,76 +351,20 @@ def _news_candidates_from_terminal_root(terminal_root: Path) -> List[Path]:
     return candidates
 
 
-def _is_mt5_terminal_running() -> bool:
-    try:
-        result = subprocess.run(
-            ["tasklist", "/FI", "IMAGENAME eq terminal64.exe"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
-        output = (result.stdout or "") + (result.stderr or "")
-        if "terminal64.exe" in output.lower():
-            return True
-        result = subprocess.run(
-            ["tasklist", "/FI", "IMAGENAME eq terminal.exe"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-            check=False,
-        )
-        output = (result.stdout or "") + (result.stderr or "")
-        return "terminal.exe" in output.lower()
-    except Exception:
-        return False
-
-
 def _terminal_root_from_mt5_api() -> Optional[Path]:
-    """Ask the MT5 Python binding for the active terminal data path when available."""
-    try:
-        import MetaTrader5 as mt5_module  # type: ignore
-    except Exception:
-        return None
-
-    mt5: Any = mt5_module
-
+    """Ask the shared MT5 adapter for the active terminal data path when available."""
     try:
         terminal_info = mt5.terminal_info()
     except Exception:
-        terminal_info = None
-
-    if terminal_info is not None:
-        data_path = getattr(terminal_info, "data_path", None)
-        if data_path:
-            path = Path(str(data_path))
-            if path.exists():
-                return path
-
-    if not _is_mt5_terminal_running():
         return None
 
-    initialized_here = False
-    try:
-        if not mt5.initialize():
-            return None
-        initialized_here = True
-        terminal_info = mt5.terminal_info()
-        if terminal_info is None:
-            return None
-        data_path = getattr(terminal_info, "data_path", None)
-        if not data_path:
-            return None
-        path = Path(str(data_path))
-        return path if path.exists() else None
-    except Exception:
+    if terminal_info is None:
         return None
-    finally:
-        if initialized_here:
-            try:
-                mt5.shutdown()
-            except Exception:
-                pass
+    data_path = getattr(terminal_info, "data_path", None)
+    if not data_path:
+        return None
+    path = Path(str(data_path))
+    return path if path.exists() else None
 
 
 def _read_origin_path(origin_file: Path) -> Optional[str]:
