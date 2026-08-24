@@ -296,6 +296,19 @@ def _resolve_state_count_param(
     return value, None, canonical, []
 
 
+def _observed_state_mean_vol(
+    states: np.ndarray,
+    values: np.ndarray,
+) -> tuple[List[float], List[float]]:
+    means: List[float] = []
+    vols: List[float] = []
+    for state in sorted({int(s) for s in np.unique(states) if int(s) >= 0}):
+        mask = states == state
+        means.append(float(np.mean(values[mask])))
+        vols.append(float(np.std(values[mask])))
+    return means, vols
+
+
 def _method_parameter_warnings(
     method: str,
     params: Dict[str, Any],
@@ -1634,20 +1647,11 @@ def _detect_clustering(  # noqa: C901
         full_probs = np.zeros((len(x), n_states_cluster))
         full_probs[valid_mask] = valid_probs
 
-    # Build regime parameters from data
-    clustering_regime_params = {"mean_return": [], "volatility": []}
-    for s in range(n_states_cluster):
-        mask = full_states == s
-        if mask.any():
-            clustering_regime_params["mean_return"].append(
-                float(np.mean(x[mask]))
-            )
-            clustering_regime_params["volatility"].append(
-                float(np.std(x[mask]))
-            )
-        else:
-            clustering_regime_params["mean_return"].append(0.0)
-            clustering_regime_params["volatility"].append(0.0)
+    mean_return, volatility = _observed_state_mean_vol(full_states, x)
+    clustering_regime_params = {
+        "mean_return": mean_return,
+        "volatility": volatility,
+    }
 
     # Reconstruct payload
     payload = {
@@ -2479,23 +2483,16 @@ def _detect_wavelet(  # noqa: C901
         "band_labels": [f"D{i}" for i in range(1, n_bands + 1)],
     }
     x_valid = x[valid_start:]
-    for s in range(n_states_wv):
+    mean_return, volatility = _observed_state_mean_vol(labels, x_valid)
+    wavelet_regime_params["mean_return"] = mean_return
+    wavelet_regime_params["volatility"] = volatility
+    for s in sorted({int(v) for v in np.unique(labels) if int(v) >= 0}):
         mask = labels == s
-        if mask.any():
-            wavelet_regime_params["mean_return"].append(
-                float(np.mean(x_valid[mask]))
-            )
-            wavelet_regime_params["volatility"].append(
-                float(np.std(x_valid[mask]))
-            )
-            profile = energy_props[valid_start:][mask].mean(axis=0)
-            regime_energy_profiles[str(s)] = {
-                f"band_{bi}_energy": round(float(v), 6)
-                for bi, v in enumerate(profile)
-            }
-        else:
-            wavelet_regime_params["mean_return"].append(0.0)
-            wavelet_regime_params["volatility"].append(0.0)
+        profile = energy_props[valid_start:][mask].mean(axis=0)
+        regime_energy_profiles[str(s)] = {
+            f"band_{bi}_energy": round(float(v), 6)
+            for bi, v in enumerate(profile)
+        }
 
     payload = {
         "success": True,

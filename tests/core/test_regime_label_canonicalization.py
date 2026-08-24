@@ -146,3 +146,15 @@ class TestCanonicalizeRegimeLabels:
         expected = np.array([1, 1, 0, 0, 0])
         np.testing.assert_array_equal(new_state, expected)
         assert meta["relabeled"] is True
+
+
+def test_observed_state_mean_vol_skips_missing_and_undefined_labels() -> None:
+    from mtdata.core.regime.detect import _observed_state_mean_vol
+
+    states = np.array([-1, -1, 0, 0, 2, 2])
+    values = np.array([9.0, 8.0, -1.0, -3.0, 4.0, 6.0])
+
+    means, vols = _observed_state_mean_vol(states, values)
+
+    assert means == pytest.approx([-2.0, 5.0])
+    assert vols == pytest.approx([1.0, 1.0])
