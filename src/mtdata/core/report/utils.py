@@ -619,7 +619,6 @@ def report_market_quote(  # noqa: C901
             _market_ticker,
             symbol=symbol,
             detail="full",
-            raw_tool_output=True,
         )
         if not isinstance(ticker, dict) or ticker.get("success") is not True:
             error = (
@@ -657,7 +656,6 @@ def report_market_quote(  # noqa: C901
         dom = call_tool_sync_structured(
             _fetch_market_depth,
             symbol=symbol,
-            raw_tool_output=True,
         )
         if isinstance(dom, dict) and dom.get('success'):
             t = dom.get('type')
@@ -959,7 +957,6 @@ def context_for_tf(
             indicators=indicator_spec,
             denoise=denoise,
             allow_stale=bool(allow_stale),
-            raw_tool_output=True,
         )
 
         if not isinstance(res, dict):
@@ -1193,7 +1190,6 @@ def attach_multi_timeframes(  # noqa: C901
                         _compute_pivot_points,
                         symbol=symbol,
                         timeframe=tfp,
-                        raw_tool_output=True,
                     )
                     emit_report_progress(operation, "finished")
                     if isinstance(res, dict) and not res.get('error'):

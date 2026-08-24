@@ -788,7 +788,6 @@ def _call_section(name: str, symbol: str, timeframe: str, horizon: int, detail: 
                     market_ticker,
                     symbol=symbol,
                     detail=detail,
-                    raw_tool_output=True,
                 ),
                 detail=detail,
             )
@@ -802,7 +801,6 @@ def _call_section(name: str, symbol: str, timeframe: str, horizon: int, detail: 
                 detail="compact",
                 lookback=200,
                 max_levels=4,
-                raw_tool_output=True,
             )
         if name == "status":
             from .market_status import market_status
@@ -811,7 +809,6 @@ def _call_section(name: str, symbol: str, timeframe: str, horizon: int, detail: 
                 market_status,
                 symbol=symbol,
                 detail="compact",
-                raw_tool_output=True,
             )
         if name == "patterns":
             from .patterns import patterns_detect
@@ -825,7 +822,6 @@ def _call_section(name: str, symbol: str, timeframe: str, horizon: int, detail: 
                 lookback=150,
                 top_k=3,
                 last_n_bars=_SNAPSHOT_PATTERN_LAST_N_BARS,
-                raw_tool_output=True,
             )
         if name == "regime":
             from .regime import regime_detect
@@ -836,7 +832,6 @@ def _call_section(name: str, symbol: str, timeframe: str, horizon: int, detail: 
                 timeframe=timeframe,
                 method="hmm",
                 detail="summary",
-                raw_tool_output=True,
             )
         if name == "forecast":
             from .forecast import forecast_generate
@@ -848,7 +843,6 @@ def _call_section(name: str, symbol: str, timeframe: str, horizon: int, detail: 
                 method="theta",
                 horizon=horizon,
                 detail="compact",
-                raw_tool_output=True,
             )
     except Exception as exc:
         return _section_error(exc)

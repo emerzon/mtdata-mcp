@@ -94,18 +94,9 @@ def _coerce_tool_kwargs(target: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
 def call_tool_sync_structured(
     func: Any,
     *args: Any,
-    raw_tool_output: bool = False,
     **kwargs: Any,
 ) -> Any:
     target = unwrap_tool_callable(func)
     coerced_kwargs = _coerce_tool_kwargs(target, kwargs)
-    if not raw_tool_output:
-        return resolve_sync_tool_result(target(*args, **coerced_kwargs))
-
-    raw_kwargs = dict(coerced_kwargs)
-    raw_kwargs["__cli_raw"] = True
-    try:
-        return resolve_sync_tool_result(target(*args, **raw_kwargs))
-    except TypeError:
-        return resolve_sync_tool_result(target(*args, **coerced_kwargs))
+    return resolve_sync_tool_result(target(*args, **coerced_kwargs))
 

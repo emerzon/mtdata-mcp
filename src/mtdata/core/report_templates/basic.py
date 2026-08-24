@@ -49,7 +49,7 @@ def _get_raw_result(
         return report_runtime_error(operation)
     emit_report_progress(operation, "started")
     try:
-        result = call_tool_sync_structured(func, *args, raw_tool_output=True, **kwargs)
+        result = call_tool_sync_structured(func, *args, **kwargs)
         
         # If it returns a dict, use it directly
         if isinstance(result, dict):
