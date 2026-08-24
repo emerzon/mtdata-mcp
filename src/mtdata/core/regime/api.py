@@ -39,15 +39,8 @@ from .detect import (
     _bocpd_under_segmentation_warnings,
     _coerce_param,
     _detect_all,
-    _detect_bocpd,
-    _detect_clustering,
     _detect_ensemble,
-    _detect_garch,
-    _detect_hmm_or_gmm,
-    _detect_ms_ar,
-    _detect_pelt,
-    _detect_rule_based,
-    _detect_wavelet,
+    _run_regime_method,
     _feature_cluster_separation,
     _garch_tier_thresholds,
     _method_parameter_warnings,
@@ -700,12 +693,12 @@ def regime_detect(  # noqa: C901
         # format times
         t_fmt = [_format_time_minimal(tt) for tt in t]
 
-        if method == "bocpd":
-            return _finish(_detect_bocpd(
+        if method not in {"ensemble", "all"}:
+            return _finish(_run_regime_method(
+                method=method,
                 symbol=symbol,
                 timeframe=timeframe,
                 target=target,
-                method=method,
                 x=x,
                 t_fmt=t_fmt,
                 p=p,
@@ -717,116 +710,13 @@ def regime_detect(  # noqa: C901
                 threshold=threshold,
                 min_regime_bars=min_regime_bars,
                 calibration_returns=calibration_returns,
-            ))
-
-        elif method == "pelt":
-            return _finish(_detect_pelt(
-                symbol=symbol,
-                timeframe=timeframe,
-                target=target,
-                x=x,
-                t_fmt=t_fmt,
-                p=p,
-                output=output,
-                include_series=include_series,
-                max_regimes=max_regimes,
-                min_regime_bars_val=min_regime_bars_val,
-            ))
-
-        elif method == "ms_ar":
-            return _finish(_detect_ms_ar(
-                symbol=symbol,
-                timeframe=timeframe,
-                target=target,
-                method=method,
-                x=x,
-                t_fmt=t_fmt,
-                p=p,
-                lookback=lookback,
-                output=output,
-                include_series=include_series,
-                max_regimes=max_regimes,
-                min_regime_bars_val=min_regime_bars_val,
-            ))
-
-        elif method in {"hmm", "gmm"}:
-            return _finish(_detect_hmm_or_gmm(
-                symbol=symbol,
-                timeframe=timeframe,
-                target=target,
-                method=method,
-                x=x,
-                t_fmt=t_fmt,
-                p=p,
-                lookback=lookback,
-                output=output,
-                include_series=include_series,
-                max_regimes=max_regimes,
-                min_regime_bars_val=min_regime_bars_val,
-            ))
-
-        elif method == "clustering":
-            return _finish(_detect_clustering(
-                symbol=symbol,
-                timeframe=timeframe,
-                target=target,
-                method=method,
-                x=x,
-                t_fmt=t_fmt,
-                p=p,
-                lookback=lookback,
-                output=output,
-                include_series=include_series,
-                max_regimes=max_regimes,
-                min_regime_bars_val=min_regime_bars_val,
-            ))
-
-        elif method == "garch":
-            return _finish(_detect_garch(
-                symbol=symbol,
-                timeframe=timeframe,
-                target=target,
-                method=method,
-                x=x,
-                t_fmt=t_fmt,
-                p=p,
-                lookback=lookback,
-                output=output,
-                include_series=include_series,
-                max_regimes=max_regimes,
-                min_regime_bars_val=min_regime_bars_val,
-            ))
-
-        elif method == "rule_based":
-            return _finish(_detect_rule_based(
-                symbol=symbol,
-                timeframe=timeframe,
-                target=target,
-                method=method,
-                output=output,
-                rule_based_config=rule_based_config,
                 price_series=price_series,
                 price_times=price_times,
+                rule_based_config=rule_based_config,
                 global_warnings=global_warnings,
             ))
 
-        elif method == "wavelet":
-            return _finish(_detect_wavelet(
-                symbol=symbol,
-                timeframe=timeframe,
-                target=target,
-                method=method,
-                x=x,
-                t_fmt=t_fmt,
-                p=p,
-                lookback=lookback,
-                output=output,
-                include_series=include_series,
-                max_regimes=max_regimes,
-                min_regime_bars_val=min_regime_bars_val,
-            ))
-
-        elif method == "ensemble":
+        if method == "ensemble":
             return _finish(_detect_ensemble(
                 symbol=symbol,
                 timeframe=timeframe,

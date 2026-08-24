@@ -2720,7 +2720,7 @@ def _run_regime_method(
             rule_based_config=config,
             price_series=np.asarray(series, dtype=float),
             price_times=np.asarray(times, dtype=float),
-            global_warnings=list(global_warnings or []),
+            global_warnings=global_warnings if global_warnings is not None else [],
         )
     return {"error": f"Unsupported regime method: {method}"}
 
