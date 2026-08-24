@@ -294,11 +294,7 @@ def to_float_np(
     Notes: When both drop_na and finite_only are False, the original length is preserved.
     """
     try:
-        # Normalize to pandas Series for robust conversion
-        if hasattr(values, "to_numpy") and hasattr(values, "dtype"):
-            ser = pd.Series(values)
-        else:
-            ser = pd.Series(values)
+        ser = pd.Series(values)
 
         arr = (
             pd.to_numeric(ser, errors="coerce").astype(float).to_numpy()
