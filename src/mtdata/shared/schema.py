@@ -562,7 +562,7 @@ _SIMPLIFY_METHODS = (
 )
 SimplifyModeLiteral = Literal[_SIMPLIFY_MODES]  # type: ignore
 SimplifyMethodLiteral = Literal[_SIMPLIFY_METHODS]  # type: ignore
-EncodeSchemaLiteral = Literal['envelope', 'delta']  # type: ignore
+EncodeSchemaLiteral = Literal['envelope', 'delta', 'sax']  # type: ignore
 
 class SimplifySpec(TypedDict, total=False):
     # Common
@@ -673,7 +673,12 @@ def complex_defs() -> Dict[str, Any]:
             "type": "object",
             "properties": {
                 "name": {"$ref": "#/$defs/IndicatorName"},
-                "params": {"type": "array", "items": {"type": "number"}},
+                "params": {
+                    "oneOf": [
+                        {"type": "array", "items": {"type": "number"}},
+                        {"type": "object", "additionalProperties": {"type": "number"}},
+                    ]
+                },
             },
             "required": ["name"],
             "additionalProperties": False,
@@ -684,7 +689,12 @@ def complex_defs() -> Dict[str, Any]:
             "properties": {
                 "method": {"$ref": "#/$defs/DenoiseMethod"},
                 "params": {"type": "object", "description": "Method-specific overrides", "additionalProperties": True},
-                "columns": {"type": "array", "items": {"type": "string"}},
+                "columns": {
+                    "oneOf": [
+                        {"type": "string"},
+                        {"type": "array", "items": {"type": "string"}},
+                    ]
+                },
                 "when": {"$ref": "#/$defs/WhenSpec"},
                 "causality": {"$ref": "#/$defs/CausalitySpec"},
                 "keep_original": {"type": "boolean"},

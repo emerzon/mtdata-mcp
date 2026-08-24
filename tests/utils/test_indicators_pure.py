@@ -896,7 +896,21 @@ class TestComplexDefs:
         defs = complex_defs()
         spec = defs["IndicatorSpec"]
         assert spec["type"] == "object"
-        assert "name" in spec["properties"]
+        assert spec["required"] == ["name"]
+        assert spec["additionalProperties"] is False
+        assert spec["properties"]["params"]["oneOf"][0]["type"] == "array"
+        assert spec["properties"]["params"]["oneOf"][1]["type"] == "object"
+
+    def test_denoise_columns_accept_string_or_list(self):
+        defs = complex_defs()
+        spec = defs["DenoiseSpec"]
+        assert spec["required"] == ["method"]
+        assert spec["properties"]["columns"]["oneOf"][0]["type"] == "string"
+        assert spec["properties"]["columns"]["oneOf"][1]["type"] == "array"
+
+    def test_simplify_schema_includes_sax(self):
+        from mtdata.shared.schema import EncodeSchemaLiteral
+        assert "sax" in EncodeSchemaLiteral.__args__
 
     def test_simplify_algorithm_uses_canonical_name(self):
         defs = complex_defs()
