@@ -42,6 +42,7 @@ from mtdata.core.causal.common import (
     _pairwise_analysis_context,
     _parse_symbol_request,
     _partial_symbol_fetch_error,
+    _public_alignment_diagnostics,
     _public_pair_row,
     _symbol_fetch_data_quality,
     _transform_cointegration_frame,
@@ -56,6 +57,7 @@ from mtdata.utils.mt5 import ensure_mt5_connection_or_raise, mt5
 logger = logging.getLogger("mtdata.core.causal")
 
 _MIN_ENGLE_GRANGER_SAMPLES = 20
+_COINTEGRATION_COMPACT_DEFAULT_LIMIT = 10
 
 _COINTEGRATION_REQUEST_KEYS = frozenset(
     {
@@ -366,7 +368,9 @@ def cointegration_test(  # noqa: C901
         group: Explicit MT5 group path (for example "Forex\\Majors"). Mutually
             exclusive with `symbols`.
         timeframe: MT5 timeframe key (e.g. "M15", "H1").
-        limit: Optional maximum number of ranked pair rows returned.
+        limit: Optional maximum number of ranked pair rows returned. Compact
+            and summary default to 10; standard and full stay unbounded when
+            omitted.
         window_bars: Maximum number of overlapping transformed samples used per
             pair after applying any time window.
         start: Optional UTC-compatible start date/time for the analysis window.
@@ -528,7 +532,11 @@ def cointegration_test(  # noqa: C901
                 meta=meta,
             )
 
-        output_limit, limit_error = _normalize_output_limit(limit)
+        detail_mode = normalize_output_verbosity_detail(detail, default="compact")
+        if limit is None and detail_mode in {"compact", "summary"}:
+            output_limit, limit_error = _COINTEGRATION_COMPACT_DEFAULT_LIMIT, None
+        else:
+            output_limit, limit_error = _normalize_output_limit(limit)
         if limit_error is not None:
             return _causal_error(
                 limit_error,
@@ -848,7 +856,10 @@ def cointegration_test(  # noqa: C901
                     "det_order": int(det_order),
                     "k_ar_diff": int(k_ar_diff),
                     "significance": float(significance),
-                    "alignment_diagnostics": alignment_diagnostics,
+                    "alignment_diagnostics": _public_alignment_diagnostics(
+                        alignment_diagnostics,
+                        detail=detail_mode,
+                    ),
                 },
                 "summary": {
                     "selected_rank": int(selected_rank),
@@ -980,9 +991,14 @@ def cointegration_test(  # noqa: C901
             "summary": {
                 "counts": {
                     "pairs": int(len(output_rows_raw)),
+                    "pairs_total": int(len(rows)),
+                    "test_family": int(
+                        max(len(symbols_used) * (len(symbols_used) - 1) // 2, 0)
+                    ),
                     "cointegrated": int(
                         sum(1 for row in output_rows_raw if bool(row.get("cointegrated")))
                     ),
+                    "cointegrated_total": cointegrated_count,
                 },
                 "highlights": _build_cointegration_summary(output_rows_raw),
             },
@@ -995,7 +1011,10 @@ def cointegration_test(  # noqa: C901
                 "transform": transform_value,
                 "trend": trend_value,
                 "min_overlap": min_overlap_value,
-                "alignment_diagnostics": alignment_diagnostics,
+                "alignment_diagnostics": _public_alignment_diagnostics(
+                    alignment_diagnostics,
+                    detail=detail_mode,
+                ),
                 **_bar_completion_context(
                     series_map, include_incomplete=bool(include_incomplete)
                 ),

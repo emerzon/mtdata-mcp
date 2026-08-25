@@ -1110,6 +1110,36 @@ def _pair_alignment_diagnostics(
     }
 
 
+def _public_alignment_diagnostics(
+    diagnostics: Dict[str, Any],
+    *,
+    detail: str,
+) -> Dict[str, Any]:
+    """Return global alignment summary; include per-pair rows only in full detail."""
+    pairs = diagnostics.get("pairs") if isinstance(diagnostics, dict) else {}
+    if not isinstance(pairs, dict):
+        pairs = {}
+    losses = [
+        float(row.get("alignment_loss_pct") or 0.0)
+        for row in pairs.values()
+        if isinstance(row, dict)
+    ]
+    threshold = float(
+        (diagnostics or {}).get("warning_threshold_pct")
+        or _ALIGNMENT_WARNING_THRESHOLD_PCT
+    )
+    summary: Dict[str, Any] = {
+        "warning_threshold_pct": (diagnostics or {}).get("warning_threshold_pct"),
+        "loss_reference": (diagnostics or {}).get("loss_reference"),
+        "pairs_checked": int(len(pairs)),
+        "max_alignment_loss_pct": round(max(losses), 2) if losses else 0.0,
+        "pairs_above_warning": int(sum(1 for loss in losses if loss > threshold)),
+    }
+    if str(detail or "").strip().lower() == "full":
+        summary["pairs"] = pairs
+    return summary
+
+
 def _pair_alignment_warning(diagnostics: Dict[str, Any]) -> Optional[str]:
     pairs = diagnostics.get("pairs")
     if not isinstance(pairs, dict):
