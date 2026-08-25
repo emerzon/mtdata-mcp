@@ -109,6 +109,7 @@ class TestFetchTicks(unittest.TestCase):
             self.assertEqual(result["data_age_seconds"], 600.0)
             self.assertTrue(result["data_stale"])
             self.assertEqual(result["freshness"], "stale, tick 10m 0s ago")
+            self.assertIn("usable_for_live_trading", result)
             self.assertEqual(result["last_quote"]["spread_points"], 20.0)
             self.assertEqual(result["last_quote"]["spread_pips"], 2.0)
             self.assertEqual(result["last_quote"]["spread_pct"], 0.018149)

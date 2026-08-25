@@ -570,15 +570,19 @@ def _compact_tick_summary(out: Dict[str, Any]) -> Dict[str, Any]:
             compact[key] = out.get(key)
     for key in (
         "freshness",
+        "freshness_state",
         "data_age_seconds",
         "data_stale",
         "market_status",
         "market_status_reason",
         "market_status_source",
         "freshness_policy_relaxed",
+        "usable_for_live_trading",
+        "usable_for_live_trading_basis",
+        "execution_blockers",
         "note",
     ):
-        if out.get(key) is not None:
+        if out.get(key) not in (None, "", [], {}):
             compact[key] = out.get(key)
     if isinstance(out.get("last_quote"), dict):
         compact["last_quote"] = dict(out["last_quote"])

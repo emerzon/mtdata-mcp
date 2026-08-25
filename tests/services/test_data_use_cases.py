@@ -3030,6 +3030,63 @@ def test_run_data_fetch_ticks_compact_marks_normal_quote_only_feed_ok():
     assert "warnings" not in result
 
 
+def test_run_data_fetch_ticks_compact_quality_uses_valid_spreads_not_field_presence():
+    result = run_data_fetch_ticks(
+        DataFetchTicksRequest(symbol="EURUSD", limit=4, detail="compact"),
+        gateway=SimpleNamespace(ensure_connection=lambda: None),
+        fetch_ticks_impl=lambda **_kwargs: {
+            "success": True,
+            "symbol": "EURUSD",
+            "count": 4,
+            "feed_tier": "quote_only",
+            "data": [
+                {"time": "t1", "bid": 1.1, "ask": 1.1},
+                {"time": "t2", "bid": 1.10001, "ask": 1.10001},
+                {"time": "t3", "bid": 1.10002, "ask": 1.10012},
+                {"time": "t4", "bid": 1.10003, "ask": None},
+            ],
+            "data_quality": {
+                "complete_ticks": 4,
+                "incomplete_ticks": 0,
+                "total_ticks": 4,
+                "valid_spread_ticks": 1,
+                "one_sided_updates": 3,
+                "incomplete_quote_status": "info",
+            },
+        },
+    )
+
+    assert result["quote_completeness_pct"] == 100.0
+    assert result["valid_spread_pct"] == 25.0
+    assert result["quality"] == "valid_spreads=1/4"
+    assert result["quality"] != "ok"
+
+
+def test_run_data_fetch_ticks_summary_keeps_live_usability_verdicts():
+    result = run_data_fetch_ticks(
+        DataFetchTicksRequest(symbol="EURUSD", limit=2, detail="summary"),
+        gateway=SimpleNamespace(ensure_connection=lambda: None),
+        fetch_ticks_impl=lambda **_kwargs: {
+            "success": True,
+            "symbol": "EURUSD",
+            "count": 2,
+            "start": "t1",
+            "end": "t2",
+            "last_quote": {"bid": 1.1, "ask": 1.1001},
+            "usable_for_live_trading": False,
+            "usable_for_live_trading_basis": "quote_age_market_session_and_positive_spread",
+            "freshness_state": "stale",
+            "execution_blockers": ["latest_quote_locked"],
+            "stats": {"spread": {"low": 0.0001, "high": 0.0002, "mean": 0.00015}},
+        },
+    )
+
+    assert result["last_quote"]["bid"] == 1.1
+    assert result["usable_for_live_trading"] is False
+    assert result["freshness_state"] == "stale"
+    assert result["execution_blockers"] == ["latest_quote_locked"]
+
+
 def test_run_data_fetch_ticks_compact_does_not_infer_mid_outside_locked_quote():
     result = run_data_fetch_ticks(
         DataFetchTicksRequest(symbol="EURUSD", limit=2, detail="compact"),
