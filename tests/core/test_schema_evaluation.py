@@ -101,6 +101,18 @@ def test_public_schema_evaluation_has_no_unbounded_numeric_parameters() -> None:
     ]
 
 
+def test_public_schema_evaluation_counts_always_registered_gated_tool() -> None:
+    report = evaluate_public_tool_schemas()
+
+    assert report.tool_count == report.expected_tool_count
+    assert get_public_tool_schema("market_depth_fetch")
+    assert not [
+        finding
+        for finding in report.findings
+        if finding.code == "tool_count_mismatch"
+    ]
+
+
 def test_trade_modify_confirmation_flags_have_descriptions() -> None:
     evaluate_public_tool_schemas()
     properties = get_public_tool_schema("trade_modify")["properties"]

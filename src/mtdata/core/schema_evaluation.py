@@ -62,7 +62,9 @@ class SchemaEvaluationReport:
         }
 
 
-_EXPECTED_DEFAULT_TOOL_COUNT = 82
+# market_depth_fetch stays registered while gated so CLI help and schema
+# evaluation still see it; tools_list keeps it out of the enabled catalog.
+_EXPECTED_DEFAULT_TOOL_COUNT = 83
 _EXPECTED_GATED_TOOL_COUNT = 83
 _OUTPUT_CONTROLS = frozenset({"json", "output_fields"})
 _LEGACY_OUTPUT_CONTROLS = frozenset({"extras"})
