@@ -445,7 +445,9 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "JSON next-open execution barrier for strategy P&L (not labels_triple_barrier). "
         "Uses horizon, tp_pct, sl_pct, and same_bar_policy; tp_pct/sl_pct are "
         "percent values (0.5 means 0.5%). Entry is the next bar's open; timeout "
-        "is mark-to-market return, not a 0 label."
+        "is mark-to-market return, not a 0 label. sma_cross/ema_cross are "
+        "position-reversal strategies and reject tp_pct/sl_pct; use "
+        "sma_cross_event/ema_cross_event for barrier outcomes."
     ),
     ("options_chain", "symbol"): (
         "Underlying symbol for listed options, e.g. AAPL or SPX. SPX resolves "
@@ -944,12 +946,25 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "used; omit to derive it from the barrier horizon."
     ),
     ("strategy_validate", "cost_model"): (
-        "Spread source: historical_bar_spread uses completed validation bars; fixed "
-        "requires spread_bps."
+        "Spread source: auto (default) uses complete historical bar spreads when "
+        "coverage is sufficient, otherwise a disclosed conservative fixed estimate. "
+        "historical_bar_spread uses completed validation bars and disables positive "
+        "evidence below 90% coverage; fixed requires spread_bps."
     ),
     ("strategy_validate", "spread_bps"): (
-        "Fixed round-trip spread cost in basis points, required only when "
-        "cost_model=fixed."
+        "Fixed round-trip spread cost in basis points; required when "
+        "cost_model=fixed and invalid with auto or historical_bar_spread."
+    ),
+    ("labels_triple_barrier", "start"): (
+        "Optional UTC start of the labeled history window. Combine with end; "
+        "cannot be used with as_of."
+    ),
+    ("labels_triple_barrier", "end"): (
+        "Optional UTC cutoff. With lookback, fetches the most recent labeled "
+        "window ending at this time. Cannot be combined with as_of."
+    ),
+    ("labels_triple_barrier", "as_of"): (
+        "Point-in-time cutoff for labeled history. Cannot be combined with start/end."
     ),
     ("strategy_validate", "commission_bps"): (
         "Commission per fill side in basis points; validation applies it twice per "

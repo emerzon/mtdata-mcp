@@ -566,6 +566,12 @@ class TestLabelsTripleBarrier:
         assert "labels" not in result
         assert "entry_bar_open_times" not in result
         assert result["data_note"] == "data rows cover the recent summary lookback window."
+        assert "timeout" in result["summary"]["counts"]
+        assert "same_bar_neutral" in result["summary"]["counts"]
+        assert result["last_bar_open"]
+        assert result["data_as_of"]
+        assert result["effective_start"]
+        assert result["effective_end"]
 
     @patch(f"{_LABELS_MOD}._get_tick_size", return_value=0.0001)
     @patch(f"{_LABELS_MOD}.resolve_denoise_base_col", return_value="close")
@@ -615,6 +621,86 @@ class TestLabelsTripleBarrier:
         assert result["label_legend"]["1"]["label"] == "tp_first"
         assert result["label_legend"]["-1"]["label"] == "sl_first"
         assert result["label_legend"]["0"]["label"] == "timeout"
+        assert "same_bar_neutral" in result["label_legend"]["0"]["description"]
+
+    @patch(f"{_LABELS_MOD}._get_tick_size", return_value=0.0001)
+    @patch(f"{_LABELS_MOD}.resolve_denoise_base_col", return_value="close")
+    @patch(f"{_LABELS_MOD}._fetch_history")
+    def test_same_bar_neutral_is_not_counted_as_timeout(
+        self, mock_hist, mock_den, mock_pip
+    ):
+        times = np.arange(0, 40 * 3600, 3600, dtype=float)
+        price = np.full(40, 1.1000)
+        mock_hist.return_value = pd.DataFrame(
+            {
+                "time": times,
+                "open": price,
+                "high": price + 0.0100,
+                "low": price - 0.0100,
+                "close": price,
+            }
+        )
+        result = _get_raw_fn()(
+            "EURUSD",
+            tp_pct=0.2,
+            sl_pct=0.2,
+            horizon=5,
+            same_bar_policy="neutral",
+            detail="compact",
+            lookback=25,
+        )
+
+        counts = result["summary"]["counts"]
+        assert counts["same_bar_neutral"] > 0
+        assert counts["timeout"] == 0
+        assert result["summary"]["same_bar_neutral_rate"] > 0
+        assert result["summary"]["timeout_rate"] == 0.0
+        assert (
+            result["summary"]["timeout_rate"]
+            + result["summary"]["same_bar_neutral_rate"]
+            + result["summary"]["barrier_resolution_rate"]
+            == pytest.approx(1.0)
+        )
+        assert all(
+            row["outcome"] != "timeout" or not row["same_bar"]
+            for row in result["data"]
+        )
+        assert any(row["outcome"] == "same_bar_neutral" for row in result["data"])
+        warnings = result.get("warnings") or []
+        assert not any("are timeouts" in warning for warning in warnings)
+
+    @patch(f"{_LABELS_MOD}._get_tick_size", return_value=0.0001)
+    @patch(f"{_LABELS_MOD}.resolve_denoise_base_col", return_value="close")
+    @patch(f"{_LABELS_MOD}._fetch_history")
+    def test_as_of_is_passed_to_history_fetch(self, mock_hist, mock_den, mock_pip):
+        mock_hist.return_value = _make_df(40)
+        result = _get_raw_fn()(
+            "EURUSD",
+            tp_pct=0.5,
+            sl_pct=0.5,
+            horizon=5,
+            lookback=20,
+            as_of="2024-07-31T12:00:00Z",
+            detail="compact",
+        )
+
+        assert mock_hist.call_args.kwargs["as_of"] == "2024-07-31T12:00:00Z"
+        assert result["requested_as_of"] == "2024-07-31T12:00:00Z"
+        assert result["last_bar_open"]
+        assert result["data_as_of"]
+        assert result["effective_start"]
+        assert result["effective_end"]
+
+    def test_as_of_cannot_combine_with_end(self):
+        result = _get_raw_fn()(
+            "EURUSD",
+            tp_pct=0.5,
+            sl_pct=0.5,
+            as_of="2024-07-31",
+            end="2024-07-31",
+        )
+        assert result["success"] is False
+        assert result["error_code"] == "conflicting_time_controls"
 
     @patch(f"{_LABELS_MOD}._get_tick_size", return_value=0.0001)
     @patch(f"{_LABELS_MOD}.resolve_denoise_base_col", return_value="close")

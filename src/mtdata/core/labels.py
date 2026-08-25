@@ -6,6 +6,7 @@ import numpy as np
 from pydantic import Field
 
 from ..forecast.common import fetch_history as _fetch_history
+from ..forecast.common import future_as_of_error
 from ..shared.schema import (
     BarrierPairSpec,
     DenoiseSpecInput,
@@ -42,7 +43,8 @@ from ..utils.mt5 import (
     ensure_mt5_connection_or_raise,
     symbol_price_digits,
 )
-from ..utils.time import _format_time_minimal, bar_close_epoch
+from ..utils.time import _format_time_minimal, bar_close_epoch, format_epoch_utc
+from ..utils.utils import validate_historical_range
 from ._mcp_instance import mcp
 from .mt5_gateway import create_mt5_gateway
 from .output_contract import normalize_output_detail
@@ -55,12 +57,50 @@ _DEFAULT_LABEL_LOOKBACK = 50
 _DEFAULT_LABEL_LIMIT = 50
 
 
-def _label_outcome(label: int) -> str:
+def _label_outcome(label: int, *, same_bar: bool = False) -> str:
     if label == 1:
         return "tp"
     if label == -1:
         return "sl"
+    if same_bar:
+        return "same_bar_neutral"
     return "timeout"
+
+
+def _history_window_metadata(
+    df: Any,
+    timeframe: str,
+    *,
+    start: Optional[str],
+    end: Optional[str],
+    as_of: Optional[str],
+) -> Dict[str, Any]:
+    out: Dict[str, Any] = {}
+    if start not in (None, ""):
+        out["requested_start"] = start
+    if end not in (None, ""):
+        out["requested_end"] = end
+    if as_of not in (None, ""):
+        out["requested_as_of"] = as_of
+    times = df["time"] if "time" in getattr(df, "columns", []) else None
+    if times is None or len(times) == 0:
+        return out
+    try:
+        first_epoch = float(times.iloc[0])
+        last_epoch = float(times.iloc[-1])
+    except Exception:
+        return out
+    first_open = format_epoch_utc(first_epoch)
+    last_open = format_epoch_utc(last_epoch)
+    last_close = format_epoch_utc(bar_close_epoch(last_epoch, str(timeframe)))
+    if first_open:
+        out["effective_start"] = first_open
+    if last_open:
+        out["effective_end"] = last_open
+        out["last_bar_open"] = last_open
+    if last_close:
+        out["data_as_of"] = last_close
+    return out
 
 
 def _compact_label_sample_indices(
@@ -138,10 +178,9 @@ def _triple_barrier_sample_row(
         "entry_bar_open_time": entry_bar_open_times[result_idx],
         "entry_price_available_at": entry_price_available_times[result_idx],
         "label": label,
-        "outcome": (
-            "same_bar_neutral"
-            if same_bar_flags and same_bar_flags[result_idx] and label == 0
-            else _label_outcome(label)
+        "outcome": _label_outcome(
+            label,
+            same_bar=bool(same_bar_flags and same_bar_flags[result_idx]),
         ),
         "holding_bars": hold[result_idx],
         "tp_hit_bar_open_time": tp_hit_bar_open_times[result_idx],
@@ -393,6 +432,9 @@ def labels_triple_barrier(  # noqa: C901
     same_bar_policy: Literal["sl_first", "tp_first", "neutral"] = "sl_first",  # type: ignore
     detail: DetailLiteral = "compact",
     lookback: Annotated[int, Field(ge=1)] = _DEFAULT_LABEL_LOOKBACK,
+    start: Optional[str] = None,
+    end: Optional[str] = None,
+    as_of: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Label each bar with triple-barrier outcomes using future path up to `horizon` bars.
 
@@ -416,7 +458,11 @@ def labels_triple_barrier(  # noqa: C901
     the completed-bar close when its entry price first exists. TP/SL hit fields
     identify the hit bar's open label, not an exact intrabar touch instant.
     Compact and standard `data` contain the most recent labeled rows, including
-    timeout (no-barrier-hit) outcomes; full detail returns the complete labeled series.
+    timeout (no-barrier-hit) and same_bar_neutral outcomes; full detail returns
+    the complete labeled series.
+    start/end/as_of select a point-in-time history window. `as_of` cannot be
+    combined with start/end. Observation time (requested/effective window,
+    last_bar_open, data_as_of) is always returned.
     """
 
     def _run() -> Dict[str, Any]:  # noqa: C901
@@ -441,6 +487,26 @@ def labels_triple_barrier(  # noqa: C901
             barrier_values = normalized_barriers.as_legacy_kwargs()
             tp_abs = barrier_values.get("tp_abs")
             sl_abs = barrier_values.get("sl_abs")
+            range_error = validate_historical_range(start, end)
+            if range_error is not None:
+                return range_error
+            if as_of and (start or end):
+                return {
+                    "success": False,
+                    "error": "as_of cannot be combined with start/end.",
+                    "error_code": "conflicting_time_controls",
+                    "remediation": (
+                        "Pass as_of for a lookback ending at a cutoff, or pass "
+                        "start/end for an explicit window, not both."
+                    ),
+                }
+            as_of_error = future_as_of_error(as_of)
+            if as_of_error:
+                return {
+                    "success": False,
+                    "error": as_of_error,
+                    "error_code": "future_as_of",
+                }
             try:
                 normalized_denoise = normalize_denoise_spec(
                     denoise, default_when="pre_ti"
@@ -554,7 +620,14 @@ def labels_triple_barrier(  # noqa: C901
             requested_lookback = max(1, int(lookback))
             sample_limit = max(1, int(limit))
             history_bars_requested = int(requested_lookback + horizon_bars)
-            df = _fetch_history(symbol, timeframe, history_bars_requested, as_of=None)
+            df = _fetch_history(
+                symbol,
+                timeframe,
+                history_bars_requested,
+                as_of=as_of,
+                start=start,
+                end=end,
+            )
             history_bars_fetched = int(len(df))
             if history_bars_fetched > history_bars_requested:
                 df = df.tail(history_bars_requested).copy()
@@ -812,6 +885,13 @@ def labels_triple_barrier(  # noqa: C901
                 "hit_time_precision": "bar_only",
                 "exact_intrabar_hit_time_available": False,
             }
+            history_window = _history_window_metadata(
+                df,
+                timeframe,
+                start=start,
+                end=end,
+                as_of=as_of,
+            )
 
             payload: Dict[str, Any] = {
                 "success": True,
@@ -875,11 +955,12 @@ def labels_triple_barrier(  # noqa: C901
                 "history_bars_fetched": history_bars_fetched,
                 "history_bars_used": history_bars_used,
                 "sample_limit": sample_limit,
+                **history_window,
                 "entry_bar_open_times": t_entry,
                 "entry_price_available_at": entry_price_available_times,
                 "labels": labels,
                 "outcomes": [
-                    "same_bar_neutral" if same_bar and label == 0 else _label_outcome(label)
+                    _label_outcome(label, same_bar=bool(same_bar))
                     for label, same_bar in zip(labels, same_bar_flags)
                 ],
                 "holding_bars": hold,
@@ -926,8 +1007,9 @@ def labels_triple_barrier(  # noqa: C901
                         "code": 0,
                         "label": "timeout",
                         "description": (
-                            "Timeout: neither barrier hit within horizon, or both "
-                            "hit on the same bar when same_bar_policy='neutral'"
+                            "Timeout: neither barrier hit within horizon. "
+                            "Same-bar dual hits under same_bar_policy='neutral' "
+                            "are reported as outcome=same_bar_neutral, not timeout."
                         ),
                     },
                 }
@@ -957,6 +1039,11 @@ def labels_triple_barrier(  # noqa: C901
                 n = min(requested_lookback, len(labels))
                 lab_tail = labels[-n:] if n > 0 else labels
                 hold_tail = hold[-n:] if n > 0 else hold
+                same_bar_tail = same_bar_flags[-n:] if n > 0 else same_bar_flags
+                outcome_tail = [
+                    _label_outcome(label, same_bar=bool(same_bar))
+                    for label, same_bar in zip(lab_tail, same_bar_tail)
+                ]
                 recommended_lookback = max(horizon_bars * 4, 30)
                 bars_insufficient_for_horizon = int(n) <= horizon_bars * 2
                 sample_quality = {
@@ -978,9 +1065,12 @@ def labels_triple_barrier(  # noqa: C901
                         f"Use lookback>={recommended_lookback} for a basic read."
                     )
                 counts = {
-                    "tp": int(sum(1 for v in lab_tail if v == 1)),
-                    "sl": int(sum(1 for v in lab_tail if v == -1)),
-                    "timeout": int(sum(1 for v in lab_tail if v == 0)),
+                    "tp": int(sum(1 for value in outcome_tail if value == "tp")),
+                    "sl": int(sum(1 for value in outcome_tail if value == "sl")),
+                    "timeout": int(sum(1 for value in outcome_tail if value == "timeout")),
+                    "same_bar_neutral": int(
+                        sum(1 for value in outcome_tail if value == "same_bar_neutral")
+                    ),
                 }
                 med_hold = (
                     float(_np.median(_np.array(hold_tail, dtype=float)))
@@ -992,6 +1082,9 @@ def labels_triple_barrier(  # noqa: C901
                     "counts": counts,
                     "timeout_rate": (
                         round(float(counts["timeout"] / n), 6) if n else None
+                    ),
+                    "same_bar_neutral_rate": (
+                        round(float(counts["same_bar_neutral"] / n), 6) if n else None
                     ),
                     "barrier_resolution_rate": (
                         round(float((counts["tp"] + counts["sl"]) / n), 6)
@@ -1006,7 +1099,8 @@ def labels_triple_barrier(  # noqa: C901
                 if n and counts["timeout"] / n >= 0.8:
                     warnings_out.append(
                         "At least 80% of summarized labels are timeouts "
-                        "(no barrier hit within horizon). "
+                        "(no barrier hit within horizon; same-bar dual hits under "
+                        "same_bar_policy='neutral' are counted separately). "
                         "Tighten the barriers or increase horizon to produce more hits."
                     )
                 favorable_tail = max_favorable_moves_pct[-n:] if n > 0 else max_favorable_moves_pct
@@ -1016,7 +1110,12 @@ def labels_triple_barrier(  # noqa: C901
                         "favorable": round(float(max(favorable_tail or [0.0])), 6),
                         "adverse": round(float(max(adverse_tail or [0.0])), 6),
                     }
-                if counts["tp"] == 0 and counts["sl"] == 0 and counts["timeout"] > 0:
+                if (
+                    counts["tp"] == 0
+                    and counts["sl"] == 0
+                    and counts["same_bar_neutral"] == 0
+                    and counts["timeout"] > 0
+                ):
                     summary["explanation"] = (
                         "All labels are timeouts because no price path hit TP or SL within "
                         "the horizon. Label 0 means no_barrier_hit / timeout, not a "
@@ -1056,6 +1155,7 @@ def labels_triple_barrier(  # noqa: C901
                         "history_bars_fetched": history_bars_fetched,
                         "history_bars_used": history_bars_used,
                         "sample_limit": sample_limit,
+                        **history_window,
                         "label_uses_future_path": True,
                         "denoise_lookahead_bias": denoise_lookahead_bias,
                         "suitable_as_training_target": suitable_as_training_target,
