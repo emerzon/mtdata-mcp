@@ -116,6 +116,22 @@ def test_equity_profile_mt5_pin_is_unsupported() -> None:
     assert result["error_code"] == "research_capability_unsupported"
 
 
+def test_equity_profile_normalizes_provider_error_operation(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "mtdata.core.finviz.finviz_fundamentals",
+        lambda *args, **kwargs: {
+            "success": False,
+            "error": "bad field",
+            "operation": "finviz_fundamentals",
+        },
+    )
+
+    result = _unwrap(equity_profile)("AAPL")
+
+    assert result["operation"] == "equity_profile"
+    assert result["provider_operation"] == "finviz_fundamentals"
+
+
 def test_equity_profile_non_price_sections_keep_observation_contract(monkeypatch) -> None:
     monkeypatch.setattr(
         "mtdata.core.finviz.finviz_fundamentals",

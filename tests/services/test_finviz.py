@@ -242,7 +242,21 @@ class TestFinvizService:
             ValueError("Invalid order 'market-cap'. Possible order: ['Market Cap']")
         )
         assert message.startswith("Invalid Finviz parameter: Invalid order")
+        assert "Possible order" not in message
         assert _finviz_error_kind(message) == ("finviz_invalid_parameter", False)
+
+        from mtdata.services.finviz.api import _finviz_error_payload
+
+        payload = _finviz_error_payload(
+            ValueError(
+                "Invalid order 'nonsense'. Possible order: "
+                "['Ticker', 'Market Cap.', 'Price', 'Volume']"
+            )
+        )
+        assert payload["parameter"] == "order"
+        assert payload["received"] == "nonsense"
+        assert payload["valid_values_count"] == 4
+        assert len(payload["error"]) < 80
 
     def test_get_insider_activity_error_is_structured(self):
         from mtdata.services.finviz import api as finviz_api

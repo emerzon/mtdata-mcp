@@ -171,7 +171,17 @@ def asset_performance(
             if order is not None:
                 invalid.append("order")
         elif order is not None and rank_by is None:
-            invalid.append("order")
+            return build_error_payload(
+                "order requires rank_by.",
+                code="parameter_dependency_missing",
+                operation="asset_performance",
+                details={"parameter": "order", "requires": ["rank_by"]},
+                valid_values={"rank_by": [
+                    "5min", "hour", "day", "week", "month", "quarter",
+                    "half", "year", "ytd",
+                ]},
+                remediation="Set --rank-by, or omit --order to keep provider order.",
+            )
         if invalid:
             valid_by_universe = {
                 "forex": ["symbol", "offset", "limit", "rank_by", "order", "detail"],
@@ -210,6 +220,11 @@ def asset_performance(
         )
         out = stamp_provider(payload, provider="finviz")
         if isinstance(out, dict):
+            if out.get("success") is False or out.get("error"):
+                provider_operation = out.get("operation")
+                if provider_operation not in (None, "", "asset_performance"):
+                    out["provider_operation"] = provider_operation
+                out["operation"] = "asset_performance"
             out.setdefault("universe", universe)
             out.setdefault(
                 "quote_role",

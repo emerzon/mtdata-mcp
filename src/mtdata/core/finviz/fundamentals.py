@@ -546,7 +546,7 @@ def _filter_finviz_fundamentals_payload(
             error["valid_values"] = {"fields": valid_fields}
             error["remediation"] = (
                 "Choose a field from valid_values.fields, or omit fields and use "
-                "category='all' with detail='full' to inspect available metrics."
+                "--sections all --detail full to inspect available metrics."
             )
             return error
         category_out = "custom"

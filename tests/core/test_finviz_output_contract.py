@@ -78,6 +78,14 @@ def test_filters_list_defaults_to_index_and_supports_exact_lookup():
                 {"value": "NASDAQ", "token": "exch_nasd"},
                 {"value": "NYSE", "token": "exch_nyse"},
             ],
+            "value_pagination": {
+                "total": 2,
+                "returned": 2,
+                "offset": 0,
+                "limit": 20,
+                "has_more": False,
+                "more_available": 0,
+            },
         }
     ]
     assert searched["items"][0]["filter"] == "Exchange"
@@ -161,6 +169,42 @@ def test_filters_list_search_ranks_name_matches_ahead_of_option_values():
     assert industry_row["matched_values"] == [
         {"value": "RSI Widgets", "token": "ind_rsiwid"}
     ]
+
+
+def test_filters_list_pages_nested_values_for_exact_filter():
+    import sys
+    from types import ModuleType
+
+    finvizfinance = ModuleType("finvizfinance")
+    screener = ModuleType("finvizfinance.screener")
+    base = ModuleType("finvizfinance.screener.base")
+    base.filter_dict = {
+        "Industry": {
+            "prefix": "ind",
+            "option": {f"Industry {index}": f"i{index}" for index in range(25)},
+        }
+    }
+    screener.base = base
+    finvizfinance.screener = screener
+
+    with patch.dict(
+        sys.modules,
+        {
+            "finvizfinance": finvizfinance,
+            "finvizfinance.screener": screener,
+            "finvizfinance.screener.base": base,
+        },
+    ):
+        result = _unwrap(finviz_filters_list)(
+            filter_name="Industry", value_limit=5, value_offset=10
+        )
+
+    row = result["items"][0]
+    assert [value["value"] for value in row["values"]] == [
+        f"Industry {index}" for index in range(10, 15)
+    ]
+    assert row["value_pagination"]["total"] == 25
+    assert row["value_pagination"]["has_more"] is True
 
 
 def test_screen_pagination_uses_unknown_total_lower_bound() -> None:

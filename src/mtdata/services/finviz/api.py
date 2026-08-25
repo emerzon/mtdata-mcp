@@ -1,8 +1,11 @@
 """Finviz service implementation."""
+import ast
 import datetime
+import difflib
 import importlib
 import json
 import logging
+import re
 from typing import Any, Dict, List, Literal, Optional
 from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
@@ -80,6 +83,10 @@ def _sanitize_error_message(exc: Exception, *, symbol: str | None = None) -> str
     error_str = str(exc)
     error_lower = error_str.lower()
 
+    if isinstance(exc, ValueError) and error_lower.startswith("invalid order"):
+        match = re.match(r"Invalid order\s+([^.]*)", error_str, flags=re.IGNORECASE)
+        received = match.group(1).strip() if match else "value"
+        return f"Invalid Finviz parameter: Invalid order {received}."
     if isinstance(exc, ValueError) and error_lower.startswith("invalid"):
         return f"Invalid Finviz parameter: {error_str}"
     
@@ -163,6 +170,29 @@ def _finviz_error_payload(
     }
     if error_code == "finviz_rate_limited":
         payload["retry_after_seconds"] = 60
+    if error_code == "finviz_invalid_parameter" and "invalid order" in str(exc).lower():
+        raw_error = str(exc)
+        order_match = re.search(r"Invalid order\s+['\"]?([^'\".]+)", raw_error, re.I)
+        choices_match = re.search(r"Possible order:\s*(\[[\s\S]*\])", raw_error, re.I)
+        received = order_match.group(1).strip() if order_match else None
+        choices: List[str] = []
+        if choices_match:
+            try:
+                parsed = ast.literal_eval(choices_match.group(1))
+                if isinstance(parsed, list):
+                    choices = [str(item) for item in parsed]
+            except (SyntaxError, ValueError):
+                choices = []
+        payload["parameter"] = "order"
+        payload["received"] = received
+        payload["valid_values_count"] = len(choices)
+        payload["suggestions"] = difflib.get_close_matches(
+            str(received or ""), choices, n=3, cutoff=0.2
+        )
+        payload["remediation"] = (
+            "Use one of the suggested order labels or a documented alias such as "
+            "-marketcap, price, volume, or change."
+        )
     if symbol:
         payload["symbol"] = normalize_finviz_equity_symbol(symbol)
     payload.update({key: value for key, value in context.items() if value is not None})

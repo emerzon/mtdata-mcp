@@ -63,6 +63,20 @@ def screener(
         Optional[str],
         Field(description="Exact filter name to describe when list_filters is true."),
     ] = None,
+    value_limit: Annotated[
+        Optional[int],
+        Field(
+            ge=1,
+            description=(
+                "Maximum nested accepted values for an exact filter. Compact "
+                "detail defaults to 20; full detail defaults to all values."
+            ),
+        ),
+    ] = None,
+    value_offset: Annotated[
+        int,
+        Field(ge=0, description="Offset within an exact filter's accepted values."),
+    ] = 0,
     limit: Annotated[int, Field(ge=1, description="Max rows per page.")] = 20,
     page: Annotated[int, Field(ge=1, description="One-based results page.")] = 1,
     offset: Annotated[
@@ -105,14 +119,24 @@ def screener(
                 filter_name=filter_name,
                 limit=int(limit),
                 offset=int(offset),
+                value_limit=value_limit,
+                value_offset=int(value_offset),
                 detail=str(detail or "compact"),
             )
-        elif int(offset) != 0:
+        elif int(offset) != 0 or value_limit is not None or int(value_offset) != 0:
+            invalid = []
+            if int(offset) != 0:
+                invalid.append("offset")
+            if value_limit is not None:
+                invalid.append("value_limit")
+            if int(value_offset) != 0:
+                invalid.append("value_offset")
             return build_error_payload(
-                "offset is only valid with list_filters. Use --page for screener results.",
+                "Value-catalog controls are only valid with list_filters. Use "
+                "--page for screener results.",
                 code="incompatible_parameters",
                 operation="screener",
-                details={"invalid": ["offset"]},
+                details={"invalid": invalid},
                 valid_values={
                     "results": [
                         "filters",
@@ -127,6 +151,8 @@ def screener(
                         "filter_name",
                         "limit",
                         "offset",
+                        "value_limit",
+                        "value_offset",
                         "detail",
                     ],
                 },
@@ -144,7 +170,13 @@ def screener(
                 view=str(view),
                 detail=str(detail or "compact"),
             )
-        return stamp_provider(payload, provider="finviz")
+        out = stamp_provider(payload, provider="finviz")
+        if isinstance(out, dict) and (out.get("success") is False or out.get("error")):
+            provider_operation = out.get("operation")
+            if provider_operation not in (None, "", "screener"):
+                out["provider_operation"] = provider_operation
+            out["operation"] = "screener"
+        return out
 
     return run_logged_operation(
         logger,

@@ -323,6 +323,8 @@ def finviz_filters_list(
     filter_name: Optional[str] = None,
     limit: Annotated[int, Field(ge=1)] = 20,
     offset: Annotated[int, Field(ge=0)] = 0,
+    value_limit: Annotated[Optional[int], Field(ge=1)] = None,
+    value_offset: Annotated[int, Field(ge=0)] = 0,
     detail: DetailLiteral = "compact",  # type: ignore
 ) -> Dict[str, Any]:
     """List valid Finviz screener filters and accepted values."""
@@ -388,7 +390,24 @@ def finviz_filters_list(
             "value_count": len(options),
         }
         if detail_mode == "full" or filter_query:
-            row["values"] = options
+            effective_value_limit = (
+                value_limit
+                if value_limit is not None
+                else None if detail_mode == "full" else 20
+            )
+            value_start = max(0, int(value_offset))
+            value_stop = (
+                len(options)
+                if effective_value_limit is None
+                else value_start + int(effective_value_limit)
+            )
+            row["values"] = options[value_start:value_stop]
+            row["value_pagination"] = build_pagination_meta(
+                total=len(options),
+                returned=len(row["values"]),
+                offset=value_start,
+                limit=(len(options) if effective_value_limit is None else effective_value_limit),
+            )
         elif query and matched_values:
             row["matched_values"] = matched_values[:5]
         ranked_rows.append((rank if rank is not None else 0, original_index, row))

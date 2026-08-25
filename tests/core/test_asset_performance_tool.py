@@ -104,6 +104,30 @@ def test_asset_performance_rejects_non_day_futures_rank(monkeypatch) -> None:
     assert result["valid_values"]["rank_by"] == ["day"]
 
 
+def test_asset_performance_order_requires_rank_by() -> None:
+    result = _unwrap(asset_performance)(universe="forex", order="asc")
+
+    assert result["success"] is False
+    assert result["error_code"] == "parameter_dependency_missing"
+    assert result["details"] == {"parameter": "order", "requires": ["rank_by"]}
+
+
+def test_asset_performance_normalizes_provider_error_operation(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "mtdata.core.finviz.finviz_crypto",
+        lambda **_kwargs: {
+            "success": False,
+            "error": "unsupported quote",
+            "operation": "finviz_crypto",
+        },
+    )
+
+    result = _unwrap(asset_performance)(universe="crypto", symbol="BTC/EUR")
+
+    assert result["operation"] == "asset_performance"
+    assert result["provider_operation"] == "finviz_crypto"
+
+
 def test_asset_performance_rejects_rank_by_for_insider(monkeypatch) -> None:
     monkeypatch.setattr(
         "mtdata.core.finviz.finviz_insider_activity",

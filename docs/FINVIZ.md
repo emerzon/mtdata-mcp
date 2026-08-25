@@ -154,8 +154,9 @@ mtdata-cli screener --list-filters true --filter-name "Market Cap." --json
 | `--order` | `-marketcap` | Sort. Default is largest market cap first so paging is stable. Use `--order=price` for ascending price. |
 | `--view` | `overview` | Column set: `overview`, `valuation`, `financial`, `ownership`, `performance`, `technical`. |
 | `--list-filters` | `false` | List valid filter names instead of screening. |
-| `--search` | (none) | Filter-catalog search when `--list-filters true`. Name matches rank ahead of option-value hits. Compact search returns `value_count` plus a small `matched_values` sample; pass `--filter-name` or `--detail full` for the full option list. |
+| `--search` | (none) | Filter-catalog search when `--list-filters true`. Name matches rank ahead of option-value hits. Compact search returns `value_count` plus a small `matched_values` sample. |
 | `--filter-name` | (none) | One filter’s accepted values when `--list-filters true`. |
+| `--value-limit` / `--value-offset` | `20` / `0` (compact) | Page within one filter's accepted values. Full detail returns all values unless `--value-limit` is supplied. |
 | `--limit` / `--page` | `20` / `1` | Result page. Catalog listing uses `--limit` / `--offset`. Nonzero `--offset` in results mode is rejected; use `--page`. |
 
 **Common JSON keys:** `Exchange`, `Index`, `Sector`, `Industry`, `Country`,

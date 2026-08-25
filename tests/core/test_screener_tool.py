@@ -53,6 +53,22 @@ def test_screener_rejects_offset_in_results_mode(monkeypatch) -> None:
     assert "Use --page" in result["error"]
 
 
+def test_screener_normalizes_provider_error_operation(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "mtdata.core.finviz.finviz_screen",
+        lambda **_kwargs: {
+            "success": False,
+            "error": "bad order",
+            "operation": "finviz_screen",
+        },
+    )
+
+    result = _unwrap(screener)(order="nonsense")
+
+    assert result["operation"] == "screener"
+    assert result["provider_operation"] == "finviz_screen"
+
+
 def test_screener_source_schema_omits_mt5() -> None:
     annotation = get_type_hints(_unwrap(screener), include_extras=True)["source"]
     source_type = (

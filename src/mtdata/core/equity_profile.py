@@ -156,7 +156,12 @@ def _compose_profile(
 ) -> Dict[str, Any]:
     error = _first_error(payloads)
     if error is not None:
-        return stamp_provider(error, provider=provider)
+        out = stamp_provider(error, provider=provider)
+        provider_operation = out.get("operation")
+        if provider_operation not in (None, "", "equity_profile"):
+            out["provider_operation"] = provider_operation
+        out["operation"] = "equity_profile"
+        return out
     if len(payloads) == 1:
         only = next(iter(payloads.values()))
         out = stamp_provider(only, provider=provider)
