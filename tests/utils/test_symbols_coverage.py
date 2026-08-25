@@ -66,6 +66,24 @@ _GROUP_PATH = "mtdata.core.symbols.catalog._extract_group_path_util"
 _TABLE = "mtdata.core.symbols.catalog._table_from_rows"
 _NORM_LIMIT = "mtdata.core.symbols.catalog._normalize_limit"
 
+_COMPACT_IDENTIFICATION_HEADERS = [
+    "currency_base",
+    "currency_base_reported",
+    "currency_base_inferred",
+    "currency_base_source",
+    "currency_base_inference_source",
+    "currency_base_warning",
+    "currency_profit",
+    "digits",
+    "spread_is_floating",
+    "session_type",
+]
+
+
+def _row_map(result):
+    headers = result["headers"]
+    return [dict(zip(headers, row)) for row in result["data"]]
+
 
 def test_mt5_source_provenance_identifies_broker_without_account_number():
     from mtdata.core.runtime_metadata import build_mt5_source_provenance
@@ -116,6 +134,7 @@ class TestSymbolsListNoSearch:
             "symbol",
             "group",
             "description",
+            *_COMPACT_IDENTIFICATION_HEADERS,
         ]
         assert len(res["data"]) == 2
         assert "rows" not in res
@@ -160,11 +179,14 @@ class TestSymbolsListNoSearch:
             "symbol",
             "group",
             "description",
+            *_COMPACT_IDENTIFICATION_HEADERS,
             "in_marketwatch",
         ]
-        assert res["data"] == [
-            ["EURUSD", "Forex\\Majors", "Euro vs US Dollar", True]
-        ]
+        row = _row_map(res)[0]
+        assert row["symbol"] == "EURUSD"
+        assert row["group"] == "Forex\\Majors"
+        assert row["description"] == "Euro vs US Dollar"
+        assert row["in_marketwatch"] is True
 
     @patch(_NORM_LIMIT, return_value=25)
     @patch(_TABLE, side_effect=lambda h, r: {"headers": h, "data": r})
@@ -210,14 +232,14 @@ class TestSymbolsListNoSearch:
             "symbol",
             "group",
             "description",
-            "currency_base",
-            "currency_profit",
-            "digits",
-            "spread_is_floating",
+            *_COMPACT_IDENTIFICATION_HEADERS,
         ]
-        assert res["data"] == [
-            ["EURUSD", "Forex\\Majors", "Euro vs US Dollar", "EUR", "USD", 5, True]
-        ]
+        row = _row_map(res)[0]
+        assert row["symbol"] == "EURUSD"
+        assert row["currency_base"] == "EUR"
+        assert row["currency_profit"] == "USD"
+        assert row["digits"] == 5
+        assert row["spread_is_floating"] is True
 
     @patch(_NORM_LIMIT, return_value=25)
     @patch(_TABLE, side_effect=lambda h, r: {"headers": h, "data": r})
@@ -434,6 +456,61 @@ class TestSymbolsListNoSearch:
         }
         assert not {"total_count", "offset", "limit", "has_more"} & res.keys()
 
+    @patch(_TABLE, side_effect=lambda h, r: {"headers": h, "data": r})
+    @patch(f"{_MT5}.symbols_get")
+    def test_compact_schema_is_stable_across_mixed_asset_pages(self, mock_get, mock_tbl):
+        eurusd = _make_symbol("EURUSD", path="Forex\\Majors")
+        eurusd.currency_base = "EUR"
+        eurusd.currency_profit = "USD"
+        eurusd.digits = 5
+        eurusd.spread_float = True
+        btc = _make_symbol("BTCUSD", path="Crypto", description="Bitcoin (USD)")
+        btc.currency_base = "USD"
+        btc.currency_profit = "USD"
+        btc.digits = 2
+        btc.spread_float = True
+        aapl = _make_symbol(
+            "AAPL.NAS",
+            path="Stock CFD's\\Nasdaq",
+            description="Apple Inc CFD",
+        )
+        aapl.currency_base = "USD"
+        aapl.currency_profit = "USD"
+        aapl.digits = 2
+        aapl.spread_float = True
+        mock_get.return_value = [eurusd, btc, aapl]
+
+        fn = _get_symbols_list()
+        with patch(_GROUP_PATH, side_effect=lambda symbol: symbol.path):
+            page_one = fn(universe="all", limit=1, offset=0)
+            page_two = fn(universe="all", limit=1, offset=1)
+            page_three = fn(universe="all", limit=1, offset=2)
+
+        assert page_one["headers"] == page_two["headers"] == page_three["headers"]
+        assert page_one["headers"] == [
+            "symbol",
+            "group",
+            "description",
+            *_COMPACT_IDENTIFICATION_HEADERS,
+        ]
+        rows = _row_map(page_one) + _row_map(page_two) + _row_map(page_three)
+        by_symbol = {row["symbol"]: row for row in rows}
+        assert set(by_symbol) == {"EURUSD", "BTCUSD", "AAPL.NAS"}
+        assert by_symbol["EURUSD"]["currency_base_warning"] is None
+        assert by_symbol["BTCUSD"]["currency_base_inferred"] == "BTC"
+        assert by_symbol["AAPL.NAS"]["session_type"] == "regular"
+
+    def test_invalid_category_uses_structured_error(self):
+        result = _get_symbols_list()(category="spaceships")
+
+        assert result["success"] is False
+        assert result["error_code"] == "invalid_category"
+        assert result["details"] == {
+            "parameter": "category",
+            "received": "spaceships",
+        }
+        assert "forex" in result["valid_values"]["category"]
+
     @patch(_NORM_LIMIT, return_value=25)
     @patch(_GROUP_PATH, return_value="Forex\\Majors")
     @patch(f"{_MT5}.symbols_get")
@@ -532,30 +609,18 @@ class TestSymbolsListSearch:
             fn = _get_symbols_list()
             res = fn(search_term="AAPL", limit=25)
 
-        assert res["headers"] == [
+        assert res["headers"][:4] == [
             "symbol",
             "group",
             "description",
             "match_reason",
-            "session_type",
         ]
-        assert res["data"] == [
-            ["AAPL.NAS", "Stock CFD's\\Nasdaq", "Apple Inc CFD", "name_prefix", "regular"],
-            [
-                "AAPL.NAS-24",
-                "Stock CFD's\\Nasdaq\\24HR NAS",
-                "Apple Inc 24/5 CFD",
-                "name_prefix",
-                "extended_24h",
-            ],
-            [
-                "AAPB.NAS",
-                "Stock CFD's\\Nasdaq",
-                "2x Long AAPL Daily ETF CFD",
-                "description_contains",
-                "regular",
-            ],
-        ]
+        assert "session_type" in res["headers"]
+        rows = {row["symbol"]: row for row in _row_map(res)}
+        assert rows["AAPL.NAS"]["match_reason"] == "name_prefix"
+        assert rows["AAPL.NAS"]["session_type"] == "regular"
+        assert rows["AAPL.NAS-24"]["session_type"] == "extended_24h"
+        assert rows["AAPB.NAS"]["match_reason"] == "description_contains"
 
     @patch(_NORM_LIMIT, return_value=25)
     @patch(_TABLE, side_effect=lambda h, r: {"headers": h, "data": r})

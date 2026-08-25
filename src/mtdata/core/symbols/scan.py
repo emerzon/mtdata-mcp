@@ -80,6 +80,7 @@ from ..runtime_metadata import build_mt5_source_provenance
 from .classify import (
     _case_insensitive_sort_key,
     _clean_broker_text,
+    _invalid_symbol_category_error,
     _normalize_symbol_category_filter,
     _symbol_category,
     _symbol_suggestion_from_info,
@@ -1881,12 +1882,10 @@ def symbols_top_markets(  # noqa: C901
             group_filter = _normalize_group_path_query(group) if group else None
             category_filter = _normalize_symbol_category_filter(category)
             if category and not category_filter:
-                return {
-                    "error": (
-                        "category must be one of forex, crypto, indices, "
-                        "commodities, stocks, bonds, or etfs."
-                    )
-                }
+                return _invalid_symbol_category_error(
+                    category,
+                    operation="symbols_top_markets",
+                )
 
             timeframe_value = str(timeframe or "H1").strip().upper()
             needs_bar_data = rank_kind in {

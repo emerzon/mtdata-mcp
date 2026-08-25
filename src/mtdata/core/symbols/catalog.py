@@ -73,6 +73,7 @@ from .classify import (
     _clean_broker_text,
     _currency_filter_basis_summary,
     _find_symbol_suggestions,
+    _invalid_symbol_category_error,
     _match_symbols_for_search,
     _normalize_symbol_category_filter,
     _normalize_symbol_search_term,
@@ -327,6 +328,44 @@ def _summary_symbol_describe_payload(symbol_data: Dict[str, Any]) -> Dict[str, A
     _apply_symbol_currency_diagnostics(summary)
     return summary
 
+def _symbol_list_table_headers(
+    *,
+    detail_mode: str,
+    category_filter: Any = None,
+    search_term: Any = None,
+    currency_filter: Any = None,
+) -> List[str]:
+    """Return a page-independent compact/standard/full row schema."""
+    headers = ["symbol", "group", "description"]
+    if category_filter:
+        headers.append("category")
+    if search_term:
+        headers.append("match_reason")
+    headers.extend(
+        (
+            "currency_base",
+            "currency_base_reported",
+            "currency_base_inferred",
+            "currency_base_source",
+            "currency_base_inference_source",
+            "currency_base_warning",
+        )
+    )
+    if currency_filter:
+        headers.append("currency_match_basis")
+    headers.extend(
+        (
+            "currency_profit",
+            "digits",
+            "spread_is_floating",
+            "session_type",
+        )
+    )
+    if detail_mode in {"standard", "full"}:
+        headers.append("in_marketwatch")
+    return headers
+
+
 def _symbol_list_optional_attr(symbol_info: Any, attr: str) -> Any:
     try:
         if attr not in dir(symbol_info):
@@ -430,12 +469,10 @@ def symbols_list(  # noqa: C901
             if universe_value is not None and universe_value not in {"visible", "all"}:
                 return {"error": "universe must be 'visible' or 'all'."}
             if category and not category_filter:
-                return {
-                    "error": (
-                        "category must be one of forex, crypto, indices, "
-                        "commodities, stocks, bonds, or etfs."
-                    )
-                }
+                return _invalid_symbol_category_error(
+                    category,
+                    operation="symbols_list",
+                )
             if search_mode_value not in _SYMBOL_SEARCH_MODES:
                 return {
                     "error": (
@@ -693,29 +730,12 @@ def symbols_list(  # noqa: C901
                 )
                 out["source"] = source
                 return out
-            headers = ["symbol", "group", "description"]
-            if category_filter:
-                headers.append("category")
-            if normalized_search_term:
-                headers.append("match_reason")
-            for optional_header in (
-                "currency_base",
-                "currency_base_reported",
-                "currency_base_inferred",
-                "currency_base_source",
-                "currency_base_inference_source",
-                "currency_base_warning",
-                "currency_match_basis",
-                "currency_profit",
-                "digits",
-                "spread_is_floating",
-            ):
-                if any(s.get(optional_header) is not None for s in symbol_list):
-                    headers.append(optional_header)
-            if any(s.get("session_type") for s in symbol_list):
-                headers.append("session_type")
-            if detail_mode in {"standard", "full"}:
-                headers.append("in_marketwatch")
+            headers = _symbol_list_table_headers(
+                detail_mode=detail_mode,
+                category_filter=category_filter,
+                search_term=normalized_search_term,
+                currency_filter=currency_filter,
+            )
             rows = [[s.get(header) for header in headers] for s in symbol_list]
             result = _table_from_rows(headers, rows)
             result["universe"] = effective_universe

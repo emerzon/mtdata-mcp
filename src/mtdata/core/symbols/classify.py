@@ -17,6 +17,7 @@ from ...utils.symbol import (
     symbol_shorthand_rank,
     symbol_suggestions_from_gateway,
 )
+from ..error_envelope import build_error_payload
 
 
 def _clean_broker_text(value: Any) -> Any:
@@ -133,11 +134,37 @@ _SYMBOL_CATEGORY_ALIASES = {
     "etfs": "etfs",
 }
 
+_SYMBOL_CATEGORY_CHOICES = (
+    "forex",
+    "crypto",
+    "indices",
+    "commodities",
+    "stocks",
+    "bonds",
+    "etfs",
+)
+
+
 def _normalize_symbol_category_filter(value: Optional[str]) -> Optional[str]:
     text = str(value or "").strip().lower().replace("-", "_")
     if not text:
         return None
     return _SYMBOL_CATEGORY_ALIASES.get(text)
+
+
+def _invalid_symbol_category_error(category: Any, *, operation: str) -> Dict[str, Any]:
+    return build_error_payload(
+        (
+            "category must be one of forex, crypto, indices, "
+            "commodities, stocks, bonds, or etfs."
+        ),
+        code="invalid_category",
+        operation=operation,
+        details={"parameter": "category", "received": category},
+        valid_values={"category": list(_SYMBOL_CATEGORY_CHOICES)},
+        remediation="Pass a canonical category such as forex, crypto, or stocks.",
+    )
+
 
 def _symbol_name_letters(symbol: Any) -> str:
     return re.sub(r"[^A-Z]", "", str(getattr(symbol, "name", "") or "").upper())
