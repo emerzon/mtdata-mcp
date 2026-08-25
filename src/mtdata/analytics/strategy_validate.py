@@ -46,25 +46,46 @@ def _block_bootstrap_positive_mean_p_value(
 
 
 
+_STATE_REVERSAL_STRATEGIES = {"sma_cross", "ema_cross"}
+_EVENT_BARRIER_STRATEGIES = {"sma_cross_event", "ema_cross_event"}
+_MA_CROSS_STRATEGIES = _STATE_REVERSAL_STRATEGIES | _EVENT_BARRIER_STRATEGIES
+_LOOKAHEAD_PAD_BARS = 5
+
+
+def _moving_average_pair(
+    close: pd.Series,
+    candidate: StrategyCandidate,
+) -> tuple[pd.Series, pd.Series]:
+    params = candidate.params
+    fast = int(params.get("fast_period", 10))
+    slow = int(params.get("slow_period", 30))
+    if fast >= slow:
+        raise ValueError("fast_period must be less than slow_period")
+    strategy = str(candidate.strategy or "")
+    if strategy in {"sma_cross", "sma_cross_event"}:
+        fast_ma = close.rolling(fast, min_periods=fast).mean()
+        slow_ma = close.rolling(slow, min_periods=slow).mean()
+    else:
+        fast_ma = close.ewm(span=fast, adjust=False, min_periods=fast).mean()
+        slow_ma = close.ewm(span=slow, adjust=False, min_periods=slow).mean()
+    return fast_ma, slow_ma
+
+
 def _builtin_signal(close: pd.Series, candidate: StrategyCandidate) -> pd.Series:
     params = candidate.params
-    if candidate.strategy in {"sma_cross", "ema_cross"}:
-        fast = int(params.get("fast_period", 10))
-        slow = int(params.get("slow_period", 30))
-        if fast >= slow:
-            raise ValueError("fast_period must be less than slow_period")
-        if candidate.strategy == "sma_cross":
-            a = close.rolling(fast, min_periods=fast).mean()
-            b = close.rolling(slow, min_periods=slow).mean()
-        else:
-            a = close.ewm(span=fast, adjust=False, min_periods=fast).mean()
-            b = close.ewm(span=slow, adjust=False, min_periods=slow).mean()
+    if candidate.strategy in _MA_CROSS_STRATEGIES:
+        a, b = _moving_average_pair(close, candidate)
         valid = a.notna() & b.notna()
-        previous_valid = valid.shift(1, fill_value=False)
-        crossed_above = valid & previous_valid & (a > b) & (a.shift(1) <= b.shift(1))
-        crossed_below = valid & previous_valid & (a < b) & (a.shift(1) >= b.shift(1))
+        if candidate.strategy in _EVENT_BARRIER_STRATEGIES:
+            previous_valid = valid.shift(1, fill_value=False)
+            crossed_above = valid & previous_valid & (a > b) & (a.shift(1) <= b.shift(1))
+            crossed_below = valid & previous_valid & (a < b) & (a.shift(1) >= b.shift(1))
+            return pd.Series(
+                np.where(crossed_above, 1.0, np.where(crossed_below, -1.0, 0.0)),
+                index=close.index,
+            ).where(valid)
         return pd.Series(
-            np.where(crossed_above, 1.0, np.where(crossed_below, -1.0, 0.0)),
+            np.where(a > b, 1.0, np.where(a < b, -1.0, 0.0)),
             index=close.index,
         ).where(valid)
     length = int(params.get("rsi_length", 14))
@@ -88,8 +109,10 @@ def _builtin_signal(close: pd.Series, candidate: StrategyCandidate) -> pd.Series
 def _candidate_signal_definition(candidate: StrategyCandidate) -> str:
     if candidate.type == "forecast_threshold":
         return "forecast_threshold_anchor"
-    if candidate.strategy in {"sma_cross", "ema_cross"}:
+    if candidate.strategy in _EVENT_BARRIER_STRATEGIES:
         return "cross_event"
+    if candidate.strategy in _STATE_REVERSAL_STRATEGIES:
+        return "state_reversal"
     return "zone_entry_event"
 
 
@@ -106,7 +129,7 @@ def _candidate_result_identity(
     effective = dict(candidate.params)
     if candidate.type == "builtin_strategy":
         identity["strategy"] = candidate.strategy
-        if candidate.strategy in {"sma_cross", "ema_cross"}:
+        if candidate.strategy in _MA_CROSS_STRATEGIES:
             effective.setdefault("fast_period", 10)
             effective.setdefault("slow_period", 30)
         else:
@@ -257,6 +280,79 @@ def _barrier_returns(
     return np.asarray(indices, dtype=int), np.asarray(outcomes, dtype=float)
 
 
+def _execution_price(df: pd.DataFrame, bar_idx: int) -> Optional[float]:
+    if bar_idx < 0 or bar_idx >= len(df):
+        return None
+    open_price = float(df["open"].iloc[bar_idx])
+    if math.isfinite(open_price) and open_price > 0.0:
+        return open_price
+    close_price = float(df["close"].iloc[bar_idx])
+    if math.isfinite(close_price) and close_price > 0.0:
+        return close_price
+    return None
+
+
+def _position_reversal_returns(
+    df: pd.DataFrame,
+    signal: pd.Series,
+    max_hold_bars: Optional[int] = None,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Always-in state/reversal trades matching strategy_backtest ema_cross."""
+    entry_indices: List[int] = []
+    exit_indices: List[int] = []
+    outcomes: List[float] = []
+    current_direction = 0
+    entry_idx: Optional[int] = None
+    entry_price: Optional[float] = None
+    signals = signal.to_numpy(dtype=float)
+    last_signal_idx = len(df) - 2
+    for signal_idx in range(0, last_signal_idx + 1):
+        raw_signal = float(signals[signal_idx]) if signal_idx < len(signals) and np.isfinite(signals[signal_idx]) else 0.0
+        desired_direction = int(np.sign(raw_signal))
+        action_idx = int(signal_idx + 1)
+        action_price = _execution_price(df, action_idx)
+        if action_price is None:
+            continue
+        if current_direction == 0:
+            if desired_direction != 0:
+                current_direction = desired_direction
+                entry_idx = action_idx
+                entry_price = float(action_price)
+            continue
+        if entry_idx is None or entry_price is None:
+            continue
+        bars_held = int(action_idx - entry_idx)
+        hit_max_hold = max_hold_bars is not None and bars_held >= int(max_hold_bars)
+        if desired_direction == current_direction and not hit_max_hold:
+            continue
+        result = float(current_direction) * (float(action_price) / float(entry_price) - 1.0)
+        entry_indices.append(int(entry_idx) - 1)
+        exit_indices.append(int(action_idx))
+        outcomes.append(result)
+        current_direction = 0
+        if desired_direction != 0:
+            current_direction = desired_direction
+            entry_idx = action_idx
+            entry_price = float(action_price)
+        else:
+            entry_idx = None
+            entry_price = None
+    if current_direction != 0 and entry_idx is not None and entry_price is not None:
+        final_exit_idx = len(df) - 1
+        final_exit_price = float(df["close"].iloc[final_exit_idx])
+        if not math.isfinite(final_exit_price) or final_exit_price <= 0.0:
+            final_exit_price = _execution_price(df, final_exit_idx) or float(entry_price)
+        result = float(current_direction) * (float(final_exit_price) / float(entry_price) - 1.0)
+        entry_indices.append(int(entry_idx) - 1)
+        exit_indices.append(int(final_exit_idx))
+        outcomes.append(result)
+    return (
+        np.asarray(entry_indices, dtype=int),
+        np.asarray(exit_indices, dtype=int),
+        np.asarray(outcomes, dtype=float),
+    )
+
+
 
 _MIN_HISTORICAL_SPREAD_COVERAGE = 0.9
 
@@ -351,11 +447,14 @@ def validate_strategies(  # noqa: C901
             ),
             "related_tools": ["symbols_list"],
         }
+    explicit_range = bool(request.start and request.end)
+    outcome_tail_bars = int(request.barrier.horizon)
+    fetch_bars_requested = int(request.lookback + outcome_tail_bars + _LOOKAHEAD_PAD_BARS)
     df = _rates(
         gateway,
         request.symbol,
         request.timeframe,
-        request.lookback + request.barrier.horizon + 5,
+        fetch_bars_requested,
         start=request.start,
         end=request.end,
     )
@@ -432,14 +531,24 @@ def validate_strategies(  # noqa: C901
                 embargo=embargo,
             )
         same_bar_policy = normalize_same_bar_policy(request.barrier.same_bar_policy)
-        indices, gross = _barrier_returns(
-            df,
-            signal,
-            request.barrier.horizon,
-            request.barrier.tp_pct,
-            request.barrier.sl_pct,
-            same_bar_policy,
-        )
+        if signal_definition == "state_reversal":
+            max_hold = candidate.params.get("max_hold_bars")
+            indices, exit_indices, gross = _position_reversal_returns(
+                df,
+                signal,
+                None if max_hold in (None, "") else int(max_hold),
+            )
+            outcome_end = exit_indices
+        else:
+            indices, gross = _barrier_returns(
+                df,
+                signal,
+                request.barrier.horizon,
+                request.barrier.tp_pct,
+                request.barrier.sl_pct,
+                same_bar_policy,
+            )
+            outcome_end = indices + int(request.barrier.horizon)
         if len(indices) < request.n_splits * 5:
             if not len(valid_signal_bars):
                 insufficient_reason = "forecast_unavailable_for_all_anchors"
@@ -470,7 +579,7 @@ def validate_strategies(  # noqa: C901
                 continue
             test_mask = (
                 (indices >= test_start)
-                & (indices + int(request.barrier.horizon) <= test_end)
+                & (outcome_end <= test_end)
             )
             test_indices = indices[test_mask]
             test_gross = gross[test_mask]
@@ -478,9 +587,7 @@ def validate_strategies(  # noqa: C901
                 skipped_folds.append({"fold": fold + 1, "reason": "no_test_trades"})
                 continue
             test = test_gross - round_trip_bps / 10_000.0
-            train_mask = (
-                indices + int(request.barrier.horizon) < int(test_start) - purge
-            )
+            train_mask = outcome_end < int(test_start) - purge
             embargo_excluded = np.zeros(len(indices), dtype=bool)
             for gap_start, gap_end in candidate_embargo_intervals:
                 if gap_start >= test_start:
@@ -742,11 +849,20 @@ def validate_strategies(  # noqa: C901
             "history_selection": {
                 "mode": (
                     "explicit_range"
-                    if request.start and request.end
+                    if explicit_range
                     else "latest_lookback"
                 ),
                 "lookback_bars_requested": int(request.lookback),
-                "lookback_applied": not bool(request.start and request.end),
+                "lookback_applied": not explicit_range,
+                "fetch_bars_requested": None if explicit_range else int(fetch_bars_requested),
+                "fetch_bars": int(len(df)),
+                "evaluation_bars": (
+                    int(len(df))
+                    if explicit_range
+                    else int(max(0, len(df) - outcome_tail_bars - _LOOKAHEAD_PAD_BARS))
+                ),
+                "outcome_tail_bars": int(outcome_tail_bars),
+                "warmup_bars": 0 if explicit_range else int(_LOOKAHEAD_PAD_BARS),
                 "bars_used": int(len(df)),
                 "requested_start": request.start,
                 "requested_end": request.end,

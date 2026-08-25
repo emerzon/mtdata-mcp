@@ -128,7 +128,15 @@ class TradeExecutionQualityRequest(BaseModel):
 class StrategyCandidate(BaseModel):
     id: str
     type: Literal["builtin_strategy", "forecast_threshold"]
-    strategy: Optional[Literal["sma_cross", "ema_cross", "rsi_reversion"]] = None
+    strategy: Optional[
+        Literal[
+            "sma_cross",
+            "ema_cross",
+            "rsi_reversion",
+            "sma_cross_event",
+            "ema_cross_event",
+        ]
+    ] = None
     method: Optional[str] = None
     params: Dict[str, Any] = Field(default_factory=dict)
     horizon: int = Field(1, ge=1, le=100)
@@ -183,7 +191,13 @@ class StrategyValidateRequest(BaseModel):
     end: Optional[str] = None
     candidates: List[StrategyCandidate] = Field(default_factory=list, max_length=10)
     strategy: Optional[
-        Literal["sma_cross", "ema_cross", "rsi_reversion"]
+        Literal[
+            "sma_cross",
+            "ema_cross",
+            "rsi_reversion",
+            "sma_cross_event",
+            "ema_cross_event",
+        ]
     ] = Field(
         None,
         description=(
