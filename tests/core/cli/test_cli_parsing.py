@@ -223,6 +223,28 @@ def test_disabled_market_depth_parse_error_explains_gate(monkeypatch, capsys):
     assert "Level 2/DOM" in payload["error"]
 
 
+def test_disabled_market_depth_help_is_available(monkeypatch):
+    from mtdata.core.cli import api as cli_api
+
+    monkeypatch.delenv("MTDATA_ENABLE_MARKET_DEPTH_FETCH", raising=False)
+
+    def sample_tool(symbol: str, spread: bool = False) -> None:
+        """Return DOM when enabled."""
+
+    parser = cli_api._CLIArgumentParser(
+        prog="mtdata-cli market_depth_fetch",
+        formatter_class=cli_api._CLIHelpFormatter,
+    )
+    cli_api.add_dynamic_arguments(
+        parser,
+        cli_api.get_function_info(sample_tool),
+        cmd_name="market_depth_fetch",
+    )
+    help_text = parser.format_help()
+    assert "usage:" in help_text.lower()
+    assert "--spread" in help_text
+
+
 @pytest.mark.parametrize(
     ("message", "error_code", "error_fragment"),
     [
@@ -1244,6 +1266,29 @@ class TestAddDynamicArguments:
             "GBPUSD",
         ]
 
+    def test_wait_event_watch_for_help_lists_watcher_schemas(self):
+        parser = argparse.ArgumentParser()
+        func_info = {
+            "params": [
+                {
+                    "name": "watch_for",
+                    "type": Optional[list],
+                    "required": False,
+                    "default": None,
+                },
+            ]
+        }
+
+        add_dynamic_arguments(parser, func_info, cmd_name="wait_event")
+        help_text = _strip_ansi(parser.format_help())
+        compact_help = " ".join(help_text.split())
+
+        assert "price_touch_level" in compact_help
+        assert "order_filled" in compact_help
+        assert "window.kind=minutes|ticks" in compact_help
+        assert "threshold_mode=fixed_pct" in compact_help
+        assert '{"type":"order_filled","symbol":"EURUSD"}' in compact_help
+
     def test_calendar_prefers_start_end_and_hides_legacy_date_flags(self):
         parser = argparse.ArgumentParser()
         func_info = {
@@ -1459,6 +1504,9 @@ class TestResolveParamKwargs:
             ("patterns_detect", "top_k", "Full detail returns every surviving row"),
             ("options_chain", "limit", "option contracts"),
             ("volume_profile_levels", "lookback", "Historical bar count"),
+            ("patterns_detect", "lookback", "Historical bars to scan for patterns"),
+            ("forecast_generate", "lookback", "native theta/fourier_ols"),
+            ("cointegration_test", "limit", "compact/summary output uses 10"),
             ("outliers_detect", "limit", "anomalous bars"),
             ("temporal_analyze", "limit", "time buckets"),
             ("temporal_analyze", "session_calendar", "auto, fx, or equity"),
@@ -1751,6 +1799,17 @@ class TestResolveParamKwargs:
 
         assert kwargs["help"] == "Correlation coefficient: pearson or spearman."
         assert "forecast_list_methods" not in kwargs["help"]
+
+    def test_patterns_detect_lookback_help_omits_forecast_defaults(self):
+        kwargs, _ = _resolve_param_kwargs(
+            {"name": "lookback", "type": int, "required": False, "default": None},
+            None,
+            cmd_name="patterns_detect",
+        )
+
+        assert "Historical bars to scan for patterns" in kwargs["help"]
+        assert "theta" not in kwargs["help"].lower()
+        assert "fourier" not in kwargs["help"].lower()
 
     @pytest.mark.parametrize(
         ("param_name", "expected"),

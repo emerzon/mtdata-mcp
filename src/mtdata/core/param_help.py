@@ -290,6 +290,53 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
     ("volume_profile_levels", "lookback"): (
         "Historical bar count for a timeframe-based profile; requires --timeframe."
     ),
+    ("patterns_detect", "lookback"): (
+        "Historical bars to scan for patterns after applying any start/end window."
+    ),
+    ("regime_detect", "lookback"): (
+        "Historical bars used for regime detection after applying any start/end window."
+    ),
+    ("seasonality_detect", "lookback"): (
+        "Historical bars used to detect seasonal periods; must be at least 31."
+    ),
+    ("outliers_detect", "lookback"): (
+        "Historical bars scored for anomalous return, volume, and range."
+    ),
+    ("strategy_validate", "lookback"): (
+        "Historical bars used to validate strategy candidates."
+    ),
+    ("forecast_generate", "lookback"): (
+        "Historical bars to train on. Omit for the method default "
+        "(native theta/fourier_ols: 300 bars)."
+    ),
+    ("forecast_backtest_run", "lookback"): (
+        "Fixed training bars at each backtest anchor. Omit for the method default "
+        "(native theta/fourier_ols: 300 bars)."
+    ),
+    ("forecast_train", "lookback"): (
+        "Historical bars to train on. Omit for the method default "
+        "(native theta/fourier_ols: 300 bars)."
+    ),
+    ("forecast_tune_optuna", "lookback"): (
+        "Fixed training bars for each trial. Omit for the method default "
+        "(native theta/fourier_ols: 300 bars)."
+    ),
+    ("forecast_tune_genetic", "lookback"): (
+        "Fixed training bars for each candidate. Omit for the method default "
+        "(native theta/fourier_ols: 300 bars)."
+    ),
+    ("forecast_optimize_hints", "lookback"): (
+        "Fixed training bars matching forecast_generate. Omit for the method default "
+        "(native theta/fourier_ols: 300 bars)."
+    ),
+    ("forecast_conformal_intervals", "lookback"): (
+        "Historical bars used to fit conformal intervals. Omit for the method default "
+        "(native theta/fourier_ols: 300 bars)."
+    ),
+    ("forecast_volatility_estimate", "lookback"): (
+        "Historical bars used by the volatility estimator. Omit for the method default "
+        "(native theta/fourier_ols: 300 bars)."
+    ),
     ("outliers_detect", "limit"): "Max anomalous bars to return.",
     ("temporal_analyze", "limit"): (
         "Max grouped time buckets to return; pagination only, not the analysis window."
@@ -410,7 +457,10 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "Comma- or space-separated MT5 symbols (e.g. EURUSD,GBPUSD or EURUSD GBPUSD); one symbol auto-expands "
         "to its MT5 group. Optional with --group."
     ),
-    ("cointegration_test", "limit"): "Max cointegration pair rows to return.",
+    ("cointegration_test", "limit"): (
+        "Max ranked pair rows to return. Omitted compact/summary output uses 10; "
+        "omitted full/standard output is unbounded."
+    ),
     ("cointegration_test", "window_bars"): (
         "Historical bars per symbol used for the cointegration test window."
     ),
@@ -666,11 +716,29 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "Seconds between polls; must be at least 0.1. Omit to use 0.5."
     ),
     ("wait_event", "watch_for"): (
-        "Event names or event objects. Examples: order_filled, "
-        "'{\"type\":\"order_filled\",\"symbol\":\"EURUSD\"}'. "
-        "Put candle_close boundaries in end_on. In timeframe mode, omit for a "
-        "candle-boundary wait only. In duration mode, omit for a pure timer. "
-        "Explicit watchers make an unmatched timeout or boundary a failed wait."
+        "Event names or JSON event objects. Supported types (required fields): "
+        "order_created/order_filled/order_cancelled (optional symbol, order_ticket, "
+        "magic, side=buy|sell); position_opened/position_closed/tp_hit/sl_hit "
+        "(optional symbol, position_ticket, magic, side); pending_near_fill/"
+        "stop_threat (distance in price units, optional symbol/ticket/magic/"
+        "price_source=auto|bid|ask|mid|last); price_change (threshold_value; "
+        "threshold_mode=fixed_pct|ratio_to_baseline|zscore; direction=up|down|either; "
+        "window.kind=minutes|ticks and window.value); volume_spike/"
+        "tick_count_spike/spread_spike/tick_count_drought/range_expansion "
+        "(threshold_value; threshold_mode=ratio_to_baseline|zscore; window in "
+        "minutes or ticks); price_touch_level/price_break_level (level in price "
+        "units; optional direction, tolerance, confirm_ticks for breaks); "
+        "price_enter_zone (lower and upper in price units). Put candle_close "
+        "boundaries in end_on. In timeframe mode, omit for a candle-boundary wait "
+        "only. In duration mode, omit for a pure timer. Explicit watchers make an "
+        "unmatched timeout or boundary a failed wait. Examples: order_filled; "
+        "'{\"type\":\"order_filled\",\"symbol\":\"EURUSD\"}'; "
+        "'{\"type\":\"price_change\",\"direction\":\"up\",\"threshold_mode\":"
+        "\"fixed_pct\",\"threshold_value\":0.1}'; "
+        "'{\"type\":\"price_touch_level\",\"symbol\":\"EURUSD\",\"level\":1.0850,"
+        "\"tolerance\":0.0002}'; "
+        "'{\"type\":\"volume_spike\",\"window\":{\"kind\":\"minutes\",\"value\":5},"
+        "\"threshold_mode\":\"ratio_to_baseline\",\"threshold_value\":2}'."
     ),
     ("wait_event", "end_on"): (
         "Optional timeframe-mode boundaries. Explicit boundary timeframes must "

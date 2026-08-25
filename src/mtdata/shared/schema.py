@@ -212,10 +212,7 @@ PARAM_HINTS = {
     "threshold_pct": "Segmentation change threshold (percent).",
     "threshold": "Change-point probability threshold (0-1).",
     "value_col": "Column name to use for value-based operations.",
-    "lookback": (
-        "Historical bars to use. Forecast omit means the method default "
-        "(native theta/fourier_ols: 300 bars)."
-    ),
+    "lookback": "Historical bars to use.",
     "horizon_bars": (
         "Holding period in bars of the requested timeframe. Default 1 is one-bar "
         "VaR; pass 5 to match portfolio_risk_decompose."
