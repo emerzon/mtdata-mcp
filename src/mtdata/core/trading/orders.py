@@ -15,7 +15,7 @@ from ...shared.market_units import (
     UNIT_PIPS,
     forex_points_per_pip,
 )
-from ...utils.coercion import round_finite
+from ...utils.coercion import coerce_optional_bool, round_finite
 from ...utils.freshness import QUOTE_LIVE_SECONDS
 from ...utils.quote import compute_spread_metrics, resolve_quote_tick, tick_value
 from ...utils.utils import _utc_epoch_seconds
@@ -694,9 +694,39 @@ def _assess_order_account_state(
         and not isinstance(numeric_margin_fields["margin_free"], bool)
         else None
     )
-    trade_allowed = getattr(account_info, "trade_allowed", None)
+    broker_trade_allowed = coerce_optional_bool(
+        getattr(account_info, "trade_allowed", None)
+    )
+    if preflight is None:
+        build_preflight = getattr(mt5, "build_trade_preflight", None)
+        if callable(build_preflight):
+            try:
+                preflight = build_preflight(account_info=account_info)
+            except TypeError:
+                try:
+                    preflight = build_preflight()
+                except Exception:
+                    preflight = None
+            except Exception:
+                preflight = None
+    if not isinstance(preflight, dict):
+        preflight = {}
+    strict_execution_ready = preflight.get("execution_ready_strict")
+    if strict_execution_ready is None:
+        strict_execution_ready = preflight.get("execution_ready")
+    margin_allows_new_exposure = margin_stress.get("status") != "critical"
+    actionable_trade_allowed = bool(
+        broker_trade_allowed is True
+        and margin_allows_new_exposure
+        and strict_execution_ready is True
+    )
+    trade_allowed_basis = [
+        "broker_trade_allowed",
+        "margin_not_critical",
+        "execution_ready_strict",
+    ]
     blockers: List[str] = []
-    if trade_allowed is False:
+    if broker_trade_allowed is False:
         blockers.append("account_trading_disabled")
     if margin_free is not None and margin_free <= 0:
         blockers.append("no_free_margin")
@@ -708,9 +738,12 @@ def _assess_order_account_state(
         "margin_free": margin_free,
         "margin_stress": margin_stress,
         "blockers": blockers,
+        "trade_allowed": actionable_trade_allowed,
+        "new_exposure_allowed": actionable_trade_allowed,
+        "trade_allowed_basis": trade_allowed_basis,
     }
-    if isinstance(trade_allowed, bool):
-        account_state["trade_allowed"] = trade_allowed
+    if broker_trade_allowed is not None:
+        account_state["broker_trade_allowed"] = broker_trade_allowed
     account_state = {
         key: value for key, value in account_state.items() if value is not None
     }
@@ -729,7 +762,7 @@ def _assess_order_account_state(
             "placing a new order."
         ),
     }
-    if preflight is not None:
+    if preflight:
         block["preflight"] = preflight
     return account_info, account_state, block
 

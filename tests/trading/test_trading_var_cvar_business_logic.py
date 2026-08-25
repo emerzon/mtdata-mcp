@@ -48,7 +48,8 @@ def test_position_mark_freshness_rejects_live_label_for_entry_fallback() -> None
 
     assert out["mark_freshness_status"] == "entry_price_fallback"
     assert out["valuation_basis"] == "entry_price_fallback"
-    assert out["usable_for_live_trading"] is False
+    assert out["mark_usability_status"] == "not_live_ready"
+    assert "usable_for_live_trading" not in out
     assert out["entry_price_fallback_positions"] == 1
 
 
@@ -239,7 +240,8 @@ def test_run_trade_var_cvar_calculate_supports_multi_bar_horizon() -> None:
     assert out["summary"]["horizon_bars"] == 2
     assert out["summary"]["holding_period"] == "2 H1 bars"
     assert out["summary"]["observations"] == 3
-    assert out["usable_for_live_trading"] is False
+    assert "usable_for_live_trading" not in out
+    assert out["mark_usability_status"] == "not_live_ready"
     assert out["data_stale"] is True
     assert out["valuation_time"] == "1970-01-01T00:00:01Z"
     assert out["history_policy"] == "completed_bars_only"

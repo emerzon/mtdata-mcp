@@ -714,16 +714,37 @@ def test_trade_risk_analyze_keeps_exposure_analysis_with_partial_sizing_params()
             sizing=_fixed_sizing(2.0),  # Only sizing provided
         )
 
-    assert out["success"] is True
+    assert out["success"] is False
+    assert out["error_code"] == "position_sizing_inputs_missing"
+    assert set(out["missing_fields"]) == {"entry", "stop_loss"}
+    assert "stop-loss" in out["remediation"]
+    assert "--entry" in out["error"]
     assert "scoped_risk" in out
     assert "portfolio_risk" not in out
-    sizing = out["position_sizing"]
-    assert sizing["status"] == "parameters_missing"
-    assert set(sizing["missing"]) == {"entry", "stop_loss"}
-    assert "provided" not in sizing
-    assert "required_for_sizing" not in sizing
-    assert "proposed_trade_context" not in sizing
-    assert "sizing_not_calculated_reason" not in sizing
+    assert out["portfolio_snapshot_status"] == "available"
+    assert out["candidate_valid"] is False
+    assert out["sizing_eligible"] is False
+
+
+def test_trade_risk_analyze_fails_explicit_sizing_when_stop_loss_missing() -> None:
+    mt5 = MagicMock()
+    mt5.account_info.return_value = SimpleNamespace(equity=1000.0, currency="USD")
+    mt5.positions_get.return_value = []
+
+    with _patched_mt5_module(mt5):
+        out = trade_risk_analyze(
+            symbol="EURUSD",
+            direction="long",
+            entry=1.1664,
+            sizing=_fixed_sizing(1.0),
+        )
+
+    assert out["success"] is False
+    assert out["error_code"] == "position_sizing_inputs_missing"
+    assert out["missing_fields"] == ["stop_loss"]
+    assert out["position_sizing_error"]["code"] == "position_sizing_inputs_missing"
+    assert "stop-loss" in out["remediation"]
+    assert "scoped_risk" in out
 
 
 def test_trade_risk_analyze_handles_missing_account_fields() -> None:

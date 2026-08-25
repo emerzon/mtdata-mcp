@@ -61,7 +61,8 @@ def test_trade_stress_test_offsets_long_and_short_positions():
     assert result["total_pnl_impact"] == -550.0
     assert result["equity_after"] == 9450.0
     assert result["mark_freshness_status"] == "stale_or_unverified"
-    assert result["usable_for_live_trading"] is False
+    assert result["mark_usability_status"] == "not_live_ready"
+    assert "usable_for_live_trading" not in result
     assert result["data_stale"] is True
     assert result["valuation_time"] == "1970-01-01T00:00:01Z"
     assert {item["symbol"] for item in result["mark_freshness"]} == {"EURUSD"}
@@ -90,7 +91,8 @@ def test_trade_stress_test_labels_entry_price_fallback_as_non_live():
     assert result["items"][0]["valuation_basis"] == "entry_price_fallback"
     assert result["mark_freshness_status"] == "entry_price_fallback"
     assert result["valuation_basis"] == "entry_price_fallback"
-    assert result["usable_for_live_trading"] is False
+    assert result["mark_usability_status"] == "not_live_ready"
+    assert "usable_for_live_trading" not in result
 
 
 def test_trade_stress_test_names_locked_quote_as_usability_blocker():
@@ -109,7 +111,7 @@ def test_trade_stress_test_names_locked_quote_as_usability_blocker():
     assert result["mark_freshness_status"] in {"live", "stale_or_unverified"}
     assert result["mark_usability_status"] == "not_live_ready"
     assert result["data_stale"] is False
-    assert result["usable_for_live_trading"] is False
+    assert "usable_for_live_trading" not in result
     assert result["valuation_basis"] in {
         "position_marks_quote_not_live_ready",
         "stale_or_unverified_position_marks",

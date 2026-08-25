@@ -1584,7 +1584,7 @@ def _normalize_trade_risk_payload(
         return None
 
     out: Dict[str, Any] = {}
-    for key in ("success", "error_code", "error"):
+    for key in ("success", "error_code", "error", "missing_fields", "remediation"):
         value = payload.get(key)
         if not _is_empty_value(value):
             out[key] = value

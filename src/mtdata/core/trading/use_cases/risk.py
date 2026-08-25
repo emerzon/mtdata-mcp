@@ -469,17 +469,57 @@ def _shape_trade_risk_analyze_payload(
     return shaped
 
 
+def _promote_position_sizing_block(
+    result: Dict[str, Any],
+    *,
+    geometry_valid: bool,
+    candidate_status: str = "blocked",
+) -> Dict[str, Any]:
+    sizing_error = result.get("position_sizing_error")
+    if not isinstance(sizing_error, dict):
+        return result
+    error_code = str(sizing_error.get("code") or "position_sizing_blocked")
+    error_message = str(
+        sizing_error.get("reason")
+        or sizing_error.get("message")
+        or "Position sizing is blocked."
+    )
+    update: Dict[str, Any] = {
+        "success": False,
+        "candidate_valid": False,
+        "candidate_status": candidate_status,
+        "geometry_valid": geometry_valid,
+        "sizing_eligible": False,
+        "error_code": error_code,
+        "error": error_message,
+        "portfolio_snapshot_status": "available",
+    }
+    missing_fields = sizing_error.get("missing_fields")
+    if missing_fields:
+        update["missing_fields"] = missing_fields
+    remediation = sizing_error.get("remediation")
+    if remediation:
+        update["remediation"] = remediation
+    result.update(update)
+    return result
+
+
 def _apply_trade_candidate_outcome(result: Dict[str, Any]) -> Dict[str, Any]:
     """Promote proposed-trade validity to the operation-level contract."""
     evaluation = result.get("trade_evaluation")
+    sizing_error = result.get("position_sizing_error")
+    sizing_blocked = isinstance(sizing_error, dict)
     if not isinstance(evaluation, dict):
+        if (
+            sizing_blocked
+            and str(sizing_error.get("code") or "") == "position_sizing_inputs_missing"
+        ):
+            return _promote_position_sizing_block(result, geometry_valid=False)
         return result
 
     candidate_status = str(evaluation.get("status") or "").strip().lower()
     geometry_valid = candidate_status == "valid"
     position_sizing = result.get("position_sizing")
-    sizing_error = result.get("position_sizing_error")
-    sizing_blocked = isinstance(sizing_error, dict)
     suggested_volume = None
     if isinstance(position_sizing, dict):
         suggested_volume = position_sizing.get("suggested_volume")
@@ -535,25 +575,7 @@ def _apply_trade_candidate_outcome(result: Dict[str, Any]) -> Dict[str, Any]:
             result.pop("position_sizing", None)
             return result
         if sizing_blocked:
-            error_code = str(sizing_error.get("code") or "position_sizing_blocked")
-            error_message = str(
-                sizing_error.get("reason")
-                or sizing_error.get("message")
-                or "Position sizing is blocked."
-            )
-            result.update(
-                {
-                    "success": False,
-                    "candidate_valid": False,
-                    "candidate_status": "blocked",
-                    "geometry_valid": True,
-                    "sizing_eligible": False,
-                    "error_code": error_code,
-                    "error": error_message,
-                    "portfolio_snapshot_status": "available",
-                }
-            )
-            return result
+            return _promote_position_sizing_block(result, geometry_valid=True)
         result["candidate_valid"] = True
         result["candidate_status"] = "valid"
         return result
@@ -638,7 +660,7 @@ def _shape_trade_var_cvar_payload(
             "history_failures",
             "warnings",
             "mark_freshness_status",
-            "usable_for_live_trading",
+            "mark_usability_status",
             "data_stale",
             "valuation_time",
             "valuation_basis",
@@ -1905,6 +1927,25 @@ def run_trade_risk_analyze(  # noqa: C901
                             }
                         )
                     result["position_sizing"] = position_sizing
+                    if request.sizing is not None:
+                        missing_labels = _human_join(
+                            [
+                                _trade_risk_sizing_field_label(field_name)
+                                for field_name in position_sizing_missing
+                            ]
+                        )
+                        result["position_sizing_error"] = _build_position_sizing_error(
+                            code="position_sizing_inputs_missing",
+                            reason=(
+                                "Position sizing was requested but required inputs "
+                                f"are missing: {missing_labels}."
+                            ),
+                            remediation=(
+                                f"Provide {missing_labels} and rerun "
+                                "trade_risk_analyze."
+                            ),
+                            details={"missing_fields": list(position_sizing_missing)},
+                        )
 
             sizing_ready = bool(
                 sizing_method_error is None
@@ -2973,7 +3014,6 @@ def _position_mark_freshness(
             else "stale_or_unverified"
         ),
         "mark_usability_status": "usable" if live_ready else "not_live_ready",
-        "usable_for_live_trading": live_ready,
         "data_stale": data_stale,
         "valuation_time": oldest.get("quote_time"),
         "valuation_basis": (
