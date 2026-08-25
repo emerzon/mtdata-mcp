@@ -100,6 +100,12 @@ _FINVIZ_EARNINGS_COMPACT_FIELDS = (
     "earnings",
     "earnings_timing",
     "eps_estimate",
+    "eps_actual",
+    "eps_surprise",
+    "eps_basis",
+    "eps_reported_surprise",
+    "eps_reported_basis",
+    "eps_surprise_direction_conflict",
     "market_cap",
     "price",
     "price_change_pct",
@@ -148,11 +154,15 @@ _FINVIZ_CALENDAR_COMPACT_FIELDS = (
     "forecast_value",
     "unit",
     "scale",
+    "currency",
     "value_parse_status",
     "eps_estimate",
     "eps_actual",
     "eps_surprise",
+    "eps_basis",
     "eps_reported_surprise",
+    "eps_reported_basis",
+    "eps_surprise_direction_conflict",
     "sales_estimate",
     "sales_actual",
     "sales_surprise",
@@ -368,70 +378,75 @@ _ECONOMIC_RELEASE_SUFFIX_UNITS = {
     suffix: ("count", multiplier)
     for suffix, multiplier in _FINVIZ_NUMERIC_SUFFIX_MULTIPLIERS.items()
 }
+_ECONOMIC_RELEASE_CURRENCY_MARKERS = {
+    "$": "USD",
+    "€": "EUR",
+    "£": "GBP",
+    "¥": "JPY",
+}
 
 
 def parse_economic_release_value(value: Any) -> Dict[str, Any]:
     """Parse a provider economic print into a numeric value plus unit/scale."""
+    missing = {
+        "value": None,
+        "unit": None,
+        "scale": None,
+        "currency": None,
+        "parse_status": "missing",
+    }
     if value in (None, ""):
-        return {
-            "value": None,
-            "unit": None,
-            "scale": None,
-            "parse_status": "missing",
-        }
+        return dict(missing)
     text = str(value).strip().replace(",", "")
     if not text or text in {"-", "N/A", "n/a", "None", "none", "null"}:
-        return {
-            "value": None,
-            "unit": None,
-            "scale": None,
-            "parse_status": "missing",
-        }
-    currency_stripped = text.lstrip("$€£¥ ")
-    if currency_stripped.endswith("%"):
-        parsed = _parse_finviz_numeric_value(currency_stripped)
+        return dict(missing)
+    currency_code = None
+    remainder = text
+    marker = remainder[0] if remainder else ""
+    if marker in _ECONOMIC_RELEASE_CURRENCY_MARKERS:
+        currency_code = _ECONOMIC_RELEASE_CURRENCY_MARKERS[marker]
+        remainder = remainder[1:].lstrip()
+    if remainder.endswith("%"):
+        parsed = _parse_finviz_numeric_value(remainder)
         if parsed is None:
             return {
                 "value": None,
                 "unit": "percent",
                 "scale": 1.0,
+                "currency": None,
                 "parse_status": "unparseable",
             }
         return {
             "value": parsed,
             "unit": "percent",
             "scale": 1.0,
+            "currency": None,
             "parse_status": "ok",
         }
-    suffix = currency_stripped[-1].upper() if currency_stripped else ""
+    suffix = remainder[-1].upper() if remainder else ""
+    unit: Optional[str]
+    scale: Optional[float]
     if suffix in _ECONOMIC_RELEASE_SUFFIX_UNITS:
         unit, scale = _ECONOMIC_RELEASE_SUFFIX_UNITS[suffix]
-        parsed = _parse_finviz_numeric_value(currency_stripped)
-        if parsed is None:
-            return {
-                "value": None,
-                "unit": unit,
-                "scale": scale,
-                "parse_status": "unparseable",
-            }
-        return {
-            "value": parsed,
-            "unit": unit,
-            "scale": scale,
-            "parse_status": "ok",
-        }
-    parsed = _parse_finviz_numeric_value(currency_stripped)
+        parsed = _parse_finviz_numeric_value(remainder)
+    else:
+        unit, scale = None, 1.0
+        parsed = _parse_finviz_numeric_value(remainder)
+    if currency_code:
+        unit = "currency"
     if parsed is None:
         return {
             "value": None,
-            "unit": None,
-            "scale": None,
+            "unit": unit,
+            "scale": scale,
+            "currency": currency_code,
             "parse_status": "unparseable",
         }
     return {
         "value": parsed,
-        "unit": None,
-        "scale": 1.0,
+        "unit": unit,
+        "scale": scale,
+        "currency": currency_code,
         "parse_status": "ok",
     }
 
@@ -452,6 +467,7 @@ def _attach_economic_release_values(item: Dict[str, Any]) -> Dict[str, Any]:
     statuses: List[str] = []
     units: List[str] = []
     scales: List[float] = []
+    currencies: List[str] = []
     for field, parsed in parsed_fields.items():
         normalized[f"{field}_value"] = parsed["value"]
         status = str(parsed.get("parse_status") or "missing")
@@ -459,16 +475,22 @@ def _attach_economic_release_values(item: Dict[str, Any]) -> Dict[str, Any]:
             statuses.append(status)
         unit = parsed.get("unit")
         scale = parsed.get("scale")
+        currency = parsed.get("currency")
         if unit not in (None, ""):
             units.append(str(unit))
         if scale not in (None, ""):
             scales.append(float(scale))
+        if currency not in (None, ""):
+            currencies.append(str(currency))
     unique_units = list(dict.fromkeys(units))
     unique_scales = list(dict.fromkeys(scales))
+    unique_currencies = list(dict.fromkeys(currencies))
     if len(unique_units) == 1:
         normalized["unit"] = unique_units[0]
     if len(unique_scales) == 1:
         normalized["scale"] = unique_scales[0]
+    if len(unique_currencies) == 1:
+        normalized["currency"] = unique_currencies[0]
     if not statuses:
         normalized["value_parse_status"] = "missing"
     elif all(status == "ok" for status in statuses):
@@ -701,6 +723,92 @@ def _normalize_finviz_earnings_percentages(item: Any) -> Any:
     return normalized
 
 
+def _finviz_signed_direction(value: Any) -> Optional[int]:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if numeric > 0:
+        return 1
+    if numeric < 0:
+        return -1
+    return 0
+
+
+def _normalize_finviz_earnings_items(
+    items: List[Any],
+    payload: Optional[Dict[str, Any]] = None,
+) -> List[Any]:
+    normalized_items = [
+        _normalize_finviz_earnings_calendar_time(item)
+        if isinstance(item, dict)
+        else item
+        for item in items
+    ]
+    normalized_items = [
+        _normalize_finviz_earnings_amounts(item)
+        for item in normalized_items
+    ]
+    normalized_items = [
+        _normalize_finviz_earnings_percentages(item)
+        for item in normalized_items
+    ]
+    normalized_items = [
+        _annotate_finviz_earnings_eps_bases(item)
+        for item in normalized_items
+    ]
+    conflict_count = sum(
+        1
+        for item in normalized_items
+        if isinstance(item, dict)
+        and item.get("eps_surprise_direction_conflict") is True
+    )
+    if payload is not None and conflict_count:
+        _append_finviz_warning(
+            payload,
+            (
+                f"{conflict_count} earnings row(s) have conflicting EPS "
+                "surprise directions across the two provider families."
+            ),
+        )
+    return normalized_items
+
+
+def _annotate_finviz_earnings_eps_bases(item: Any) -> Any:
+    if not isinstance(item, dict):
+        return item
+    normalized = dict(item)
+    primary_present = any(
+        normalized.get(field) not in (None, "")
+        for field in ("eps_estimate", "eps_actual", "eps_surprise")
+    )
+    reported_present = normalized.get("eps_reported_surprise") not in (None, "")
+    if primary_present:
+        normalized["eps_basis"] = "provider_unspecified"
+    if reported_present:
+        normalized["eps_reported_basis"] = "provider_unspecified"
+    primary_direction = _finviz_signed_direction(normalized.get("eps_surprise"))
+    if primary_direction is None:
+        estimate = normalized.get("eps_estimate")
+        actual = normalized.get("eps_actual")
+        try:
+            primary_direction = _finviz_signed_direction(
+                float(actual) - float(estimate)
+            )
+        except (TypeError, ValueError):
+            primary_direction = None
+    reported_direction = _finviz_signed_direction(
+        normalized.get("eps_reported_surprise")
+    )
+    if (
+        primary_direction not in (None, 0)
+        and reported_direction not in (None, 0)
+        and primary_direction != reported_direction
+    ):
+        normalized["eps_surprise_direction_conflict"] = True
+    return normalized
+
+
 def _finviz_calendar_excluded_event(item: Dict[str, Any]) -> Dict[str, Any]:
     source_id = item.get("source_id") or item.get("symbol")
     return {
@@ -838,20 +946,10 @@ def _normalize_finviz_calendar_payload(
                 for item in normalized_items
             ]
         elif calendar_mode == "earnings":
-            normalized_items = [
-                _normalize_finviz_earnings_calendar_time(item)
-                if isinstance(item, dict)
-                else item
-                for item in normalized_items
-            ]
-            normalized_items = [
-                _normalize_finviz_earnings_amounts(item)
-                for item in normalized_items
-            ]
-            normalized_items = [
-                _normalize_finviz_earnings_percentages(item)
-                for item in normalized_items
-            ]
+            normalized_items = _normalize_finviz_earnings_items(
+                normalized_items,
+                out,
+            )
         if country_code_filter:
             unclassified_items = [
                 item
@@ -928,11 +1026,11 @@ def _normalize_finviz_calendar_payload(
     else:
         out.setdefault("timezone", _FINVIZ_CALENDAR_LOCAL_TIMEZONE)
     if str(calendar_type or "economic").strip().lower() == "dividends":
-        out["currency_basis"] = "listing_currency"
+        out["currency_status"] = "unavailable"
         out["units"] = {
-            "dividend_amount": "listing_currency_per_share",
-            "ordinary_amount": "listing_currency_per_share",
-            "special_amount": "listing_currency_per_share",
+            "dividend_amount": "unspecified_listing_currency_per_share",
+            "ordinary_amount": "unspecified_listing_currency_per_share",
+            "special_amount": "unspecified_listing_currency_per_share",
             "yield_pct": "percent (1.0 = 1%)",
         }
     if str(calendar_type or "economic").strip().lower() == "economic":
@@ -950,14 +1048,14 @@ def _normalize_finviz_calendar_payload(
         )
         out["units"] = units
     if str(calendar_type or "economic").strip().lower() == "earnings":
-        out["currency_basis"] = "listing_currency"
+        out["currency_status"] = "unavailable"
         out["amount_source_scale"] = "provider_millions_normalized_to_base_units"
         out["units"] = {
-            "market_cap": "listing_currency_base_units",
-            "sales_estimate": "listing_currency_base_units",
-            "sales_actual": "listing_currency_base_units",
-            "eps_estimate": "listing_currency_per_share",
-            "eps_actual": "listing_currency_per_share",
+            "market_cap": "unspecified_listing_currency_base_units",
+            "sales_estimate": "unspecified_listing_currency_base_units",
+            "sales_actual": "unspecified_listing_currency_base_units",
+            "eps_estimate": "unspecified_listing_currency_per_share",
+            "eps_actual": "unspecified_listing_currency_per_share",
             "eps_surprise": "percent (1.0 = 1%)",
             "eps_reported_surprise": "percent (1.0 = 1%)",
             "sales_surprise": "percent (1.0 = 1%)",

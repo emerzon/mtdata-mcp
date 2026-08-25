@@ -156,14 +156,44 @@ def test_economic_release_value_parses_percent_and_millions() -> None:
         "value": 3.79,
         "unit": "percent",
         "scale": 1.0,
+        "currency": None,
         "parse_status": "ok",
     }
     assert millions == {
         "value": 1_374_000.0,
         "unit": "count",
         "scale": 1_000_000.0,
+        "currency": None,
         "parse_status": "ok",
     }
+
+
+def test_economic_release_value_detects_currency_symbols() -> None:
+    from mtdata.core.finviz.calendar import parse_economic_release_value
+
+    dollars = parse_economic_release_value("$23.15T")
+    euros = parse_economic_release_value("€1.2B")
+    count = parse_economic_release_value("1.374M")
+    percent = parse_economic_release_value("3.790%")
+
+    assert dollars == {
+        "value": 23.15e12,
+        "unit": "currency",
+        "scale": 1_000_000_000_000.0,
+        "currency": "USD",
+        "parse_status": "ok",
+    }
+    assert euros == {
+        "value": 1.2e9,
+        "unit": "currency",
+        "scale": 1_000_000_000.0,
+        "currency": "EUR",
+        "parse_status": "ok",
+    }
+    assert count["unit"] == "count"
+    assert count["currency"] is None
+    assert percent["unit"] == "percent"
+    assert percent["currency"] is None
 
 
 def test_economic_calendar_keeps_raw_strings_and_adds_parsed_values() -> None:
@@ -214,7 +244,42 @@ def test_economic_calendar_keeps_raw_strings_and_adds_parsed_values() -> None:
     assert inventories["forecast_value"] == 1_443_000.0
     assert inventories["unit"] == "count"
     assert inventories["scale"] == 1_000_000.0
+    assert "currency" not in inventories
     assert "actual_value" not in inventories
+
+
+def test_economic_calendar_labels_currency_prints() -> None:
+    from mtdata.core.finviz.calendar import _normalize_finviz_calendar_payload
+
+    result = _normalize_finviz_calendar_payload(
+        {
+            "success": True,
+            "items": [
+                {
+                    "event": "GDP",
+                    "date": "2026-08-24T12:30:00Z",
+                    "actual": "$23.15T",
+                    "previous": "$23.00T",
+                    "forecast": "$23.10T",
+                    "country": "United States",
+                    "country_code": "US",
+                }
+            ],
+            "total": 1,
+        },
+        calendar_type="economic",
+        upcoming_only=False,
+        source_is_unpaged=True,
+        limit=20,
+        page=1,
+    )
+
+    gdp = result["items"][0]
+    assert gdp["actual"] == "$23.15T"
+    assert gdp["actual_value"] == 23.15e12
+    assert gdp["unit"] == "currency"
+    assert gdp["currency"] == "USD"
+    assert gdp["scale"] == 1_000_000_000_000.0
 
 
 def test_calendar_rejects_reversed_date_range() -> None:

@@ -599,24 +599,54 @@ class TestFinvizCalendarOutputContract:
                 "eps_estimate": 2.59,
                 "eps_actual": 2.65,
                 "eps_surprise": 2.23,
+                "eps_basis": "provider_unspecified",
                 "sales_estimate": 12_900_000_000.0,
                 "sales_actual": 13_100_000_000.0,
                 "sales_surprise": -1.5,
                 "one_day_price_reaction": 0.0,
             }
         ]
-        assert result["currency_basis"] == "listing_currency"
+        assert result["currency_status"] == "unavailable"
+        assert "currency_basis" not in result
         assert result["amount_source_scale"] == (
             "provider_millions_normalized_to_base_units"
         )
         assert result["units"]["sales_estimate"] == (
-            "listing_currency_base_units"
+            "unspecified_listing_currency_base_units"
         )
         assert result["units"]["eps_surprise"] == "percent (1.0 = 1%)"
         assert result["units"]["sales_surprise"] == "percent (1.0 = 1%)"
         assert result["units"]["one_day_price_reaction"] == (
             "percent (1.0 = 1%)"
         )
+
+    def test_calendar_earnings_warns_on_conflicting_eps_families(self):
+        from mtdata.core.finviz.calendar import _normalize_finviz_calendar_payload
+
+        result = _normalize_finviz_calendar_payload(
+            {
+                "success": True,
+                "items": [
+                    {
+                        "symbol": "AAPL",
+                        "epsestimate": 1.0,
+                        "epsactual": 1.2,
+                        "epssurprise": 20.0,
+                        "epsreportedsurprise": -5.0,
+                    }
+                ],
+            },
+            calendar_type="earnings",
+            source_is_unpaged=True,
+            limit=20,
+            page=1,
+        )
+
+        row = result["items"][0]
+        assert row["eps_basis"] == "provider_unspecified"
+        assert row["eps_reported_basis"] == "provider_unspecified"
+        assert row["eps_surprise_direction_conflict"] is True
+        assert any("conflicting EPS" in warning for warning in result["warnings"])
 
     @pytest.mark.parametrize(
         ("provider_time", "expected_timing"),
