@@ -32,6 +32,9 @@ class TestBarrierTradingCosts(_BarrierTestBase):
         self.assertFalse(result["trading_costs"]["complete"])
         self.assertFalse(result["trade_gate_passed"])
         self.assertIn("trading_costs_incomplete", result["actionability_flags"])
+        self.assertIn("--spread-bps", result["remediation"])
+        self.assertIn("--commission-bps-per-side", result["remediation"])
+        self.assertIn("--slippage-bps", result["remediation"])
 
     def test_explicit_zero_costs_are_complete(self):
         result = forecast_barrier_optimize(
@@ -49,6 +52,37 @@ class TestBarrierTradingCosts(_BarrierTestBase):
         self.assertTrue(result["trading_costs"]["complete"])
         self.assertEqual(result["trading_costs"]["missing_assumptions"], [])
         self.assertNotIn("trading_costs_incomplete", result["actionability_flags"])
+
+    def test_first_class_cost_options_are_applied(self):
+        from mtdata.forecast.requests import ForecastBarrierOptimizeRequest
+        from mtdata.forecast.use_cases.barriers import run_forecast_barrier_optimize
+
+        captured = {}
+
+        def fake_optimize(**kwargs):
+            captured.update(kwargs.get("params") or {})
+            return {
+                "success": True,
+                "best": {"tp": 0.5, "sl": 0.5},
+                "trading_costs": {"complete": True, "missing_assumptions": []},
+            }
+
+        out = run_forecast_barrier_optimize(
+            ForecastBarrierOptimizeRequest(
+                symbol="EURUSD",
+                method="mc_gbm",
+                spread_bps=1.5,
+                slippage_bps=0.0,
+                commission_bps_per_side=0.25,
+            ),
+            parse_kv_or_json=lambda value: value or {},
+            barrier_optimize_impl=fake_optimize,
+        )
+
+        assert captured["spread_bps"] == 1.5
+        assert captured["slippage_bps"] == 0.0
+        assert captured["commission_bps"] == 0.25
+        assert out["success"] is True
 
     def test_live_quote_spread_is_applied_when_spread_is_omitted(self):
         paths = np.concatenate(

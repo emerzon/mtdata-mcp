@@ -268,6 +268,41 @@ def run_forecast_barrier_optimize(
     params_norm = parse_kv_or_json(request.params)
     if not isinstance(params_norm, dict):
         params_norm = {}
+    cost_option_map = (
+        ("spread_bps", request.spread_bps, "spread_bps"),
+        ("slippage_bps", request.slippage_bps, "slippage_bps"),
+        ("commission_bps", request.commission_bps_per_side, "commission_bps_per_side"),
+    )
+    for params_key, option_value, option_name in cost_option_map:
+        if option_value is None:
+            continue
+        existing = params_norm.get(params_key)
+        if existing is not None:
+            try:
+                same_value = float(existing) == float(option_value)
+            except (TypeError, ValueError):
+                same_value = False
+            if not same_value:
+                result = {
+                    "error": (
+                        f"Conflicting {option_name}: top-level {option_name}="
+                        f"{option_value} and params.{params_key}={existing}. "
+                        "Use one value or make them equal."
+                    ),
+                    "error_code": "invalid_input",
+                }
+                log_operation_finish(
+                    logger,
+                    operation="forecast_barrier_optimize",
+                    started_at=started_at,
+                    success=False,
+                    symbol=request.symbol,
+                    timeframe=request.timeframe,
+                    method=method_val,
+                    direction=request.direction,
+                )
+                return result
+        params_norm[params_key] = option_value
     params_norm["same_bar_policy"] = request.same_bar_policy
     for threshold_key in ("min_ev", "min_edge", "min_kelly"):
         threshold_value = getattr(request, threshold_key, None)
