@@ -717,7 +717,7 @@ def outliers_detect(
     as_of: Optional[str] = None,
     detail: DetailLiteral = "compact",
 ) -> Dict[str, Any]:
-    """Detect anomalous MT5 bars using robust return, volume, and range scores."""
+    """Detect anomalous MT5 bars using MAD, IQR, or mean/std z-score scores."""
 
     def _run() -> Dict[str, Any]:
         if int(lookback) < 20 or int(limit) < 1 or float(threshold) <= 0:
@@ -807,13 +807,32 @@ def outliers_detect(
                 if volume_col is not None:
                     item["volume"] = float(bar.get(volume_col))
             rows.append(item)
+        method_value = str(method or "mad").strip().lower()
+        if method_value == "zscore":
+            score_meaning = (
+                f"mean/std z-score magnitude per bar; score >= threshold "
+                f"({float(threshold)}) flags an outlier"
+            )
+            score_units = "mean_std_zscore"
+        elif method_value == "iqr":
+            score_meaning = (
+                f"robust IQR deviation magnitude per bar; score >= threshold "
+                f"({float(threshold)}) flags an outlier"
+            )
+            score_units = "robust_iqr_deviation"
+        else:
+            score_meaning = (
+                f"robust MAD deviation magnitude per bar; score >= threshold "
+                f"({float(threshold)}) flags an outlier"
+            )
+            score_units = "robust_mad_deviation"
         result: Dict[str, Any] = {
             "success": True,
             "symbol": symbol,
             "timeframe": timeframe,
             "method": method,
             "threshold": float(threshold),
-            "score_meaning": f"robust {method} deviation magnitude per bar; score >= threshold ({float(threshold)}) flags an outlier",
+            "score_meaning": score_meaning,
             "fields_analyzed": requested,
             "samples": int(len(frame)),
             "outliers_total": int((max_scores >= float(threshold)).sum()),
@@ -824,19 +843,18 @@ def outliers_detect(
                 frame, include_incomplete=include_incomplete
             ),
         }
+        result["units"] = {"score": score_units, "field_scores": score_units}
         if volume_col is not None:
             result["volume_source"] = volume_col
             result["volume_type"] = (
                 "traded_volume" if volume_col == "real_volume" else "tick_count"
             )
-            result["units"] = {
-                "volume": (
-                    "broker_reported_real_volume"
-                    if volume_col == "real_volume"
-                    else "broker_tick_count"
-                ),
-                "field_scores.volume": "robust_standardized_deviation",
-            }
+            result["units"]["volume"] = (
+                "broker_reported_real_volume"
+                if volume_col == "real_volume"
+                else "broker_tick_count"
+            )
+            result["units"]["field_scores.volume"] = score_units
         return result
 
     return run_mt5_logged_operation(

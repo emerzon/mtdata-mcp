@@ -544,6 +544,8 @@ def test_outliers_detect_flags_price_and_volume_spike(monkeypatch):
     assert result["volume_source"] == "tick_volume"
     assert result["volume_type"] == "tick_count"
     assert result["units"]["volume"] == "broker_tick_count"
+    assert "robust MAD" in result["score_meaning"]
+    assert result["units"]["score"] == "robust_mad_deviation"
     assert any(row.get("volume") == 5000.0 for row in result["items"])
 
 
@@ -571,6 +573,31 @@ def test_outliers_detect_compact_default_returns_top_ten(monkeypatch):
         (row["score"] for row in result["items"]),
         reverse=True,
     )
+
+
+def test_outliers_detect_zscore_is_not_labeled_robust(monkeypatch):
+    close = np.linspace(100.0, 101.0, 120)
+    close[80] = 130.0
+    frame = _bars(close)
+    monkeypatch.setattr(diagnostics, "create_mt5_gateway", lambda **kwargs: _Gateway())
+    monkeypatch.setattr(
+        diagnostics,
+        "_fetch_diagnostic_bars",
+        lambda *args, **kwargs: (frame, None),
+    )
+
+    result = _raw(diagnostics.outliers_detect)(
+        symbol="TEST",
+        method="zscore",
+        score_fields="return",
+        detail="full",
+    )
+
+    assert result["success"] is True
+    assert "robust" not in result["score_meaning"].lower()
+    assert "mean/std" in result["score_meaning"]
+    assert result["units"]["score"] == "mean_std_zscore"
+    assert result["units"]["field_scores"] == "mean_std_zscore"
 
 
 def test_volatility_term_structure_returns_requested_horizons(monkeypatch):
