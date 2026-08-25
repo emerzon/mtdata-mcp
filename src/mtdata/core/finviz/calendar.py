@@ -132,7 +132,6 @@ _FINVIZ_CALENDAR_COMPACT_FIELDS = (
     "country_attribution",
     "event",
     "category",
-    "date",
     "scheduled_at",
     "local_time",
     "local_timezone",

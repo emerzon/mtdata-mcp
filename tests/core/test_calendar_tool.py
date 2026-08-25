@@ -324,4 +324,4 @@ def test_economic_calendar_compact_items_include_scheduled_at() -> None:
 
     assert row["event"] == "Money Supply"
     assert row["scheduled_at"] == "2026-08-25T17:00:00Z"
-    assert row["date"] == "2026-08-25T17:00:00Z"
+    assert "date" not in row

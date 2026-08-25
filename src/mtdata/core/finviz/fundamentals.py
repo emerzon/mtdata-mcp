@@ -10,8 +10,6 @@ from typing import (
 )
 
 from mtdata.core.finviz.common import (
-    _FINVIZ_DELAY_MINUTES_MAX,
-    _FINVIZ_DELAY_MINUTES_MIN,
     _FINVIZ_DELAYED_FRESHNESS,
     _FINVIZ_DETAIL_ERROR,
     _FINVIZ_USD_PRICE_CURRENCY,
@@ -614,13 +612,9 @@ def _filter_finviz_fundamentals_payload(
     out["category"] = category_out
     out["freshness"] = _FINVIZ_DELAYED_FRESHNESS
     out["data_delayed"] = True
-    filtered["data_delayed"] = True
-    filtered["nominal_provider_delay_minutes_min"] = _FINVIZ_DELAY_MINUTES_MIN
-    filtered["nominal_provider_delay_minutes_max"] = _FINVIZ_DELAY_MINUTES_MAX
     if "price" in filtered:
         out["price_source"] = _FINVIZ_DELAYED_FRESHNESS
         out["price_currency"] = _FINVIZ_USD_PRICE_CURRENCY
-        filtered["price_source"] = _FINVIZ_DELAYED_FRESHNESS
     if category_input != category_mode:
         out["category_requested"] = category_input
     if detail_mode == "full":

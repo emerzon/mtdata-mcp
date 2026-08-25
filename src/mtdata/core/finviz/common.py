@@ -205,10 +205,6 @@ _FINVIZ_MARKET_COMPACT_FIELDS = (
     "price",
     "price_status",
     "price_currency",
-    "price_source",
-    "data_delayed",
-    "nominal_provider_delay_minutes_min",
-    "nominal_provider_delay_minutes_max",
     "group",
     "perf_5min_pct",
     "perf_hour_pct",
@@ -237,6 +233,7 @@ _FINVIZ_SCREEN_COMPACT_FIELDS_BY_VIEW = {
         "price",
         "change_pct",
         "volume",
+        "market_cap",
         "pe_ratio",
     ),
     "valuation": (
@@ -712,14 +709,6 @@ def _compact_finviz_screen_row(
             or field in _FINVIZ_FUNDAMENTAL_NUMERIC_KEYS
         )
     }
-    for field in (
-        "price_source",
-        "data_delayed",
-        "nominal_provider_delay_minutes_min",
-        "nominal_provider_delay_minutes_max",
-    ):
-        if row.get(field) not in (None, ""):
-            out[field] = row[field]
     return out
 
 

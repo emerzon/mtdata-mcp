@@ -1193,10 +1193,6 @@ class TestFinvizTools:
                 "name": "Euro / US Dollar",
                 "price": 1.1,
                 "price_currency": "USD",
-                "price_source": "finviz_delayed",
-                "data_delayed": True,
-                "nominal_provider_delay_minutes_min": 15,
-                "nominal_provider_delay_minutes_max": 20,
                 "perf_5min_pct": 0.1,
                 "perf_day_pct": 0.2,
                 "perf_week_pct": -0.3,
@@ -1284,10 +1280,6 @@ class TestFinvizTools:
                 "name": "British Pound / US Dollar",
                 "price": 1.25,
                 "price_currency": "USD",
-                "price_source": "finviz_delayed",
-                "data_delayed": True,
-                "nominal_provider_delay_minutes_min": 15,
-                "nominal_provider_delay_minutes_max": 20,
             }
         ]
 
@@ -1398,10 +1390,6 @@ class TestFinvizTools:
                 "symbol": "BTC",
                 "name": "Bitcoin",
                 "price": 90000,
-                "price_source": "finviz_delayed",
-                "data_delayed": True,
-                "nominal_provider_delay_minutes_min": 15,
-                "nominal_provider_delay_minutes_max": 20,
                 "perf_day_pct": 2.5,
             }
         ]
@@ -1490,10 +1478,6 @@ class TestFinvizTools:
                 "symbol": "BTC",
                 "name": "Bitcoin",
                 "price": 90000.0,
-                "price_source": "finviz_delayed",
-                "data_delayed": True,
-                "nominal_provider_delay_minutes_min": 15,
-                "nominal_provider_delay_minutes_max": 20,
                 "perf_day_pct": 2.5,
                 "perf_week_pct": 2.5,
                 "perf_week_basis": "week_to_date",
@@ -1922,10 +1906,8 @@ class TestFinvizTools:
         }
         assert "estimated_observation_window" not in result
         assert "transport time" in result["observation_time_note"]
-        assert result["fundamentals"]["price_source"] == "finviz_delayed"
-        assert result["fundamentals"]["data_delayed"] is True
-        assert result["fundamentals"]["nominal_provider_delay_minutes_min"] == 15
-        assert result["fundamentals"]["nominal_provider_delay_minutes_max"] == 20
+        assert "price_source" not in result["fundamentals"]
+        assert "data_delayed" not in result["fundamentals"]
         assert result["fundamentals"]["pe_ratio"] == 34.29
         assert result["fundamentals"]["market_cap"] == 3_979_470_000_000
         assert result["fundamentals"]["market_cap_formatted"] == "3.98T"
@@ -1972,8 +1954,8 @@ class TestFinvizTools:
         assert result["price_source"] == "finviz_delayed"
         assert result["price_currency"] == "USD"
         assert result["freshness"] == "finviz_delayed"
-        assert result["fundamentals"]["price_source"] == "finviz_delayed"
-        assert result["fundamentals"]["data_delayed"] is True
+        assert "price_source" not in result["fundamentals"]
+        assert "data_delayed" not in result["fundamentals"]
         assert "freshness_basis" not in result
 
     @patch("mtdata.core.finviz.fundamentals.get_stock_fundamentals")
@@ -2227,10 +2209,6 @@ class TestFinvizTools:
         assert result["fundamentals"] == {
             "price": 270.0,
             "change_pct": 1.2,
-            "price_source": "finviz_delayed",
-            "data_delayed": True,
-            "nominal_provider_delay_minutes_min": 15,
-            "nominal_provider_delay_minutes_max": 20,
         }
         assert result["available_field_count"] == 4
         assert result["omitted_field_count"] == 2
@@ -2883,11 +2861,8 @@ class TestFinvizTools:
                 "price": 298.21,
                 "change_pct": 0.87,
                 "volume": 123456,
+                "market_cap": 3_000_000_000_000,
                 "pe_ratio": 28.5,
-                "price_source": "finviz_delayed",
-                "data_delayed": True,
-                "nominal_provider_delay_minutes_min": 15,
-                "nominal_provider_delay_minutes_max": 20,
             }
         ]
 
@@ -2945,10 +2920,6 @@ class TestFinvizTools:
                 "sma50_distance_pct": -1.2,
                 "atr_14": 3.4,
                 "beta": 1.2,
-                "price_source": "finviz_delayed",
-                "data_delayed": True,
-                "nominal_provider_delay_minutes_min": 15,
-                "nominal_provider_delay_minutes_max": 20,
             }
         ]
 
@@ -3055,10 +3026,6 @@ class TestFinvizTools:
                 "peg": 2.3,
                 "price_to_sales": 8.1,
                 "price_to_book": 36.2,
-                "price_source": "finviz_delayed",
-                "data_delayed": True,
-                "nominal_provider_delay_minutes_min": 15,
-                "nominal_provider_delay_minutes_max": 20,
             }
         ]
 
@@ -3376,7 +3343,7 @@ class TestFinvizTools:
                 "country_attribution": "inferred",
                 "event": "Nonfarm Payrolls",
                 "category": "Employment",
-                "date": "2026-01-04T13:30:00Z",
+                "scheduled_at": "2026-01-04T13:30:00Z",
                 "local_time": "2026-01-04T08:30:00-05:00",
                 "local_timezone": "America/New_York",
                 "impact": "high",
