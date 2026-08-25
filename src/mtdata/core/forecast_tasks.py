@@ -61,6 +61,46 @@ def _days(value: Any) -> Optional[float]:
     return round(max(0.0, seconds) / 86400.0, 3)
 
 
+def _attach_compact_model_identity_fields(
+    payload: Dict[str, Any],
+    *,
+    model_metadata: Dict[str, Any],
+) -> None:
+    from ..forecast.model_compatibility import describe_request_compatibility
+
+    compatibility = describe_request_compatibility(model_metadata)
+    payload["request_compatibility_status"] = compatibility["status"]
+    if compatibility.get("reason"):
+        payload["request_compatibility_reason"] = compatibility["reason"]
+    if compatibility.get("supported_horizon"):
+        payload["supported_horizon"] = compatibility["supported_horizon"]
+    reuse_request = model_metadata.get("reuse_request")
+    fingerprint = model_metadata.get("compatibility_fingerprint")
+    request_source = reuse_request if isinstance(reuse_request, dict) else {}
+    fingerprint_source = fingerprint if isinstance(fingerprint, dict) else {}
+    horizon = request_source.get("horizon", fingerprint_source.get("horizon"))
+    if horizon not in (None, ""):
+        payload["horizon"] = horizon
+    lookback = request_source.get("lookback")
+    if lookback not in (None, ""):
+        payload["lookback"] = lookback
+    params = request_source.get("params")
+    seasonality = None
+    if isinstance(params, dict):
+        seasonality = params.get("seasonality")
+    if seasonality in (None, ""):
+        seasonality = fingerprint_source.get("seasonality")
+    if seasonality not in (None, ""):
+        payload["seasonality"] = seasonality
+    selector = (
+        fingerprint_source.get("selector")
+        or request_source.get("selector")
+        or model_metadata.get("selector")
+    )
+    if selector not in (None, "", [], {}):
+        payload["selector"] = selector
+
+
 def _attach_model_reuse_fields(
     payload: Dict[str, Any],
     *,
@@ -417,6 +457,7 @@ def _serialize_model_handle(
     compatibility_status = compatibility.get("status") if isinstance(compatibility, dict) else None
     if compatibility_status:
         payload["store_compatibility_status"] = compatibility_status
+    _attach_compact_model_identity_fields(payload, model_metadata=model_metadata)
     if detail == "full":
         from ..forecast.model_store import (
             sanitize_store_metadata,

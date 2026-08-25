@@ -733,6 +733,48 @@ class TestForecastModels:
         assert result["models"][0]["training_end"] == "2023-11-14T22:13:20Z"
         assert result["models"][0]["training_window_mode"] == "as_of"
 
+    def test_compact_model_rows_expose_selection_identity(self):
+        from mtdata.core.forecast_tasks import forecast_models_list
+
+        handle = TrainedModelHandle(
+            "nhits/EURUSD_H1/a",
+            "nhits",
+            "EURUSD_H1",
+            "a",
+            1000.0,
+            metadata={
+                "compatibility_fingerprint": {
+                    "method": "nhits",
+                    "horizon": 24,
+                    "seasonality": 24,
+                    "selector": {"mode": "method"},
+                },
+                "reuse_request": {
+                    "symbol": "EURUSD",
+                    "timeframe": "H1",
+                    "method": "nhits",
+                    "horizon": 24,
+                    "lookback": 400,
+                    "params": {"seasonality": 24},
+                },
+            },
+        )
+        mock_store = MagicMock()
+        mock_store.list_models.return_value = [handle]
+
+        with patch(_PATCH_STORE, return_value=mock_store):
+            result = _unwrap(forecast_models_list)()
+
+        row = result["models"][0]
+        assert row["horizon"] == 24
+        assert row["lookback"] == 400
+        assert row["seasonality"] == 24
+        assert row["selector"] == {"mode": "method"}
+        assert row["request_compatibility_status"] == "ready"
+        assert row["store_compatibility_status"] == "warning"
+        assert "reuse_request" not in row
+        assert "compatibility_fingerprint" not in row
+
     def test_lists_models_with_stable_pagination(self):
         from mtdata.core.forecast_tasks import forecast_models_list
 
