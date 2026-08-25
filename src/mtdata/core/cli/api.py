@@ -1870,8 +1870,8 @@ _COMMAND_USAGE_EXAMPLES: Dict[str, Tuple[str, Optional[str]]] = {
         f"{CLI_PROGRAM} trade_modify --ticket 123456789 --stop-loss 60500 --take-profit 62500",
     ),
     "trade_place": (
-        f"{CLI_PROGRAM} trade_place BTCUSD --volume 0.01 --order-type SELL --stop-loss 68521 --take-profit 67071",
-        f'{CLI_PROGRAM} trade_place BTCUSD --volume 0.01 --order-type BUY --stop-loss 64500 --take-profit 67200 --comment "swing long"',
+        f"{CLI_PROGRAM} trade_place BTCUSD --volume 0.01 --order-type BUY --stop-loss SL_BELOW_BID --take-profit TP_ABOVE_ASK",
+        f"{CLI_PROGRAM} trade_place BTCUSD --volume 0.01 --order-type SELL --stop-loss SL_ABOVE_ASK --take-profit TP_BELOW_BID",
     ),
     "trade_close": (
         f"{CLI_PROGRAM} trade_close --ticket 123456789",

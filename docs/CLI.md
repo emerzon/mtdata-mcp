@@ -766,8 +766,12 @@ mtdata-cli trade_place BTCUSD --volume 0.03 --order-type buy-stop --price 70200 
 # Preview a stop-limit order with separate trigger and limit prices
 mtdata-cli trade_place BTCUSD --volume 0.03 --order-type BUY_STOP_LIMIT --price 70200 --stop-limit-price 70000 --dry-run true
 
-# Preview a market order with explicit protective levels
-mtdata-cli trade_place BTCUSD --volume 0.01 --order-type BUY --stop-loss 64500 --take-profit 67200 --dry-run true
+# Preview a market order after fetching the live quote.
+# BUY: stop-loss below bid, take-profit above ask.
+# SELL: stop-loss above ask, take-profit below bid.
+# Absolute crypto prices expire; substitute levels from market_ticker.
+mtdata-cli market_ticker BTCUSD
+mtdata-cli trade_place BTCUSD --volume 0.01 --order-type BUY --stop-loss SL_BELOW_BID --take-profit TP_ABOVE_ASK --dry-run true
 ```
 
 ### Trade Execution Controls
