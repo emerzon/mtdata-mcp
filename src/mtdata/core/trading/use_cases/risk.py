@@ -14,7 +14,7 @@ from mtdata.core.execution_logging import (
     log_operation_start,
 )
 from mtdata.core.trading import validation
-from mtdata.core.trading.common import build_trade_quote_context
+from mtdata.core.trading.common import account_context_id, build_trade_quote_context
 from mtdata.core.trading.requests import (
     TradeRiskAnalyzeRequest,
     TradeStressTestRequest,
@@ -461,11 +461,32 @@ def _shape_trade_risk_analyze_payload(
         return result
     flat_unconfigured = _compact_unconfigured_flat_trade_risk_payload(result)
     if flat_unconfigured is not None:
-        return flat_unconfigured
-    shaped = dict(result)
-    position_sizing = shaped.get("position_sizing")
-    if isinstance(position_sizing, dict):
-        shaped["position_sizing"] = _compact_trade_risk_position_sizing(position_sizing)
+        shaped = flat_unconfigured
+    else:
+        shaped = dict(result)
+        position_sizing = shaped.get("position_sizing")
+        if isinstance(position_sizing, dict):
+            shaped["position_sizing"] = _compact_trade_risk_position_sizing(
+                position_sizing
+            )
+    account = shaped.get("account")
+    if isinstance(account, dict) and "login" in account:
+        compact_account = dict(account)
+        compact_account.pop("login", None)
+        shaped["account"] = compact_account
+    for risk_key in ("scoped_risk", "portfolio_risk"):
+        risk = shaped.get(risk_key)
+        if (
+            isinstance(risk, dict)
+            and risk.get("positions_count") == 0
+            and risk.get("pending_orders_count") == 0
+            and not shaped.get("risk_calculation_failures")
+        ):
+            shaped.pop(risk_key, None)
+    if isinstance(shaped.get("positions"), list) and not shaped["positions"]:
+        shaped.pop("positions", None)
+    if isinstance(shaped.get("pending_orders"), list) and not shaped["pending_orders"]:
+        shaped.pop("pending_orders", None)
     return shaped
 
 
@@ -1519,6 +1540,13 @@ def run_trade_risk_analyze(  # noqa: C901
             account_payload["margin_used"] = round(margin_used, 2)
             account_payload["margin_free"] = round(margin_free, 2)
             account_login = getattr(account, "login", None)
+            account_server = getattr(account, "server", None)
+            context_id = account_context_id(account_login, account_server)
+            if context_id is not None:
+                account_payload = {
+                    "account_context_id": context_id,
+                    **account_payload,
+                }
             if account_login is not None:
                 account_payload = {"login": account_login, **account_payload}
 

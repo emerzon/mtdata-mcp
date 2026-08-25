@@ -697,6 +697,9 @@ _TRADE_HISTORY_COMPACT_DEAL_FIELDS = (
     "position_action",
     "volume",
     "price",
+    "price_currency",
+    "price_basis",
+    "price_currency_unavailable",
     "profit",
     "commission",
     "swap",
@@ -723,6 +726,9 @@ _TRADE_HISTORY_COMPACT_ORDER_FIELDS = (
     "price_open",
     "price_stoplimit",
     "price_current",
+    "price_currency",
+    "price_basis",
+    "price_currency_unavailable",
     "sl",
     "tp",
     "comment",
@@ -916,7 +922,8 @@ def _full_trade_history_row(
             "position_by_id", "time_setup", "time_done", "time_setup_msc",
             "time_done_msc", "type", "type_label", "state", "state_label",
             "volume", "volume_initial", "volume_current", "price", "price_open",
-            "price_current", "sl", "tp", "symbol", "magic", "comment",
+            "price_current", "price_currency", "price_basis",
+            "price_currency_unavailable", "sl", "tp", "symbol", "magic", "comment",
         }
     else:
         if rounded.get("time_msc") is not None:
@@ -926,7 +933,8 @@ def _full_trade_history_row(
         consumed = {
             "ticket", "deal_ticket", "deal", "order", "order_ticket",
             "position_ticket", "position_id", "position_by_id", "time", "time_msc",
-            "type", "type_label", "symbol", "volume", "price", "profit",
+            "type", "type_label", "symbol", "volume", "price", "price_currency",
+            "price_basis", "price_currency_unavailable", "profit",
             "commission", "swap", "fee", "magic", "comment", "exit_trigger",
             "exit_trigger_price", "timestamp_anomaly", "original_fill_time",
             "fill_time_future_seconds",
@@ -1554,6 +1562,7 @@ def trade_get_open(
     Each row's `ticket` is the position ticket; it equals `position_ticket` in
     `trade_history`, so join the two tools on
     `trade_get_open.ticket == trade_history.position_ticket`.
+    Pages use `limit` (max 500) and `pagination.next_cursor` when more rows remain.
     """
     def _run() -> Dict[str, Any]:
         gateway = create_trading_gateway()
@@ -1595,7 +1604,10 @@ def trade_get_open(
 def trade_get_pending(
     request: TradeGetPendingRequest,
 ) -> Dict[str, Any]:
-    """Get pending orders. Compact output omits echoed request metadata by default."""
+    """Get pending orders. Compact output omits echoed request metadata by default.
+
+    Pages use `limit` (max 500) and `pagination.next_cursor` when more rows remain.
+    """
     def _run() -> Dict[str, Any]:
         gateway = create_trading_gateway()
         return _normalize_trade_read_output(

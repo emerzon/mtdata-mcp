@@ -155,6 +155,7 @@ _TRADE_PLACE_PREVIEW_KEYS = (
     "warnings",
     "require_sl_tp",
     "auto_close_on_sl_tp_fail",
+    "protection_status",
     "guardrails_enabled",
     "guardrails_preview",
     "magic",
@@ -300,6 +301,28 @@ def _shape_trade_place_preview(
                 "checks_not_performed",
             )
             if key in preview
+        }
+    if detail == "preview" and isinstance(out.get("quote_context"), dict):
+        quote = out["quote_context"]
+        out["quote_context"] = {
+            key: quote[key]
+            for key in (
+                "usable_for_live_trading",
+                "freshness_state",
+                "quote_time",
+            )
+            if key in quote
+        }
+    if detail == "preview" and isinstance(out.get("validation"), dict):
+        validation_payload = out["validation"]
+        out["validation"] = {
+            key: validation_payload[key]
+            for key in (
+                "local_requirements_passed",
+                "live_submission_eligible",
+                "blockers",
+            )
+            if key in validation_payload
         }
     return out
 

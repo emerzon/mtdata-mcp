@@ -443,6 +443,16 @@ class TradeHistoryRequest(_SideNormalizedRequest):
         description="History time order. desc returns newest activity first.",
     )
 
+    @model_validator(mode="after")
+    def _reject_position_side_for_orders(self) -> "TradeHistoryRequest":
+        if self.history_kind == "orders" and self.side in {"LONG", "SHORT"}:
+            raise ValueError(
+                "LONG/SHORT side filters require history_kind='deals' "
+                "because order history has no derived position side. "
+                "Use side=buy or side=sell for order direction."
+            )
+        return self
+
 
 class TradeJournalAnalyzeRequest(_SideNormalizedRequest):
     detail: DetailLiteral = Field(
@@ -705,7 +715,21 @@ class TradeGetOpenRequest(_DirectionalSideNormalizedRequest):
             "loss_first, profit_first, or largest_first."
         ),
     )
-    limit: int = Field(default=50, ge=1)
+    limit: int = Field(
+        default=50,
+        ge=1,
+        le=500,
+        description=(
+            "Maximum rows returned per page. Defaults to 50; the safety cap is 500."
+        ),
+    )
+    cursor: Optional[str] = Field(
+        default=None,
+        description=(
+            "Opaque snapshot continuation token from pagination.next_cursor. "
+            "Reuse it with the same filters."
+        ),
+    )
     detail: DetailLiteral = Field(
         default="compact",
         description=(
@@ -738,7 +762,21 @@ class TradeGetPendingRequest(_DirectionalSideNormalizedRequest):
         ),
     )
     magic: Optional[MT5Magic] = Field(default=None, description=MAGIC_NUMBER_DESCRIPTION)
-    limit: int = Field(default=50, ge=1)
+    limit: int = Field(
+        default=50,
+        ge=1,
+        le=500,
+        description=(
+            "Maximum rows returned per page. Defaults to 50; the safety cap is 500."
+        ),
+    )
+    cursor: Optional[str] = Field(
+        default=None,
+        description=(
+            "Opaque snapshot continuation token from pagination.next_cursor. "
+            "Reuse it with the same filters."
+        ),
+    )
     detail: DetailLiteral = Field(
         default="compact",
         description=(

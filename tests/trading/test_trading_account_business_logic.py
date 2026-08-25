@@ -91,6 +91,7 @@ def test_trade_account_info_includes_execution_preflight_fields() -> None:
 
     assert out["success"] is True
     assert out["login"] == 123456
+    assert out["account_context_id"]
     assert out["profit"] == 50.0
     assert out["floating_pnl"] == 50.0
     assert out["pnl_basis"] == "floating_open_positions"
@@ -201,6 +202,8 @@ def test_trade_account_info_compact_detail_includes_account_fields_without_diagn
     assert out["margin_free"] == 9950.0
     assert out["leverage"] == 100
     assert "login" not in out
+    assert out["account_context_id"]
+    assert out["account_context_id"] != "123456"
     assert out["server"] == "Demo-Server"
     assert out["company"] == "Broker LLC"
     assert out["trade_mode"] == "demo"
@@ -214,6 +217,19 @@ def test_trade_account_info_compact_detail_includes_account_fields_without_diagn
     assert out["account_risk_status"] == "healthy"
     assert out["trade_expert"] is True
     assert out["execution_ready"] is True
+
+
+def test_trade_account_info_compact_distinguishes_logins_on_same_server() -> None:
+    from mtdata.core.trading.common import account_context_id
+
+    first = account_context_id(111111, "Broker-Demo")
+    second = account_context_id(222222, "Broker-Demo")
+    same = account_context_id(111111, "Broker-Demo")
+
+    assert first and second
+    assert first != second
+    assert first == same
+    assert first != "111111"
 
 
 def test_trade_account_info_blocks_actionable_flag_on_critical_margin() -> None:
@@ -793,6 +809,137 @@ def test_run_trade_get_pending_limit_prefers_latest_valid_timestamps() -> None:
     if isinstance(out, dict) and "items" in out:
         assert out["has_more"] is True
         assert out["truncated"] is True
+
+
+def test_run_trade_get_open_walks_pages_with_cursor() -> None:
+    Position = namedtuple(
+        "Position",
+        [
+            "ticket",
+            "symbol",
+            "time",
+            "type",
+            "volume",
+            "price_open",
+            "sl",
+            "tp",
+            "price_current",
+            "swap",
+            "profit",
+            "comment",
+            "magic",
+        ],
+    )
+    rows = [
+        Position(1, "EURUSD", 100, 0, 0.1, 1.1, 1.0, 1.2, 1.15, 0.0, 1.0, "old", 7),
+        Position(2, "EURUSD", 150, 0, 0.1, 1.1, 1.0, 1.2, 1.15, 0.0, 2.0, "mid-old", 7),
+        Position(3, "EURUSD", 200, 0, 0.1, 1.1, 1.0, 1.2, 1.15, 0.0, 3.0, "mid", 7),
+        Position(4, "EURUSD", 300, 0, 0.1, 1.1, 1.0, 1.2, 1.15, 0.0, 4.0, "new", 7),
+    ]
+    gateway = SimpleNamespace(
+        ensure_connection=lambda: None,
+        positions_get=lambda ticket=None, symbol=None: rows,
+        POSITION_TYPE_BUY=0,
+        POSITION_TYPE_SELL=1,
+    )
+    kwargs = dict(
+        gateway=gateway,
+        use_client_tz=lambda: False,
+        format_time_minimal=lambda ts: f"t{int(ts)}",
+        format_time_minimal_local=lambda ts: f"lt{int(ts)}",
+        mt5_epoch_to_utc=lambda ts: ts,
+        normalize_limit=lambda value: value,
+        comment_row_metadata=lambda comment: {
+            "comment_visible_length": len(comment or ""),
+            "comment_max_length": 31,
+            "comment_may_be_truncated": False,
+        },
+    )
+
+    first = run_trade_get_open(TradeGetOpenRequest(limit=2), **kwargs)
+    assert first["has_more"] is True
+    assert [row["ticket"] for row in first["items"]] == [3, 4]
+    cursor = first["next_cursor"]
+    assert cursor
+
+    second = run_trade_get_open(
+        TradeGetOpenRequest(limit=2, cursor=cursor),
+        **kwargs,
+    )
+    assert [row["ticket"] for row in second["items"]] == [1, 2]
+    assert second["has_more"] is False
+    assert "next_cursor" not in second
+
+    mismatch = run_trade_get_open(
+        TradeGetOpenRequest(limit=2, side="SELL", cursor=cursor),
+        **kwargs,
+    )
+    assert mismatch["error_code"] == "trade_query_invalid_cursor"
+
+
+def test_trade_get_open_limit_rejects_safety_cap() -> None:
+    with pytest.raises(ValidationError, match="500"):
+        TradeGetOpenRequest(limit=501)
+
+
+def test_run_trade_get_pending_walks_pages_with_cursor() -> None:
+    Order = namedtuple(
+        "Order",
+        [
+            "ticket",
+            "symbol",
+            "time_setup",
+            "type",
+            "volume",
+            "price_open",
+            "sl",
+            "tp",
+            "price_current",
+            "comment",
+            "magic",
+        ],
+    )
+    rows = [
+        Order(11, "EURUSD", 100, 2, 0.1, 1.1, 1.0, 1.2, 1.15, "old", 7),
+        Order(12, "EURUSD", 150, 2, 0.1, 1.1, 1.0, 1.2, 1.15, "mid-old", 7),
+        Order(13, "EURUSD", 200, 2, 0.1, 1.1, 1.0, 1.2, 1.15, "mid", 7),
+        Order(14, "EURUSD", 300, 2, 0.1, 1.1, 1.0, 1.2, 1.15, "new", 7),
+    ]
+    gateway = SimpleNamespace(
+        ensure_connection=lambda: None,
+        orders_get=lambda ticket=None, symbol=None: rows,
+        ORDER_TYPE_BUY=0,
+        ORDER_TYPE_SELL=1,
+        ORDER_TYPE_BUY_LIMIT=2,
+        ORDER_TYPE_SELL_LIMIT=3,
+        ORDER_TYPE_BUY_STOP=4,
+        ORDER_TYPE_SELL_STOP=5,
+        ORDER_TYPE_BUY_STOP_LIMIT=6,
+        ORDER_TYPE_SELL_STOP_LIMIT=7,
+    )
+    kwargs = dict(
+        gateway=gateway,
+        use_client_tz=lambda: False,
+        format_time_minimal=lambda ts: f"t{int(ts)}",
+        format_time_minimal_local=lambda ts: f"lt{int(ts)}",
+        mt5_epoch_to_utc=lambda ts: ts,
+        normalize_limit=lambda value: value,
+        comment_row_metadata=lambda comment: {
+            "comment_visible_length": len(comment or ""),
+            "comment_max_length": 31,
+            "comment_may_be_truncated": False,
+        },
+    )
+
+    first = run_trade_get_pending(TradeGetPendingRequest(limit=2), **kwargs)
+    assert first["has_more"] is True
+    assert [row["ticket"] for row in first["items"]] == [13, 14]
+    second = run_trade_get_pending(
+        TradeGetPendingRequest(limit=2, cursor=first["next_cursor"]),
+        **kwargs,
+    )
+    assert [row["ticket"] for row in second["items"]] == [11, 12]
+    assert second.get("has_more") is not True
 
 
 def test_run_trade_get_open_uses_snake_case_columns() -> None:

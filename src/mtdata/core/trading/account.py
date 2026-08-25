@@ -40,6 +40,7 @@ from ..output_contract import (
 )
 from ..runtime_metadata import attach_mt5_source, run_mt5_logged_operation
 from . import comments, safety, validation
+from .common import account_context_id
 from .gateway import create_trading_gateway
 from .positions import normalize_trade_history_output
 from .requests import TradeHistoryRequest, TradeJournalAnalyzeRequest
@@ -57,6 +58,7 @@ _TRADE_ACCOUNT_COMPACT_KEYS = (
     "server_time",
     "server_time_source",
     "clock_skew_seconds",
+    "account_context_id",
     "server",
     "company",
     "account_type",
@@ -590,6 +592,11 @@ def _run_trade_journal_request(  # noqa: C901
     request: TradeJournalAnalyzeRequest,
 ) -> Dict[str, Any]:
     period_context = _trade_journal_period_context(request)
+    if period_context.get("error"):
+        return {
+            "success": False,
+            "error": period_context["error"],
+        }
     detail_mode = str(request.detail or "compact").strip().lower()
     minimum_sample = int(max(1, int(request.min_sample)))
     side_filter = validation._trade_side_filter_metadata(
@@ -1154,8 +1161,9 @@ def trade_account_info(
 ) -> dict:
     """Get account information using the canonical output detail levels.
 
-    Compact, standard, and summary return routine balance and margin fields.
-    Full adds broker/account identifiers and execution diagnostics.
+    Compact, standard, and summary return routine balance and margin fields
+    plus `account_context_id` (a non-secret hash of login and server). Full
+    adds the raw login and execution diagnostics.
     """
 
     def _run() -> dict:
@@ -1239,6 +1247,7 @@ def trade_account_info(
                 retrieved_at_epoch=retrieved_dt.timestamp(),
             ),
             "login": login,
+            "account_context_id": account_context_id(login, preflight.get("server")),
             "balance": info.balance,
             "equity": info.equity,
             "profit": info.profit,
@@ -1278,6 +1287,8 @@ def trade_account_info(
         }
         if login is None:
             payload.pop("login", None)
+        if payload.get("account_context_id") is None:
+            payload.pop("account_context_id", None)
         if margin_level_note:
             payload["margin_level_note"] = margin_level_note
         if is_standard_weekend_closure(retrieved_dt):

@@ -263,6 +263,9 @@ def test_trade_risk_analyze_compact_position_sizing_keeps_decision_fields() -> N
         "tp": 116.0,
         "rr_ratio": 2.0,
     }
+    assert "scoped_risk" not in out
+    assert "portfolio_risk" not in out
+    assert "positions" not in out
 
 
 def test_trade_risk_analyze_kelly_sizes_from_nested_sizing() -> None:
@@ -483,6 +486,7 @@ def test_trade_risk_analyze_marks_position_sizing_incomplete_without_required_in
     mt5 = MagicMock()
     mt5.account_info.return_value = SimpleNamespace(
         login=123456,
+        server="Broker-Demo",
         equity=1000.0,
         currency="USD",
     )
@@ -492,7 +496,8 @@ def test_trade_risk_analyze_marks_position_sizing_incomplete_without_required_in
         out = trade_risk_analyze(symbol="EURUSD")
 
     assert out["success"] is True
-    assert out["account"]["login"] == 123456
+    assert "login" not in out["account"]
+    assert out["account"]["account_context_id"]
     assert out["position_sizing"]["status"] == "parameters_missing"
     assert out["position_sizing"]["missing"] == [
         "desired_risk_pct",
@@ -510,6 +515,23 @@ def test_trade_risk_analyze_marks_position_sizing_incomplete_without_required_in
     assert "note" in out["position_sizing"]
     assert '"method":"fixed_fraction"' in out["position_sizing"]["note"]
     assert "required_for_sizing" not in out["position_sizing"]
+
+
+def test_trade_risk_analyze_full_detail_keeps_raw_login() -> None:
+    mt5 = MagicMock()
+    mt5.account_info.return_value = SimpleNamespace(
+        login=123456,
+        server="Broker-Demo",
+        equity=1000.0,
+        currency="USD",
+    )
+    mt5.positions_get.return_value = []
+
+    with _patched_mt5_module(mt5):
+        out = trade_risk_analyze(symbol="EURUSD", detail="full")
+
+    assert out["account"]["login"] == 123456
+    assert out["account"]["account_context_id"]
 
 
 def test_trade_risk_analyze_evaluates_trade_levels_without_desired_risk_pct() -> None:

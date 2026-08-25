@@ -977,20 +977,11 @@ def test_trade_history_filters_orders_by_side_prefix() -> None:
 
 
 def test_trade_history_rejects_position_side_filter_for_orders() -> None:
-    mt5, prev = _install_mock_mt5()
-
-    with patch("mtdata.core.trading.account._use_client_tz", lambda: False):
-        out = trade_history(
-            history_kind="orders",
-            side="long",
-            detail="full",
-            __cli_raw=True,
-        )
-    if prev is not None:
-        sys.modules["MetaTrader5"] = prev
-
-    assert "LONG/SHORT side filters require history_kind='deals'" in out["error"]
-    mt5.history_orders_get.assert_not_called()
+    with pytest.raises(
+        ValidationError,
+        match="LONG/SHORT side filters require history_kind='deals'",
+    ):
+        TradeHistoryRequest(history_kind="orders", side="long")
 
 
 def test_trade_history_deals_decodes_enum_codes_to_labels() -> None:
@@ -1507,7 +1498,92 @@ def test_trade_history_queries_minutes_back_as_absolute_mt5_epoch_window() -> No
     ).timestamp()
     assert float(captured["to_dt"]) - float(captured["from_dt"]) == 60 * 60
     assert captured["symbol"] is None
-    assert out["message"] == "No deals found for BTCUSD in the last 60 minute(s)"
+
+
+def test_trade_history_deals_include_quote_price_currency() -> None:
+    Deal = namedtuple("Deal", ["ticket", "time", "symbol", "price"])
+    gateway = SimpleNamespace(
+        ensure_connection=lambda: None,
+        history_deals_get=lambda *args, **kwargs: [
+            Deal(ticket=1, time=1_700_000_000, symbol="EURUSD", price=1.1)
+        ],
+        symbol_info=lambda _symbol: SimpleNamespace(currency_profit="USD"),
+        account_info=lambda: SimpleNamespace(currency="EUR"),
+    )
+
+    raw = run_trade_history(
+        TradeHistoryRequest(history_kind="deals", minutes_back=60),
+        gateway=gateway,
+        use_client_tz=lambda: False,
+        format_time_minimal=lambda ts: f"t{int(ts)}",
+        format_time_minimal_local=lambda ts: f"lt{int(ts)}",
+        mt5_epoch_to_utc=lambda ts: ts,
+        parse_end_datetime=lambda value: None,
+        parse_start_datetime=lambda value: None,
+        normalize_limit=lambda value: value,
+        comment_row_metadata=lambda comment: {},
+        normalize_ticket_filter=lambda value, name: (None, None),
+        normalize_minutes_back=lambda value: (value, None),
+        decode_mt5_enum_label=lambda gateway, value, prefix=None: None,
+        mt5_config=SimpleNamespace(
+            get_client_tz=lambda: "UTC",
+            get_time_offset_seconds=lambda at_time=None: 0,
+        ),
+    )
+    out = normalize_trade_history_output(
+        raw,
+        request=TradeHistoryRequest(history_kind="deals", minutes_back=60),
+        account_currency="EUR",
+    )
+
+    row = out["items"][0]
+    assert out["currency"] == "EUR"
+    assert row["price"] == 1.1
+    assert row["price_currency"] == "USD"
+    assert row["price_basis"] == "executed_fill"
+    assert "price_currency_unavailable" not in row
+
+
+def test_trade_history_says_when_quote_currency_is_unavailable() -> None:
+    Deal = namedtuple("Deal", ["ticket", "time", "symbol", "price"])
+    gateway = SimpleNamespace(
+        ensure_connection=lambda: None,
+        history_deals_get=lambda *args, **kwargs: [
+            Deal(ticket=1, time=1_700_000_000, symbol="EURUSD", price=1.1)
+        ],
+        symbol_info=lambda _symbol: None,
+        account_info=lambda: SimpleNamespace(currency="EUR"),
+    )
+
+    raw = run_trade_history(
+        TradeHistoryRequest(history_kind="deals", minutes_back=60),
+        gateway=gateway,
+        use_client_tz=lambda: False,
+        format_time_minimal=lambda ts: f"t{int(ts)}",
+        format_time_minimal_local=lambda ts: f"lt{int(ts)}",
+        mt5_epoch_to_utc=lambda ts: ts,
+        parse_end_datetime=lambda value: None,
+        parse_start_datetime=lambda value: None,
+        normalize_limit=lambda value: value,
+        comment_row_metadata=lambda comment: {},
+        normalize_ticket_filter=lambda value, name: (None, None),
+        normalize_minutes_back=lambda value: (value, None),
+        decode_mt5_enum_label=lambda gateway, value, prefix=None: None,
+        mt5_config=SimpleNamespace(
+            get_client_tz=lambda: "UTC",
+            get_time_offset_seconds=lambda at_time=None: 0,
+        ),
+    )
+    out = normalize_trade_history_output(
+        raw,
+        request=TradeHistoryRequest(history_kind="deals", minutes_back=60),
+        account_currency="EUR",
+    )
+
+    row = out["items"][0]
+    assert "price_currency" not in row
+    assert row["price_basis"] == "executed_fill"
+    assert row["price_currency_unavailable"] is True
 
 
 @pytest.mark.parametrize("history_kind", ["deals", "orders"])
@@ -2386,6 +2462,21 @@ def test_trade_journal_analyze_reports_explicit_minutes_back_window() -> None:
     assert "Only 0 realized exit deal" in out["sample_warning"]
     assert "Increase minutes_back" in out["sample_warning"]
     assert "Increase limit" not in out["sample_warning"]
+
+
+@pytest.mark.parametrize("minutes_back", [0, -1])
+def test_trade_journal_analyze_rejects_non_positive_minutes_back(
+    minutes_back: int,
+) -> None:
+    with patch(
+        "mtdata.core.trading.account._run_trade_history_request",
+    ) as history:
+        out = trade_journal_analyze(minutes_back=minutes_back, __cli_raw=True)
+
+    assert out["success"] is False
+    assert out["error"] == "minutes_back must be a positive integer."
+    assert "minutes_back_effective" not in out
+    history.assert_not_called()
 
 
 def test_trade_journal_analyze_filters_best_worst_by_pnl_sign() -> None:

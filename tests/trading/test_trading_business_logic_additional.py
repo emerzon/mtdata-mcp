@@ -573,6 +573,89 @@ def test_run_trade_place_dry_run_includes_quote_preview_when_available():
     place_pending_order.assert_not_called()
 
 
+def test_run_trade_place_compact_preview_slims_quote_and_validation():
+    request = TradePlaceRequest(
+        symbol="EURUSD",
+        volume=0.1,
+        order_type="BUY",
+        stop_loss=1.08,
+        take_profit=1.12,
+        dry_run=True,
+        detail="compact",
+    )
+    result = run_trade_place(
+        request,
+        normalize_order_type_input=lambda value: ("BUY", None),
+        normalize_pending_expiration=lambda value: (value, False),
+        prevalidate_trade_place_market_input=lambda symbol, volume: None,
+        place_market_order=MagicMock(),
+        place_pending_order=MagicMock(),
+        close_positions=MagicMock(),
+        safe_int_ticket=lambda value: value,
+        build_dry_run_preview=lambda **_kwargs: {
+            "bid": 1.0999,
+            "ask": 1.1001,
+            "estimated_fill_price": 1.1001,
+            "sl_tp_valid": True,
+            "quote_context": {
+                "usable_for_live_trading": True,
+                "freshness_state": "live",
+                "quote_time": "2026-07-15T12:00:00Z",
+                "quote_time_epoch": 1_784_113_200,
+                "timestamp_skew_seconds": 0.2,
+                "quote_source": "mt5.symbol_info_tick",
+            },
+        },
+    )
+
+    assert result["preview_ok"] is True
+    assert result["quote_context"] == {
+        "usable_for_live_trading": True,
+        "freshness_state": "live",
+        "quote_time": "2026-07-15T12:00:00Z",
+    }
+    assert result["validation"] == {
+        "local_requirements_passed": True,
+        "live_submission_eligible": True,
+        "blockers": [],
+    }
+    assert "quote_time_epoch" not in result["quote_context"]
+    assert result["stop_loss"] == 1.08
+    assert result["take_profit"] == 1.12
+
+
+def test_run_trade_place_preview_marks_unprotected_by_request():
+    request = TradePlaceRequest(
+        symbol="EURUSD",
+        volume=0.1,
+        order_type="BUY",
+        require_sl_tp=False,
+        dry_run=True,
+    )
+    result = run_trade_place(
+        request,
+        normalize_order_type_input=lambda value: ("BUY", None),
+        normalize_pending_expiration=lambda value: (value, False),
+        prevalidate_trade_place_market_input=lambda symbol, volume: None,
+        place_market_order=MagicMock(),
+        place_pending_order=MagicMock(),
+        close_positions=MagicMock(),
+        safe_int_ticket=lambda value: value,
+        build_dry_run_preview=lambda **_kwargs: {
+            "bid": 1.0999,
+            "ask": 1.1001,
+            "estimated_fill_price": 1.1001,
+            "quote_context": {"usable_for_live_trading": True, "freshness_state": "live"},
+        },
+    )
+
+    assert result["preview_ok"] is True
+    assert result["require_sl_tp"] is False
+    assert result["protection_status"] == "unprotected_by_request"
+    assert result["auto_close_on_sl_tp_fail"] is False
+    assert any("unprotected_by_request" in str(item) for item in result["warnings"])
+
+
 def test_run_trade_place_dry_run_blocks_untrusted_quote_preview():
     request = TradePlaceRequest(
         symbol="EURUSD",

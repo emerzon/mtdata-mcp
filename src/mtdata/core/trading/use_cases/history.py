@@ -36,6 +36,39 @@ _TRADE_HISTORY_RANGE_HINT = (
 )
 
 
+def _history_price_currency(gateway: Any, symbol: Any, cache: Dict[str, Optional[str]]) -> Optional[str]:
+    key = str(symbol or "").strip()
+    if key in cache:
+        return cache[key]
+    currency: Optional[str] = None
+    if key:
+        try:
+            info = gateway.symbol_info(key)
+        except Exception:
+            info = None
+        text = getattr(info, "currency_profit", None)
+        if isinstance(text, str) and text.strip():
+            currency = text.strip()
+    cache[key] = currency
+    return currency
+
+
+def _attach_history_price_currency(
+    row: Dict[str, Any],
+    *,
+    history_kind: str,
+    gateway: Any,
+    cache: Dict[str, Optional[str]],
+) -> None:
+    currency = _history_price_currency(gateway, row.get("symbol"), cache)
+    row["price_basis"] = "executed_fill" if history_kind == "deals" else "order_price"
+    if currency:
+        row["price_currency"] = currency
+    else:
+        row["price_currency"] = None
+        row["price_currency_unavailable"] = True
+
+
 def _format_trade_history_snapshot_bound(value: datetime) -> str:
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
@@ -816,6 +849,7 @@ def run_trade_history(  # noqa: C901
                     timezone_label = str(
                         getattr(tz_obj, "zone", None) or tz_obj or "client_local"
                     )
+            price_currency_cache: Dict[str, Optional[str]] = {}
             for row in records:
                 if isinstance(row, dict):
                     row["timezone"] = timezone_label
@@ -833,6 +867,12 @@ def run_trade_history(  # noqa: C901
                             position_value = row.get("position_by_id")
                         if position_value not in (None, ""):
                             row["position_ticket"] = position_value
+                    _attach_history_price_currency(
+                        row,
+                        history_kind=kind,
+                        gateway=gateway,
+                        cache=price_currency_cache,
+                    )
                     row.update(comment_row_metadata(row.get("comment")))
             has_more = remaining_before_limit > len(records)
             if (

@@ -210,6 +210,19 @@ def run_trade_place(  # noqa: C901
                 "guardrails_enabled": bool(guardrail_preview.get("enabled")),
                 "guardrails_preview": guardrail_preview,
             }
+            unprotected_by_request = (
+                not bool(request.require_sl_tp)
+                and request.stop_loss in (None, 0)
+                and request.take_profit in (None, 0)
+            )
+            if unprotected_by_request:
+                preview["protection_status"] = "unprotected_by_request"
+                preview["auto_close_on_sl_tp_fail"] = False
+                preview["warnings"].append(
+                    "Order is unprotected_by_request: require_sl_tp=false and no "
+                    "stop_loss/take_profit were supplied. auto_close_on_sl_tp_fail "
+                    "does not apply."
+                )
             if dry_run_missing_protection:
                 preview["dry_run_note"] = (
                     "A live submission with require_sl_tp=true would be rejected. "

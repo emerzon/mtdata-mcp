@@ -128,6 +128,7 @@ class TestTradeAccountInfo:
         payload = {
             "success": True,
             "login": 123456,
+            "account_context_id": "abc123def4567890",
             "server": "Broker-Demo",
             "company": "Broker Inc.",
             "account_type": "demo",
@@ -141,6 +142,7 @@ class TestTradeAccountInfo:
         result = _trade_account_payload_for_mode(payload, mode="compact")
 
         assert "login" not in result
+        assert result["account_context_id"] == "abc123def4567890"
         assert result["server"] == "Broker-Demo"
         assert result["company"] == "Broker Inc."
         assert result["account_type"] == "demo"

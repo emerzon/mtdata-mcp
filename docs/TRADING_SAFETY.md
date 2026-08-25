@@ -6,12 +6,14 @@ If you only skim one trading doc, make it this one. The `trade_*` tools send **r
 
 > **These tools default to preview mode.** `dry_run` defaults to **`true`**. A
 > request reaches MT5 only when you explicitly pass `--dry-run false` in the
-> CLI or `dry_run=false` through Python/MCP. The Web API Tools path additionally
-> requires `"confirm": true` only when `arguments` set `"dry_run": false` (an
-> omitted `dry_run` is still a preview and does not need confirm). Use a
-> **demo account** until you trust your setup — mtdata has no separate
-> paper-trading mode. `trade_idea_compose` is stricter: it is preview-only
-> and has no live-send flag.
+> CLI or `dry_run=false` through Python/MCP. MCP additionally requires
+> `MTDATA_MCP_TRADING_MODE=live` for `dry_run=false`; the default
+> `preview_only` policy rejects live MCP mutations. The Web API Tools path
+> additionally requires `"confirm": true` only when `arguments` set
+> `"dry_run": false` (an omitted `dry_run` is still a preview and does not
+> need confirm). Use a **demo account** until you trust your setup — mtdata
+> has no separate paper-trading mode. `trade_idea_compose` is stricter: it is
+> preview-only and has no live-send flag.
 
 **Dense terms:** [Dry-run](GLOSSARY.md#dry-run) · [Trade guardrails](GLOSSARY.md#trade-guardrails) · [Slippage](GLOSSARY.md#slippage) · [Lot size](GLOSSARY.md#lot-size) · [TP/SL](GLOSSARY.md#tpsl-take-profit--stop-loss)
 
@@ -26,6 +28,7 @@ If you only skim one trading doc, make it this one. The `trade_*` tools send **r
 3. **Enable guardrails** on any account that can place orders ([Account guardrails](#account-guardrails)).
 4. **Exact tickets** for modify/close; treat `--close-all` as nuclear.
 5. **Protective levels** — market and pending orders require SL **and** TP by default (`--require-sl-tp`). If a filled market order cannot attach those levels, mtdata always tries to close the unprotected position; that fail-safe is not a CLI flag.
+6. **Confirm the account** — compact `trade_account_info` does not include the raw login. Use `account_context_id` (a hash of login + server) to tell two logins on the same broker apart. Full detail still includes `login` when you need the exact number. Compact `trade_risk_analyze` follows the same rule.
 
 MT5 tickets and magic numbers are unsigned 64-bit identifiers. Ticket inputs
 accept `1..18446744073709551615`; magic accepts

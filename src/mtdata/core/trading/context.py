@@ -413,6 +413,7 @@ def _compact_trade_session_context_payload(payload: Dict[str, Any]) -> Dict[str,
             account_summary = {
                 key: account.get(key)
                 for key in (
+                    "account_context_id",
                     "equity",
                     "profit",
                     "balance",

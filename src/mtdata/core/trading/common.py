@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Literal, Optional
 
@@ -15,6 +16,15 @@ from ...utils.quote import (
 from ...utils.time import _format_datetime_second_explicit, format_epoch_utc
 from ...utils.utils import _parse_end_datetime, _parse_start_datetime
 from . import validation
+
+
+def account_context_id(login: Any, server: Any) -> Optional[str]:
+    """Stable non-secret identity for one login on one broker server."""
+    login_text = str(login).strip() if login is not None else ""
+    server_text = str(server).strip() if server is not None else ""
+    if not login_text and not server_text:
+        return None
+    return hashlib.sha256(f"{login_text}\n{server_text}".encode("utf-8")).hexdigest()[:16]
 
 
 def build_trade_quote_context(
@@ -115,7 +125,7 @@ def resolve_trade_period_context(
         minutes_back
     )
     if minutes_back_error:
-        minutes_back_value = None
+        return {"error": minutes_back_error}
 
     if minutes_back_value is not None:
         from_dt = to_dt - timedelta(minutes=minutes_back_value)

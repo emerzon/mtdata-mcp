@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+import base64
+import json
+import math
+import time
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Tuple
 
 from mtdata.core.error_envelope import build_error_payload
 from mtdata.core.execution_logging import run_logged_operation
@@ -14,6 +19,10 @@ from mtdata.core.trading.use_cases.common import (
     logger,
 )
 from mtdata.utils.mt5 import MT5ConnectionError, _ensure_symbol_ready
+from mtdata.utils.time import _format_datetime_second_explicit
+
+_TRADE_QUERY_CURSOR_MAX_AGE_SECONDS = 3_600
+_TRADE_QUERY_MAX_LIMIT = 500
 
 
 def run_trade_get_open(
@@ -86,6 +95,93 @@ def run_trade_get_pending(
 
 def _mt5_int_const(gateway: Any, name: str, fallback: int) -> int:
     return validation._safe_int_attr(gateway, name, fallback)
+
+
+def _trade_query_cursor_scope(request: Any, *, snapshot: str) -> Dict[str, Any]:
+    return {
+        "snapshot": str(snapshot),
+        "symbol": getattr(request, "symbol", None),
+        "ticket": (
+            str(request.ticket)
+            if getattr(request, "ticket", None) is not None
+            else None
+        ),
+        "side": getattr(request, "side", None),
+        "magic": (
+            str(request.magic) if getattr(request, "magic", None) is not None else None
+        ),
+        "pnl_filter": getattr(request, "pnl_filter", None),
+        "close_priority": getattr(request, "close_priority", None),
+        "order_type": getattr(request, "order_type", None),
+    }
+
+
+def _encode_trade_query_cursor(
+    request: Any,
+    *,
+    snapshot: str,
+    last_milliseconds: float,
+    last_ticket: int,
+    issued_at: Optional[int] = None,
+) -> str:
+    payload = {
+        "v": 1,
+        "scope": _trade_query_cursor_scope(request, snapshot=snapshot),
+        "last_milliseconds": repr(float(last_milliseconds)),
+        "last_ticket": str(int(last_ticket)),
+        "issued_at": int(time.time() if issued_at is None else issued_at),
+    }
+    raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
+    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+
+
+def _decode_trade_query_cursor(
+    cursor: str,
+    request: Any,
+    *,
+    snapshot: str,
+) -> Dict[str, Any]:
+    try:
+        padding = "=" * (-len(cursor) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(cursor + padding).decode())
+    except Exception as exc:
+        raise ValueError("cursor is not a valid trade-query continuation token") from exc
+    if not isinstance(payload, dict) or payload.get("v") != 1:
+        raise ValueError("cursor uses an unsupported trade-query continuation version")
+    if payload.get("scope") != _trade_query_cursor_scope(request, snapshot=snapshot):
+        raise ValueError("cursor does not match the requested filters")
+    try:
+        issued_at = int(payload["issued_at"])
+        last_milliseconds = float(payload["last_milliseconds"])
+        last_ticket = int(payload["last_ticket"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise ValueError("cursor contains invalid trade-query continuation state") from exc
+    if not math.isfinite(last_milliseconds):
+        raise ValueError("cursor contains invalid trade-query keyset state")
+    age_seconds = time.time() - issued_at
+    if age_seconds < -300 or age_seconds > _TRADE_QUERY_CURSOR_MAX_AGE_SECONDS:
+        raise TimeoutError(
+            "trade-query cursor expired; start a new query to create a fresh snapshot"
+        )
+    return {
+        "last_milliseconds": last_milliseconds,
+        "last_ticket": last_ticket,
+        "issued_at": issued_at,
+    }
+
+
+def _trade_query_row_key(time_value: Any, ticket_value: Any) -> Tuple[float, int]:
+    try:
+        milliseconds = float(time_value) * 1000.0
+    except (TypeError, ValueError):
+        milliseconds = float("-inf")
+    if not math.isfinite(milliseconds):
+        milliseconds = float("-inf")
+    try:
+        ticket = int(ticket_value)
+    except (TypeError, ValueError):
+        ticket = 0
+    return milliseconds, ticket
 
 
 def _pick_trade_series(df: Any, pd_module: Any, *names: str):
@@ -488,6 +584,32 @@ def _run_trade_query_impl(
         ]
 
     try:
+        cursor_state: Optional[Dict[str, Any]] = None
+        if getattr(request, "cursor", None):
+            try:
+                cursor_state = _decode_trade_query_cursor(
+                    str(request.cursor),
+                    request,
+                    snapshot=snapshot,
+                )
+            except TimeoutError as exc:
+                return {
+                    "error": str(exc),
+                    "error_code": "trade_query_cursor_expired",
+                    "remediation": (
+                        "Repeat the original trade_get_open/trade_get_pending "
+                        "query without cursor."
+                    ),
+                }
+            except ValueError as exc:
+                return {
+                    "error": str(exc),
+                    "error_code": "trade_query_invalid_cursor",
+                    "remediation": (
+                        "Use pagination.next_cursor from the preceding page "
+                        "with unchanged filters."
+                    ),
+                }
         use_client_tz_value = bool(use_client_tz())
         fmt_time = format_time_minimal_local if use_client_tz_value else format_time_minimal
         timezone_label = "client_local" if use_client_tz_value else "UTC"
@@ -554,23 +676,91 @@ def _run_trade_query_impl(
             )
         total_count = len(out_df)
         limit_value = normalize_limit(request.limit)
+        if limit_value is not None:
+            limit_value = min(int(limit_value), _TRADE_QUERY_MAX_LIMIT)
+        preserve_order = bool(getattr(request, "close_priority", None))
+        aligned_time = time_utc.reindex(out_df.index) if total_count else time_utc
+        if cursor_state is not None and not out_df.empty:
+            last_ms = float(cursor_state["last_milliseconds"])
+            last_ticket = int(cursor_state["last_ticket"])
+            keep_index = []
+            seen_priority_ticket = False
+            for idx in out_df.index:
+                row_ticket = (
+                    out_df.at[idx, "ticket"] if "ticket" in out_df.columns else 0
+                )
+                row_ms, row_ticket_key = _trade_query_row_key(
+                    aligned_time.loc[idx] if idx in aligned_time.index else None,
+                    row_ticket,
+                )
+                if preserve_order:
+                    if not seen_priority_ticket:
+                        if row_ticket_key == last_ticket:
+                            seen_priority_ticket = True
+                        continue
+                    keep_index.append(idx)
+                    continue
+                if (row_ms, row_ticket_key) < (last_ms, last_ticket):
+                    keep_index.append(idx)
+            out_df = out_df.loc[keep_index].copy()
+            aligned_time = aligned_time.reindex(out_df.index)
+        remaining_count = len(out_df)
         out_df = _apply_trade_query_limit(
             out_df,
-            time_utc=time_utc,
+            time_utc=aligned_time,
             limit=limit_value,
             normalize_limit=normalize_limit,
-            preserve_order=bool(getattr(request, "close_priority", None)),
+            preserve_order=preserve_order,
         )
         records = out_df.to_dict(orient="records")
-        if limit_value and total_count > len(records):
-            return {
+        has_more = bool(limit_value and remaining_count > len(records))
+        if (
+            cursor_state is not None
+            or (limit_value and total_count > len(records))
+            or has_more
+        ):
+            pagination: Dict[str, Any] = {
                 "items": records,
                 "total_count": int(total_count),
-                "limit": int(limit_value),
-                "has_more": True,
-                "truncated": True,
-                "more_available": int(total_count - len(records)),
+                "limit": int(limit_value) if limit_value else None,
+                "has_more": has_more,
             }
+            if has_more and records:
+                pagination["truncated"] = True
+                pagination["more_available"] = int(remaining_count - len(records))
+                boundary = records[-1] if preserve_order else records[0]
+                issued_at = (
+                    int(cursor_state["issued_at"])
+                    if cursor_state is not None
+                    else int(time.time())
+                )
+                boundary_time = None
+                if "ticket" in out_df.columns:
+                    match = out_df.loc[
+                        out_df["ticket"].map(str) == str(boundary.get("ticket"))
+                    ]
+                    if len(match.index):
+                        idx = match.index[0]
+                        if idx in aligned_time.index:
+                            boundary_time = aligned_time.loc[idx]
+                last_ms, last_ticket = _trade_query_row_key(
+                    boundary_time,
+                    boundary.get("ticket"),
+                )
+                pagination["next_cursor"] = _encode_trade_query_cursor(
+                    request,
+                    snapshot=snapshot,
+                    last_milliseconds=last_ms,
+                    last_ticket=last_ticket,
+                    issued_at=issued_at,
+                )
+                pagination["cursor_expires_at"] = _format_datetime_second_explicit(
+                    datetime.fromtimestamp(
+                        issued_at + _TRADE_QUERY_CURSOR_MAX_AGE_SECONDS,
+                        tz=timezone.utc,
+                    )
+                )
+            return pagination
         return records
     except Exception as exc:
         return [
