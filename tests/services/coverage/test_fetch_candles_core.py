@@ -710,6 +710,7 @@ class TestFetchCandlesCore(unittest.TestCase):
             set(freshness.keys()),
             {
                 'last_bar_epoch',
+                'last_bar_open_epoch',
                 'expected_end_epoch',
                 'freshness_cutoff_epoch',
                 'data_freshness_seconds',
@@ -1025,6 +1026,9 @@ class TestFetchCandlesCore(unittest.TestCase):
             freshness,
             {
                 'last_bar_epoch': last_bar_epoch,
+                'last_bar_open_epoch': float(
+                    to_date.timestamp() - (10 * 60 * 60)
+                ),
                 'expected_end_epoch': expected_end_epoch,
                 'freshness_cutoff_epoch': expected_end_epoch - (4 * 60 * 60),
                 'data_freshness_seconds': round(expected_end_epoch - last_bar_epoch),
