@@ -1946,7 +1946,7 @@ def _run_data_fetch_ticks_impl(
     limit_explicit = "limit" in getattr(request, "model_fields_set", set())
     range_selection = (
         "last_n"
-        if request.start and request.end and not limit_explicit
+        if request.start and request.end
         else "first_n"
     )
     page_offset = 0
@@ -2368,9 +2368,9 @@ def _compact_tick_rows_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     quote_completeness = _tick_quote_completeness_pct(payload)
     if quote_completeness is not None:
         compact["quote_completeness_pct"] = quote_completeness
-    valid_spread = _tick_valid_spread_pct(payload)
-    if valid_spread is not None:
-        compact["valid_spread_pct"] = valid_spread
+    coherent_spread = _tick_coherent_spread_sample_pct(payload)
+    if coherent_spread is not None:
+        compact["coherent_spread_sample_pct"] = coherent_spread
     quality = _compact_tick_quality(payload)
     if quality:
         compact["quality"] = quality
@@ -2388,11 +2388,13 @@ def _tick_quote_completeness_pct(payload: Dict[str, Any]) -> Optional[float]:
     return round((float(complete) / float(total)) * 100.0, 2)
 
 
-def _tick_valid_spread_pct(payload: Dict[str, Any]) -> Optional[float]:
+def _tick_coherent_spread_sample_pct(payload: Dict[str, Any]) -> Optional[float]:
     data_quality = payload.get("data_quality")
     if not isinstance(data_quality, dict):
         return None
-    valid = _as_nonnegative_int(data_quality.get("valid_spread_ticks"))
+    valid = _as_nonnegative_int(
+        data_quality.get("coherent_spread_sample_count")
+    )
     total = _as_nonnegative_int(data_quality.get("total_ticks"))
     if valid is None or not total:
         return None
@@ -2407,7 +2409,9 @@ def _compact_tick_quality(payload: Dict[str, Any]) -> Optional[str]:
     if isinstance(data_quality, dict):
         incomplete = _as_nonnegative_int(data_quality.get("incomplete_ticks"))
         total = _as_nonnegative_int(data_quality.get("total_ticks"))
-        valid = _as_nonnegative_int(data_quality.get("valid_spread_ticks"))
+        valid = _as_nonnegative_int(
+            data_quality.get("coherent_spread_sample_count")
+        )
         if total is None:
             total = _as_nonnegative_int(payload.get("count"))
         if incomplete is not None and incomplete > 0 and total:
@@ -2417,7 +2421,7 @@ def _compact_tick_quality(payload: Dict[str, Any]) -> Optional[str]:
             if status and status not in {"ok", "info"}:
                 notes.append(f"quote_quality={status}")
         if valid is not None and total and valid * 2 < total:
-            notes.append(f"valid_spreads={valid}/{total}")
+            notes.append(f"coherent_spreads={valid}/{total}")
     quote_only = payload.get("feed_tier") == "quote_only"
     if payload.get("last_unavailable") is True and not quote_only:
         notes.append("last=unavailable")
@@ -2427,7 +2431,7 @@ def _compact_tick_quality(payload: Dict[str, Any]) -> Optional[str]:
     if notes:
         return "; ".join(notes)
     if valid is not None and total and valid * 2 < total:
-        return f"valid_spreads={valid}/{total}"
+        return f"coherent_spreads={valid}/{total}"
     return "ok" if quote_only else None
 
 
@@ -2467,6 +2471,8 @@ def _compact_tick_row(
         and numeric_spread > 0.0
     )
     compact["spread_valid"] = spread_valid
+    if "spread_sample_eligible" in row:
+        compact["spread_sample_eligible"] = bool(row.get("spread_sample_eligible"))
     if spread_valid:
         compact["spread"] = numeric_spread
     if spread_valid:

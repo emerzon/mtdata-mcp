@@ -507,7 +507,7 @@ class TestFetchTicks(unittest.TestCase):
         self.assertIsNone(result['data'][2]['spread'])
         self.assertNotIn('quote_type', result['data'][0])
         self.assertEqual(result['data_quality']['one_sided_updates'], 2)
-        self.assertEqual(result['data_quality']['valid_spread_ticks'], 1)
+        self.assertEqual(result['data_quality']['coherent_spread_sample_count'], 1)
         self.assertEqual(result['data_quality']['zero_spread_ticks'], 0)
         self.assertAlmostEqual(result['stats']['spread']['mean'], 0.0002)
 
@@ -578,7 +578,7 @@ class TestFetchTicks(unittest.TestCase):
         self.assertEqual(result["data_quality"]["incomplete_quote_ticks"], 0)
         self.assertEqual(result["data_quality"]["incomplete_quote_ratio"], 0.0)
         self.assertEqual(result["data_quality"]["incomplete_quote_status"], "info")
-        self.assertEqual(result["data_quality"]["valid_spread_ticks"], 1)
+        self.assertEqual(result["data_quality"]["coherent_spread_sample_count"], 1)
         self.assertEqual(result["data_quality"]["spread_ticks_excluded"], 1)
         self.assertNotIn("warnings", result)
         self.assertAlmostEqual(result["stats"]["spread"]["mean"], 0.0002)

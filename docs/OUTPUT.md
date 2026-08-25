@@ -158,8 +158,8 @@ an `empty_reason` such as `market_closed_weekend`, `forming_bar_excluded`, or
 `no_ticks_in_range`. Connection, symbol, validation, and provider failures keep
 the normal error envelope and a nonzero CLI exit.
 
-For a fully bounded tick range, omitting `limit` returns the latest 20 matching
-ticks. Setting `limit` explicitly keeps start-anchored first-N paging. Historical
+For a fully bounded tick range, the latest matching ticks are returned
+whether `limit` is omitted or set to the same default of 20. Historical
 tick responses label `last_quote.quote_scope` as `historical_sample` and include
 `last_quote.time`; it is the final quote in the returned sample, not a live quote.
 Bounded tick queries probe one event beyond the page. When `pagination.has_more`

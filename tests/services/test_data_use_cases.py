@@ -2429,6 +2429,58 @@ def test_run_data_fetch_ticks_bounded_default_uses_latest_small_page():
     assert result["truncated"] is True
 
 
+def test_run_data_fetch_ticks_explicit_default_limit_keeps_last_n_anchor():
+    observed = {}
+
+    def _fetch(**kwargs):
+        observed.update(kwargs)
+        return {
+            "success": True,
+            "count": 20,
+            "tick_count": 20,
+            "data": [{} for _ in range(20)],
+            "_tick_page": {
+                "offset": kwargs["page_offset"],
+                "source_returned": 20,
+                "has_more": True,
+            },
+            "query_applied": {
+                "mode": "historical",
+                "selection": "last_n",
+                "start": "2026-08-14 19:00",
+                "end": "2026-08-14 19:10",
+            },
+        }
+
+    implicit = run_data_fetch_ticks(
+        DataFetchTicksRequest(
+            symbol="EURUSD",
+            start="2026-08-14 19:00",
+            end="2026-08-14 19:10",
+            detail="standard",
+        ),
+        gateway=SimpleNamespace(ensure_connection=lambda: None),
+        fetch_ticks_impl=_fetch,
+    )
+    implicit_selection = observed["range_selection"]
+    explicit = run_data_fetch_ticks(
+        DataFetchTicksRequest(
+            symbol="EURUSD",
+            start="2026-08-14 19:00",
+            end="2026-08-14 19:10",
+            limit=20,
+            detail="standard",
+        ),
+        gateway=SimpleNamespace(ensure_connection=lambda: None),
+        fetch_ticks_impl=_fetch,
+    )
+
+    assert implicit_selection == "last_n"
+    assert observed["range_selection"] == "last_n"
+    assert implicit["pagination"]["selection"] == explicit["pagination"]["selection"] == "last_n"
+    assert observed["limit"] == 20
+
+
 def test_run_data_fetch_ticks_start_only_uses_small_default_page():
     observed = {}
 
@@ -2505,9 +2557,9 @@ def test_run_data_fetch_ticks_cursor_continues_same_millisecond_events():
     )
 
     assert calls[0]["page_offset"] == 0
-    assert calls[0]["range_selection"] == "first_n"
+    assert calls[0]["range_selection"] == "last_n"
     assert calls[1]["page_offset"] == 2
-    assert calls[1]["range_selection"] == "first_n"
+    assert calls[1]["range_selection"] == "last_n"
     assert second["pagination"]["returned"] == 1
     assert second["pagination"]["has_more"] is False
     assert second["pagination"]["total"] == 3
@@ -2627,6 +2679,22 @@ def test_compact_tick_row_marks_locked_quote_spread_unavailable():
     assert "spread_basis" not in row
     assert "mid" not in row
     assert spread_sample is None
+
+
+def test_compact_tick_row_exposes_coherent_spread_eligibility():
+    row, spread_sample = _compact_tick_row(
+        {
+            "time": "2026-07-17T01:53:23Z",
+            "bid": 1.14396,
+            "ask": 1.14400,
+            "spread_sample_eligible": False,
+        },
+    )
+
+    assert row["spread_valid"] is True
+    assert row["spread_sample_eligible"] is False
+    assert row["spread"] == pytest.approx(0.00004)
+    assert spread_sample == pytest.approx(0.00004)
 
 
 def test_run_data_fetch_ticks_compact_prunes_row_diagnostics():
@@ -3049,7 +3117,7 @@ def test_run_data_fetch_ticks_compact_quality_uses_valid_spreads_not_field_prese
                 "complete_ticks": 4,
                 "incomplete_ticks": 0,
                 "total_ticks": 4,
-                "valid_spread_ticks": 1,
+                "coherent_spread_sample_count": 1,
                 "one_sided_updates": 3,
                 "incomplete_quote_status": "info",
             },
@@ -3057,8 +3125,8 @@ def test_run_data_fetch_ticks_compact_quality_uses_valid_spreads_not_field_prese
     )
 
     assert result["quote_completeness_pct"] == 100.0
-    assert result["valid_spread_pct"] == 25.0
-    assert result["quality"] == "valid_spreads=1/4"
+    assert result["coherent_spread_sample_pct"] == 25.0
+    assert result["quality"] == "coherent_spreads=1/4"
     assert result["quality"] != "ok"
 
 

@@ -1118,7 +1118,7 @@ def fetch_ticks(  # noqa: C901
                     original_count - sum(spread_sample_eligible_flags)
                 ),
                 "one_sided_updates": int(one_sided_update_count),
-                "valid_spread_ticks": int(sum(spread_sample_eligible_flags)),
+                "coherent_spread_sample_count": int(sum(spread_sample_eligible_flags)),
                 "spread_sample_basis": "coherent_bid_ask_updates",
                 "zero_spread_ticks": int(zero_spread_count),
                 "incomplete_quote_warning_threshold": _INCOMPLETE_TICK_WARNING_RATIO,

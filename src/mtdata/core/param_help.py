@@ -169,12 +169,12 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
     ),
     ("data_fetch_ticks", "limit"): (
         "Maximum ticks returned (maximum 50000). Latest queries default to 20. "
-        "A fully bounded --start/--end range also defaults to the latest 20 "
-        "matching ticks; pass an explicit limit for a larger page. Start-bounded "
-        "queries keep the earliest ticks when the cap binds. Historical retrieval "
-        "is limited to the 30 days ending at --end (or now); truncated responses "
-        "set history_window_truncated and effective_start. Date-only start/end "
-        "values are UTC midnight, not the broker session day."
+        "A fully bounded --start/--end range also returns the latest matching "
+        "ticks (default 20), whether --limit is omitted or set explicitly. "
+        "Start-bounded queries keep the earliest ticks when the cap binds. "
+        "Historical retrieval is limited to the 30 days ending at --end (or now); "
+        "truncated responses set history_window_truncated and effective_start. "
+        "Date-only start/end values are UTC midnight, not the broker session day."
     ),
     ("market_status", "symbol"): (
         "Broker symbol for MT5 session/tradability status. If omitted, the "
