@@ -133,6 +133,7 @@ _FINVIZ_CALENDAR_COMPACT_FIELDS = (
     "event",
     "category",
     "date",
+    "scheduled_at",
     "local_time",
     "local_timezone",
     "earnings_date",
@@ -289,7 +290,9 @@ def _normalize_finviz_economic_calendar_time(item: Dict[str, Any]) -> Dict[str, 
     normalized["local_time"] = local_dt.replace(microsecond=0).isoformat()
     normalized["local_timezone"] = _FINVIZ_CALENDAR_LOCAL_TIMEZONE
     utc_time = parsed.astimezone(timezone.utc)
-    normalized["date"] = format_datetime_utc(utc_time)
+    scheduled_at = format_datetime_utc(utc_time)
+    normalized["date"] = scheduled_at
+    normalized["scheduled_at"] = scheduled_at
     return normalized
 
 
@@ -552,6 +555,13 @@ _FINVIZ_CALENDAR_EVENT_COUNTRY_KEYWORDS = (
     ("FOMC", "United States", "US"),
     ("FED ", "United States", "US"),
     ("INITIAL JOBLESS CLAIMS", "United States", "US"),
+    ("NON FARM", "United States", "US"),
+    ("NONFARM", "United States", "US"),
+    ("ISM MANUFACTURING", "United States", "US"),
+    ("ISM SERVICES", "United States", "US"),
+    ("JOLTS", "United States", "US"),
+    ("PCE PRICE", "United States", "US"),
+    ("CORE PCE", "United States", "US"),
     ("API CRUDE OIL", "United States", "US"),
     ("BAKER HUGHES", "United States", "US"),
     ("WEEK BILL AUCTION", "United States", "US"),
@@ -564,6 +574,17 @@ _FINVIZ_CALENDAR_SOURCE_ID_COUNTRIES = {
     "RSTAMOM": ("United States", "US"),
     "CONCCONF": ("United States", "US"),
     "FDTR": ("United States", "US"),
+    "GDPCQOQ": ("United States", "US"),
+    "NFPTCH": ("United States", "US"),
+    "NFP": ("United States", "US"),
+    "NAPMPMI": ("United States", "US"),
+    "NAPMNMI": ("United States", "US"),
+    "NAPM": ("United States", "US"),
+    "JOLTSJOL": ("United States", "US"),
+    "JOLTS": ("United States", "US"),
+    "PCEPI": ("United States", "US"),
+    "PCEPILFE": ("United States", "US"),
+    "PCE": ("United States", "US"),
 }
 _FINVIZ_CALENDAR_CURRENCY_TO_COUNTRY_CODE = {
     "USD": "US",
@@ -647,6 +668,11 @@ def _compact_finviz_calendar_item(
         normalized["country"] = country
     if country_code not in (None, ""):
         normalized["country_code"] = country_code
+    if normalized.get("scheduled_at") in (None, "") and normalized.get("date") not in (
+        None,
+        "",
+    ):
+        normalized["scheduled_at"] = normalized["date"]
     return {
         field: normalized[field]
         for field in _FINVIZ_CALENDAR_COMPACT_FIELDS

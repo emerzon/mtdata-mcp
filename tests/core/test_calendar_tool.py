@@ -293,3 +293,35 @@ def test_calendar_rejects_reversed_date_range() -> None:
     assert result["details"]["end"] == "2026-08-25"
     assert "operation" in result
     assert result["operation"] in {"calendar", "finviz_calendar"}
+
+
+def test_economic_calendar_maps_major_us_provider_ids() -> None:
+    from mtdata.core.finviz.calendar import _infer_finviz_calendar_country
+
+    mapped = {
+        "GDP CQOQ": _infer_finviz_calendar_country({"source_id": "GDP CQOQ"}),
+        "NFP TCH": _infer_finviz_calendar_country({"source_id": "NFP TCH"}),
+        "NAPMPMI": _infer_finviz_calendar_country({"source_id": "NAPMPMI"}),
+    }
+
+    assert mapped == {
+        "GDP CQOQ": ("United States", "US"),
+        "NFP TCH": ("United States", "US"),
+        "NAPMPMI": ("United States", "US"),
+    }
+
+
+def test_economic_calendar_compact_items_include_scheduled_at() -> None:
+    from mtdata.core.finviz.calendar import _compact_finviz_calendar_item
+
+    row = _compact_finviz_calendar_item(
+        {
+            "event": "Money Supply",
+            "date": "2026-08-25T17:00:00Z",
+            "source_id": "M2",
+        }
+    )
+
+    assert row["event"] == "Money Supply"
+    assert row["scheduled_at"] == "2026-08-25T17:00:00Z"
+    assert row["date"] == "2026-08-25T17:00:00Z"

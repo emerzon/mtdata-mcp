@@ -549,6 +549,7 @@ class TestFinvizCalendarOutputContract:
         assert result["items"] == [
             {
                 "date": "2026-01-06T18:30:00Z",
+                "scheduled_at": "2026-01-06T18:30:00Z",
                 "local_time": "2026-01-06T13:30:00-05:00",
                 "local_timezone": "America/New_York",
                 "event": "CPI",
@@ -592,6 +593,7 @@ class TestFinvizCalendarOutputContract:
                 "earnings_date": "2026-04-29",
                 "symbol": "ABBV",
                 "date": "2026-04-29",
+                "scheduled_at": "2026-04-29",
                 "local_timezone": "America/New_York",
                 "earnings_timing": "before_market",
                 "event_time_precision": "session_bucket",
@@ -832,6 +834,7 @@ class TestFinvizCalendarOutputContract:
                 "event": "Fed Cook Speech",
                 "category": "Interest Rate",
                 "date": "2026-05-08T09:45:00Z",
+                "scheduled_at": "2026-05-08T09:45:00Z",
                 "local_time": "2026-05-08T05:45:00-04:00",
                 "local_timezone": "America/New_York",
                 "impact": "medium",
@@ -867,6 +870,7 @@ class TestFinvizCalendarOutputContract:
             {
                 "event": "US CPI",
                 "date": "2026-05-08T12:30:00Z",
+                "scheduled_at": "2026-05-08T12:30:00Z",
                 "local_time": "2026-05-08T08:30:00-04:00",
                 "local_timezone": "America/New_York",
                 "impact": "high",
