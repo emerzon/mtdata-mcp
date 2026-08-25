@@ -161,6 +161,30 @@ class TestConsolidatePayload:
         assert "current_regime" in result
         assert result["has_more"] is False
 
+    def test_compact_keeps_lookback_summary(self):
+        payload = {
+            "symbol": "EURUSD",
+            "timeframe": "H1",
+            "method": "hmm",
+            "success": True,
+            "times": [1.0, 2.0, 3.0, 4.0],
+            "state": [0, 0, 1, 1],
+            "summary": {
+                "lookback": 20,
+                "last_state": 1,
+                "state_shares": {0: 0.25, 1: 0.75},
+                "transitions_after": 1,
+                "smoothing_applied": True,
+            },
+        }
+        result = _consolidate_payload(payload, "hmm", "compact")
+        assert result["summary"] == {
+            "lookback": 20,
+            "last_state": 1,
+            "state_shares": {0: 0.25, 1: 0.75},
+            "transitions_after": 1,
+        }
+
     def test_no_series_when_not_requested(self):
         payload = {
             "symbol": "EURUSD",

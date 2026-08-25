@@ -1175,6 +1175,21 @@ def _consolidate_payload(  # noqa: C901
             last_transition = _last_regime_transition(final_segments)
             if last_transition:
                 new_payload["last_transition"] = last_transition
+        if output_mode == "compact":
+            summary = payload.get("summary")
+            if isinstance(summary, dict):
+                compact_summary = {
+                    key: summary[key]
+                    for key in (
+                        "lookback",
+                        "last_state",
+                        "state_shares",
+                        "transitions_after",
+                    )
+                    if key in summary
+                }
+                if compact_summary:
+                    new_payload["summary"] = compact_summary
 
         total_regimes = len(final_segments)
         cap_segments = (

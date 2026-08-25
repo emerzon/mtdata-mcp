@@ -75,7 +75,7 @@ def test_regime_detect_defaults_to_compact_output() -> None:
         )
 
     assert out.get("success") is True
-    assert "summary" not in out
+    assert out["summary"]["lookback"] == 20
     assert "reliability" in out
     assert "regimes" in out
     assert "current_regime" in out
