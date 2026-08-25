@@ -687,6 +687,7 @@ def causal_discover_signals(  # noqa: C901
             "data_quality": data_quality,
             "result": "links_found" if significant_rows else "no_links_found",
             "transform": transform_value,
+            "normalize": bool(normalize),
             **_pair_transform_guidance(
                 "causal_discover_signals",
                 transform_value,
@@ -706,6 +707,7 @@ def causal_discover_signals(  # noqa: C901
                 "start": start,
                 "end": end,
                 "transform": transform_value,
+                "normalize": bool(normalize),
                 "max_lag": int(max_lag),
                 "significance": float(significance),
                 **_bar_completion_context(

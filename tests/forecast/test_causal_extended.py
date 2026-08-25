@@ -409,6 +409,9 @@ class TestCausalDiscoverSignals:
         )
 
         assert allowed["success"] is True
+        assert allowed["normalize"] is False
+        assert allowed["context"]["normalize"] is False
+        assert allowed["transform"] == "diff"
         assert allowed["data_quality"]["omitted_symbols"] == ["C"]
         assert allowed["data_quality"]["allow_partial"] is True
         assert allowed["pairs_tested"] == 2
@@ -1212,6 +1215,8 @@ class TestCorrelationMatrix:
         assert result["context"]["period_start"] == "2024-01-01T20:00Z"
         assert result["context"]["period_end"] == "2024-01-04T07:00Z"
         assert result["context"]["samples"] == 60
+        assert result["method"] == "pearson"
+        assert result["context"]["method"] == "pearson"
         assert result["context"]["transform"] == "log_return"
         assert result["context"]["min_overlap"] == 30
         assert result["summary"]["highlights"] == {}
@@ -1679,6 +1684,8 @@ class TestCointegrationTest:
         result = self._unwrapped()("A,B", window_bars=60, min_overlap=40)
 
         assert result["success"] is True
+        assert result["method"] == "engle_granger"
+        assert result["context"]["method"] == "engle_granger"
         pair = result["items"][0]
         assert pair["cointegrated"] is True
         assert pair["period_start"] == "2024-01-03T12:00Z"

@@ -737,6 +737,7 @@ def correlation_matrix(  # noqa: C901
             "window_bars": int(window_bars),
             "start": start,
             "end": end,
+            "method": method_value,
             "transform": transform_value,
             "min_overlap": int(min_overlap),
             **_bar_completion_context(
@@ -766,6 +767,7 @@ def correlation_matrix(  # noqa: C901
         out: Dict[str, Any] = {
             "success": True,
             "data_quality": data_quality,
+            "method": method_value,
             "transform": transform_value,
             **_pair_transform_guidance(
                 "correlation_matrix",

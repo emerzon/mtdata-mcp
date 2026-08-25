@@ -982,6 +982,7 @@ def cointegration_test(  # noqa: C901
         out: Dict[str, Any] = {
             "success": True,
             "data_quality": data_quality,
+            "method": method_value,
             "transform": transform_value,
             **_pair_transform_guidance(
                 "cointegration_test",
@@ -1011,6 +1012,7 @@ def cointegration_test(  # noqa: C901
                 "window_bars": window_bars_value,
                 "start": start,
                 "end": end,
+                "method": method_value,
                 "transform": transform_value,
                 "trend": trend_value,
                 "min_overlap": min_overlap_value,
