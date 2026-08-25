@@ -355,6 +355,9 @@ def cointegration_test(  # noqa: C901
 ) -> Dict[str, Any]:
     """Run Engle-Granger pair tests or a multivariate Johansen rank test.
 
+    The first symbol in each pair is the Engle-Granger dependent; reverse the
+    pair for the other hedge.
+
     When a single symbol is provided, the tool automatically expands to include
     all related symbols from its MT5 group (e.g., EURUSD → EURUSD, GBPUSD, 
     USDCHF, USDJPY, USDCAD, AUDUSD). This enables cointegration analysis across

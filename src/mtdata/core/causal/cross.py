@@ -21,6 +21,7 @@ from mtdata.core.causal.common import (
     _causal_history_range_error,
     _duplicate_only_symbol_error,
     _fetch_series_for_window,
+    _format_sample_time,
     _history_fetch_error_code,
     _normalize_correlation_method,
     _normalize_transform_name,
@@ -64,6 +65,14 @@ def _lagged_pair_values(
         shift = abs(int(lag))
         return left[shift:], right[:-shift]
     return left, right
+
+
+def _lead_lag_roles(lag: int, left: str, right: str) -> Dict[str, Optional[str]]:
+    if lag > 0:
+        return {"leader": left, "follower": right}
+    if lag < 0:
+        return {"leader": right, "follower": left}
+    return {"leader": None, "follower": None}
 
 
 def _correlation_value(left: np.ndarray, right: np.ndarray, method: str) -> float:
@@ -315,12 +324,7 @@ def cross_correlation(  # noqa: C901
         )
         best_item = dict(best)
         inference_supported = transform_value in {"log_return", "pct", "diff"}
-        best_item.update(
-            {
-                "leader": symbol_list[0] if int(best["lag"]) > 0 else symbol_list[1] if int(best["lag"]) < 0 else None,
-                "follower": symbol_list[1] if int(best["lag"]) > 0 else symbol_list[0] if int(best["lag"]) < 0 else None,
-            }
-        )
+        best_item.update(_lead_lag_roles(int(best["lag"]), symbol_list[0], symbol_list[1]))
         if inference_supported:
             best_item.update(
                 {
@@ -335,6 +339,19 @@ def cross_correlation(  # noqa: C901
             )
         else:
             best_item["inference_valid"] = False
+        zero_lag = next((dict(row) for row in rows if int(row["lag"]) == 0), None)
+        nonzero_rows = [row for row in rows if int(row["lag"]) != 0]
+        best_nonzero = None
+        if nonzero_rows:
+            best_nonzero_row = max(
+                nonzero_rows, key=lambda row: abs(float(row["correlation"]))
+            )
+            best_nonzero = dict(best_nonzero_row)
+            best_nonzero.update(
+                _lead_lag_roles(
+                    int(best_nonzero_row["lag"]), symbol_list[0], symbol_list[1]
+                )
+            )
         out: Dict[str, Any] = {
             "success": True,
             "symbols": symbol_list,
@@ -342,6 +359,8 @@ def cross_correlation(  # noqa: C901
             "transform": transform_value,
             "method": method_value,
             "best": best_item,
+            "zero_lag": zero_lag,
+            "best_nonzero": best_nonzero,
             "lag_convention": "positive lag means the first symbol leads the second",
             "context": {
                 "window_bars": int(window_bars),
@@ -362,6 +381,8 @@ def cross_correlation(  # noqa: C901
                 **_bar_completion_context(
                     series_map, include_incomplete=bool(include_incomplete)
                 ),
+                "period_start": _format_sample_time(aligned.index[0]),
+                "period_end": _format_sample_time(aligned.index[-1]),
             },
             "meta": _causal_contract_meta(meta),
         }

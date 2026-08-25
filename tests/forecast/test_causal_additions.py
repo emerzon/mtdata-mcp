@@ -38,6 +38,10 @@ def test_cross_correlation_identifies_first_symbol_lead(monkeypatch):
     assert result["success"] is True
     assert result["best"]["lag"] == 3
     assert result["best"]["leader"] == "LEFT"
+    assert result["best_nonzero"]["lag"] == 3
+    assert result["best_nonzero"]["leader"] == "LEFT"
+    assert result["best_nonzero"]["follower"] == "RIGHT"
+    assert result["zero_lag"]["lag"] == 0
     assert result["best"]["inference_valid"] is False
     assert "significant" not in result["best"]
     assert "ci95_low" not in result["best"]
@@ -151,6 +155,69 @@ def test_cross_correlation_adjusts_selected_lag_interval(monkeypatch):
     assert "ci_low" not in result["best"]
     assert "ci_high" not in result["best"]
     assert result["best"]["significant"] is False
+
+
+def test_cross_correlation_reports_resolved_aligned_window(monkeypatch):
+    index = pd.date_range("2025-03-01", periods=10, freq="h")
+    series = {
+        "LEFT": pd.Series(np.arange(10, dtype=float) + 100.0, index=index),
+        "RIGHT": pd.Series(np.arange(10, dtype=float) + 50.0, index=index),
+    }
+    monkeypatch.setattr(cross, "_causal_connection_error", lambda: None)
+    monkeypatch.setattr(
+        cross,
+        "_fetch_series_for_window",
+        lambda symbol, *args, **kwargs: (series[symbol], None),
+    )
+
+    result = _raw(causal.cross_correlation)(
+        symbols="LEFT,RIGHT",
+        transform="level",
+        max_lag=2,
+        min_overlap=5,
+        window_bars=10,
+        bootstrap_samples=50,
+    )
+
+    assert result["success"] is True
+    assert result["context"]["period_start"] == "2025-03-01T00:00Z"
+    assert result["context"]["period_end"] == "2025-03-01T09:00Z"
+    assert result["context"]["samples_aligned"] == 10
+
+
+def test_cross_correlation_exposes_zero_lag_and_best_nonzero(monkeypatch):
+    rng = np.random.default_rng(7)
+    left = rng.normal(size=300)
+    right = 0.85 * left + 0.15 * np.concatenate([np.zeros(2), left[:-2]])
+    index = pd.date_range("2025-01-01", periods=300, freq="h")
+    series = {
+        "LEFT": pd.Series(left, index=index),
+        "RIGHT": pd.Series(right, index=index),
+    }
+    monkeypatch.setattr(cross, "_causal_connection_error", lambda: None)
+    monkeypatch.setattr(
+        cross,
+        "_fetch_series_for_window",
+        lambda symbol, *args, **kwargs: (series[symbol], None),
+    )
+
+    result = _raw(causal.cross_correlation)(
+        symbols="LEFT,RIGHT",
+        transform="level",
+        max_lag=8,
+        min_overlap=50,
+        bootstrap_samples=50,
+    )
+
+    assert result["success"] is True
+    assert result["best"]["lag"] == 0
+    assert result["best"]["leader"] is None
+    assert result["zero_lag"]["lag"] == 0
+    assert result["zero_lag"]["correlation"] == result["best"]["correlation"]
+    assert result["best_nonzero"]["lag"] != 0
+    assert result["best_nonzero"]["leader"] in {"LEFT", "RIGHT"}
+    assert result["best_nonzero"]["follower"] in {"LEFT", "RIGHT"}
+    assert result["best_nonzero"]["leader"] != result["best_nonzero"]["follower"]
 
 
 def test_cointegration_johansen_reports_positive_rank(monkeypatch):
