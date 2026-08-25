@@ -48,6 +48,7 @@ from .barriers_shared import (
 from .common import annualization_context as _annualization_context
 from .common import fetch_history as _fetch_history
 from .common import log_returns_from_prices as _log_returns_from_prices
+from .common import resolve_forecast_symbol
 from .monte_carlo import gbm_single_barrier_upcross_prob as _gbm_upcross_prob
 from .monte_carlo import simulate_bootstrap_mc as _simulate_bootstrap_mc
 from .monte_carlo import simulate_garch_mc as _simulate_garch_mc
@@ -141,6 +142,7 @@ def forecast_barrier_hit_probabilities(  # noqa: C901
       hit detection in their output.
     """
     try:
+        symbol, symbol_requested = resolve_forecast_symbol(symbol)
         if timeframe not in TIMEFRAME_SECONDS:
             return {"error": f"Invalid timeframe: {timeframe}"}
         try:
@@ -480,6 +482,7 @@ def forecast_barrier_hit_probabilities(  # noqa: C901
         out = {
             "success": True,
             "symbol": symbol,
+            **({"symbol_requested": symbol_requested} if symbol_requested else {}),
             "timeframe": timeframe,
             "method": method_key,
             "intra_bar_hit_detection": (
@@ -612,6 +615,7 @@ def forecast_barrier_closed_form(  # noqa: C901
     - "short": probability of reaching a lower barrier (price <= barrier).
     """
     try:
+        symbol, symbol_requested = resolve_forecast_symbol(symbol)
         direction_norm, direction_error = normalize_trade_direction(direction)
         if direction_error:
             return {"error": direction_error}
@@ -717,6 +721,7 @@ def forecast_barrier_closed_form(  # noqa: C901
         result = {
             "success": True,
             "symbol": symbol,
+            **({"symbol_requested": symbol_requested} if symbol_requested else {}),
             "timeframe": timeframe,
             "horizon": int(horizon),
             "direction": direction_norm,

@@ -22,6 +22,7 @@ from ..utils.indicators import (
     _parse_ti_specs as _parse_ti_specs_util,
 )
 from ..utils.utils import parse_kv_or_json as _parse_kv_or_json
+from .exceptions import UnknownFeatureColumnError
 from .target_builder import _log_return_array
 
 ParseKvFn = Callable[[Any], Any]
@@ -123,28 +124,65 @@ def _coerce_feature_config(
     return dict(parsed) if isinstance(parsed, dict) else {}
 
 
-def _process_include_specification(df: pd.DataFrame, fcfg: Dict[str, Any]) -> List[str]:
-    """Resolve feature columns requested via include/exog."""
-    include = fcfg.get("include", fcfg.get("exog"))
-    include_cols: List[str] = []
+_INCLUDE_SHORTHAND_COLUMNS = (
+    "open",
+    "high",
+    "low",
+    "volume",
+    "tick_volume",
+    "real_volume",
+)
+_INCLUDE_EXCLUDED_COLUMNS = ("time", "close")
 
+
+def _explicit_include_tokens(include: Any) -> Optional[List[str]]:
+    """Return explicit include/exog tokens, or None for the ohlcv shorthand."""
     if isinstance(include, str):
-        inc = include.strip().lower()
-        if inc == "ohlcv":
-            for col in ("open", "high", "low", "volume", "tick_volume", "real_volume"):
-                if col in df.columns:
-                    include_cols.append(col)
-        else:
-            toks = [tok.strip() for tok in include.replace(",", " ").split() if tok.strip()]
-            for tok in toks:
-                if tok in df.columns and tok not in ("time", "close"):
-                    include_cols.append(tok)
-    elif isinstance(include, (list, tuple)):
-        for tok in include:
-            s = str(tok).strip()
-            if s in df.columns and s not in ("time", "close"):
-                include_cols.append(s)
+        stripped = include.strip()
+        if not stripped:
+            return []
+        if stripped.lower() == "ohlcv":
+            return None
+        return [tok.strip() for tok in stripped.replace(",", " ").split() if tok.strip()]
+    if isinstance(include, (list, tuple)):
+        return [str(tok).strip() for tok in include if str(tok).strip()]
+    return []
 
+
+def _process_include_specification(df: pd.DataFrame, fcfg: Dict[str, Any]) -> List[str]:
+    """Resolve feature columns requested via include/exog.
+
+    The ``ohlcv`` shorthand includes whichever of those columns exist. Explicit
+    names that are missing from the frame are rejected rather than silently
+    dropping the model back to univariate.
+    """
+    include = fcfg.get("include", fcfg.get("exog"))
+    if not include:
+        return []
+
+    tokens = _explicit_include_tokens(include)
+    if tokens is None:
+        return [
+            col
+            for col in _INCLUDE_SHORTHAND_COLUMNS
+            if col in df.columns
+        ]
+
+    include_cols: List[str] = []
+    unknown: List[str] = []
+    for tok in tokens:
+        if tok in _INCLUDE_EXCLUDED_COLUMNS:
+            continue
+        if tok in df.columns:
+            include_cols.append(tok)
+        else:
+            unknown.append(tok)
+    if unknown:
+        available = [str(col) for col in df.columns]
+        raise UnknownFeatureColumnError(
+            list(dict.fromkeys(unknown)),
+            available,
+        )
     return list(dict.fromkeys(include_cols))
 
 

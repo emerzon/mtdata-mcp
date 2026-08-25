@@ -215,6 +215,14 @@ def _compact_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:  # noqa:
         compact_out.pop("units", None)
     slippage_bps = float(compact_out.get("slippage_bps") or 0.0)
     compact_out["slippage_bps"] = slippage_bps
+    compact_out.setdefault(
+        "execution_policy",
+        {
+            "entry": "next_bar_open",
+            "exit": "first_close_reaching_terminal_forecast_else_horizon",
+            "stop_loss": "none",
+        },
+    )
     compact_out["cost_assumptions"] = {
         "score_basis": (
             "net_of_configured_slippage"
@@ -315,6 +323,7 @@ def _attach_backtest_collection_contract(result: Dict[str, Any]) -> Dict[str, An
         "methods_failed",
         "failed_methods",
         "cost_assumptions",
+        "execution_policy",
     ):
         if key in compact:
             out[key] = compact[key]

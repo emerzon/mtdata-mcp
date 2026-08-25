@@ -137,6 +137,18 @@ class _CLIHelpFormatter(
             return self._metavar_formatter(action, default_metavar)(1)[0]
         return super()._format_args(action, default_metavar)
 
+    def _get_help_string(self, action: argparse.Action) -> str:
+        if (
+            getattr(action, "dest", None) == "wait"
+            and isinstance(action.help, str)
+            and "One-shot CLI and stdin shell batches always wait" in action.help
+        ):
+            help_text = action.help
+            if "%(default)" not in help_text:
+                help_text = help_text.rstrip() + " (default: true for one-shot CLI)"
+            return help_text
+        return super()._get_help_string(action)
+
 def _is_typed_dict_type(value: Any) -> bool:
     try:
         if is_typeddict(value):
@@ -2138,8 +2150,10 @@ def _match_global_flags(query: str) -> List[tuple[str, str]]:
 def _print_extended_help(functions: Dict[str, ToolInfo], query: str) -> None:
     program = current_cli_program_name()
 
-    def _format_optional_param(param: Dict[str, Any]) -> str:
+    def _format_optional_param(param: Dict[str, Any], *, cmd_name: str = "") -> str:
         name = param["name"]
+        if cmd_name == "forecast_train" and name == "wait":
+            return "wait=true"
         default_text = _format_cli_literal(param.get("default"))
         if default_text is None:
             return name
@@ -2181,7 +2195,9 @@ def _print_extended_help(functions: Dict[str, ToolInfo], query: str) -> None:
         summary = meta.get("description") or _first_line(func_info.get("doc"))
         required = [p["name"] for p in func_info["params"] if p["required"]]
         optional = [
-            _format_optional_param(p) for p in func_info["params"] if not p["required"]
+            _format_optional_param(p, cmd_name=name)
+            for p in func_info["params"]
+            if not p["required"]
         ]
         base_example, advanced_example = _build_usage_examples(name, func_info)
         print(name)
@@ -2191,6 +2207,12 @@ def _print_extended_help(functions: Dict[str, ToolInfo], query: str) -> None:
             print(f"  Required: {', '.join(required)}")
         if optional:
             print(f"  Optional: {', '.join(optional)}")
+        if name == "forecast_train":
+            print(
+                "  Wait: one-shot CLI and stdin batches always wait so the "
+                "in-process worker stays alive; --wait only applies in "
+                "interactive shell, MCP, and Web API sessions."
+            )
         if name == "trade_place":
             print(
                 "  Safety: market and pending orders default to require_sl_tp=true; add both stop_loss and take_profit or explicitly set --require-sl-tp false."

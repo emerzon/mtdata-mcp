@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from mtdata.forecast.exceptions import UnknownFeatureColumnError
 from mtdata.forecast.forecast_preprocessing import (
     _build_feature_arrays,
     _create_dow_features,
@@ -12,6 +13,7 @@ from mtdata.forecast.forecast_preprocessing import (
     _create_hour_features,
     _process_include_specification,
     apply_preprocessing,
+    prepare_features,
 )
 
 
@@ -54,10 +56,20 @@ class TestProcessIncludeSpecification:
         assert "close" not in cols
         assert "open" in cols
 
-    def test_nonexistent_columns_ignored(self):
+    def test_nonexistent_columns_are_rejected(self):
         df = _make_ohlcv_df()
-        cols = _process_include_specification(df, {"include": "nonexistent"})
-        assert cols == []
+        with pytest.raises(UnknownFeatureColumnError) as exc_info:
+            _process_include_specification(df, {"include": "nonexistent"})
+        assert exc_info.value.error_code == "unknown_feature_column"
+        assert exc_info.value.unknown_columns == ["nonexistent"]
+        assert "open" in exc_info.value.available_columns
+        assert "volume" in exc_info.value.available_columns
+
+    def test_mixed_known_and_unknown_columns_are_rejected(self):
+        df = _make_ohlcv_df()
+        with pytest.raises(UnknownFeatureColumnError) as exc_info:
+            _process_include_specification(df, {"include": "open nonexistent"})
+        assert exc_info.value.unknown_columns == ["nonexistent"]
 
     def test_empty_config_does_not_implicitly_enable_observed_features(self):
         df = _make_ohlcv_df()
@@ -176,3 +188,17 @@ class TestApplyPreprocessing:
         assert col == "close_dn"
         assert df["close"].equals(original_close)
         assert not df["close_dn"].equals(original_close)
+
+
+def test_prepare_features_rejects_unknown_explicit_include():
+    df = _make_ohlcv_df(20)
+    future_times = [float(df["time"].iloc[-1]) + 3600]
+    with pytest.raises(UnknownFeatureColumnError) as exc_info:
+        prepare_features(
+            df,
+            {"include": "rsi_14"},
+            future_times,
+            1,
+            parse_kv_or_json=lambda value: value,
+        )
+    assert "rsi_14" in exc_info.value.unknown_columns

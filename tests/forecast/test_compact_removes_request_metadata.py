@@ -43,6 +43,11 @@ def test_forecast_backtest_compact_excludes_request_metadata() -> None:
     assert res_compact["units"]["returns"] == "return_fraction"
     assert res_compact["units"]["forecast_error"] == "price"
     assert "results" in res_compact
+    assert res_compact["execution_policy"] == {
+        "entry": "next_bar_open",
+        "exit": "first_close_reaching_terminal_forecast_else_horizon",
+        "stop_loss": "none",
+    }
 
 
 def test_forecast_backtest_full_excludes_request_metadata() -> None:
@@ -167,3 +172,8 @@ def test_compact_backtest_ranks_low_history_methods() -> None:
     assert ranked["selection_warning"] == "low_history_sample"
     assert compact["results"]["theta"]["history_sample_ok"] is False
     assert compact["results"]["theta"]["low_history_anchors"] == 3
+    assert compact["execution_policy"] == {
+        "entry": "next_bar_open",
+        "exit": "first_close_reaching_terminal_forecast_else_horizon",
+        "stop_loss": "none",
+    }

@@ -1091,6 +1091,30 @@ def nf_predict_from_fitted(
                 return nf.predict()
 
 
+def resolve_forecast_symbol(symbol: str) -> Tuple[str, Optional[str]]:
+    """Map accepted FX aliases such as EUR/USD to the canonical broker symbol.
+
+    History fetch already resolves aliases internally. Metadata lookups
+    (symbol_info, ticks, digits, currency, price_basis) do not, so callers must
+    switch to the canonical name before those reads. Returns
+    ``(canonical, requested_alias_or_none)``.
+    """
+    requested = str(symbol or "").strip()
+    if not requested:
+        return requested, None
+    try:
+        from ..utils.mt5 import resolve_broker_symbol_name
+
+        canonical = str(resolve_broker_symbol_name(requested) or "").strip()
+    except Exception:
+        canonical = ""
+    if not canonical:
+        canonical = requested
+    if canonical == requested:
+        return canonical, None
+    return canonical, requested
+
+
 def fetch_history(
     symbol: str,
     timeframe: str,

@@ -56,6 +56,7 @@ from .common import (
     describe_forecast_calendar_treatment,
     is_standard_weekend_closed_epoch,
     next_times_from_last,
+    resolve_forecast_symbol,
     uses_exchange_intraday_projection,
     uses_standard_weekend_projection,
 )
@@ -65,7 +66,7 @@ from .common import (
 from .ensemble_dispatch import (
     dispatch_registered_forecast as _ensemble_dispatch_method_impl,
 )
-from .exceptions import ModelCompatibilityError
+from .exceptions import ModelCompatibilityError, UnknownFeatureColumnError
 from .forecast_validation import (
     attach_denoise_causality_disclosure,
     format_invalid_method_error,
@@ -638,6 +639,12 @@ def _prepare_feature_context(
                 parse_kv_or_json=_parse_kv_or_json,
                 reducer_factory=_forecast_preprocessing._create_dimred_reducer,
             )
+        except UnknownFeatureColumnError as exc:
+            X, built_future_exog, feat_info = None, None, {
+                "error": str(exc),
+                "error_code": exc.error_code,
+                **exc.details(),
+            }
         except Exception as exc:
             logger.warning("Feature preparation failed; using univariate fallback: %s", exc)
             X, built_future_exog, feat_info = None, None, {'error': f"feature_build_error: {str(exc)}"}
@@ -1991,6 +1998,8 @@ def forecast_engine(  # noqa: C901
         if not tf_secs:
             return {"error": unsupported_timeframe_seconds_error(timeframe)}
 
+        symbol, symbol_requested = resolve_forecast_symbol(symbol)
+
         method_l = str(method).lower().strip()
         quantity_l = str(quantity).lower().strip()
         
@@ -2085,13 +2094,26 @@ def forecast_engine(  # noqa: C901
             symbol=symbol,
         )
         if features and feature_info.get("error"):
-            return {
-                "error": (
-                    "Requested features could not be prepared: "
-                    f"{feature_info['error']}"
-                ),
-                "error_code": "feature_build_error",
-            }
+            error_code = str(feature_info.get("error_code") or "feature_build_error")
+            error_text = str(feature_info.get("error") or "")
+            if error_code == "unknown_feature_column":
+                payload = {
+                    "error": error_text,
+                    "error_code": error_code,
+                }
+            else:
+                payload = {
+                    "error": (
+                        "Requested features could not be prepared: "
+                        f"{error_text}"
+                    ),
+                    "error_code": error_code,
+                }
+            for key in ("unknown_columns", "available_columns"):
+                value = feature_info.get(key)
+                if value not in (None, "", [], {}):
+                    payload[key] = value
+            return payload
 
         # Get last timestamp and values
         last_epoch = float(df['time'].iloc[-1])
@@ -2290,6 +2312,9 @@ def forecast_engine(  # noqa: C901
                 timeframe=timeframe,
             ),
         )
+        result["symbol"] = symbol
+        if symbol_requested:
+            result["symbol_requested"] = symbol_requested
         if as_of is not None:
             result["bar_state_reference"] = "as_of"
             result["bar_state_reference_time"] = str(as_of)

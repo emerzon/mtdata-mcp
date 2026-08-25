@@ -9,8 +9,15 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
     ),
     ("forecast_train", "wait"): (
         "Wait for training to finish. One-shot CLI and stdin shell batches "
-        "always wait so the in-process worker stays alive; the flag only "
-        "applies in interactive shell, MCP, and Web API sessions."
+        "always wait so the in-process worker stays alive (CLI default: true); "
+        "the flag only applies in interactive shell, MCP, and Web API sessions "
+        "(those default: false)."
+    ),
+    ("forecast_backtest_run", "slippage_bps"): (
+        "Per-side slippage in basis points (1 bp = 0.01%). Simulated trades "
+        "enter at the next bar's open and exit at the first close that reaches "
+        "the terminal forecast, otherwise at the horizon. There is no stop-loss; "
+        "compact results include execution_policy."
     ),
     ("forecast_tune_optuna", "n_trials"): (
         "Optuna trial count. Each trial runs --steps rolling backtests; the "

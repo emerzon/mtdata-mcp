@@ -13,6 +13,26 @@ from mtdata.utils.freshness import format_freshness_label
 from mtdata.utils.time import parse_iso_utc
 
 _FORECAST_DIRECTION_MIN_THRESHOLD_PCT = 0.05
+_FORECAST_PARALLEL_SERIES_KEYS = (
+    "forecast_epoch",
+    "forecast_time",
+    "forecast_price",
+    "forecast_return",
+    "forecast_bar_states",
+    "forecast_market_status",
+    "lower_price",
+    "upper_price",
+    "lower_return",
+    "upper_return",
+    "lower",
+    "upper",
+)
+_BARRIER_LIVE_QUOTE_FRESHNESS_KEYS = (
+    "reference_price_time",
+    "reference_price_age_seconds",
+    "reference_price_stale",
+    "reference_usable_for_live",
+)
 
 
 def _format_forecast_time_utc(value: Any) -> Any:
@@ -90,10 +110,14 @@ def _symbol_price_currency(symbol: Any) -> Optional[str]:
     return symbol_price_currency_for(symbol)
 
 
+def _output_symbol(payload: Dict[str, Any], request: Any) -> Any:
+    return payload.get("symbol") or getattr(request, "symbol", None)
+
+
 def _annotate_price_currency(payload: Dict[str, Any], symbol: Any) -> Dict[str, Any]:
     if not isinstance(payload, dict) or payload.get("error") or payload.get("price_currency"):
         return payload
-    currency = _symbol_price_currency(symbol)
+    currency = _symbol_price_currency(payload.get("symbol") or symbol)
     if not currency:
         return payload
     out = dict(payload)
@@ -1059,6 +1083,58 @@ def _compact_ensemble_metadata(metadata: Any) -> Dict[str, Any]:
     return compact
 
 
+def _forecast_generate_summary_from_compact(compact: Dict[str, Any]) -> Dict[str, Any]:
+    """Build a true summary: endpoints, direction, freshness, uncertainty."""
+    summary: Dict[str, Any] = {
+        "success": bool(compact.get("success", True)),
+        "detail": "summary",
+    }
+    for key in (
+        "symbol",
+        "symbol_requested",
+        "timeframe",
+        "method",
+        "horizon",
+        "quantity",
+        "data_as_of",
+        "last_observation_time",
+        "timezone",
+        "last_price",
+        "last_price_source",
+        "price_basis",
+        "price_currency",
+        "freshness",
+        "forecast_vs_last_price",
+        "uncertainty",
+        "trust_level",
+        "signal_status",
+        "warnings",
+        "units",
+        "path_flat",
+        "point_forecast_mode",
+    ):
+        value = compact.get(key)
+        if value not in (None, "", [], {}):
+            summary[key] = value
+    rows = compact.get("forecast")
+    if isinstance(rows, list) and rows:
+        first = rows[0] if isinstance(rows[0], dict) else {}
+        last = rows[-1] if isinstance(rows[-1], dict) else {}
+        endpoints: Dict[str, Any] = {}
+        if first.get("time") not in (None, ""):
+            endpoints["start_time"] = first["time"]
+        if last.get("time") not in (None, ""):
+            endpoints["end_time"] = last["time"]
+        for value_key in ("value", "price", "return"):
+            if first.get(value_key) not in (None, ""):
+                endpoints[f"start_{value_key}"] = first[value_key]
+            if last.get(value_key) not in (None, ""):
+                endpoints[f"end_{value_key}"] = last[value_key]
+        if endpoints:
+            summary["forecast_endpoints"] = endpoints
+    return summary
+
+
 def _apply_forecast_generate_detail(  # noqa: C901
     payload: Dict[str, Any],
     request: ForecastGenerateRequest,
@@ -1081,12 +1157,16 @@ def _apply_forecast_generate_detail(  # noqa: C901
         volatility_rows and str(payload.get("quantity") or request.quantity or "").strip().lower() == "volatility"
     )
 
+    requested_detail = _requested_detail_label(getattr(request, "detail", "compact"))
     detail_value = _normalize_trader_detail(getattr(request, "detail", "compact"))
+    output_symbol = _output_symbol(payload, request)
     if detail_value in {"standard", "full"}:
         out = dict(payload)
         out.pop("ci_available", None)
-        out.setdefault("symbol", request.symbol)
+        out.setdefault("symbol", output_symbol)
         out.setdefault("timeframe", request.timeframe)
+        if payload.get("symbol_requested"):
+            out.setdefault("symbol_requested", payload.get("symbol_requested"))
         if training_period:
             out.setdefault("training_period", training_period)
         forecast_rows = _forecast_generate_compact_rows(out)
@@ -1101,18 +1181,22 @@ def _apply_forecast_generate_detail(  # noqa: C901
                 "because no distinct per-step volatility path is modeled.",
             )
         out["detail"] = detail_value
-        if detail_value == "full":
-            out.setdefault("interpretation", _forecast_generate_interpretation(out))
+        out["canonical_source"] = "forecast"
+        if detail_value == "standard":
+            for key in _FORECAST_PARALLEL_SERIES_KEYS:
+                out.pop(key, None)
+            return out
+        out.setdefault("interpretation", _forecast_generate_interpretation(out))
         return attach_collection_contract(
             out,
             collection_kind="time_series",
-            series=_forecast_generate_series_rows(out) or row_series,
-            include_contract_meta=detail_value == "full",
+            series=_forecast_generate_series_rows(payload) or row_series,
+            include_contract_meta=True,
         )
 
     compact: Dict[str, Any] = {
         "success": bool(payload.get("success", True)),
-        "symbol": request.symbol,
+        "symbol": output_symbol,
         "timeframe": request.timeframe,
         "method": payload.get("method"),
         "horizon": payload.get("horizon"),
@@ -1284,6 +1368,10 @@ def _apply_forecast_generate_detail(  # noqa: C901
     ensemble = _compact_ensemble_metadata(payload.get("ensemble"))
     if ensemble:
         compact["ensemble"] = ensemble
+    if payload.get("symbol_requested"):
+        compact.setdefault("symbol_requested", payload.get("symbol_requested"))
+    if requested_detail == "summary":
+        return _forecast_generate_summary_from_compact(compact)
     return compact
 
 
@@ -1491,12 +1579,14 @@ def _apply_barrier_prob_detail(
         }
         for key in (
             "symbol",
+            "symbol_requested",
             "timeframe",
             "direction",
             "horizon",
             "barrier",
             "reference_price",
             "reference_price_source",
+            *_BARRIER_LIVE_QUOTE_FRESHNESS_KEYS,
             "last_price_close",
             "analysis_mode",
             "conditioning_note",
@@ -1546,6 +1636,7 @@ def _apply_barrier_prob_detail(
     }
     for key in (
         "symbol",
+        "symbol_requested",
         "timeframe",
         "method",
         "kind",
@@ -1553,6 +1644,7 @@ def _apply_barrier_prob_detail(
         "horizon",
         "reference_price",
         "reference_price_source",
+        *_BARRIER_LIVE_QUOTE_FRESHNESS_KEYS,
         "tp_price",
         "sl_price",
         "prob_tp_first",

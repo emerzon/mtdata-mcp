@@ -528,6 +528,137 @@ def test_prepare_feature_context_surfaces_univariate_fallback(monkeypatch, caplo
     assert "using univariate fallback" in caplog.text
 
 
+def test_prepare_feature_context_fail_closes_unknown_feature_column(monkeypatch, caplog):
+    from mtdata.forecast.exceptions import UnknownFeatureColumnError
+
+    def _fail(*args, **kwargs):
+        raise UnknownFeatureColumnError(["rsi_14"], ["open", "high", "low", "close"])
+
+    monkeypatch.setattr(fe._forecast_preprocessing, "prepare_features", _fail)
+
+    X, future, info = fe._prepare_feature_context(
+        df=_df(10),
+        features={"include": "rsi_14"},
+        exog_used=None,
+        exog_future=None,
+        tf_secs=3600,
+        horizon=2,
+        target_series=_df(10)["close"],
+        dimred_method=None,
+        dimred_params=None,
+        symbol="EURUSD",
+    )
+
+    assert X is None
+    assert future is None
+    assert info["error_code"] == "unknown_feature_column"
+    assert info["unknown_columns"] == ["rsi_14"]
+    assert "close" in info["available_columns"]
+    assert "using univariate fallback" not in caplog.text
+
+
+def test_forecast_engine_rejects_unknown_include_column(monkeypatch):
+    captured = {}
+
+    class CaptureForecaster:
+        PARAMS: list = []
+
+        def forecast(self, series, horizon, seasonality, params, exog_future=None, **kwargs):
+            captured["called"] = True
+            return ForecastResult(
+                forecast=np.array([1.0, 1.1], dtype=float),
+                ci_values=None,
+                metadata={},
+            )
+
+    class FakeRegistry:
+        @staticmethod
+        def get(name):
+            return CaptureForecaster()
+
+    monkeypatch.setattr(fe, "TIMEFRAME_MAP", {"H1": 1})
+    monkeypatch.setattr(fe, "TIMEFRAME_SECONDS", {"H1": 3600})
+    monkeypatch.setattr(fe, "_get_available_methods", lambda: ("theta",))
+    monkeypatch.setattr(fe, "ForecastRegistry", FakeRegistry)
+    monkeypatch.setattr(fe, "get_symbol_info_cached", lambda symbol: None)
+
+    out = fe.forecast_engine(
+        symbol="EURUSD",
+        timeframe="H1",
+        method="theta",
+        horizon=2,
+        features={"include": "rsi_14"},
+        prefetched_df=_df(20),
+    )
+
+    assert out["error_code"] == "unknown_feature_column"
+    assert out["unknown_columns"] == ["rsi_14"]
+    assert "open" in out["available_columns"]
+    assert captured == {}
+
+
+def test_forecast_engine_canonicalizes_fx_alias_before_metadata(monkeypatch):
+    seen_info_symbols = []
+    seen_basis_symbols = []
+
+    class CaptureForecaster:
+        PARAMS: list = []
+
+        def forecast(self, series, horizon, seasonality, params, exog_future=None, **kwargs):
+            return ForecastResult(
+                forecast=np.array([1.23456], dtype=float),
+                ci_values=None,
+                metadata={},
+            )
+
+    class FakeRegistry:
+        @staticmethod
+        def get(name):
+            return CaptureForecaster()
+
+    def fake_info(symbol):
+        seen_info_symbols.append(symbol)
+        if symbol == "EURUSD":
+            return SimpleNamespace(digits=5)
+        return None
+
+    def fake_basis(symbol):
+        seen_basis_symbols.append(symbol)
+        return "bid" if symbol == "EURUSD" else "broker_chart_price"
+
+    monkeypatch.setattr(fe, "TIMEFRAME_MAP", {"H1": 1})
+    monkeypatch.setattr(fe, "TIMEFRAME_SECONDS", {"H1": 3600})
+    monkeypatch.setattr(fe, "_get_available_methods", lambda: ("theta",))
+    monkeypatch.setattr(fe, "ForecastRegistry", FakeRegistry)
+    monkeypatch.setattr(fe, "resolve_forecast_symbol", lambda symbol: ("EURUSD", "EUR/USD") if symbol == "EUR/USD" else (symbol, None))
+    monkeypatch.setattr(fe, "get_symbol_info_cached", fake_info)
+    monkeypatch.setattr(fe, "symbol_candle_price_basis_for", fake_basis)
+
+    alias = fe.forecast_engine(
+        symbol="EUR/USD",
+        timeframe="H1",
+        method="theta",
+        horizon=1,
+        prefetched_df=_df(20),
+    )
+    canonical = fe.forecast_engine(
+        symbol="EURUSD",
+        timeframe="H1",
+        method="theta",
+        horizon=1,
+        prefetched_df=_df(20),
+    )
+
+    assert alias["symbol"] == "EURUSD"
+    assert alias["symbol_requested"] == "EUR/USD"
+    assert canonical["symbol"] == "EURUSD"
+    assert "symbol_requested" not in canonical
+    assert alias["digits"] == canonical["digits"] == 5
+    assert alias["price_basis"] == canonical["price_basis"] == "bid"
+    assert seen_info_symbols == ["EURUSD", "EURUSD"]
+    assert seen_basis_symbols == ["EURUSD", "EURUSD"]
+
+
 def test_last_price_freshness_fields_mark_stale_anchor():
     fresh = fe._last_price_freshness_fields(
         last_epoch=1_000.0,

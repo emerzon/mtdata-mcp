@@ -128,7 +128,11 @@ rule is applied to cumulative log returns.
 Each forecast is formed after its anchor bar completes. A non-flat signal enters
 at the next bar's open (`signal_timing=completed_bar_close`,
 `execution_timing=next_bar_open`), so overnight and weekend gaps are included in
-the simulated return. The final anchor is used only when that next open and the
+the simulated return. Compact results with trading metrics also expose this as
+machine-readable `execution_policy`:
+`entry=next_bar_open`,
+`exit=first_close_reaching_terminal_forecast_else_horizon`,
+`stop_loss=none`. The final anchor is used only when that next open and the
 full realized horizon are available.
 
 Every detail level includes `analysis_time_window`. It records requested

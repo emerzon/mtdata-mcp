@@ -1025,10 +1025,13 @@ class TestProcessIncludeSpecification:
         cols = _process_include_specification(df, {"exog": "ohlcv"})
         assert "open" in cols
 
-    def test_nonexistent_column_ignored(self):
+    def test_nonexistent_column_rejected(self):
+        from mtdata.forecast.exceptions import UnknownFeatureColumnError
+
         df = self._make_df()
-        cols = _process_include_specification(df, {"include": "open nonexistent"})
-        assert cols == ["open"]
+        with pytest.raises(UnknownFeatureColumnError) as exc_info:
+            _process_include_specification(df, {"include": "open nonexistent"})
+        assert exc_info.value.unknown_columns == ["nonexistent"]
 
     def test_close_excluded_from_include(self):
         df = self._make_df()

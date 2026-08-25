@@ -3337,6 +3337,26 @@ class TestPrintExtendedHelp:
             in out
         )
 
+    def test_forecast_train_topic_help_advertises_one_shot_wait(self, capsys):
+        def forecast_train(symbol: str, wait: bool = False, method: str = "theta"):
+            """Start a background training job."""
+            pass
+
+        info = get_function_info(forecast_train)
+        fns = {
+            "forecast_train": {
+                "func": forecast_train,
+                "meta": {"description": "Start a background training job"},
+                "_cli_func_info": info,
+            },
+        }
+
+        _print_extended_help(fns, "forecast_train")
+        out = capsys.readouterr().out
+        assert "wait=true" in out
+        assert "wait=false" not in out
+        assert "one-shot cli and stdin batches always wait" in out.lower()
+
 
 # ========================================================================
 # _extract_help_query

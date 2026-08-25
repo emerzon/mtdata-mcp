@@ -25,6 +25,9 @@ from .common import (
 from .common import (
     quantity_to_target as _quantity_to_target,
 )
+from .common import (
+    resolve_forecast_symbol,
+)
 from .contracts import (
     AnchorMetadata,
     BacktestEvaluationContract,
@@ -2145,12 +2148,16 @@ def forecast_backtest(  # noqa: C901
     Parameters: symbol, timeframe, horizon, steps, spacing, methods?, params_per_method?, quantity, denoise?
     - Picks `steps` anchor points spaced `spacing` bars apart, each with `horizon` future bars for validation.
     - For each method, runs our `forecast` as-of that anchor and reports MAE/RMSE/directional accuracy.
+    - Trading metrics use a fixed execution_policy: enter at the next bar's
+      open, exit at the first close that reaches the terminal forecast else the
+      horizon, and no stop-loss.
     """
     cleanup_gpu_after_run = False
     try:
         __stage = 'start'
         detail_mode = _normalize_detail_mode(detail)
         include_paths = detail_mode == "full"
+        symbol, symbol_requested = resolve_forecast_symbol(symbol)
         if timeframe not in TIMEFRAME_MAP:
             return {"error": invalid_timeframe_error(timeframe, TIMEFRAME_MAP)}
         try:
@@ -2869,9 +2876,16 @@ def forecast_backtest(  # noqa: C901
             "trade_threshold": trade_threshold_value,
             "signal_timing": "completed_bar_close",
             "execution_timing": "next_bar_open",
+            "execution_policy": {
+                "entry": "next_bar_open",
+                "exit": "first_close_reaching_terminal_forecast_else_horizon",
+                "stop_loss": "none",
+            },
             "detail": detail_mode,
             "results": results,
         }
+        if symbol_requested:
+            result_payload["symbol_requested"] = symbol_requested
         if quantity != "volatility":
             result_payload["directional_accuracy_reference"] = {
                 "value": 0.5,

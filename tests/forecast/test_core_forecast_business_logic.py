@@ -1417,7 +1417,7 @@ def test_forecast_generate_compact_projects_nested_ensemble_analog_metadata():
     }
 
 
-def test_forecast_generate_standard_preserves_full_arrays(monkeypatch):
+def test_forecast_generate_standard_uses_forecast_rows_not_parallel_arrays(monkeypatch):
     raw = _unwrap(cf.forecast_generate)
     monkeypatch.setattr(
         cf,
@@ -1444,10 +1444,110 @@ def test_forecast_generate_standard_preserves_full_arrays(monkeypatch):
     )
 
     assert out["detail"] == "standard"
-    assert out["forecast_epoch"] == [1.0, 2.0, 3.0]
-    assert out["series"][0] == {"time": "t1", "forecast_price": 1.0}
+    assert out["canonical_source"] == "forecast"
+    assert "forecast_epoch" not in out
+    assert "forecast_time" not in out
+    assert "forecast_price" not in out
+    assert "series" not in out
+    assert out["forecast"][0]["time"] == "t1"
     assert "collection_kind" not in out
     assert "collection_contract_version" not in out
+
+
+def test_forecast_generate_compact_uses_canonical_payload_symbol():
+    out = forecast_use_cases._apply_forecast_generate_detail(
+        {
+            "success": True,
+            "symbol": "EURUSD",
+            "symbol_requested": "EUR/USD",
+            "method": "theta",
+            "horizon": 1,
+            "quantity": "price",
+            "forecast_time": ["t1"],
+            "forecast_price": [1.1],
+        },
+        ForecastGenerateRequest(symbol="EUR/USD", timeframe="H1", method="theta", horizon=1),
+    )
+
+    assert out["symbol"] == "EURUSD"
+    assert out["symbol_requested"] == "EUR/USD"
+    assert out["forecast"][0]["time"] == "t1"
+
+
+def test_forecast_generate_summary_is_endpoints_not_compact_clone(monkeypatch):
+    raw = _unwrap(cf.forecast_generate)
+    monkeypatch.setattr(
+        cf,
+        "_forecast_impl",
+        lambda **kwargs: {
+            "success": True,
+            "method": kwargs["method"],
+            "horizon": kwargs["horizon"],
+            "quantity": kwargs["quantity"],
+            "forecast_time": ["t1", "t2", "t3"],
+            "forecast_price": [1.0, 1.1, 1.2],
+            "last_price": 1.05,
+            "last_price_source": "candle_close",
+            "last_price_age_seconds": 3600,
+            "last_price_age": "1h 0m",
+            "last_price_stale": False,
+        },
+    )
+
+    out = raw(
+        request=ForecastGenerateRequest(
+            symbol="EURUSD",
+            timeframe="H1",
+            method="theta",
+            horizon=3,
+            detail="summary",
+        )
+    )
+
+    assert out["detail"] == "summary"
+    assert "forecast" not in out
+    assert "forecast_time" not in out
+    assert "forecast_price" not in out
+    assert out["forecast_endpoints"]["start_time"] == "t1"
+    assert out["forecast_endpoints"]["end_time"] == "t3"
+    assert out["forecast_endpoints"]["start_value"] == 1.0
+    assert out["forecast_endpoints"]["end_value"] == 1.2
+    assert "forecast_vs_last_price" in out
+    assert "freshness" in out
+    assert "uncertainty" in out
+
+
+def test_forecast_generate_full_keeps_engine_arrays_with_canonical_source(monkeypatch):
+    raw = _unwrap(cf.forecast_generate)
+    monkeypatch.setattr(
+        cf,
+        "_forecast_impl",
+        lambda **kwargs: {
+            "success": True,
+            "method": kwargs["method"],
+            "horizon": kwargs["horizon"],
+            "quantity": kwargs["quantity"],
+            "forecast_time": ["t1", "t2"],
+            "forecast_price": [1.0, 1.1],
+            "forecast_epoch": [1.0, 2.0],
+        },
+    )
+
+    out = raw(
+        request=ForecastGenerateRequest(
+            symbol="EURUSD",
+            timeframe="H1",
+            method="theta",
+            horizon=2,
+            detail="full",
+        )
+    )
+
+    assert out["detail"] == "full"
+    assert out["canonical_source"] == "forecast"
+    assert out["forecast_epoch"] == [1.0, 2.0]
+    assert out["forecast_price"] == [1.0, 1.1]
+    assert out["forecast"][0]["time"] == "t1"
 
 
 def test_run_forecast_generate_logs_finish_event(caplog):
@@ -4210,6 +4310,47 @@ def test_forecast_barrier_prob_compact_uses_reference_price_context():
     assert "last_price" not in out
     assert "last_price_close" not in out
     assert "last_price_source" not in out
+
+
+def test_forecast_barrier_prob_compact_includes_live_quote_freshness():
+    payload = {
+        "success": True,
+        "symbol": "EURUSD",
+        "last_price": 1.16026,
+        "last_price_source": "live_tick_ask",
+        "reference_price_source": "live_tick_ask",
+        "tp_price": 1.16606,
+        "sl_price": 1.15678,
+        "prob_tp_first": 0.55,
+        "prob_sl_first": 0.35,
+        "prob_no_hit": 0.10,
+        "data_as_of": "2026-08-19T19:00:00Z",
+        "reference_price_time": "2026-08-19T19:31:24Z",
+        "reference_price_age_seconds": 12,
+        "reference_price_stale": False,
+        "reference_usable_for_live": True,
+    }
+
+    out = forecast_use_cases._apply_barrier_prob_detail(
+        payload,
+        ForecastBarrierProbRequest(
+            symbol="EURUSD",
+            detail="compact",
+            barrier={
+                "kind": "tp_sl",
+                "unit": "pct",
+                "take_profit": 0.5,
+                "stop_loss": 0.3,
+            },
+        ),
+    )
+
+    assert out["reference_price_source"] == "live_tick_ask"
+    assert out["reference_price_time"] == "2026-08-19T19:31:24Z"
+    assert out["reference_price_age_seconds"] == 12
+    assert out["reference_price_stale"] is False
+    assert out["reference_usable_for_live"] is True
+    assert out["data_as_of"] == "2026-08-19T19:00:00Z"
 
 
 def test_forecast_barrier_prob_closed_form_compact_keeps_reference_source():

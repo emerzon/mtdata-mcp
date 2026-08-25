@@ -2,11 +2,37 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 
 class ForecastError(RuntimeError):
     """Raised when forecast execution fails outside normal result handling."""
+
+
+class UnknownFeatureColumnError(ForecastError):
+    """Raised when an explicit include/exog token is not a usable column."""
+
+    error_code = "unknown_feature_column"
+
+    def __init__(
+        self,
+        unknown_columns: List[str],
+        available_columns: List[str],
+    ) -> None:
+        self.unknown_columns = [str(column) for column in unknown_columns]
+        self.available_columns = [str(column) for column in available_columns]
+        unknown = ", ".join(self.unknown_columns)
+        available = ", ".join(self.available_columns) or "(none)"
+        super().__init__(
+            f"Unknown feature column(s): {unknown}. Available columns: {available}."
+        )
+
+    def details(self) -> Dict[str, Any]:
+        return {
+            "error_code": self.error_code,
+            "unknown_columns": list(self.unknown_columns),
+            "available_columns": list(self.available_columns),
+        }
 
 
 class ForecastResultError(ForecastError):

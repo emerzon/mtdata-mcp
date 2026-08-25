@@ -77,6 +77,7 @@ from .barriers_shared import (
 from .common import annualization_context as _annualization_context
 from .common import fetch_history as _fetch_history
 from .common import log_returns_from_prices as _log_returns_from_prices
+from .common import resolve_forecast_symbol
 from .monte_carlo import (
     simulate_bootstrap_mc as _simulate_bootstrap_mc,
 )
@@ -1333,6 +1334,7 @@ def forecast_barrier_optimize(  # noqa: C901
     - sensitivity_params: List of parameters to analyze (default: ['tp', 'sl'])
     """
     try:
+        symbol, symbol_requested = resolve_forecast_symbol(symbol)
         if timeframe not in TIMEFRAME_SECONDS:
             return {"error": f"Invalid timeframe: {timeframe}"}
         try:
@@ -2439,6 +2441,8 @@ def forecast_barrier_optimize(  # noqa: C901
                     "selection_basis": "common_candidate_aggregate",
                 },
             }
+            if symbol_requested:
+                out["symbol_requested"] = symbol_requested
             candidate_filters = _barrier_candidate_filter_config(
                 tradable_only=tradable_only_val,
                 min_ev=min_ev_val,
@@ -3533,6 +3537,8 @@ def forecast_barrier_optimize(  # noqa: C901
             min_edge=min_edge_val,
             min_kelly=min_kelly_val,
         )
+        if symbol_requested:
+            out["symbol_requested"] = symbol_requested
         if candidate_filters:
             out["candidate_filters"] = candidate_filters
         if price_precision is not None:

@@ -268,6 +268,27 @@ def test_default_seasonality_uses_observed_session_bar_count() -> None:
     assert fc.pd_freq_from_timeframe("x") == "D"
 
 
+def test_resolve_forecast_symbol_maps_slash_alias(monkeypatch):
+    class _Info:
+        def __init__(self, name):
+            self.name = name
+
+    class _Gateway:
+        def symbols_get(self):
+            return [_Info("EURUSD"), _Info("GBPUSD")]
+
+    from mtdata.utils import mt5 as mt5_mod
+
+    monkeypatch.setattr(mt5_mod, "mt5", _Gateway())
+
+    canonical, requested = fc.resolve_forecast_symbol("EUR/USD")
+    assert canonical == "EURUSD"
+    assert requested == "EUR/USD"
+    unchanged, alias = fc.resolve_forecast_symbol("EURUSD")
+    assert unchanged == "EURUSD"
+    assert alias is None
+
+
 def test_fetch_history_delegates_to_canonical_gateway(monkeypatch):
     expected = pd.DataFrame({"time": [100.0], "close": [1.2]})
     gateway = MagicMock(return_value=expected)

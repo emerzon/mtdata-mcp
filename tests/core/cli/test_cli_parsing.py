@@ -1786,6 +1786,7 @@ class TestResolveParamKwargs:
         )
 
         assert "One-shot CLI and stdin shell batches always wait" in kwargs["help"]
+        assert "CLI default: true" in kwargs["help"]
         assert "interactive shell, MCP, and Web API" in kwargs["help"]
 
     @pytest.mark.parametrize(
