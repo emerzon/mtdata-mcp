@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional, Union
 
@@ -178,4 +179,19 @@ class ReportGenerateRequest(BaseModel):
             raise ValueError(
                 "start is in the future; no historical report data is available"
             )
+        comparable_end = end_dt
+        if comparable_end is not None and comparable_end.tzinfo is None:
+            comparable_end = comparable_end.replace(tzinfo=timezone.utc)
+        if comparable_end is not None:
+            now_utc = datetime.now(timezone.utc)
+            raw_end = str(self.end or "").strip()
+            end_is_future = (
+                comparable_end.date() > now_utc.date()
+                if re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw_end)
+                else comparable_end > now_utc
+            )
+            if end_is_future:
+                raise ValueError(
+                    "end must not be in the future; no historical report data is available"
+                )
         return self

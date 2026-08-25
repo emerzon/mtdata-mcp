@@ -944,6 +944,80 @@ def test_report_generate_compact_structured_payload(monkeypatch):
     assert "sections" not in out
 
 
+def test_report_generate_rejects_future_end():
+    from datetime import datetime, timedelta, timezone
+
+    from pydantic import ValidationError
+
+    from mtdata.core.report.requests import ReportGenerateRequest
+
+    future = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
+    with pytest.raises(ValidationError, match="end must not be in the future") as caught:
+        ReportGenerateRequest(symbol="EURUSD", end=future)
+
+    payload = {
+        "success": False,
+        "error": str(caught.value.errors()[0]["msg"]),
+        "error_code": "tool_error",
+        "operation": "report_generate",
+    }
+    from mtdata.core.error_envelope import normalize_error_payload
+
+    normalized = normalize_error_payload(payload, operation="report_generate")
+    assert normalized["error_code"] == "report_end_in_future"
+
+
+def test_compact_report_payload_summarizes_runtime_on_success():
+    from mtdata.core.report.use_cases import _compact_report_payload
+
+    out = _compact_report_payload(
+        {
+            "success": True,
+            "section_run_status": "complete",
+            "runtime_plan": {
+                "actual_runtime_seconds": 4.25,
+                "runtime_budget_exhausted": False,
+                "estimated_runtime_seconds": 78.0,
+                "required_dependencies": {"context": ["market_ticker"]},
+            },
+            "execution_progress": {
+                "completed_sections": ["context", "forecast"],
+                "selected_sections": ["context", "forecast"],
+                "scheduled_sections": ["context", "forecast", "patterns"],
+            },
+            "summary_structured": {"market": {"close": 1.10}},
+        },
+        symbol="EURUSD",
+        template="minimal",
+    )
+
+    assert out["sections_completed"] == 2
+    assert out["runtime_seconds"] == 4.25
+    assert out["runtime_budget_exhausted"] is False
+    assert "runtime_plan" not in out
+    assert "execution_progress" not in out
+
+
+def test_compact_partial_report_keeps_runtime_internals():
+    from mtdata.core.report.use_cases import _compact_report_payload
+
+    plan = {"actual_runtime_seconds": 9.0, "runtime_budget_exhausted": True}
+    out = _compact_report_payload(
+        {
+            "success": True,
+            "section_run_status": "partial",
+            "runtime_plan": plan,
+            "execution_progress": {"completed_sections": ["context"]},
+            "summary_structured": {"market": {"close": 1.10}},
+        },
+        symbol="EURUSD",
+        template="minimal",
+    )
+
+    assert out["runtime_plan"] == plan
+    assert out["execution_progress"]["completed_sections"] == ["context"]
+
+
 def test_compact_report_payload_omits_string_summary_when_structured_exists():
     from mtdata.core.report.use_cases import _compact_report_payload
 
