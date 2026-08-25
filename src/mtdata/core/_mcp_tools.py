@@ -339,7 +339,7 @@ def _tool_catalog_cli_binding(
     return binding
 
 
-def _tool_catalog_cli_contract(
+def _tool_catalog_cli_contract(  # noqa: C901
     tool_name: str,
     func: Any,
     input_schema: Dict[str, Any],
@@ -350,10 +350,20 @@ def _tool_catalog_cli_contract(
 
     parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     func_info = get_function_info(func)
+    properties = input_schema.get("properties") if isinstance(input_schema, dict) else None
+    param_docs = {}
+    if isinstance(properties, dict):
+        for name, spec in properties.items():
+            if not isinstance(spec, dict):
+                continue
+            description = str(spec.get("description") or "").strip()
+            if description:
+                param_docs[str(name)] = description
     _add_tool_command_arguments(
         parser,
         cmd_name=tool_name,
         func_info=func_info,
+        param_docs=param_docs or None,
     )
     parameter_names = {
         str(name)
