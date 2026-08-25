@@ -1,4 +1,8 @@
-from mtdata.core.error_envelope import build_error_payload, normalize_error_payload
+from mtdata.core.error_envelope import (
+    build_error_payload,
+    canonical_documentation_url,
+    normalize_error_payload,
+)
 from mtdata.core.request_context import (
     current_request_id,
     ensure_request_id_scope,
@@ -72,6 +76,34 @@ def test_forecast_train_errors_point_to_trainable_method_discovery():
         "--supports-training true, then retry forecast_train."
     )
     assert out["related_tools"] == ["forecast_list_methods"]
+
+
+def test_canonical_documentation_url_maps_repo_paths_to_github():
+    url = canonical_documentation_url("docs/CLI.md")
+    assert url.startswith("https://github.com/emerzon/mtdata-mcp/blob/")
+    assert url.endswith("/docs/CLI.md")
+
+    with_fragment = canonical_documentation_url(
+        "docs/FORECAST.md#background-training--model-store"
+    )
+    assert with_fragment.endswith(
+        "/docs/FORECAST.md#background-training--model-store"
+    )
+
+    already_https = canonical_documentation_url("https://example.com/guide")
+    assert already_https == "https://example.com/guide"
+
+
+def test_build_error_payload_rewrites_documentation_to_https():
+    out = build_error_payload(
+        "Unknown command",
+        code="cli_unknown_command",
+        operation="cli",
+        documentation="docs/CLI.md",
+    )
+
+    assert out["documentation"].startswith("https://github.com/emerzon/mtdata-mcp/blob/")
+    assert out["documentation"].endswith("/docs/CLI.md")
 
 
 def test_missing_forecast_task_id_points_to_task_discovery():

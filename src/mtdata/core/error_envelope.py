@@ -3,10 +3,42 @@
 from __future__ import annotations
 
 import logging
+from importlib import metadata as importlib_metadata
 from typing import Any, Dict, Optional
 from uuid import uuid4
 
 from .request_context import current_request_id
+
+DOCUMENTATION_REPO_URL = "https://github.com/emerzon/mtdata-mcp"
+
+
+def _documentation_ref() -> str:
+    """Return a Git blob ref, preferring the installed package version."""
+    try:
+        version = str(importlib_metadata.version("mtdata-mcp") or "").strip()
+    except importlib_metadata.PackageNotFoundError:
+        version = ""
+    if version and version.lower() not in {"unknown", "0.0.0"}:
+        return f"v{version.lstrip('v')}"
+    return "main"
+
+
+def canonical_documentation_url(path: str, *, version: Optional[str] = None) -> str:
+    """Map a repo-relative docs path to a stable HTTPS GitHub URL."""
+    raw = str(path or "").strip()
+    if not raw:
+        return DOCUMENTATION_REPO_URL
+    if raw.startswith(("http://", "https://")):
+        return raw
+    doc_path, sep, fragment = raw.partition("#")
+    rel = doc_path.lstrip("./")
+    if not rel.startswith("docs/"):
+        rel = f"docs/{rel}" if rel else "docs"
+    ref = str(version or "").strip() or _documentation_ref()
+    url = f"{DOCUMENTATION_REPO_URL}/blob/{ref}/{rel}"
+    if sep:
+        url = f"{url}#{fragment}"
+    return url
 
 _ERROR_GUIDANCE: Dict[str, Dict[str, Any]] = {
     "mt5_connection_error": {
@@ -77,6 +109,12 @@ _ERROR_GUIDANCE: Dict[str, Dict[str, Any]] = {
         "remediation": (
             "Increase the lookback, request more bars, or use a longer timeframe."
         ),
+    },
+    "report_end_in_future": {
+        "remediation": (
+            "Set end to an ISO 8601 timestamp at or before the current UTC time."
+        ),
+        "related_tools": ["report_generate"],
     },
     "invalid_date_range": {
         "remediation": "Set start to a timestamp earlier than or equal to end.",
@@ -259,7 +297,7 @@ def _apply_error_guidance(
     if example:
         guidance["example"] = str(example)
     if documentation:
-        guidance["documentation"] = str(documentation)
+        guidance["documentation"] = canonical_documentation_url(documentation)
 
     for key, value in guidance.items():
         if key in payload or value in (None, "", [], {}):
@@ -339,6 +377,12 @@ def _canonical_error_code(
         )
     ):
         return "invalid_date_range"
+    if (
+        normalized_operation == "report_generate"
+        and "in the future" in evidence
+        and "end" in evidence
+    ):
+        return "report_end_in_future"
     return current_code
 
 
