@@ -534,6 +534,32 @@ def test_trade_risk_analyze_full_detail_keeps_raw_login() -> None:
     assert out["account"]["account_context_id"]
 
 
+def test_trade_risk_analyze_compact_error_omits_raw_login() -> None:
+    mt5 = MagicMock()
+    mt5.account_info.return_value = SimpleNamespace(
+        login=123456,
+        server="Broker-Demo",
+        equity=1000.0,
+        currency="USD",
+    )
+    mt5.positions_get.return_value = []
+    mt5.symbol_info.return_value = _make_symbol_info()
+
+    with _patched_mt5_module(mt5):
+        out = trade_risk_analyze(
+            symbol="EURUSD",
+            direction="long",
+            entry=100.0,
+            stop_loss=110.0,
+            sizing=_fixed_sizing(1.0),
+        )
+
+    assert out["success"] is False
+    assert out["error"]
+    assert "login" not in out.get("account", {})
+    assert out["account"]["account_context_id"]
+
+
 def test_trade_risk_analyze_evaluates_trade_levels_without_desired_risk_pct() -> None:
     mt5 = MagicMock()
     mt5.account_info.return_value = SimpleNamespace(equity=1000.0, currency="USD")

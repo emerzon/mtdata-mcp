@@ -450,15 +450,27 @@ def _compact_unconfigured_flat_trade_risk_payload(
     }
 
 
+def _strip_compact_trade_risk_login(payload: Dict[str, Any]) -> None:
+    account = payload.get("account")
+    if isinstance(account, dict) and "login" in account:
+        compact_account = dict(account)
+        compact_account.pop("login", None)
+        payload["account"] = compact_account
+
+
 def _shape_trade_risk_analyze_payload(
     result: Dict[str, Any],
     *,
     detail: str,
 ) -> Dict[str, Any]:
-    if not isinstance(result, dict) or result.get("error"):
+    if not isinstance(result, dict):
         return result
     if str(detail).strip().lower() != "compact":
         return result
+    if result.get("error"):
+        shaped = dict(result)
+        _strip_compact_trade_risk_login(shaped)
+        return shaped
     flat_unconfigured = _compact_unconfigured_flat_trade_risk_payload(result)
     if flat_unconfigured is not None:
         shaped = flat_unconfigured
@@ -469,11 +481,7 @@ def _shape_trade_risk_analyze_payload(
             shaped["position_sizing"] = _compact_trade_risk_position_sizing(
                 position_sizing
             )
-    account = shaped.get("account")
-    if isinstance(account, dict) and "login" in account:
-        compact_account = dict(account)
-        compact_account.pop("login", None)
-        shaped["account"] = compact_account
+    _strip_compact_trade_risk_login(shaped)
     for risk_key in ("scoped_risk", "portfolio_risk"):
         risk = shaped.get(risk_key)
         if (
