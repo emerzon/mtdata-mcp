@@ -70,6 +70,16 @@ def test_calendar_period_view_rejects_range_controls(monkeypatch) -> None:
     assert "end" in result["details"]["invalid"]
 
 
+def test_calendar_non_economic_kind_rejects_impact() -> None:
+    result = _unwrap(calendar)(kind="earnings", impact="high")
+
+    assert result["success"] is False
+    assert result["error_code"] == "incompatible_parameters"
+    assert result["details"]["invalid"] == ["impact"]
+    assert result["details"]["kind"] == "earnings"
+    assert "Drop impact" in result["remediation"]
+
+
 def test_calendar_range_view_rejects_period_controls(monkeypatch) -> None:
     monkeypatch.setattr(
         "mtdata.core.finviz.run_finviz_calendar",
@@ -134,3 +144,16 @@ def test_calendar_period_hint_is_cli_runnable(monkeypatch) -> None:
     assert "calendar --kind earnings --view range" in hint
     assert "--start" in hint
     assert "--end" in hint
+
+
+def test_calendar_rejects_reversed_date_range() -> None:
+    from mtdata.core.finviz.calendar import run_finviz_calendar
+
+    result = run_finviz_calendar(start="2026-08-26", end="2026-08-25")
+
+    assert result["success"] is False
+    assert result["error_code"] == "invalid_date_range"
+    assert result["details"]["start"] == "2026-08-26"
+    assert result["details"]["end"] == "2026-08-25"
+    assert "operation" in result
+    assert result["operation"] in {"calendar", "finviz_calendar"}

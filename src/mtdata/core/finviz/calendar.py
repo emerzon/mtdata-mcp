@@ -923,15 +923,47 @@ def run_finviz_calendar(
         currency=currency,
     )
     if filter_error:
-        return {"error": filter_error}
+        return build_error_payload(
+            str(filter_error),
+            code="invalid_parameter",
+            operation="calendar",
+            remediation="Use a supported country or currency code, such as US or USD.",
+        )
+    if start_value and end_value and end_value < start_value:
+        return build_error_payload(
+            "end must be on or after start",
+            code="invalid_date_range",
+            operation="calendar",
+            details={"start": start_value, "end": end_value},
+            remediation="Set end to a date on or after start.",
+        )
     if cal != "economic" and country_filter:
-        return {
-            "error": "country/currency filters are only supported for economic calendar."
-        }
+        return build_error_payload(
+            "country/currency filters are only supported for economic calendar.",
+            code="incompatible_parameters",
+            operation="calendar",
+            details={"invalid": ["country", "currency"], "kind": cal},
+            valid_values={"kind": ["economic"]},
+            remediation="Drop country/currency, or set kind=economic.",
+        )
     if cal != "economic" and upcoming is not None:
-        return {"error": "upcoming is only supported for economic calendar."}
+        return build_error_payload(
+            "upcoming is only supported for economic calendar.",
+            code="incompatible_parameters",
+            operation="calendar",
+            details={"invalid": ["upcoming"], "kind": cal},
+            valid_values={"kind": ["economic"]},
+            remediation="Drop upcoming, or set kind=economic.",
+        )
     if cal != "economic" and impact is not None:
-        return {"error": "impact is only supported for economic calendar."}
+        return build_error_payload(
+            "impact is only supported for economic calendar.",
+            code="incompatible_parameters",
+            operation="calendar",
+            details={"invalid": ["impact"], "kind": cal},
+            valid_values={"kind": ["economic"]},
+            remediation="Drop impact, or set kind=economic.",
+        )
 
     if cal == "economic":
         return _normalize_finviz_calendar_payload(

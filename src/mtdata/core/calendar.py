@@ -73,7 +73,12 @@ def calendar(
     ] = None,
     impact: Annotated[
         Optional[Literal["low", "medium", "high"]],
-        Field(description="Economic impact filter. Ignored for other kinds."),
+        Field(
+            description=(
+                "Economic impact filter. Only valid when kind=economic; "
+                "other kinds reject this parameter."
+            )
+        ),
     ] = None,
     country: Annotated[
         Optional[str],
@@ -233,6 +238,44 @@ def calendar(
                     remediation=(
                         "Drop period/include_elapsed, or switch to view=period "
                         "with kind=earnings."
+                    ),
+                )
+        if request.kind != "economic":
+            invalid = [
+                name
+                for name, value in (
+                    ("impact", request.impact),
+                    ("country", request.country),
+                    ("currency", request.currency),
+                    ("upcoming", request.upcoming),
+                )
+                if value is not None
+            ]
+            if invalid:
+                return build_error_payload(
+                    ", ".join(invalid)
+                    + " "
+                    + (
+                        "is"
+                        if len(invalid) == 1
+                        else "are"
+                    )
+                    + " only supported for economic calendar.",
+                    code="incompatible_parameters",
+                    operation="calendar",
+                    details={"invalid": invalid, "kind": request.kind},
+                    valid_values={
+                        "kind": ["economic", "earnings", "dividends"],
+                        "economic_controls": [
+                            "impact",
+                            "country",
+                            "currency",
+                            "upcoming",
+                        ],
+                    },
+                    remediation=(
+                        "Drop impact/country/currency/upcoming, or set "
+                        "kind=economic."
                     ),
                 )
         payload = _fetch_finviz_calendar(request)
