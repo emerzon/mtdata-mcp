@@ -45,6 +45,32 @@ def _execution_percentiles(values: Iterable[float]) -> Dict[str, Optional[float]
     }
 
 
+def _metric_family_has_observations(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, dict):
+        observations = value.get("observations")
+        if observations is not None:
+            try:
+                return int(observations) > 0
+            except (TypeError, ValueError):
+                return False
+        stat_keys = ("mean", "median", "p90", "p95", "p99", "max")
+        if any(key in value for key in stat_keys):
+            return any(value.get(key) is not None for key in stat_keys)
+        nested = [
+            child
+            for child in value.values()
+            if isinstance(child, dict)
+        ]
+        if nested:
+            return any(_metric_family_has_observations(child) for child in nested)
+        return bool(value)
+    if isinstance(value, (list, tuple, set)):
+        return any(_metric_family_has_observations(item) for item in value)
+    return True
+
+
 
 def _execution_duration_display(
     stats: Dict[str, Optional[float]],
@@ -259,6 +285,31 @@ def _execution_session_definition(calendar: str) -> Dict[str, Any]:
 
 
 
+def _execution_contract_size(symbol: str, gateway: Any) -> Optional[float]:
+    try:
+        info = gateway.symbol_info(symbol)
+        size = float(getattr(info, "trade_contract_size", 0.0) or 0.0)
+    except Exception:
+        return None
+    if not math.isfinite(size) or size <= 0.0:
+        return None
+    return size
+
+
+def _execution_fill_notional(
+    *,
+    volume: float,
+    price: float,
+    contract_size: Optional[float],
+) -> Optional[float]:
+    if contract_size is None or volume <= 0.0 or price <= 0.0:
+        return None
+    notional = volume * contract_size * price
+    if not math.isfinite(notional) or notional <= 0.0:
+        return None
+    return notional
+
+
 def analyze_execution_quality(  # noqa: C901
     request: TradeExecutionQualityRequest, gateway: Any
 ) -> Dict[str, Any]:
@@ -375,6 +426,7 @@ def analyze_execution_quality(  # noqa: C901
     arrival_quote_observations = 0
     processed_candidates = 0
     tick_cache = _ExecutionTickCache(gateway)
+    contract_size_by_symbol: Dict[str, Optional[float]] = {}
     observed_epoch = datetime.now(timezone.utc).timestamp()
     future_tolerance_seconds = 300.0
     for deal in eligible_deals:
@@ -524,6 +576,13 @@ def analyze_execution_quality(  # noqa: C901
             "deal_fill_ratio": min(1.0, volume / initial_volume) if initial_volume > 0 else None,
             "commission": float(deal.get("commission") or 0.0),
             "fee": float(deal.get("fee") or 0.0),
+            "commission_fee_cash": max(
+                0.0,
+                -(
+                    float(deal.get("commission") or 0.0)
+                    + float(deal.get("fee") or 0.0)
+                ),
+            ),
             "commission_fee_per_lot": max(
                 0.0,
                 -(
@@ -538,6 +597,22 @@ def analyze_execution_quality(  # noqa: C901
             "order_type_code": order_type_value,
             "hour_utc": datetime.fromtimestamp(fill_epoch, tz=timezone.utc).hour,
         }
+        if symbol not in contract_size_by_symbol:
+            contract_size_by_symbol[symbol] = _execution_contract_size(
+                symbol, gateway
+            )
+        contract_size = contract_size_by_symbol[symbol]
+        if contract_size is not None:
+            item["contract_size"] = contract_size
+        notional = _execution_fill_notional(
+            volume=volume,
+            price=fill_price,
+            contract_size=contract_size,
+        )
+        if notional is not None:
+            item["notional"] = notional
+            cash_fee = float(item["commission_fee_cash"])
+            item["commission_fee_bps"] = cash_fee / notional * 10_000.0
         session_calendar, symbol_path = _execution_session_calendar(
             symbol,
             gateway=gateway,
@@ -662,8 +737,28 @@ def analyze_execution_quality(  # noqa: C901
             for item in fills
             if item.get("order_to_fill_duration_ms") is not None
         ),
-        "commission_fee_per_lot": _execution_percentiles(item["commission_fee_per_lot"] for item in fills),
+        "commission_fee": _execution_percentiles(
+            item["commission_fee_cash"] for item in fills
+        ),
+        "total_commission_fee": _round_execution_stat(
+            sum(float(item.get("commission_fee_cash") or 0.0) for item in fills)
+        ),
     }
+    fill_symbols = sorted(
+        {str(item.get("symbol")) for item in fills if item.get("symbol")}
+    )
+    mixed_contract_lots = len(fill_symbols) > 1
+    if not mixed_contract_lots:
+        summary["commission_fee_per_lot"] = _execution_percentiles(
+            item["commission_fee_per_lot"] for item in fills
+        )
+    fee_bps_values = [
+        float(item["commission_fee_bps"])
+        for item in fills
+        if item.get("commission_fee_bps") is not None
+    ]
+    if fee_bps_values:
+        summary["commission_fee_bps"] = _execution_percentiles(fee_bps_values)
     duration_display = {
         name.removesuffix("_ms"): display
         for name in ("pending_time_to_fill_ms", "order_to_fill_duration_ms")
@@ -716,6 +811,16 @@ def analyze_execution_quality(  # noqa: C901
                 labels = group_key if isinstance(group_key, tuple) else (group_key,)
                 row = {name: value for name, value in zip(keys, labels)}
                 row.update({"fills": len(items), "slippage_bps": _execution_percentiles(items["slippage_bps"])})
+                if label == "by_symbol_side":
+                    row["commission_fee_per_lot"] = _execution_percentiles(
+                        items["commission_fee_per_lot"]
+                    )
+                    row["commission_fee"] = _execution_percentiles(
+                        items["commission_fee_cash"]
+                    )
+                    row["total_commission_fee"] = _round_execution_stat(
+                        float(items["commission_fee_cash"].sum())
+                    )
                 if label == "by_order_type":
                     codes = [
                         value
@@ -727,6 +832,29 @@ def analyze_execution_quality(  # noqa: C901
                         items["order_to_fill_duration_ms"]
                     )
                 breakdowns[label].append(row)
+        breakdowns["by_symbol"] = []
+        for symbol_name, items in fill_frame.groupby("symbol"):
+            row = {
+                "symbol": symbol_name,
+                "fills": len(items),
+                "commission_fee_per_lot": _execution_percentiles(
+                    items["commission_fee_per_lot"]
+                ),
+                "commission_fee": _execution_percentiles(
+                    items["commission_fee_cash"]
+                ),
+                "total_commission_fee": _round_execution_stat(
+                    float(items["commission_fee_cash"].sum())
+                ),
+            }
+            if "contract_size" in items:
+                sizes = [
+                    value
+                    for value in items["contract_size"].dropna().unique().tolist()
+                ]
+                if len(sizes) == 1:
+                    row["contract_size"] = sizes[0]
+            breakdowns["by_symbol"].append(row)
     sample_start = format_epoch_utc(fills[0]["fill_epoch"]) if fills else None
     sample_end = format_epoch_utc(fills[-1]["fill_epoch"]) if fills else None
     benchmark_attempts = max(
@@ -764,6 +892,13 @@ def analyze_execution_quality(  # noqa: C901
             "Markout evidence is below min_sample for horizon(s) "
             + ", ".join(f"{horizon}s" for horizon in insufficient_markout_horizons)
             + "; descriptive statistics are retained but marked insufficient."
+        )
+    if mixed_contract_lots:
+        warnings.append(
+            "Account-wide commission_fee_per_lot is omitted because broker lots "
+            "are not comparable across symbols; per-lot fees are reported in "
+            "breakdowns.by_symbol and account-wide fees use cash and, when "
+            "notional is available, basis points."
         )
     session_calendars = sorted(
         {
@@ -876,11 +1011,12 @@ def analyze_execution_quality(  # noqa: C901
         ),
         **({"currency": account_currency} if account_currency else {}),
         "window": analysis_window,
-        "requested_window": analysis_window,
         "effective_analysis_window": effective_analysis_window,
         "summary_scope": summary_scope,
         "filters_applied": filters_applied,
     }
+    if request.detail != "compact":
+        common["requested_window"] = analysis_window
     if request.detail == "compact":
         compact_summary_keys = (
             "fills",
@@ -894,15 +1030,33 @@ def analyze_execution_quality(  # noqa: C901
             "market_fill_latency_ms",
             "pending_time_to_fill_ms",
             "commission_fee_per_lot",
+            "commission_fee",
+            "total_commission_fee",
+            "commission_fee_bps",
             "markout_bps",
         )
-        return {
+        compact_summary: Dict[str, Any] = {}
+        omitted_metrics: List[str] = []
+        count_keys = {
+            "fills",
+            "orders",
+            "market_order_fills",
+            "non_market_order_fills",
+            "slippage_basis",
+            "price_improvement_rate",
+            "partial_fill_rate",
+        }
+        for key in compact_summary_keys:
+            if key not in summary:
+                continue
+            value = summary[key]
+            if key in count_keys or _metric_family_has_observations(value):
+                compact_summary[key] = value
+            else:
+                omitted_metrics.append(key)
+        compact_out = {
             **common,
-            "summary": {
-                key: summary[key]
-                for key in compact_summary_keys
-                if key in summary
-            },
+            "summary": compact_summary,
             "fill_sample_quality": fill_sample_quality,
             "data_quality": {
                 "eligible_symbols": eligible_symbols,
@@ -925,6 +1079,9 @@ def analyze_execution_quality(  # noqa: C901
             },
             "warnings": warnings,
         }
+        if omitted_metrics:
+            compact_out["omitted_metrics"] = omitted_metrics
+        return compact_out
     return {
         **common,
         "summary": summary,
@@ -977,7 +1134,12 @@ def analyze_execution_quality(  # noqa: C901
             "order_to_fill_duration_ms": "milliseconds",
             "commission": "account_currency",
             "fee": "account_currency",
+            "commission_fee": "account_currency",
+            "total_commission_fee": "account_currency",
             "commission_fee_per_lot": "account_currency_per_broker_lot",
+            "commission_fee_bps": "basis_points_of_notional",
+            "notional": "account_currency",
+            "contract_size": "contract_units_per_broker_lot",
             "execution_shortfall_currency_estimate": "account_currency_positive_is_worse",
         },
         "warnings": warnings,

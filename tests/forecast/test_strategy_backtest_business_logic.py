@@ -171,15 +171,58 @@ def test_strategy_backtest_default_uses_historical_bar_spread(monkeypatch):
     )
 
     assert out["success"] is True
-    assert out["cost_model"]["requested_type"] == "historical_bar_spread"
+    assert out["cost_model"]["requested_type"] == "auto"
     assert out["cost_model"]["type"] == "historical_bar_spread"
     assert out["cost_model"]["spread_source"] == "mt5_historical_bar_spread"
+    assert out["cost_model"]["selection_reason"] == "complete_historical_spread_coverage"
     assert out["cost_model"]["complete"] is True
     assert "spread_bps" not in out["parameters"]
     assert out["metrics"]["metrics_reliability"] in {"low", "medium", "high"}
 
 
-def test_strategy_backtest_default_requires_complete_historical_spreads(
+def test_strategy_backtest_default_auto_falls_back_to_conservative_fixed(
+    monkeypatch,
+):
+    monkeypatch.setattr(
+        forecast_backtest,
+        "_fetch_history",
+        lambda *args, **kwargs: _history_from_closes(
+            [1.0, 1.0, 1.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]
+        ),
+    )
+    monkeypatch.setattr(
+        forecast_backtest.mt5,
+        "symbol_info_tick",
+        lambda _symbol: type("Tick", (), {"bid": 1.0999, "ask": 1.1001})(),
+    )
+    monkeypatch.setattr(
+        forecast_backtest.mt5,
+        "symbol_info",
+        lambda _symbol: type("Info", (), {"point": 0.0001, "spread": 0, "bid": 0, "ask": 0})(),
+    )
+
+    out = forecast_backtest.strategy_backtest(
+        symbol="EURUSD",
+        lookback=8,
+        fast_period=2,
+        slow_period=3,
+        detail="full",
+    )
+
+    assert out["success"] is True
+    assert out["cost_model"]["requested_type"] == "auto"
+    assert out["cost_model"]["type"] == "fixed"
+    assert out["cost_model"]["spread_source"] == "current_bid_ask_snapshot"
+    assert out["cost_model"]["selection_reason"] == (
+        "incomplete_historical_spread_coverage"
+    )
+    assert out["cost_model"]["complete"] is True
+    assert out["cost_model"]["spread_bps_round_trip"] == pytest.approx(1.8182)
+    assert any("conservative fixed spread" in warning for warning in out["warnings"])
+    assert "summary" in out
+
+
+def test_strategy_backtest_auto_fails_without_any_spread_estimate(
     monkeypatch,
 ):
     monkeypatch.setattr(
@@ -194,16 +237,22 @@ def test_strategy_backtest_default_requires_complete_historical_spreads(
         "symbol_info_tick",
         lambda _symbol: None,
     )
+    monkeypatch.setattr(
+        forecast_backtest.mt5,
+        "symbol_info",
+        lambda _symbol: None,
+    )
 
     out = forecast_backtest.strategy_backtest(
         symbol="EURUSD",
         lookback=8,
         fast_period=2,
         slow_period=3,
+        cost_model="auto",
     )
 
     assert out["error_code"] == "cost_model_unavailable"
-    assert out["cost_model"]["requested_type"] == "historical_bar_spread"
+    assert out["cost_model"]["requested_type"] == "auto"
     assert out["cost_model"]["source"] == "unavailable"
     assert out["cost_model"]["complete"] is False
     assert "--cost-model fixed --spread-bps" in out["remediation"]
@@ -324,9 +373,7 @@ def test_strategy_backtest_compact_mode_excludes_trades(monkeypatch):
         "complete": True,
     }
     assert StrategyBacktestRequest(symbol="EURUSD").slippage_bps == 1.0
-    assert StrategyBacktestRequest(symbol="EURUSD").cost_model == (
-        "historical_bar_spread"
-    )
+    assert StrategyBacktestRequest(symbol="EURUSD").cost_model == "auto"
     assert out["signal_status"] == "not_actionable"
     assert "last_signal" not in out
     assert out["last_historical_signal"]["signal_status"] == "historical_observation_only"
@@ -783,9 +830,61 @@ def test_strategy_backtest_request_rejects_spread_with_historical_model():
         )
 
 
-def test_strategy_backtest_request_rejects_removed_auto_cost_model():
-    with pytest.raises(ValueError, match="historical_bar_spread"):
-        StrategyBacktestRequest(symbol="EURUSD", cost_model="auto")
+def test_strategy_backtest_request_rejects_spread_with_auto_model():
+    with pytest.raises(ValueError, match="--spread-bps is only valid"):
+        StrategyBacktestRequest(
+            symbol="EURUSD",
+            cost_model="auto",
+            spread_bps=1.0,
+        )
+
+
+def test_strategy_backtest_auto_uses_historical_p75_when_coverage_is_partial(
+    monkeypatch,
+):
+    history = _history_from_closes(
+        [1.0, 1.0, 1.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
+        spread_points=10.0,
+    )
+    history.loc[0:4, "spread"] = 0.0
+    monkeypatch.setattr(forecast_backtest, "_fetch_history", lambda *args, **kwargs: history)
+    monkeypatch.setattr(
+        forecast_backtest.mt5,
+        "symbol_info",
+        lambda _symbol: type("Info", (), {"point": 0.0001, "spread": 0, "bid": 0, "ask": 0})(),
+    )
+    monkeypatch.setattr(
+        forecast_backtest.mt5,
+        "symbol_info_tick",
+        lambda _symbol: type("Tick", (), {"bid": 1.0999, "ask": 1.1001})(),
+    )
+
+    out = forecast_backtest.strategy_backtest(
+        symbol="EURUSD",
+        lookback=8,
+        fast_period=2,
+        slow_period=3,
+        detail="full",
+        cost_model="auto",
+    )
+
+    assert out["success"] is True
+    assert out["cost_model"]["requested_type"] == "auto"
+    assert out["cost_model"]["type"] == "fixed"
+    assert out["cost_model"]["spread_source"] in {
+        "mt5_historical_bar_spread_p75",
+        "current_bid_ask_snapshot",
+    }
+    assert out["cost_model"]["historical_bar_spread_coverage_pct"] < 100.0
+    assert out["cost_model"]["complete"] is True
+    assert out["cost_model"]["spread_bps_round_trip"] > 0.0
+
+
+def test_strategy_backtest_request_accepts_auto_cost_model():
+    request = StrategyBacktestRequest(symbol="EURUSD", cost_model="auto")
+
+    assert request.cost_model == "auto"
+    assert request.spread_bps is None
 
 
 def test_strategy_backtest_request_requires_explicit_fixed_spread():

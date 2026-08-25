@@ -1103,28 +1103,117 @@ def _current_spread_bps_suggestion(symbol: str) -> Optional[float]:
     return round((ask - bid) / mid * 10_000.0, 4)
 
 
+def _historical_spread_bps_sample(
+    frame: Any,
+    spread_prices: Optional[np.ndarray],
+) -> np.ndarray:
+    if spread_prices is None or "close" not in getattr(frame, "columns", []):
+        return np.asarray([], dtype=float)
+    closes = np.asarray(frame["close"], dtype=float)
+    count = min(len(spread_prices), len(closes))
+    if count <= 0:
+        return np.asarray([], dtype=float)
+    valid = (
+        np.isfinite(spread_prices[:count])
+        & np.isfinite(closes[:count])
+        & (spread_prices[:count] > 0.0)
+        & (closes[:count] > 0.0)
+    )
+    if not bool(np.any(valid)):
+        return np.asarray([], dtype=float)
+    return (spread_prices[:count][valid] / closes[:count][valid]) * 10_000.0
+
+
+def _symbol_info_spread_bps(symbol: str, frame: Any) -> Optional[float]:
+    try:
+        info = mt5.symbol_info(symbol)
+        spread_points = float(getattr(info, "spread", 0.0) or 0.0)
+        point = float(getattr(info, "point", 0.0) or 0.0)
+        bid = float(getattr(info, "bid", 0.0) or 0.0)
+        ask = float(getattr(info, "ask", 0.0) or 0.0)
+    except Exception:
+        return None
+    if not math.isfinite(spread_points) or spread_points <= 0.0:
+        return None
+    if not math.isfinite(point) or point <= 0.0:
+        return None
+    mid = (bid + ask) / 2.0 if bid > 0.0 and ask > bid else 0.0
+    if mid <= 0.0 and "close" in getattr(frame, "columns", []) and len(frame):
+        try:
+            close = float(frame["close"].iloc[-1])
+        except Exception:
+            close = 0.0
+        if math.isfinite(close) and close > 0.0:
+            mid = close
+    if mid <= 0.0:
+        return None
+    return round(spread_points * point / mid * 10_000.0, 4)
+
+
+def _auto_fixed_spread_bps(
+    symbol: str,
+    frame: Any,
+    spread_prices: Optional[np.ndarray],
+) -> Tuple[Optional[float], str]:
+    """Conservative disclosed fixed spread when historical coverage is incomplete."""
+    candidates: List[Tuple[float, str]] = []
+    sample = _historical_spread_bps_sample(frame, spread_prices)
+    if len(sample):
+        candidates.append(
+            (float(np.percentile(sample, 75)), "mt5_historical_bar_spread_p75")
+        )
+    current = _current_spread_bps_suggestion(symbol)
+    if current is not None:
+        candidates.append((float(current), "current_bid_ask_snapshot"))
+    symbol_spread = _symbol_info_spread_bps(symbol, frame)
+    if symbol_spread is not None:
+        candidates.append((float(symbol_spread), "mt5_symbol_info_spread"))
+    if not candidates:
+        return None, "unavailable"
+    value, source = max(candidates, key=lambda item: item[0])
+    return round(float(value), 4), source
+
+
 def _cost_model_unavailable_error(
     *,
     symbol: str,
     coverage: float,
     observations: int,
     bars_checked: int,
+    requested_type: str = "historical_bar_spread",
 ) -> Dict[str, Any]:
     suggested_spread = _current_spread_bps_suggestion(symbol)
     fixed_value = (
         f"{suggested_spread:g}" if suggested_spread is not None else "<round-trip-bps>"
     )
-    out: Dict[str, Any] = {
-        "success": False,
-        "error_code": "cost_model_unavailable",
-        "error": (
+    requested = str(requested_type or "historical_bar_spread")
+    if requested == "auto":
+        error = (
+            "No usable spread estimate was available for auto cost selection; "
+            "strategy evaluation was not run because transaction-cost-adjusted "
+            "metrics would be unusable."
+        )
+        remediation = (
+            "Retry with historical spread data, a live broker quote, or pass "
+            f"--cost-model fixed --spread-bps {fixed_value}."
+        )
+    else:
+        error = (
             "Historical bar spread coverage is incomplete for the evaluation data; "
             "strategy evaluation was not run because transaction-cost-adjusted "
             "metrics would be unusable."
-        ),
+        )
+        remediation = (
+            "Retry with complete historical spread data, --cost-model auto, or pass "
+            f"--cost-model fixed --spread-bps {fixed_value}."
+        )
+    out: Dict[str, Any] = {
+        "success": False,
+        "error_code": "cost_model_unavailable",
+        "error": error,
         "symbol": symbol,
         "cost_model": {
-            "requested_type": "historical_bar_spread",
+            "requested_type": requested,
             "source": (
                 "mt5_historical_bar_spread"
                 if observations > 0
@@ -1135,10 +1224,7 @@ def _cost_model_unavailable_error(
             "coverage_pct": round(float(coverage) * 100.0, 2),
             "complete": False,
         },
-        "remediation": (
-            "Retry with complete historical spread data or pass "
-            f"--cost-model fixed --spread-bps {fixed_value}."
-        ),
+        "remediation": remediation,
     }
     if suggested_spread is not None:
         out["suggested_fixed_spread_bps"] = suggested_spread
@@ -1255,7 +1341,7 @@ def strategy_backtest(  # noqa: C901
     oversold: float = 30.0,
     overbought: float = 70.0,
     max_hold_bars: Optional[int] = None,
-    cost_model: Literal["historical_bar_spread", "fixed"] = "historical_bar_spread",
+    cost_model: Literal["auto", "historical_bar_spread", "fixed"] = "auto",
     spread_bps: Optional[float] = None,
     slippage_bps: float = 1.0,
 ) -> Dict[str, Any]:
@@ -1294,12 +1380,12 @@ def strategy_backtest(  # noqa: C901
             return {"error": "fast_period must be less than slow_period"}
         if float(oversold) >= float(overbought):
             return {"error": "oversold must be less than overbought"}
-        cost_model_value = str(cost_model or "historical_bar_spread").strip().lower()
-        if cost_model_value not in {"historical_bar_spread", "fixed"}:
+        cost_model_value = str(cost_model or "auto").strip().lower()
+        if cost_model_value not in {"auto", "historical_bar_spread", "fixed"}:
             return {
-                "error": "cost_model must be 'historical_bar_spread' or 'fixed'"
+                "error": "cost_model must be 'auto', 'historical_bar_spread', or 'fixed'"
             }
-        if cost_model_value == "historical_bar_spread" and spread_bps is not None:
+        if cost_model_value in {"historical_bar_spread", "auto"} and spread_bps is not None:
             return {
                 "error": "--spread-bps is only valid with --cost-model fixed"
             }
@@ -1409,10 +1495,13 @@ def strategy_backtest(  # noqa: C901
 
         fixed_spread_source = "explicit"
         fixed_spread_bps = float(spread_bps or 0.0)
+        auto_selection_reason: Optional[str] = None
+        pricing_cost_model = cost_model_value
 
         historical_spread_prices: Optional[np.ndarray] = None
         historical_spread_coverage = 0.0
-        if cost_model_value == "historical_bar_spread":
+        historical_spread_observations = 0
+        if cost_model_value in {"historical_bar_spread", "auto"}:
             historical_spread_prices, historical_spread_coverage = (
                 _historical_bar_spread_prices(symbol, df)
             )
@@ -1421,13 +1510,37 @@ def strategy_backtest(  # noqa: C901
                 if historical_spread_prices is not None
                 else 0
             )
-            if historical_spread_coverage < 1.0:
-                return _cost_model_unavailable_error(
-                    symbol=symbol,
-                    coverage=historical_spread_coverage,
-                    observations=historical_spread_observations,
-                    bars_checked=len(df),
+            if cost_model_value == "historical_bar_spread":
+                if historical_spread_coverage < 1.0:
+                    return _cost_model_unavailable_error(
+                        symbol=symbol,
+                        coverage=historical_spread_coverage,
+                        observations=historical_spread_observations,
+                        bars_checked=len(df),
+                        requested_type=cost_model_value,
+                    )
+                pricing_cost_model = "historical_bar_spread"
+            elif historical_spread_coverage >= 1.0:
+                pricing_cost_model = "historical_bar_spread"
+                auto_selection_reason = "complete_historical_spread_coverage"
+            else:
+                estimate, estimate_source = _auto_fixed_spread_bps(
+                    symbol,
+                    df,
+                    historical_spread_prices,
                 )
+                if estimate is None:
+                    return _cost_model_unavailable_error(
+                        symbol=symbol,
+                        coverage=historical_spread_coverage,
+                        observations=historical_spread_observations,
+                        bars_checked=len(df),
+                        requested_type="auto",
+                    )
+                pricing_cost_model = "fixed"
+                fixed_spread_bps = float(estimate)
+                fixed_spread_source = estimate_source
+                auto_selection_reason = "incomplete_historical_spread_coverage"
 
         signal_series, diagnostics, signal_warmup = _build_strategy_signal_series(
             df,
@@ -1476,7 +1589,7 @@ def strategy_backtest(  # noqa: C901
             trade_exit_price: float,
         ) -> Tuple[Optional[float], str]:
             nonlocal historical_spread_trade_count
-            if cost_model_value == "fixed":
+            if pricing_cost_model == "fixed":
                 return fixed_spread_bps, fixed_spread_source
             historical_cost = _historical_trade_spread_bps(
                 direction=direction,
@@ -1696,7 +1809,7 @@ def strategy_backtest(  # noqa: C901
             "cost_model": cost_model_value,
             **_strategy_params,
         }
-        if cost_model_value == "fixed":
+        if pricing_cost_model == "fixed":
             _params["spread_bps"] = fixed_spread_bps
         if start is not None:
             _params["start"] = start
@@ -1719,12 +1832,12 @@ def strategy_backtest(  # noqa: C901
             else None
         )
         cost_input_available = bool(
-            cost_model_value == "fixed" or historical_spread_prices is not None
+            pricing_cost_model == "fixed" or historical_spread_prices is not None
         )
         cost_model_complete = bool(
             cost_input_available and missing_spread_costs == 0
         )
-        if cost_model_value == "fixed":
+        if pricing_cost_model == "fixed":
             spread_source = fixed_spread_source
             effective_cost_model = "fixed"
         elif historical_spread_trade_count or historical_spread_prices is not None:
@@ -1735,7 +1848,7 @@ def strategy_backtest(  # noqa: C901
             effective_cost_model = cost_model_value
         reported_spread_cost_bps = (
             fixed_spread_bps
-            if cost_model_value == "fixed"
+            if pricing_cost_model == "fixed"
             else mean_spread_cost_bps
         )
         priced_trade_count = len(observed_spread_costs)
@@ -1883,17 +1996,33 @@ def strategy_backtest(  # noqa: C901
                 "time": _format_time_minimal(float(times[last_idx])),
             },
         }
-        if cost_model_value == "historical_bar_spread":
+        if cost_model_value in {"historical_bar_spread", "auto"}:
             result["cost_model"]["historical_spread_coverage_pct"] = (
                 historical_spread_trade_coverage_pct
             )
             result["cost_model"]["historical_bar_spread_coverage_pct"] = round(
                 historical_spread_coverage * 100.0, 2
             )
+            result["cost_model"]["historical_bar_observations"] = int(
+                historical_spread_observations
+            )
             if historical_spread_prices is None and "spread" in df.columns:
                 result["cost_model"]["historical_spread_status"] = (
                     "unavailable_zero_or_missing_samples"
                 )
+        if auto_selection_reason:
+            result["cost_model"]["selection_reason"] = auto_selection_reason
+        if (
+            cost_model_value == "auto"
+            and pricing_cost_model == "fixed"
+            and auto_selection_reason == "incomplete_historical_spread_coverage"
+        ):
+            result.setdefault("warnings", []).append(
+                "Historical bar spread coverage was incomplete "
+                f"({round(historical_spread_coverage * 100.0, 2)}%); "
+                "auto used a conservative fixed spread estimate from "
+                f"{fixed_spread_source} ({fixed_spread_bps:g} bps round-trip)."
+            )
         if not cost_model_complete:
             spread_warning = (
                 " Historical zero spread samples are treated as unavailable, not as "
