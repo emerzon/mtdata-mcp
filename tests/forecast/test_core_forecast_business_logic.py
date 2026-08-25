@@ -1156,22 +1156,6 @@ def test_forecast_generate_compact_nests_available_ci(monkeypatch):
         "status": "available",
         "mode": "interval",
         "alpha": 0.05,
-        "intervals": [
-            {
-                "time": "t1",
-                "bar_state": "forming",
-                "forecast": 100.0,
-                "low": 99.0,
-                "high": 101.0,
-            },
-            {
-                "time": "t2",
-                "bar_state": "future",
-                "forecast": 101.0,
-                "low": 99.5,
-                "high": 102.5,
-            },
-        ],
         "summary": {
             "first_low": 99.0,
             "first_high": 101.0,
@@ -1180,6 +1164,7 @@ def test_forecast_generate_compact_nests_available_ci(monkeypatch):
             "median_width": 3.0,
         },
     }
+    assert "intervals" not in out["uncertainty"]
     assert "ci_status" not in out
     assert "ci_alpha" not in out
     assert "interval_summary" not in out
@@ -1293,10 +1278,14 @@ def test_forecast_generate_compact_return_keeps_price_path_with_labeled_ci():
             "upper_return": 0.002,
         },
     ]
-    assert out["uncertainty"]["intervals"] == [
-        {"time": "t1", "forecast": 0.01, "low": 0.002, "high": 0.018},
-        {"time": "t2", "forecast": -0.005, "low": -0.012, "high": 0.002},
-    ]
+    assert "intervals" not in out["uncertainty"]
+    assert out["uncertainty"]["summary"] == {
+        "first_low": 0.002,
+        "first_high": 0.018,
+        "last_low": -0.012,
+        "last_high": 0.002,
+        "median_width": 0.016,
+    }
     assert out["return_unit"] == "return_fraction"
     assert "forecast_price" not in out
     assert "forecast_return" not in out
@@ -3147,6 +3136,93 @@ def test_forecast_list_methods_uses_shared_snapshot(monkeypatch):
     assert full["methods"][0]["execution"]["method"] == "statsforecast"
 
 
+def test_forecast_list_methods_theta_supports_ci_from_interval_resolver(monkeypatch):
+    monkeypatch.setattr(
+        cf,
+        "_get_registered_forecast_capabilities",
+        lambda: [
+            {"method": "theta", "supports": {"ci": False}},
+            {"method": "drift", "supports": {"ci": False}},
+        ],
+    )
+    monkeypatch.setattr(
+        cf,
+        "_get_forecast_methods_data",
+        lambda: {
+            "total": 2,
+            "categories": {"classical": ["theta", "drift"]},
+            "methods": [
+                {
+                    "method": "theta",
+                    "available": True,
+                    "description": "Theta model.",
+                    "params": [],
+                    "requires": [],
+                    "supports": {"ci": False},
+                    "supports_training": False,
+                },
+                {
+                    "method": "drift",
+                    "available": True,
+                    "description": "Drift model.",
+                    "params": [],
+                    "requires": [],
+                    "supports": {"ci": False},
+                    "supports_training": False,
+                },
+            ],
+        },
+    )
+
+    compact = _unwrap(cf.forecast_list_methods)(profile="all")
+    full = _unwrap(cf.forecast_list_methods)(detail="full", profile="all")
+    by_compact = {row["method"]: row for row in compact["methods"]}
+    by_full = {row["method"]: row for row in full["methods"]}
+
+    assert cf._forecast_ci_method({"method": "theta"}) == "native_theta_interval"
+    assert by_compact["theta"]["supports_ci"] is True
+    assert "ci_method" not in by_compact["theta"]
+    assert by_compact["drift"]["supports_ci"] is False
+    assert by_full["theta"]["supports_ci"] is True
+    assert by_full["theta"]["ci_method"] == "native_theta_interval"
+    assert by_full["drift"]["supports_ci"] is False
+
+
+def test_forecast_generate_full_retains_interval_series(monkeypatch):
+    raw = _unwrap(cf.forecast_generate)
+    monkeypatch.setattr(
+        cf,
+        "_forecast_impl",
+        lambda **kwargs: {
+            "success": True,
+            "method": kwargs["method"],
+            "horizon": kwargs["horizon"],
+            "quantity": kwargs["quantity"],
+            "forecast_time": ["t1", "t2"],
+            "forecast_price": [100.0, 101.0],
+            "lower_price": [99.0, 99.5],
+            "upper_price": [101.0, 102.5],
+            "ci_status": "available",
+            "ci_alpha": 0.05,
+            "last_price": 100.0,
+        },
+    )
+
+    out = raw(
+        request=ForecastGenerateRequest(
+            symbol="BTCUSD",
+            timeframe="H1",
+            method="arima",
+            horizon=2,
+            detail="full",
+        )
+    )
+
+    assert out["lower_price"] == [99.0, 99.5]
+    assert out["upper_price"] == [101.0, 102.5]
+    assert out["forecast"][0]["lower_price"] == 99.0
+
+
 def test_forecast_list_library_models_derives_pretrained_models_from_capabilities(monkeypatch):
     raw_list_models = _unwrap(cf.forecast_list_library_models)
     pretrained_caps = [
@@ -4503,6 +4579,29 @@ def test_forecast_barrier_prob_verdict_keeps_material_tp_sl_bias():
     assert sl_first["verdict"] == "SL-first probability bias"
 
 
+def test_forecast_barrier_prob_verdict_is_unresolved_when_almost_no_hits():
+    out = forecast_use_cases._annotate_barrier_prob_context(
+        {
+            "prob_tp_first": 0.008,
+            "prob_sl_first": 0.0,
+            "probability_edge": 0.008,
+            "prob_unresolved": 0.992,
+            "prob_resolve": 0.008,
+        },
+        ForecastBarrierProbRequest(
+            symbol="EURUSD",
+            barrier={
+                "kind": "tp_sl",
+                "unit": "pct",
+                "take_profit": 0.4,
+                "stop_loss": 0.6,
+            },
+        ),
+    )
+
+    assert out["verdict"] == "Mostly unresolved; barriers unlikely to be hit"
+
+
 def test_forecast_barrier_prob_verdict_is_neutral_when_cis_overlap():
     out = forecast_use_cases._annotate_barrier_prob_context(
         {
@@ -5373,7 +5472,9 @@ def test_options_tools_support_compact_and_full_detail(monkeypatch):
     assert compact_chain["options"][0]["contract_as_of"] == (
         "2026-06-01T20:00:00Z"
     )
-    assert compact_chain["options"][0]["quote_usable_for_live_analysis"] is True
+    assert "quote_usable_for_live_analysis" not in compact_chain["options"][0]
+    assert "contract_data_stale" not in compact_chain["options"][0]
+    assert "contract_freshness" not in compact_chain["options"][0]
     assert compact_chain["options"][0]["implied_volatility"] == 0.2
     assert compact_chain["options"][0]["in_the_money"] is True
     assert raw_chain("AAPL", detail="full")["options"][0]["implied_volatility"] == 0.2

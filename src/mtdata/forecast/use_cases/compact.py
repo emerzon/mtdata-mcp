@@ -160,7 +160,11 @@ def _forecast_interval_summary(payload: Dict[str, Any]) -> Optional[Dict[str, fl
         return None
 
 
-def _forecast_compact_ci(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+def _forecast_compact_ci(
+    payload: Dict[str, Any],
+    *,
+    include_intervals: bool = True,
+) -> Optional[Dict[str, Any]]:
     ci_status = str(payload.get("ci_status") or "").strip().lower()
     if ci_status == "not_requested":
         return {
@@ -231,7 +235,9 @@ def _forecast_compact_ci(payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     out = {"status": ci_status or "available", "mode": "interval"}
     if payload.get("ci_alpha") is not None:
         out["alpha"] = payload.get("ci_alpha")
-    if intervals:
+    if payload.get("interval_method") not in (None, ""):
+        out["interval_method"] = payload.get("interval_method")
+    if include_intervals and intervals:
         out["intervals"] = intervals
     summary = _forecast_interval_summary(payload)
     if summary:
@@ -1209,7 +1215,7 @@ def _apply_forecast_generate_detail(  # noqa: C901
         compact["suggested_methods"] = ["drift", "analog", "fourier_ols"]
         compact["suggested_uncertainty_tool"] = "forecast_conformal_intervals"
     ci_unavailable = str(payload.get("ci_status") or "").strip().lower() == "unavailable"
-    ci_compact = _forecast_compact_ci(payload)
+    ci_compact = _forecast_compact_ci(payload, include_intervals=False)
     if ci_compact:
         compact["uncertainty"] = ci_compact
     if ci_unavailable:
@@ -1803,6 +1809,14 @@ def _first_hit_edge_is_indeterminate(
 
 
 def _barrier_prob_verdict(payload: Dict[str, Any]) -> Optional[str]:
+    unresolved = _finite_float(
+        payload.get("prob_unresolved", payload.get("prob_no_hit"))
+    )
+    resolved = _finite_float(payload.get("prob_resolve"))
+    if resolved is None and unresolved is not None:
+        resolved = max(0.0, 1.0 - unresolved)
+    if resolved is not None and resolved < 0.20:
+        return "Mostly unresolved; barriers unlikely to be hit"
     edge_value = _finite_float(payload.get("probability_edge"))
     if edge_value is None:
         tp_prob = _finite_float(payload.get("prob_tp_first"))
