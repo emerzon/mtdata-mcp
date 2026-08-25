@@ -229,6 +229,20 @@ def test_report_generate_request_accepts_consistent_historical_window():
     assert request.end == "2026-08-10"
 
 
+def test_minimal_report_rejects_multiple_forecast_methods():
+    from mtdata.core.report.requests import ReportGenerateRequest
+
+    with pytest.raises(ValidationError, match="accepts one forecast method"):
+        ReportGenerateRequest(
+            symbol="EURUSD", template="minimal", methods="theta,drift"
+        )
+
+    request = ReportGenerateRequest(
+        symbol="EURUSD", template="basic", methods="theta,drift"
+    )
+    assert request.methods == "theta,drift"
+
+
 def test_report_generate_request_rejects_removed_summary_only_field():
     from mtdata.core.report.requests import ReportGenerateRequest
 

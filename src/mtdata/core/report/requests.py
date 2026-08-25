@@ -194,4 +194,22 @@ class ReportGenerateRequest(BaseModel):
                 raise ValueError(
                     "end must not be in the future; no historical report data is available"
                 )
+        requested_methods = self.methods
+        if requested_methods is None and isinstance(self.params, dict):
+            requested_methods = self.params.get("methods")
+        if isinstance(requested_methods, str):
+            method_names = [
+                item
+                for item in re.split(r"[\s,]+", requested_methods.strip())
+                if item
+            ]
+        elif isinstance(requested_methods, list):
+            method_names = [str(item).strip() for item in requested_methods if str(item).strip()]
+        else:
+            method_names = []
+        if self.template == "minimal" and len(method_names) > 1:
+            raise ValueError(
+                "template='minimal' accepts one forecast method; use template='basic' "
+                "to rank multiple methods"
+            )
         return self

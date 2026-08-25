@@ -5,6 +5,7 @@ from contextvars import ContextVar
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterator, List, Optional, Tuple
 
+from ...shared.constants import TIMEFRAME_SECONDS
 from ...shared.market_units import forex_pip_size
 from ...utils.barriers import get_tick_size as _get_tick_size
 from ...utils.mt5 import get_symbol_info_cached
@@ -78,8 +79,23 @@ def now_utc_iso() -> str:
 
 
 def resolve_report_context_end(end: Any, timeframe: str) -> Any:
-    """Return report ``end`` unchanged; candle/forecast tools apply bar-close filters."""
-    _ = timeframe
+    """Resolve date-only intraday cutoffs to an exact completed-bar boundary."""
+    text = str(end or "").strip()
+    seconds = TIMEFRAME_SECONDS.get(str(timeframe or "").strip().upper())
+    if (
+        text
+        and len(text) == 10
+        and text[4:5] == "-"
+        and text[7:8] == "-"
+        and seconds is not None
+        and seconds < 86_400
+    ):
+        try:
+            datetime.strptime(text, "%Y-%m-%d")
+        except ValueError:
+            pass
+        else:
+            return f"{text}T23:59:59.999999Z"
     return end
 
 

@@ -74,6 +74,13 @@ def test_resolve_report_context_end_does_not_pre_subtract_a_bar(timeframe):
     assert resolve_report_context_end("", timeframe) == ""
 
 
+def test_resolve_report_context_end_makes_intraday_date_cutoff_explicit():
+    assert resolve_report_context_end("2026-08-14", "H1") == (
+        "2026-08-14T23:59:59.999999Z"
+    )
+    assert resolve_report_context_end("2026-08-14", "D1") == "2026-08-14"
+
+
 def test_bounded_market_sections_are_omitted_without_live_snapshot():
     report = {"sections": {}}
     with (
