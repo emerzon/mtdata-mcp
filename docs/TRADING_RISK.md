@@ -128,9 +128,10 @@ across instruments with different quote currencies.
 
 ## `trade_var_cvar_calculate`
 
-Estimates one-bar Value at Risk (VaR) and Conditional VaR (CVaR, a.k.a. Expected
+Estimates Value at Risk (VaR) and Conditional VaR (CVaR, a.k.a. Expected
 Shortfall) for the current open positions — either the whole portfolio or a single
-symbol.
+symbol. The default holding period is one bar of the selected timeframe; pass
+`--horizon-bars` to scale the same return sample over multiple bars.
 
 ```bash
 # Portfolio VaR/CVaR at 95% over one H1 bar
@@ -138,19 +139,24 @@ mtdata-cli trade_var_cvar_calculate --timeframe H1 --lookback 500 --confidence 0
 
 # Symbol-scoped, parametric/Gaussian, percentage returns
 mtdata-cli trade_var_cvar_calculate EURUSD --method parametric --transform pct --lookback 300 --json
+
+# EWMA-weighted tail over a six-bar horizon, including the forming bar
+mtdata-cli trade_var_cvar_calculate EURUSD --method ewma --horizon-bars 6 --include-incomplete --json
 ```
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `symbol` | — | Restrict to one symbol's exposure; omit for the full portfolio. |
-| `timeframe` | `H1` | Return interval and the one-bar holding period. |
+| `timeframe` | `H1` | Return interval. Combined with `horizon_bars` this is the holding period. |
 | `lookback` | `500` | Historical bars used to build the return distribution. |
 | `confidence` | `0.95` | Confidence fraction (`0.95`, `0.99`); must satisfy `0 < confidence < 1`. |
-| `method` | `historical` | `historical` (empirical tail) or `parametric` (Gaussian model). |
+| `method` | `historical` | `historical` (empirical tail), `parametric` (Gaussian), `cornish_fisher` (skew/kurtosis-adjusted Gaussian), or `ewma` (exponentially weighted historical). |
+| `horizon_bars` | `1` | Number of bars in the holding period. Multi-bar results scale the one-bar return sample rather than simulating a path. |
+| `include_incomplete` | `false` | When true, the currently forming candle can enter the return series. Default uses only completed bars. |
 | `transform` | `log_return` | Return transform: `log_return` or `pct`. |
-| `min_observations` | `50` | Minimum aligned observations before estimating risk. |
+| `min_observations` | `50` | Minimum aligned observations before estimating risk. EWMA and Cornish-Fisher need enough sample for their extra moments/weights; the tool reports the effective sample in the payload. |
 
-**Output** includes `var` and `cvar`, position/exposure counts, and — by detail level —
+**Output** includes `var` and `cvar`, position/exposure counts, method/horizon provenance, and — by detail level —
 per-position and per-symbol exposure breakdowns. With no open positions, `--detail full`
 returns the legacy zero-filled arrays.
 
@@ -163,6 +169,21 @@ Every open position must have usable account-currency valuation and every
 included symbol must have usable history. The tool returns
 `portfolio_var_incomplete` instead of silently calculating a smaller portfolio
 when any position lacks valuation inputs or any symbol history is unavailable.
+
+Method notes:
+
+- `historical` uses the empirical tail of equally weighted sample returns.
+- `parametric` assumes Gaussian returns and uses sample mean/variance.
+- `cornish_fisher` starts from that Gaussian quantile and adjusts it with sample
+  skewness and excess kurtosis. It is most useful when the return sample is
+  clearly non-normal; small samples make the adjustment noisy.
+- `ewma` reweights the same historical returns with exponential decay so recent
+  observations dominate. The payload reports the effective decay/half-life used.
+- `--horizon-bars N` treats the holding period as N times the selected
+  timeframe. It does not simulate intra-horizon barrier hits or path dependence.
+- `--include-incomplete` adds the in-progress bar to the return series. That can
+  make a live reading more current, but the last observation is then a partial
+  bar rather than a completed close.
 
 ---
 
@@ -198,8 +219,8 @@ metadata is available — `equity_before`/`equity_after`/`impact_pct`.
 - A `None` position/order response from MT5 is a failed snapshot, not an empty
   book. Snapshot-dependent analytics return a `*_snapshot_unavailable` error;
   empty tuples/lists remain valid empty books.
-- VaR/CVaR assume the recent return distribution persists and use a single-bar holding
-  period; they are not a guarantee of maximum loss.
+- VaR/CVaR assume the recent return distribution persists over the requested
+  `horizon_bars`; they are not a guarantee of maximum loss.
 - Stress shocks are deterministic and linear in price; they do not model spread
   widening, gaps, swaps, or correlation breaks.
 - Kelly sizing is only as good as its inputs — estimate `win_rate` and normalized
