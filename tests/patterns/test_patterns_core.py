@@ -1096,11 +1096,49 @@ def test_build_pattern_response_suppresses_stale_harmonic_current_bias():
     )
 
     assert compact["pattern_status"] == "historical"
+    assert compact["blocker"] == "historical_outside_recent_window"
     assert compact["review_recommended"] is False
     assert "suggested_review" not in compact
     assert "bias" not in compact
     assert compact["top_patterns"][0]["age_bars"] == 119
     assert compact["top_patterns"][0]["bias_scope"] == "historical_structure"
+
+
+def test_build_pattern_response_forming_harmonic_is_not_historical():
+    df = pd.DataFrame({"time": list(range(120)), "close": [10.0] * 120})
+    patterns = [
+        {
+            "name": "Bullish Gartley",
+            "status": "forming",
+            "confidence": 0.71,
+            "end_index": 118,
+            "direction": "bullish",
+            "bias": "bullish",
+            "age_bars": 1,
+            "is_recent": True,
+            "signal_eligible": False,
+            "bias_scope": "provisional_structure",
+        }
+    ]
+
+    compact = _build_pattern_response(
+        "EURUSD",
+        "H1",
+        120,
+        "harmonic",
+        patterns,
+        include_completed=True,
+        include_series=False,
+        series_time="string",
+        df=df,
+        detail="compact",
+    )
+
+    assert compact["pattern_status"] == "forming"
+    assert compact["blocker"] == "forming_not_signal_eligible"
+    assert compact["review_recommended"] is False
+    assert "bias" not in compact
+    assert compact["top_patterns"][0]["status"] == "forming"
 
 
 def test_build_pattern_response_compact_hides_broken_fractal_rows_by_default():

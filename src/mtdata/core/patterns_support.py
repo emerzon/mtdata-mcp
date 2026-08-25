@@ -140,6 +140,44 @@ def _count_patterns_with_status(rows: List[Dict[str, Any]], status: str) -> int:
     return int(sum(1 for row in rows if _pattern_has_status(row, status)))
 
 
+def _aggregate_non_signal_pattern_status(
+    rows: List[Dict[str, Any]],
+) -> Tuple[str, str, str]:
+    """Label compact status when no signal-eligible rows remain.
+
+    Returns (pattern_status, blocker, bias_suppressed_reason).
+    """
+    forming = False
+    provisional = False
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if _pattern_has_status(row, "forming"):
+            forming = True
+            continue
+        is_recent = bool(row.get("is_recent"))
+        bias_scope = str(row.get("bias_scope") or "").strip().lower()
+        if is_recent or bias_scope == "provisional_structure":
+            provisional = True
+    if forming:
+        return (
+            "forming",
+            "forming_not_signal_eligible",
+            "visible patterns are forming and not signal-eligible",
+        )
+    if provisional:
+        return (
+            "provisional",
+            "provisional_not_signal_eligible",
+            "visible patterns are recent but not signal-eligible",
+        )
+    return (
+        "historical",
+        "historical_outside_recent_window",
+        "all visible patterns are completed historical structures outside the recent window",
+    )
+
+
 def _visible_pattern_rows(
     rows: List[Dict[str, Any]],
     *,
@@ -801,11 +839,11 @@ def _compact_patterns_payload(  # noqa: C901
                         "aggregate confidence measures directional bias, not max single-pattern score"
                     )
     elif rows and not signal_rows:
+        status, blocker, reason = _aggregate_non_signal_pattern_status(rows)
         compact["review_recommended"] = False
-        compact["pattern_status"] = "historical"
-        compact["bias_suppressed_reason"] = (
-            "all visible patterns are completed historical structures outside the recent window"
-        )
+        compact["pattern_status"] = status
+        compact["blocker"] = blocker
+        compact["bias_suppressed_reason"] = reason
     if signal_bias and _should_expose_directional_bias(signal_bias, signal):
         compact["bias"] = signal_bias.get("net_bias")
         compact["dominant_direction"] = signal_bias.get("dominant_direction")
