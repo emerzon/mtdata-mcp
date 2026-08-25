@@ -787,7 +787,9 @@ def test_detect_candlestick_patterns_drops_still_forming_last_bar(monkeypatch):
     )
 
     assert res["success"] is True
-    assert requested_counts == [3]
+    assert requested_counts == [
+        2 + candlestick_mod._candlestick_volume_warmup_bars(None) + 1
+    ]
     assert res["candles"] == 2
     assert res["lookback_satisfied"] is True
     assert len(res["data"]) == 1
@@ -985,8 +987,9 @@ def test_detect_candlestick_patterns_adds_volume_and_regime_enrichment(monkeypat
 
     row = res["data"][0]
     assert row["volume_confirmation"]["status"] == "confirmed"
+    assert row["volume_confirmation"]["baseline_sufficient"] is True
     assert row["regime_context"]["status"] == "aligned"
-    assert row["end_index"] == 19
+    assert row["end_index"] == 24
     assert res["candles"] == 20
 
 
@@ -1072,8 +1075,30 @@ def test_attach_candlestick_volume_confirmation_uses_full_multibar_signal_window
     )
 
     assert row["volume_confirmation"]["status"] == "confirmed"
+    assert row["volume_confirmation"]["baseline_sufficient"] is True
+    assert row["volume_confirmation"]["baseline_bars_used"] == 20
+    assert row["volume_confirmation"]["baseline_bars_required"] == 20
     assert row["volume_confirmation"]["signal_avg_volume"] > 130.0
     assert row["volume_confirmation"]["signal_to_baseline_ratio"] > 1.1
+
+
+def test_attach_candlestick_volume_confirmation_skips_partial_baseline():
+    row = {"start_index": 2, "end_index": 2, "confidence": 0.5}
+    volume = np.array([100.0, 100.0, 300.0], dtype=float)
+
+    candlestick_mod._attach_candlestick_volume_confirmation(
+        row,
+        volume,
+        "tick_volume",
+        {"use_volume_confirmation": True, "volume_confirm_min_ratio": 1.1},
+    )
+
+    confirmation = row["volume_confirmation"]
+    assert confirmation["status"] == "insufficient"
+    assert confirmation["baseline_sufficient"] is False
+    assert confirmation["baseline_bars_used"] < confirmation["baseline_bars_required"]
+    assert "confidence_delta" not in confirmation
+    assert row["confidence"] == 0.5
 
 
 def test_extract_candlestick_rows_respects_start_index():
@@ -1114,3 +1139,97 @@ def test_candlestick_bar_spans_keep_three_bar_patterns_aligned():
     assert candlestick_mod._CANDLESTICK_PATTERN_BAR_SPANS["2crows"] == 3
     assert candlestick_mod._CANDLESTICK_PATTERN_BAR_SPANS["hikkake"] == 3
     assert candlestick_mod._CANDLESTICK_PATTERN_BAR_SPANS["hikkakemod"] == 3
+
+
+def test_candlestick_volume_confirmation_stable_with_declared_warmup(monkeypatch):
+    visible = 25
+    history = 80
+    volume = np.full(history, 50.0, dtype=float)
+    volume[-visible:] = 160.0
+    volume[-1] = 320.0
+
+    class _FakeFrame(pd.DataFrame):
+        @property
+        def _constructor(self):
+            return _FakeFrame
+
+        @property
+        def ta(self):
+            frame = self
+
+            class _Accessor:
+                def cdl_alpha(self, append=True):
+                    _ = append
+                    values = [0.0] * len(frame)
+                    values[-visible] = 200.0
+                    frame["cdl_alpha"] = values
+
+            return _Accessor()
+
+    monkeypatch.setattr(candlestick_mod, "_ensure_candlestick_runtime", lambda: None)
+    monkeypatch.setattr(candlestick_mod, "TIMEFRAME_MAP", {"H1": 1})
+    monkeypatch.setattr(candlestick_mod, "_symbol_ready_guard", _always_ready_guard)
+    monkeypatch.setattr(
+        candlestick_mod, "_get_candlestick_pattern_methods", lambda _temp: ["cdl_alpha"]
+    )
+
+    def _copy_rates_from(*args, **_kwargs):
+        return [object()] * int(args[-1])
+
+    monkeypatch.setattr(candlestick_mod, "_mt5_copy_rates_from", _copy_rates_from)
+
+    def _fake_rates_to_df(rates):
+        rows = min(len(rates), history)
+        start = history - rows
+        return _FakeFrame(
+            {
+                "time": [1_600_000_000.0 + (3600.0 * i) for i in range(start, history)],
+                "open": [100.0] * rows,
+                "high": [101.0] * rows,
+                "low": [99.0] * rows,
+                "close": [100.5] * rows,
+                "tick_volume": volume[start:].tolist(),
+            }
+        )
+
+    monkeypatch.setattr(candlestick_mod, "_rates_to_df", _fake_rates_to_df)
+
+    config = {
+        "use_volume_confirmation": True,
+        "use_regime_context": False,
+        "volume_confirm_min_ratio": 1.1,
+    }
+    short = candlestick_mod.detect_candlestick_patterns(
+        symbol="EURUSD",
+        timeframe="H1",
+        limit=visible,
+        min_strength=0.50,
+        min_gap=0,
+        robust_only=False,
+        whitelist=None,
+        top_k=1,
+        config=config,
+    )
+    long = candlestick_mod.detect_candlestick_patterns(
+        symbol="EURUSD",
+        timeframe="H1",
+        limit=history,
+        min_strength=0.50,
+        min_gap=0,
+        robust_only=False,
+        whitelist=None,
+        top_k=1,
+        last_n_bars=visible,
+        config=config,
+    )
+
+    assert short["lookback_satisfied"] is True
+    short_row = short["data"][0]
+    long_row = long["data"][0]
+    short_conf = short_row["volume_confirmation"]
+    long_conf = long_row["volume_confirmation"]
+    assert short_conf["status"] == long_conf["status"]
+    assert short_conf["baseline_sufficient"] is True
+    assert long_conf["baseline_sufficient"] is True
+    assert short_conf.get("confidence_delta") == long_conf.get("confidence_delta")
+    assert short_row["confidence"] == long_row["confidence"]

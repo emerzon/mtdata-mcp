@@ -36,6 +36,28 @@ from .enrichment import (
 
 logger = logging.getLogger(__name__)
 
+_DEFAULT_VOLUME_CONFIRM_BREAKOUT_BARS = 2
+_DEFAULT_VOLUME_CONFIRM_LOOKBACK_BARS = 20
+
+
+def _candlestick_volume_warmup_bars(config: Optional[Dict[str, Any]]) -> int:
+    """Extra closed bars needed before the visible window for volume confirmation."""
+    if not _config_bool(config, "use_volume_confirmation", True):
+        return 0
+    breakout_bars = _config_int(
+        config,
+        "volume_confirm_breakout_bars",
+        _DEFAULT_VOLUME_CONFIRM_BREAKOUT_BARS,
+        minimum=1,
+    )
+    lookback_bars = _config_int(
+        config,
+        "volume_confirm_lookback_bars",
+        _DEFAULT_VOLUME_CONFIRM_LOOKBACK_BARS,
+        minimum=breakout_bars + 1,
+    )
+    return int(lookback_bars) + int(breakout_bars)
+
 
 ta: Any = None
 mt5: Any = None
@@ -736,6 +758,8 @@ def detect_candlestick_patterns(  # noqa: C901
     if start_dt is not None and end_dt is not None and start_dt > end_dt:
         return {"error": "start must be before or equal to end."}
 
+    warmup_bars = _candlestick_volume_warmup_bars(config)
+    fetch_count = int(limit) + int(warmup_bars) + 1
     with _symbol_ready_guard(symbol) as (err, _info):
         if err:
             return {"error": err}
@@ -743,11 +767,11 @@ def detect_candlestick_patterns(  # noqa: C901
             rates = _mt5_copy_rates_range(symbol, mt5_timeframe, start_dt, end_dt)
         elif end_dt is not None:
             rates = _mt5_copy_rates_from(
-                symbol, mt5_timeframe, end_dt, int(limit) + 1
+                symbol, mt5_timeframe, end_dt, fetch_count
             )
         else:
             rates = _mt5_copy_rates_from(
-                symbol, mt5_timeframe, utc_now, int(limit) + 1
+                symbol, mt5_timeframe, utc_now, fetch_count
             )
 
     if rates is None:
@@ -793,8 +817,9 @@ def detect_candlestick_patterns(  # noqa: C901
                 f"Denoise failed for pattern detection on {symbol} {timeframe}; "
                 f"raw prices were used. {exc}"
             )
-    if len(df) > int(limit):
-        df = df.iloc[-int(limit):].copy()
+    keep_bars = int(limit) + int(warmup_bars)
+    if len(df) > keep_bars:
+        df = df.iloc[-keep_bars:].copy()
     if len(df) == 0:
         return {"error": "No closed candle data available"}
     warnings_out = list(denoise_warnings)
@@ -1005,9 +1030,10 @@ def detect_candlestick_patterns(  # noqa: C901
             return {"error": "last_n_bars must be a positive integer."}
         if last_n_val <= 0:
             return {"error": "last_n_bars must be >= 1."}
+    visible_limit = last_n_val if last_n_val is not None else int(limit)
     start_index = 0
-    if last_n_val is not None and len(df) > last_n_val:
-        start_index = int(len(df) - last_n_val)
+    if len(df) > visible_limit:
+        start_index = int(len(df) - visible_limit)
     rows = _extract_candlestick_rows(
         df,
         temp,
@@ -1046,7 +1072,7 @@ def detect_candlestick_patterns(  # noqa: C901
             "success": True,
             "symbol": symbol,
             "timeframe": timeframe,
-            "candles": int(len(df)),
+            "candles": int(min(int(limit), len(df))),
             "requested_lookback": int(limit),
             "lookback_satisfied": int(len(df)) >= int(limit),
             "mode": "candlestick",
@@ -1143,9 +1169,17 @@ def _attach_candlestick_volume_confirmation(
     except Exception:
         row["volume_confirmation"] = payload
         return
-    breakout_bars = _config_int(config, "volume_confirm_breakout_bars", 2, minimum=1)
+    breakout_bars = _config_int(
+        config,
+        "volume_confirm_breakout_bars",
+        _DEFAULT_VOLUME_CONFIRM_BREAKOUT_BARS,
+        minimum=1,
+    )
     lookback_bars = _config_int(
-        config, "volume_confirm_lookback_bars", 20, minimum=breakout_bars + 1
+        config,
+        "volume_confirm_lookback_bars",
+        _DEFAULT_VOLUME_CONFIRM_LOOKBACK_BARS,
+        minimum=breakout_bars + 1,
     )
     min_ratio = _config_float(config, "volume_confirm_min_ratio", 1.10, minimum=1.0)
     bonus = _config_float(config, "volume_confirm_bonus", 0.08, minimum=0.0)
@@ -1155,19 +1189,32 @@ def _attach_candlestick_volume_confirmation(
     signal_start = max(0, min(pattern_start, int(signal_end - breakout_bars + 1)))
     baseline_end = int(signal_start - 1)
     baseline_start = max(0, int(baseline_end - lookback_bars + 1))
+    baseline_used = int(baseline_end - baseline_start + 1) if baseline_end >= 0 else 0
     signal_avg = _volume_window_mean(volume, signal_start, signal_end)
-    baseline_avg = _volume_window_mean(volume, baseline_start, baseline_end)
+    baseline_avg = (
+        _volume_window_mean(volume, baseline_start, baseline_end)
+        if baseline_used > 0
+        else None
+    )
+    payload["lookback_bars"] = int(lookback_bars)
+    payload["breakout_bars"] = int(breakout_bars)
+    payload["baseline_bars_required"] = int(lookback_bars)
+    payload["baseline_bars_used"] = int(max(0, baseline_used))
+    baseline_sufficient = int(baseline_used) >= int(lookback_bars)
+    payload["baseline_sufficient"] = bool(baseline_sufficient)
+    if baseline_avg is not None:
+        payload["baseline_avg_volume"] = _round_value(baseline_avg)
+    if signal_avg is not None:
+        payload["signal_avg_volume"] = _round_value(signal_avg)
+    if not baseline_sufficient:
+        payload["status"] = "insufficient"
+        row["volume_confirmation"] = payload
+        return
     ratio = (
         float(signal_avg) / float(baseline_avg)
         if signal_avg is not None and baseline_avg is not None and baseline_avg > 0
         else None
     )
-    payload["lookback_bars"] = int(lookback_bars)
-    payload["breakout_bars"] = int(breakout_bars)
-    if baseline_avg is not None:
-        payload["baseline_avg_volume"] = _round_value(baseline_avg)
-    if signal_avg is not None:
-        payload["signal_avg_volume"] = _round_value(signal_avg)
     if ratio is not None and np.isfinite(ratio):
         payload["signal_to_baseline_ratio"] = _round_value(ratio)
     payload["status"], confidence_delta = volume_confirmation_verdict(
