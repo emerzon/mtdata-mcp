@@ -45,7 +45,11 @@ from .contracts import (
 from .exceptions import ForecastError, raise_if_error_result
 from .forecast import forecast
 from .forecast_registry import get_forecast_methods_data
-from .forecast_validation import attach_denoise_causality_disclosure
+from .forecast_validation import (
+    attach_denoise_causality_disclosure,
+    canonicalize_forecast_methods,
+    remap_params_per_method,
+)
 from .gpu_runtime import cleanup_forecast_gpu_runtime, forecast_methods_may_use_gpu
 from .target_builder import _log_return_array
 from .volatility import forecast_volatility
@@ -2515,7 +2519,19 @@ def forecast_backtest(  # noqa: C901
                 avail = [m['method'] for m in methods_info.get('methods', []) if m.get('available')]
                 preferred = ['naive', 'drift', 'theta']
                 methods = [m for m in preferred if m in avail]
-        params_map = dict(params_per_method or {})
+        canonical_methods, method_error = canonicalize_forecast_methods(
+            list(methods or []),
+            require_known=False,
+        )
+        if method_error is not None:
+            return method_error
+        methods = list(canonical_methods or [])
+        params_map, params_error = remap_params_per_method(
+            dict(params_per_method or {}),
+            methods,
+        )
+        if params_error is not None:
+            return params_error
         cleanup_gpu_after_run = forecast_methods_may_use_gpu(
             methods,
             params_per_method=params_map,

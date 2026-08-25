@@ -3,9 +3,9 @@ Forecast validation utilities and error handling.
 """
 
 import difflib
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
-from .forecast_methods import get_forecast_methods_snapshot
+from .forecast_methods import get_forecast_method_names, get_forecast_methods_snapshot
 
 _ZERO_PHASE_DENOISE_WARNING = (
     "Zero-phase denoise uses future observations and is not usable for live trading."
@@ -126,6 +126,82 @@ def suggest_forecast_methods(method: Any, valid_methods: List[str], limit: int =
         if name not in ranked:
             ranked.append(name)
     return ranked[:limit]
+
+
+def canonicalize_forecast_methods(
+    methods: Optional[List[str]],
+    *,
+    valid_methods: Optional[List[str]] = None,
+    require_known: bool = True,
+) -> Tuple[Optional[List[str]], Optional[Dict[str, Any]]]:
+    """Canonicalize method names case-insensitively and reject duplicates."""
+    if not methods:
+        return methods, None
+    names = (
+        list(valid_methods)
+        if valid_methods is not None
+        else list(get_forecast_method_names())
+    )
+    lookup = {str(name).lower(): str(name) for name in names if str(name).strip()}
+    canonical: List[str] = []
+    seen: set[str] = set()
+    for raw in methods:
+        method = str(raw or "").strip()
+        if not method:
+            continue
+        resolved = lookup.get(method.lower())
+        if resolved is None:
+            if require_known:
+                return None, {
+                    "success": False,
+                    "error": format_invalid_method_error(method, names),
+                    "error_code": "unsupported_method",
+                    "method": method,
+                    "valid_methods_tool": "forecast_list_methods",
+                }
+            resolved = method.lower()
+        key = resolved.lower()
+        if key in seen:
+            return None, {
+                "success": False,
+                "error": (
+                    f"Duplicate forecast method {resolved!r} after "
+                    "case-insensitive canonicalization. Pass each method once."
+                ),
+                "error_code": "duplicate_method",
+                "method": resolved,
+            }
+        seen.add(key)
+        canonical.append(resolved)
+    return canonical, None
+
+
+def remap_params_per_method(
+    params_map: Optional[Dict[str, Any]],
+    canonical_methods: List[str],
+) -> Tuple[Dict[str, Any], Optional[Dict[str, Any]]]:
+    """Align params_per_method keys with canonical method names."""
+    if not params_map:
+        return {}, None
+    lookup = {str(name).lower(): str(name) for name in canonical_methods}
+    out: Dict[str, Any] = {}
+    for raw_key, value in params_map.items():
+        key = str(raw_key or "").strip()
+        if not key:
+            continue
+        canon = lookup.get(key.lower(), key)
+        if canon in out:
+            return {}, {
+                "success": False,
+                "error": (
+                    f"Duplicate params_per_method key {canon!r} after "
+                    "case-insensitive canonicalization."
+                ),
+                "error_code": "duplicate_method",
+                "method": canon,
+            }
+        out[canon] = value
+    return out, None
 
 
 def format_invalid_method_error(method: Any, valid_methods: List[str]) -> str:

@@ -8,6 +8,7 @@ import pytest
 
 from mtdata.forecast import tune
 from mtdata.forecast.requests import ForecastTuneGeneticRequest
+from mtdata.forecast.use_cases.tune import _validate_tuning_methods
 
 
 def test_default_search_space_modes():
@@ -29,6 +30,17 @@ def test_default_search_space_modes():
     none_given = tune.default_search_space()
     assert "_shared" in none_given
     assert "theta" in none_given
+
+
+def test_tuning_canonicalizes_method_case_and_rejects_duplicates():
+    request = ForecastTuneGeneticRequest(symbol="EURUSD", methods=["NAIVE"])
+    assert _validate_tuning_methods(request) is None
+    assert request.methods == ["naive"]
+
+    duplicate = ForecastTuneGeneticRequest(symbol="EURUSD", methods=["naive", "NAIVE"])
+    error = _validate_tuning_methods(duplicate)
+    assert error is not None
+    assert error["error_code"] == "duplicate_method"
 
 
 def test_genetic_search_rejects_population_below_two():

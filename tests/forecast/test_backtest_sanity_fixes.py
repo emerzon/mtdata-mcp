@@ -24,6 +24,22 @@ def _make_df(n: int, base_time: float = 1700000000.0, base_close: float = 100.0)
     return pd.DataFrame({"time": times, "close": closes})
 
 
+def test_backtest_rejects_case_insensitive_duplicate_methods():
+    df = _make_df(80)
+    idx = 60
+    anchor = _format_time_minimal(float(df["time"].iloc[idx]))
+    with patch("mtdata.forecast.backtest._fetch_history", return_value=df):
+        result = forecast_backtest(
+            symbol="EURUSD",
+            timeframe="H1",
+            horizon=3,
+            methods=["naive", "NAIVE"],
+            anchors=[anchor],
+        )
+    assert result["success"] is False
+    assert result["error_code"] == "duplicate_method"
+
+
 # ── Fix 1: DA scores terminal trade direction ───
 
 

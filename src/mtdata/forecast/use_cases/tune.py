@@ -14,7 +14,7 @@ from mtdata.core.execution_logging import (
 from mtdata.forecast.backtest import forecast_cost_assumptions
 from mtdata.forecast.forecast_methods import get_forecast_method_names
 from mtdata.forecast.forecast_registry import ForecastRegistry
-from mtdata.forecast.forecast_validation import format_invalid_method_error
+from mtdata.forecast.forecast_validation import canonicalize_forecast_methods
 from mtdata.forecast.requests import (
     ForecastOptimizeHintsRequest,
     ForecastTuneGeneticRequest,
@@ -70,18 +70,15 @@ def _validate_tuning_methods(
             return None
         requested = [default_method]
     methods = [str(method or "").strip() for method in requested if str(method or "").strip()]
-    valid_methods = list(get_forecast_method_names())
-    valid_lookup = {str(method).lower(): str(method) for method in valid_methods}
-    for method in methods:
-        if method.lower() in valid_lookup:
-            continue
-        return {
-            "success": False,
-            "error": format_invalid_method_error(method, valid_methods),
-            "error_code": "unsupported_method",
-            "method": method,
-            "valid_methods_tool": "forecast_list_methods",
-        }
+    canonical, error = canonicalize_forecast_methods(
+        methods,
+        valid_methods=list(get_forecast_method_names()),
+        require_known=True,
+    )
+    if error is not None:
+        return error
+    if canonical and hasattr(request, "methods"):
+        request.methods = list(canonical)
     return None
 
 
