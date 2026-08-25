@@ -41,6 +41,54 @@ _DEFAULT_INDICATOR_ORDER = (
 _DEFAULT_INDICATOR_RANK = {
     name: index for index, name in enumerate(_DEFAULT_INDICATOR_ORDER)
 }
+_CURATED_INDICATOR_CALCULATIONS = {
+    "rsi": (
+        "Input: close. Wilder/RMA average gains and losses over length "
+        "(default 14); RSI = 100 - 100 / (1 + avg_gain/avg_loss). "
+        "Output column: rsi_{length}."
+    ),
+    "macd": (
+        "Input: close. MACD line = EMA(fast, default 12) - EMA(slow, default 26); "
+        "signal = EMA(MACD, default 9); histogram = MACD - signal. "
+        "Output columns: macd_{fast}_{slow}_{signal}, macdh_..., macds_..."
+    ),
+    "ema": (
+        "Input: close. Exponential moving average with smoothing 2/(length+1) "
+        "(default length 10). Output column: ema_{length}."
+    ),
+    "sma": (
+        "Input: close. Simple mean of the last length closes (default 10). "
+        "Output column: sma_{length}."
+    ),
+    "atr": (
+        "Inputs: high, low, close. True range is max(high-low, |high-prev_close|, "
+        "|low-prev_close|); ATR is a Wilder/RMA of true range over length "
+        "(default 14). Output column: atr_{length}."
+    ),
+    "bbands": (
+        "Input: close. Middle band = SMA(length, default 20); upper/lower = middle "
+        "± stdev_multiplier * rolling standard deviation (default 2). "
+        "Output columns: bbl_{length}_{std}, bbm_..., bbu_..."
+    ),
+}
+
+
+def _backend_calculation_reference(name: str) -> str:
+    from importlib import metadata as importlib_metadata
+
+    version = None
+    try:
+        version = importlib_metadata.version("pandas-ta-classic")
+    except importlib_metadata.PackageNotFoundError:
+        version = None
+    library = "pandas-ta-classic"
+    version_text = f" {version}" if version else ""
+    return (
+        f"See {library}{version_text} documentation for {name}. "
+        "Indicator values can differ when TA-Lib is installed."
+    )
+
+
 _CATEGORY_TRADING_CONTEXT: Dict[str, Dict[str, Any]] = {
     "momentum": {
         "common_use": "momentum, reversal, and divergence checks",
@@ -431,6 +479,10 @@ def _build_indicator_documentation(target: Dict[str, Any]) -> Dict[str, Any]:
         params_out.append(p)
 
     calc_text = _join_doc_lines(sections.get("calculation", [])) or None
+    if not calc_text:
+        calc_text = _CURATED_INDICATOR_CALCULATIONS.get(name.strip().lower())
+    if not calc_text:
+        calc_text = _backend_calculation_reference(name)
     interp_text = _extract_interpretation(sections)
     sources = []
     for item in sections.get("sources", []):

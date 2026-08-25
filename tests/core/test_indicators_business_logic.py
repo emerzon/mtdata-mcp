@@ -104,3 +104,39 @@ def test_indicators_list_discloses_trading_style_filter_basis(monkeypatch):
     assert "not an indicator-specific recommendation" in rows["coppock"][
         "trading_context"
     ]["trading_styles_note"]
+
+
+def test_indicators_describe_rsi_and_macd_include_calculation(monkeypatch):
+    monkeypatch.setattr(
+        core_indicators,
+        "_list_ta_indicators",
+        lambda detailed=False: [
+            {"name": "rsi", "category": "momentum", "description": "", "params": []},
+            {"name": "macd", "category": "momentum", "description": "", "params": []},
+            {"name": "obscure_tail", "category": "statistics", "description": "", "params": []},
+        ],
+    )
+    raw = _unwrap(core_indicators.indicators_describe)
+
+    rsi = raw("rsi", detail="full")
+    macd = raw("macd", detail="full")
+    tail = raw("obscure_tail", detail="full")
+
+    assert rsi["indicator"]["documentation"]["calculation"]
+    assert "avg_gain" in rsi["indicator"]["documentation"]["calculation"]
+    assert macd["indicator"]["documentation"]["calculation"]
+    assert "EMA" in macd["indicator"]["documentation"]["calculation"]
+    assert "pandas-ta-classic" in tail["indicator"]["documentation"]["calculation"]
+
+
+def test_indicator_engine_provenance_is_compact():
+    from mtdata.utils.indicators import indicator_engine_provenance
+
+    provenance = indicator_engine_provenance()
+    assert provenance["pandas_ta"]["name"] == "pandas-ta-classic"
+    assert "version" in provenance["pandas_ta"]
+    assert "available" in provenance["talib"]
+    assert provenance["effective_backend"] in {
+        "pandas-ta-classic",
+        "pandas-ta-classic+talib",
+    }
