@@ -896,7 +896,11 @@ def _apply_range_limit_cap(
     else:
         result["range_incomplete_reason"] = "limit"
     if available > limit_value:
-        result["truncation"]["excluded_count"] = available - len(retained)
+        result["truncation"]["excluded_count"] = (
+            None
+            if query.get("provider_end_bounded")
+            else available - len(retained)
+        )
         retained_label = "earliest" if start_anchored else "latest"
         if query.get("provider_end_bounded"):
             warning = (
@@ -1183,6 +1187,7 @@ def _compact_candles_payload(
     for key in (
         "query_type",
         "freshness",
+        "freshness_applicability",
         "data_age_seconds",
         "data_stale",
         "history_policy_ok",
@@ -1437,6 +1442,7 @@ def _standard_candles_payload(result: Dict[str, Any]) -> Dict[str, Any]:
     for key in (
         "query_type",
         "freshness",
+        "freshness_applicability",
         "data_stale",
         "history_policy_ok",
         "usable_for_live_trading",
@@ -1471,6 +1477,7 @@ def _attach_candle_machine_freshness(payload: Dict[str, Any]) -> None:
     public_diagnostics = _public_candle_diagnostics(payload)
     for key in (
         "query_type",
+        "freshness_applicability",
         "data_age_seconds",
         "data_stale",
         "history_policy_ok",
@@ -1606,6 +1613,23 @@ def _candle_summary_statistics(rows: List[Any]) -> Dict[str, Any]:
     return stats
 
 
+def _is_paginated_historical_candle_page(
+    result: Dict[str, Any],
+    query_mode: Any,
+) -> bool:
+    """True for a start-anchored page that is not the live tail."""
+    if query_mode != "range":
+        return False
+    query_applied = result.get("query_applied")
+    if not isinstance(query_applied, dict):
+        return False
+    if query_applied.get("selection") != "first_n":
+        return False
+    pagination = result.get("pagination")
+    has_more = isinstance(pagination, dict) and pagination.get("has_more") is True
+    return has_more or bool(result.get("truncated"))
+
+
 def _public_candle_diagnostics(result: Dict[str, Any]) -> Dict[str, Any]:  # noqa: C901
     meta = result.get("meta")
     diagnostics = meta.get("diagnostics") if isinstance(meta, dict) else None
@@ -1664,8 +1688,14 @@ def _public_candle_diagnostics(result: Dict[str, Any]) -> Dict[str, Any]:  # noq
     freshness = diagnostics.get("freshness")
     if isinstance(freshness, dict):
         public["freshness_basis"] = "bar_policy"
+        historical_page = _is_paginated_historical_candle_page(result, query_mode)
+        if historical_page:
+            public["freshness_applicability"] = "historical_page"
         within_policy = freshness.get("last_bar_within_policy_window")
-        if freshness.get("last_bar_within_policy_window") is not None:
+        if (
+            not historical_page
+            and freshness.get("last_bar_within_policy_window") is not None
+        ):
             public["last_bar_within_policy_window"] = bool(
                 freshness["last_bar_within_policy_window"]
             )
@@ -1719,45 +1749,46 @@ def _public_candle_diagnostics(result: Dict[str, Any]) -> Dict[str, Any]:  # noq
             age_text = _format_age_seconds(seconds)
             if age_text is not None:
                 public["data_age"] = age_text
-            relaxed_policy = normalize_policy_relaxed(
-                freshness.get("freshness_policy_relaxed")
-            )
-            if relaxed_policy:
-                public["market_status"] = (
-                    freshness.get("market_session_status") or "closed_or_idle"
+            if not historical_page:
+                relaxed_policy = normalize_policy_relaxed(
+                    freshness.get("freshness_policy_relaxed")
                 )
-                if freshness.get("market_session_reason"):
-                    public["market_status_reason"] = freshness[
-                        "market_session_reason"
-                    ]
-                if freshness.get("market_session_source"):
-                    public["market_status_source"] = freshness[
-                        "market_session_source"
-                    ]
-                note = freshness.get("freshness_note")
-                if note:
-                    public["note"] = note
-            stale = (
-                within_policy is not None
-                and not bool(within_policy)
-            )
-            history_policy_ok = not stale and not relaxed_policy
-            public["history_policy_ok"] = history_policy_ok
-            public["data_stale"] = stale
-            freshness_label = format_freshness_label(
-                data_stale=stale,
-                market_status=public.get("market_status"),
-                market_status_reason=public.get("market_status_reason"),
-                age_seconds=seconds,
-                item="bar",
-            )
-            if freshness_label:
-                public["freshness"] = freshness_label
-            if stale:
-                public["stale_warning"] = (
-                    "Latest completed candle is outside the freshness policy window; "
-                    "market may be closed or broker data may be stale."
+                if relaxed_policy:
+                    public["market_status"] = (
+                        freshness.get("market_session_status") or "closed_or_idle"
+                    )
+                    if freshness.get("market_session_reason"):
+                        public["market_status_reason"] = freshness[
+                            "market_session_reason"
+                        ]
+                    if freshness.get("market_session_source"):
+                        public["market_status_source"] = freshness[
+                            "market_session_source"
+                        ]
+                    note = freshness.get("freshness_note")
+                    if note:
+                        public["note"] = note
+                stale = (
+                    within_policy is not None
+                    and not bool(within_policy)
                 )
+                history_policy_ok = not stale and not relaxed_policy
+                public["history_policy_ok"] = history_policy_ok
+                public["data_stale"] = stale
+                freshness_label = format_freshness_label(
+                    data_stale=stale,
+                    market_status=public.get("market_status"),
+                    market_status_reason=public.get("market_status_reason"),
+                    age_seconds=seconds,
+                    item="bar",
+                )
+                if freshness_label:
+                    public["freshness"] = freshness_label
+                if stale:
+                    public["stale_warning"] = (
+                        "Latest completed candle is outside the freshness policy window; "
+                        "market may be closed or broker data may be stale."
+                    )
     mt5_time_alignment = diagnostics.get("mt5_time_alignment")
     if isinstance(mt5_time_alignment, dict):
         status = str(mt5_time_alignment.get("status") or "").strip().lower()

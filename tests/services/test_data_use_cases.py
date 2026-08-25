@@ -936,6 +936,8 @@ def test_bounded_provider_window_omits_available_count():
 
     assert "available_count" not in result
     assert result["count"] == 5
+    assert result["truncation"]["excluded_count"] is None
+    assert result["pagination"]["total"] is None
     assert "13 bars" not in " ".join(result.get("warnings") or [])
 
 
@@ -1130,6 +1132,7 @@ def test_incomplete_candle_prefix_larger_than_page_uses_unknown_total():
     assert result["pagination"]["total"] is None
     assert result["pagination"]["total_lower_bound"] == 3
     assert result["pagination"]["more_available"] is None
+    assert result["truncation"]["excluded_count"] is None
     assert result["pagination"]["next_cursor"]
 
 
@@ -1357,6 +1360,52 @@ def test_range_ending_at_latest_closed_bar_ignores_out_of_range_forming_bar():
     assert result["range_complete"] is True
     assert "range_incomplete_reason" not in result
     assert result["data_window"]["latest_bar_complete"] is True
+
+
+def test_paginated_historical_candle_page_skips_live_tail_stale():
+    rows = [
+        {"time": f"2026-08-19T{hour:02d}:00:00Z", "close": 1.10 + hour * 0.001}
+        for hour in range(10)
+    ]
+    request = DataFetchCandlesRequest(
+        symbol="EURUSD",
+        timeframe="H1",
+        start="2026-08-19T00:00:00Z",
+        end="2026-08-20T18:00:00Z",
+        limit=3,
+    )
+
+    result = run_data_fetch_candles(
+        request,
+        gateway=SimpleNamespace(ensure_connection=lambda: None),
+        fetch_candles_impl=lambda **_kwargs: {
+            "success": True,
+            "data": rows,
+            "meta": {
+                "diagnostics": {
+                    "query": {
+                        "mode": "range",
+                        "provider_end_bounded": True,
+                    },
+                    "freshness": {
+                        "data_freshness_seconds": 48_000.0,
+                        "last_bar_within_policy_window": False,
+                        "data_freshness_anchor": "wall_clock",
+                        "data_freshness_metric": "last_completed_bar_age_seconds",
+                    },
+                }
+            },
+        },
+    )
+
+    assert result["data"] == rows[:3]
+    assert result["pagination"]["has_more"] is True
+    assert result["freshness_applicability"] == "historical_page"
+    assert result["data_age_seconds"] == 48_000.0
+    assert "data_stale" not in result
+    assert "history_policy_ok" not in result
+    assert "stale_warning" not in result
+    assert result.get("freshness") in (None, result.get("data_age"))
 
 
 def test_live_calendar_range_separates_bar_age_from_query_end_gap():
