@@ -48,7 +48,7 @@ def test_equal_timestamp_few_point_disagreement_stays_live_usable() -> None:
     conflict = {
         "reason": "equal_timestamp_bid_ask_disagreement",
         "symbol_info_tick": {"bid": 1.15665, "ask": 1.15674},
-        "stream_tick": {"bid": 1.15669, "ask": 1.15670},
+        "stream_tick": {"bid": 1.15666, "ask": 1.15675},
     }
 
     result = enforce_quote_execution_readiness(
@@ -62,6 +62,26 @@ def test_equal_timestamp_few_point_disagreement_stays_live_usable() -> None:
     assert _quote_source_conflict_is_material(conflict, point=0.00001) is False
     assert result["usable_for_live_trading"] is True
     assert "disagree" in result["warning"]
+
+
+def test_equal_mid_spread_disagreement_marks_quote_unusable() -> None:
+    live = {"usable_for_live_trading": True}
+    conflict = {
+        "reason": "equal_timestamp_bid_ask_disagreement",
+        "symbol_info_tick": {"bid": 1.36312, "ask": 1.36322},
+        "stream_tick": {"bid": 1.36316, "ask": 1.36318},
+    }
+
+    result = enforce_quote_execution_readiness(
+        live,
+        bid=1.36312,
+        ask=1.36322,
+        quote_source_conflict=conflict,
+        point=0.00001,
+    )
+
+    assert _quote_source_conflict_is_material(conflict, point=0.00001) is True
+    assert result["usable_for_live_trading"] is False
 
 
 def test_material_mid_disagreement_marks_quote_unusable() -> None:

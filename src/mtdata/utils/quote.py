@@ -19,6 +19,7 @@ QUOTE_EXECUTION_SOURCE_AGREEMENT_BASIS = (
     "quote_age_market_session_spread_and_source_agreement"
 )
 _MATERIAL_QUOTE_MID_DISAGREEMENT_POINTS = 10.0
+_MATERIAL_QUOTE_SIDE_DISAGREEMENT_POINTS = 6.0
 _SERVER_CLOCK_OFFSET_MATCH_SECONDS = 2.0
 
 
@@ -86,10 +87,37 @@ def _quote_source_conflict_is_material(
             if math.isfinite(spread) and spread > 0:
                 point_value = spread / 10.0
                 break
+
+    def _price(value: Any) -> Optional[float]:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(parsed):
+            return None
+        return parsed
+
+    left_bid = _price(cached.get("bid"))
+    left_ask = _price(cached.get("ask"))
+    right_bid = _price(stream.get("bid"))
+    right_ask = _price(stream.get("ask"))
+    if None in (left_bid, left_ask, right_bid, right_ask):
+        return True
+    left_spread = abs(left_ask - left_bid)
+    right_spread = abs(right_ask - right_bid)
+    mid_gap = abs(left_mid - right_mid)
+    side_gap = max(abs(left_bid - right_bid), abs(left_ask - right_ask))
+    spread_gap = abs(left_spread - right_spread)
     if point_value is None:
-        return abs(left_mid - right_mid) > 0
-    return abs(left_mid - right_mid) >= (
-        _MATERIAL_QUOTE_MID_DISAGREEMENT_POINTS * point_value
+        return mid_gap > 0 or side_gap > 0 or spread_gap > 0
+    mid_points = mid_gap / point_value
+    side_points = side_gap / point_value
+    spread_points = spread_gap / point_value
+    if mid_points >= _MATERIAL_QUOTE_MID_DISAGREEMENT_POINTS:
+        return True
+    return (
+        side_points >= _MATERIAL_QUOTE_SIDE_DISAGREEMENT_POINTS
+        or spread_points >= _MATERIAL_QUOTE_SIDE_DISAGREEMENT_POINTS
     )
 
 

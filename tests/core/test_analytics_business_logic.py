@@ -875,6 +875,88 @@ def test_execution_quality_matches_order_and_computes_markout() -> None:
     assert result["window"]["minutes_back_requested"] == 60
     assert result["window"]["minutes_back_effective"] == pytest.approx(60.0)
 
+    compact = analyze_execution_quality(
+        TradeExecutionQualityRequest(
+            minutes_back=60, markout_seconds=[1, 5], detail="compact"
+        ),
+        gateway,
+    )
+    assert "requested_window" not in compact
+    assert "window" in compact
+    assert "pending_time_to_fill_ms" not in compact["summary"]
+    assert "pending_time_to_fill_ms" in compact.get("omitted_metrics", [])
+
+
+def test_execution_quality_does_not_average_unlike_lot_fees() -> None:
+    gateway = FakeGateway()
+    fill_epoch = _now() - 10
+    gateway.orders = [
+        {"ticket": 10, "price_open": 65000.0, "volume_initial": 1.0},
+        {"ticket": 11, "price_open": 250.0, "volume_initial": 50.0},
+    ]
+    gateway.deals = [
+        {
+            "ticket": 20,
+            "order": 10,
+            "symbol": "BTCUSD",
+            "type": 0,
+            "volume": 1.0,
+            "price": 65000.0,
+            "time_msc": fill_epoch * 1000,
+            "commission": -0.02,
+            "fee": 0.0,
+        },
+        {
+            "ticket": 21,
+            "order": 11,
+            "symbol": "TSLA.NAS-24",
+            "type": 0,
+            "volume": 50.0,
+            "price": 250.0,
+            "time_msc": (fill_epoch + 1) * 1000,
+            "commission": -5.0,
+            "fee": 0.0,
+        },
+    ]
+
+    def _symbol_info(symbol):
+        sizes = {"BTCUSD": 1.0, "TSLA.NAS-24": 1.0}
+        return SimpleNamespace(
+            point=0.01,
+            digits=2,
+            volume_min=0.01,
+            volume_max=200.0,
+            volume_step=0.01,
+            trade_contract_size=sizes[symbol],
+            path="CFD",
+        )
+
+    gateway.symbol_info = _symbol_info
+    gateway.symbols_get = lambda: [
+        SimpleNamespace(name="BTCUSD", path="Crypto"),
+        SimpleNamespace(name="TSLA.NAS-24", path="CFD"),
+    ]
+
+    result = analyze_execution_quality(
+        TradeExecutionQualityRequest(
+            minutes_back=60,
+            benchmark="order_price",
+            detail="full",
+        ),
+        gateway,
+    )
+
+    assert "commission_fee_per_lot" not in result["summary"]
+    assert result["summary"]["total_commission_fee"] == pytest.approx(5.02)
+    assert result["summary"]["commission_fee"]["mean"] == pytest.approx(2.51)
+    assert result["summary"]["commission_fee_bps"]["mean"] is not None
+    by_symbol = {row["symbol"]: row for row in result["breakdowns"]["by_symbol"]}
+    assert by_symbol["BTCUSD"]["commission_fee_per_lot"]["mean"] == pytest.approx(0.02)
+    assert by_symbol["TSLA.NAS-24"]["commission_fee_per_lot"]["mean"] == pytest.approx(
+        0.10
+    )
+    assert any("not comparable across symbols" in warning for warning in result["warnings"])
+
 
 def test_execution_quality_empty_explicit_range_retains_analysis_window() -> None:
     result = analyze_execution_quality(
