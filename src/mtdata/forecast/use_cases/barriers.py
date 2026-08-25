@@ -47,12 +47,13 @@ def run_forecast_barrier_prob(
     barrier_closed_form_impl: Any,
 ) -> Dict[str, Any]:
     started_at = time.perf_counter()
-    method_val = normalize_barrier_method(
-        request.method or "hmm_mc",
-        allow_closed_form=True,
+    method_source = "request" if request.method is not None else "auto_for_barrier_kind"
+    requested_method = request.method or (
+        "closed_form" if request.barrier.kind == "single_price" else "mc_gbm_bb"
     )
+    method_val = normalize_barrier_method(requested_method, allow_closed_form=True)
     if method_val is None:
-        method_val = str(request.method or "hmm_mc").lower().strip()
+        method_val = str(requested_method).lower().strip()
     mc_methods = {
         "auto",
         "bootstrap",
@@ -144,6 +145,7 @@ def run_forecast_barrier_prob(
             )
             if isinstance(result, dict):
                 result = _annotate_price_currency(result, request.symbol)
+                result["method_source"] = method_source
             result = _attach_analysis_time_window(result, request)
             result = _apply_barrier_prob_detail(result, request)
             log_operation_finish(
@@ -186,6 +188,7 @@ def run_forecast_barrier_prob(
             )
             if isinstance(result, dict):
                 result = _annotate_price_currency(result, request.symbol)
+                result["method_source"] = method_source
             result = _attach_analysis_time_window(result, request)
             result = _apply_barrier_prob_detail(result, request)
             log_operation_finish(

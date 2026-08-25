@@ -538,8 +538,8 @@ def test_forecast_generate_defaults_to_compact_payload(monkeypatch):
         "reason": "ci_alpha was not requested; direction is based on the point estimate only.",
         "recommended_tool": "forecast_conformal_intervals",
     }
-    assert out["trust_level"] == "adequate"
-    assert "trust_blockers" not in out
+    assert out["trust_level"] == "degraded"
+    assert out["trust_blockers"] == ["forecast_uncertainty_not_available"]
     assert out["units"]["forecast_vs_last_price.*_delta_pct"] == (
         "percent (1.0 = 1%)"
     )
@@ -3966,8 +3966,28 @@ def test_forecast_tune_genetic_and_barrier_prob_routing(monkeypatch):
     )
     assert out["kind"] == "mc"
     assert out["method"] == "auto"
+    assert out["method_source"] == "request"
     assert out["direction"] == "short"
     assert out["detail"] == "compact"
+
+    out = raw_barrier(
+        request=ForecastBarrierProbRequest(
+            symbol="EURUSD",
+            barrier={"kind": "tp_sl", "unit": "price", "take_profit": 1.2, "stop_loss": 1.1},
+        )
+    )
+    assert out["kind"] == "mc"
+    assert out["method"] == "mc_gbm_bb"
+    assert out["method_source"] == "auto_for_barrier_kind"
+
+    out = raw_barrier(
+        request=ForecastBarrierProbRequest(
+            symbol="EURUSD",
+            barrier={"kind": "single_price", "level": 1.2},
+        )
+    )
+    assert out["kind"] == "cf"
+    assert out["method_source"] == "auto_for_barrier_kind"
 
     with pytest.raises(ValidationError, match="direction"):
         ForecastBarrierProbRequest(

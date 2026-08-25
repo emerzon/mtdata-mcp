@@ -74,10 +74,19 @@ def test_forecast_barrier_prob_accepts_numeric_barrier_as_single_price():
     assert request.barrier_level == 1.18
 
 
-def test_forecast_barrier_prob_request_defaults_to_touch_aware_method():
+def test_forecast_barrier_prob_request_defers_method_to_barrier_kind():
     request = ForecastBarrierProbRequest(symbol="EURUSD", barrier=_tp_sl_barrier())
 
-    assert request.method == "mc_gbm_bb"
+    assert request.method is None
+
+
+def test_forecast_barrier_prob_request_defaults_single_price_to_closed_form():
+    request = ForecastBarrierProbRequest(
+        symbol="EURUSD",
+        barrier={"kind": "single_price", "price": 1.18},
+    )
+
+    assert request.method is None
 
 
 def test_forecast_barrier_prob_request_uses_tick_fields_as_canonical_names():

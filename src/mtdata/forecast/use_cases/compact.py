@@ -768,7 +768,7 @@ def _annotate_forecast_generate_quality(payload: Dict[str, Any]) -> Dict[str, An
     if out.get("history_policy_ok") is False:
         trust_blockers.append("history_freshness_policy_not_met")
     ci_status = str(out.get("ci_status") or "").strip().lower()
-    if ci_status == "unavailable":
+    if ci_status in {"not_requested", "unavailable"}:
         trust_blockers.append("forecast_uncertainty_not_available")
     if path_flatness:
         trust_blockers.append("non_informative_forecast_path")
@@ -1623,6 +1623,7 @@ def _apply_barrier_prob_detail(
             "symbol_requested",
             "timeframe",
             "method",
+            "method_source",
             "direction",
             "barrier_side",
             "horizon",
@@ -1682,6 +1683,7 @@ def _apply_barrier_prob_detail(
         "symbol_requested",
         "timeframe",
         "method",
+        "method_source",
         "kind",
         "direction",
         "horizon",

@@ -589,10 +589,10 @@ class ForecastBarrierProbRequest(_PublicForecastRequest):
     as_of: Optional[str] = None
     start: Optional[str] = None
     end: Optional[str] = None
-    method: Literal[
+    method: Optional[Literal[
         "auto", "bootstrap", "garch", "heston", "hmm_mc", "jump_diffusion",
         "mc_gbm", "mc_gbm_bb", "closed_form"
-    ] = "mc_gbm_bb"
+    ]] = None
     direction: Literal["long", "short"] = "long"
     same_bar_policy: Literal["sl_first", "tp_first", "neutral"] = "sl_first"
     barrier: ForecastBarrierSpec
@@ -623,9 +623,14 @@ class ForecastBarrierProbRequest(_PublicForecastRequest):
     @model_validator(mode="after")
     def _validate_barrier_kind(self) -> "ForecastBarrierProbRequest":
         validate_as_of_time_window(self.as_of, self.start, self.end)
-        if self.method == "closed_form" and not isinstance(self.barrier, SinglePriceBarrierSpec):
+        effective_method = self.method or (
+            "closed_form"
+            if isinstance(self.barrier, SinglePriceBarrierSpec)
+            else "mc_gbm_bb"
+        )
+        if effective_method == "closed_form" and not isinstance(self.barrier, SinglePriceBarrierSpec):
             raise ValueError("closed_form requires barrier.kind='single_price'")
-        if self.method != "closed_form" and not isinstance(
+        if effective_method != "closed_form" and not isinstance(
             self.barrier, BarrierPairSpec
         ):
             raise ValueError("Monte Carlo methods require barrier.kind='tp_sl'")
