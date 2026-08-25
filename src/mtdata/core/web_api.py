@@ -650,9 +650,17 @@ def list_tools(
 
 
 @api_router.get("/tools/{tool_name}")
-def get_tool(tool_name: str) -> Dict[str, Any]:
+def get_tool(
+    tool_name: str,
+    detail: str = Query("compact"),
+    include_fields: bool = Query(True),
+) -> Dict[str, Any]:
     """Return one tool with parameter field descriptors for the form runner."""
-    return _get_tool_for_webapi(tool_name)
+    return _get_tool_for_webapi(
+        tool_name,
+        detail=detail,
+        include_fields=include_fields,
+    )
 
 
 @api_router.post("/tools/{tool_name}/invoke")

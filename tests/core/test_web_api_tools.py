@@ -370,11 +370,60 @@ class TestWebApiRoutes:
         res = self.client.get("/api/v1/tools/tools_list")
         assert res.status_code == 200
         body = res.json()
-        assert body["tool"]["name"] == "tools_list"
-        schema = body["tool"].get("input_schema")
+        assert body["detail"] == "compact"
+        tool = body["tool"]
+        assert tool["name"] == "tools_list"
+        assert "description" in tool
+        assert "safety" in tool
+        schema = tool.get("input_schema")
         assert isinstance(schema, dict)
         assert {"json", "output_fields"}.issubset(schema["properties"])
         assert "extras" not in schema["properties"]
+        assert "cli" not in tool
+        assert "module" not in tool
+
+    def test_get_tool_detail_levels_and_include_fields(self):
+        compact = self.client.get("/api/v1/tools/data_fetch_candles")
+        standard = self.client.get(
+            "/api/v1/tools/data_fetch_candles",
+            params={"detail": "standard"},
+        )
+        full = self.client.get(
+            "/api/v1/tools/data_fetch_candles",
+            params={"detail": "full"},
+        )
+        without_fields = self.client.get(
+            "/api/v1/tools/data_fetch_candles",
+            params={"include_fields": False},
+        )
+
+        assert compact.status_code == 200
+        assert standard.status_code == 200
+        assert full.status_code == 200
+        assert without_fields.status_code == 200
+
+        compact_tool = compact.json()["tool"]
+        standard_tool = standard.json()["tool"]
+        full_tool = full.json()["tool"]
+        bare_tool = without_fields.json()["tool"]
+
+        assert compact.json()["detail"] == "compact"
+        assert standard.json()["detail"] == "standard"
+        assert full.json()["detail"] == "full"
+        assert {"name", "description", "safety", "input_schema"} <= set(compact_tool)
+        assert "cli" not in compact_tool
+        assert "module" not in compact_tool
+        assert "parameters" in standard_tool
+        assert "cli" not in standard_tool
+        assert "cli" in full_tool
+        assert "module" in full_tool
+        assert "parameters" in full_tool
+        assert "input_schema" not in bare_tool
+        assert "cli" not in bare_tool
+
+        compact_size = len(json.dumps(compact.json(), sort_keys=True))
+        full_size = len(json.dumps(full.json(), sort_keys=True))
+        assert compact_size < full_size
 
     def test_invoke_route(self):
         res = self.client.post(

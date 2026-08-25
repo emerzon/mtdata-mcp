@@ -19,6 +19,7 @@ from ._mcp_tools import (
     filter_tool_catalog_rows,
     get_tool_functions,
     registered_tool_catalog,
+    registered_tool_catalog_entry,
 )
 from .cli.runtime.commands import LIVE_TRADE_MUTATION_TOOLS, LIVE_TRADE_MUTATION_WARNING
 from .execution_logging import infer_result_success
@@ -27,6 +28,7 @@ from .tool_calling import resolve_sync_tool_result, unwrap_tool_callable
 from .web_api_handlers import _http_error, _http_status_for_error
 
 logger = logging.getLogger(__name__)
+_CATALOG_DETAILS = frozenset({"compact", "standard", "full"})
 
 # Account / store mutations that must never be one-click unguarded from the SPA.
 MUTATING_TOOLS: frozenset[str] = frozenset(
@@ -227,6 +229,11 @@ def tool_safety_meta(name: str) -> Dict[str, Any]:
     return meta
 
 
+def _catalog_detail_mode(detail: str, *, default: str) -> str:
+    requested = str(detail or default).strip().lower()
+    return requested if requested in _CATALOG_DETAILS else default
+
+
 def _enrich_catalog_row(row: Dict[str, Any], *, include_fields: bool = False) -> Dict[str, Any]:
     name = str(row.get("name") or "")
     out = dict(row)
@@ -245,7 +252,8 @@ def list_tools_for_webapi(
     include_fields: bool = False,
 ) -> Dict[str, Any]:
     ensure_tools_bootstrapped()
-    catalog = registered_tool_catalog(detail=detail if detail in {"compact", "standard", "full"} else "standard")
+    detail_mode = _catalog_detail_mode(detail, default="standard")
+    catalog = registered_tool_catalog(detail=detail_mode)
     tools = catalog.get("tools") if isinstance(catalog, dict) else []
     if not isinstance(tools, list):
         tools = []
@@ -278,25 +286,24 @@ def list_tools_for_webapi(
     }
 
 
-def get_tool_for_webapi(tool_name: str) -> Dict[str, Any]:
+def get_tool_for_webapi(
+    tool_name: str,
+    *,
+    detail: str = "compact",
+    include_fields: bool = True,
+) -> Dict[str, Any]:
     ensure_tools_bootstrapped()
     name = str(tool_name or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="tool_name is required")
 
-    catalog = registered_tool_catalog(detail="full")
-    tools = catalog.get("tools") if isinstance(catalog, dict) else []
-    match = None
-    if isinstance(tools, list):
-        for row in tools:
-            if isinstance(row, dict) and str(row.get("name") or "") == name:
-                match = row
-                break
+    detail_mode = _catalog_detail_mode(detail, default="compact")
+    match = registered_tool_catalog_entry(name, detail=detail_mode)
     if match is None:
         raise HTTPException(status_code=404, detail=f"Unknown tool: {name}")
 
-    enriched = _enrich_catalog_row(match, include_fields=True)
-    return {"success": True, "tool": enriched}
+    enriched = _enrich_catalog_row(match, include_fields=include_fields)
+    return {"success": True, "detail": detail_mode, "tool": enriched}
 
 
 def invoke_tool_for_webapi(

@@ -346,7 +346,10 @@ List registered MCP tools for the Web UI runner (bootstraps the full tool surfac
 - **Response:** tools with `surface` (`dedicated_ui`|`generic_runner`|`intentional_omit`) and `safety` metadata (confirm flags, warnings)
 
 #### `GET /api/tools/{tool_name}`
-Return one tool with parameter field descriptors for the form runner.
+Return one tool for the form runner.
+
+- **Query Params:** `detail` (`compact`|`standard`|`full`, default `compact`), `include_fields` (bool, default `true`)
+- Compact keeps `name`, `description`, `safety`, and the canonical `input_schema` used to build the form. `detail=full` adds CLI bindings, module, and parameter metadata. Set `include_fields=false` to omit `input_schema`.
 
 #### `POST /api/tools/{tool_name}/invoke`
 Invoke a registered tool.

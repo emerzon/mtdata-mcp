@@ -626,12 +626,59 @@ def filter_tool_catalog_rows(
     return filtered
 
 
-def registered_tool_catalog(*, detail: str = "compact") -> Dict[str, Any]:
-    """Return a generated catalog of registered mtdata tools."""
+def _catalog_detail_mode(detail: str, *, default: str = "compact") -> str:
+    requested = str(detail or default).strip().lower()
+    return requested if requested in {"compact", "standard", "full"} else default
+
+
+def _build_registered_catalog_row(name: str, func: Any, *, detail_mode: str) -> Dict[str, Any]:
     from .output_contract import related_tools_for
 
-    requested_detail = str(detail or "compact").strip().lower()
-    detail_mode = requested_detail if requested_detail in {"compact", "standard", "full"} else "compact"
+    category = _tool_catalog_category(name, func)
+    row: Dict[str, Any] = {
+        "name": name,
+        "category": category,
+        "description": _tool_catalog_description(func),
+    }
+    related = related_tools_for(name)
+    if related:
+        row["related_tools"] = related
+    if name == "market_depth_fetch":
+        row.update(_market_depth_fetch_catalog_state())
+    if detail_mode == "standard":
+        row["parameters"] = _tool_catalog_parameters(func)
+    if detail_mode == "full":
+        input_schema = _tool_catalog_input_schema(name, func)
+        cli_contract = _tool_catalog_cli_contract(name, func, input_schema)
+        row["schema_version"] = _TOOL_CATALOG_SCHEMA_VERSION
+        row["input_schema"] = input_schema
+        row["cli"] = cli_contract
+        row["parameters"] = _tool_catalog_full_parameters(
+            name,
+            input_schema,
+            cli_contract=cli_contract,
+        )
+        row["module"] = str(getattr(func, "__module__", "") or "")
+    return row
+
+
+def registered_tool_catalog_entry(name: str, *, detail: str = "compact") -> Optional[Dict[str, Any]]:
+    """Return one generated catalog row, or None when the tool is unknown."""
+    key = str(name or "").strip()
+    if not key or not _is_public_tool_name(key):
+        return None
+    detail_mode = _catalog_detail_mode(detail)
+    entry = _TOOL_METADATA_REGISTRY.get(key)
+    if entry is not None and entry.function is not _REGISTRY_UNSET:
+        return _build_registered_catalog_row(key, entry.function, detail_mode=detail_mode)
+    if key == "market_depth_fetch":
+        return _market_depth_fetch_catalog_row(detail_mode=detail_mode)
+    return None
+
+
+def registered_tool_catalog(*, detail: str = "compact") -> Dict[str, Any]:
+    """Return a generated catalog of registered mtdata tools."""
+    detail_mode = _catalog_detail_mode(detail)
     tools = []
     categories: Dict[str, List[str]] = {}
     seen: set[str] = set()
@@ -643,32 +690,8 @@ def registered_tool_catalog(*, detail: str = "compact") -> Dict[str, Any]:
         if func is _REGISTRY_UNSET:
             continue
         seen.add(name)
-        category = _tool_catalog_category(name, func)
-        categories.setdefault(category, []).append(name)
-        row: Dict[str, Any] = {
-            "name": name,
-            "category": category,
-            "description": _tool_catalog_description(func),
-        }
-        related = related_tools_for(name)
-        if related:
-            row["related_tools"] = related
-        if name == "market_depth_fetch":
-            row.update(_market_depth_fetch_catalog_state())
-        if detail_mode == "standard":
-            row["parameters"] = _tool_catalog_parameters(func)
-        if detail_mode == "full":
-            input_schema = _tool_catalog_input_schema(name, func)
-            cli_contract = _tool_catalog_cli_contract(name, func, input_schema)
-            row["schema_version"] = _TOOL_CATALOG_SCHEMA_VERSION
-            row["input_schema"] = input_schema
-            row["cli"] = cli_contract
-            row["parameters"] = _tool_catalog_full_parameters(
-                name,
-                input_schema,
-                cli_contract=cli_contract,
-            )
-            row["module"] = str(getattr(func, "__module__", "") or "")
+        row = _build_registered_catalog_row(name, func, detail_mode=detail_mode)
+        categories.setdefault(str(row.get("category") or "other"), []).append(name)
         tools.append(row)
     if "market_depth_fetch" not in seen:
         row = _market_depth_fetch_catalog_row(detail_mode=detail_mode)
