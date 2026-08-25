@@ -22,6 +22,7 @@ from ..utils.utils import (
     _parse_end_datetime,
     _parse_start_datetime,
     _positive_float_attr,
+    validate_historical_range,
 )
 from ..utils.volume_profile import (
     VolumeProfileConfig,
@@ -1029,6 +1030,9 @@ def compute_volume_profile_payload(
             ),
             "code": "volume_profile_conflicting_window_selectors",
         }
+    range_error = validate_historical_range(start, end)
+    if range_error is not None:
+        return range_error
     try:
         value_area_value = float(value_area_pct)
     except (TypeError, ValueError):
