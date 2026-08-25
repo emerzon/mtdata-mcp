@@ -32,13 +32,32 @@ mtdata-cli patterns_detect EURUSD --timeframe H1 --mode candlestick --lookback 2
 ```
 
 **Output:**
+```json
+{
+  "success": true,
+  "symbol": "EURUSD",
+  "timeframe": "H1",
+  "lookback": 200,
+  "mode": "candlestick",
+  "n_patterns": 29,
+  "patterns_shown": 3,
+  "pattern_status": "bullish",
+  "pattern_confidence": 0.84,
+  "top_patterns": [
+    {
+      "name": "Bullish Engulfing",
+      "direction": "bullish",
+      "match_score": 0.84,
+      "time": "2025-12-22 10:00"
+    }
+  ]
+}
 ```
-data[29]{time,pattern}:
-    "2025-12-18 12:00",Bullish INSIDE
-    "2025-12-19 05:00",Bearish ENGULFING
-    "2025-12-22 10:00",Bearish ENGULFING
-    ...
-```
+
+Compact output ranks the recent candidates in `top_patterns` and reports the
+aggregate `pattern_status`. The exact rows and optional status fields depend on
+the detector result. Use `--detail full` when you need every surviving pattern
+row rather than the compact preview.
 
 **Filter to the curated robust pattern subset:**
 ```bash
@@ -157,7 +176,7 @@ use `--include-completed true` to include broken levels as well.
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `--mode` | `candlestick` | Pattern type: all, candlestick, classic, harmonic, fractal, elliott |
-| `--limit` | 150 | Bars to analyze |
+| `--lookback` | 150 | Historical bars fetched for pattern analysis |
 | `--robust-only` | false | Restrict detection to a curated subset of established multi-bar candlestick types. This is a name preset, not a confidence threshold. |
 | `--whitelist` | — | Comma-separated list of specific patterns |
 | `--min-strength` | 0.70 | Minimum OHLC-geometry and pattern-reliability strength score (0.0-1.0) |
