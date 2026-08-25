@@ -46,11 +46,11 @@ from mtdata.core.analytics_requests import (
 @pytest.mark.parametrize(
     ("strategy", "expected"),
     [
-        ("sma_cross", [0.0, 0.0, 1.0, 0.0, -1.0]),
-        ("ema_cross", [0.0, 0.0, 1.0, -1.0, 0.0]),
+        ("sma_cross_event", [0.0, 0.0, 1.0, 0.0, -1.0]),
+        ("ema_cross_event", [0.0, 0.0, 1.0, -1.0, 0.0]),
     ],
 )
-def test_builtin_ma_cross_signals_only_on_cross_events(
+def test_builtin_ma_cross_event_signals_only_on_cross_events(
     strategy: str,
     expected: list[float],
 ) -> None:
@@ -66,6 +66,25 @@ def test_builtin_ma_cross_signals_only_on_cross_events(
 
     assert signal.iloc[:2].isna().all()
     assert signal.iloc[2:].tolist() == expected
+
+
+@pytest.mark.parametrize("strategy", ["sma_cross", "ema_cross"])
+def test_builtin_ma_cross_is_always_in_state(strategy: str) -> None:
+    close = pd.Series([3.0, 2.0, 1.0, 2.0, 3.0, 2.0, 1.0])
+    candidate = StrategyCandidate(
+        id="cross",
+        type="builtin_strategy",
+        strategy=strategy,
+        params={"fast_period": 2, "slow_period": 3},
+    )
+
+    signal = _builtin_signal(close, candidate)
+
+    assert signal.iloc[:2].isna().all()
+    finite = signal.iloc[2:]
+    assert set(finite.dropna().unique()).issubset({-1.0, 0.0, 1.0})
+    assert (finite != 0.0).any()
+    assert finite.abs().sum() > 1.0
 
 
 def test_builtin_rsi_reversion_signals_only_on_zone_entry() -> None:
@@ -1866,6 +1885,12 @@ def test_strategy_validation_returns_walk_forward_oos_metrics() -> None:
     )
     result = validate_strategies(request, gateway)
     assert result["success"] is True
+    selection = result["data_quality"]["history_selection"]
+    assert selection["lookback_bars_requested"] == 400
+    assert selection["fetch_bars_requested"] == 410
+    assert selection["outcome_tail_bars"] == 5
+    assert selection["warmup_bars"] == 5
+    assert selection["evaluation_bars"] == selection["fetch_bars"] - 10
     assert result["validation"]["outcome_horizon_bars"] == 5
     assert result["validation"]["extra_purge_bars"] == 0
     assert result["validation"]["protocol"] == "anchored_expanding_fixed_candidate_oos"
@@ -1882,7 +1907,7 @@ def test_strategy_validation_returns_walk_forward_oos_metrics() -> None:
     assert candidate["folds_evaluated"] == 2
     assert candidate["folds_requested"] == 3
     assert candidate["skipped_folds"][0]["reason"] == "insufficient_training_trades"
-    assert candidate["signal_definition"] == "cross_event"
+    assert candidate["signal_definition"] == "state_reversal"
     assert candidate["evidence"]["criteria"]["cost_model_complete"] is True
     assert candidate["evidence"]["provisional_positive_before_complete_costs"] is False
     assert "calibration" not in candidate
@@ -1976,6 +2001,10 @@ def test_strategy_validation_explicit_range_is_not_tailed_to_lookback() -> None:
     assert selection["mode"] == "explicit_range"
     assert selection["lookback_bars_requested"] == 200
     assert selection["lookback_applied"] is False
+    assert selection["fetch_bars"] == len(rows) - 1
+    assert selection["evaluation_bars"] == len(rows) - 1
+    assert selection["outcome_tail_bars"] == 1
+    assert selection["warmup_bars"] == 0
     assert selection["bars_used"] == len(rows) - 1
     assert selection["requested_start"] == start
     assert selection["requested_end"] == end
@@ -2025,7 +2054,7 @@ def test_strategy_validation_marks_skipped_requested_folds_partial(
             {
                 "id": "partial-cross",
                 "type": "builtin_strategy",
-                "strategy": "sma_cross",
+                "strategy": "sma_cross_event",
                 "params": {"fast_period": 5, "slow_period": 20},
             }
         ],
@@ -3092,12 +3121,17 @@ def test_relative_strength_ranks_and_reports_breadth() -> None:
     assert {
         row["symbol"] for row in result["leaders"]
     }.isdisjoint(row["symbol"] for row in result["laggards"])
-    assert result["leaders"][0]["score"] >= result["leaders"][-1]["score"]
+    assert result["leaders"][0]["rank"] <= result["leaders"][-1]["rank"]
+    assert all("score" not in row for row in result["leaders"])
     assert set(result["breadth"]["positive_by_horizon"]) == {"5", "20"}
     assert result["universe_size"] == 3
     assert result["rank_quality"] == "illustrative_small_universe"
+    assert result["universe_sensitivity"]["status"] == "small_universe"
+    assert result["universe_sensitivity"]["standardized_scores"] == "withheld"
+    assert result["score_definition"]["method"] == "rank_only_small_universe"
     assert result["score_definition"]["weights"] == [0.4, 0.6]
     assert all("rank_percentile" not in row for row in result["leaders"])
+    assert any("standardized z-scores were withheld" in warning for warning in result["warnings"])
     first_row = [*result["leaders"], *result["laggards"]][0]
     expected_spread_pct = (1.1001 - 1.0999) / 1.1 * 100.0
     assert first_row["spread_pct"] == pytest.approx(expected_spread_pct)

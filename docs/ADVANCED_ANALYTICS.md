@@ -131,11 +131,21 @@ unique within the request, and remain the stable correlation key after ranking.
 Every ranking also echoes the concrete built-in strategy or forecast method;
 full detail includes the effective parameters after defaults are applied.
 
-Built-in `sma_cross` and `ema_cross` candidates enter only on fast/slow moving-
-average cross events; `rsi_reversion` enters only when RSI crosses into an
-oversold or overbought zone. Flat bars do not create periodic re-entries.
-Each ranking exposes this contract in `signal_definition` (`cross_event`,
-`zone_entry_event`, or `forecast_threshold_anchor`).
+Built-in `sma_cross` and `ema_cross` use the same always-in state/reversal
+contract as `strategy_backtest`: the position is long while the fast average
+is above the slow average, short while it is below, and a reverse cross exits
+then immediately enters the opposite side. Barrier `tp_pct`/`sl_pct` do not
+apply to these named strategies. For the older one-bar cross event plus
+horizon barrier, use `sma_cross_event` or `ema_cross_event`.
+`rsi_reversion` still enters only when RSI crosses into an oversold or
+overbought zone. Each ranking exposes this contract in `signal_definition`
+(`state_reversal`, `cross_event`, `zone_entry_event`, or
+`forecast_threshold_anchor`).
+
+Lookback accounting reports `evaluation_bars`, `warmup_bars`,
+`outcome_tail_bars`, and `fetch_bars` separately. Fetching
+`lookback + horizon + 5` bars does not mean 217 evaluation bars were requested
+when `lookback=200`.
 
 Forecast-threshold candidates execute at most the latest 200 eligible forecast
 anchors to keep validation bounded. Their folds partition that computed signal
@@ -195,8 +205,11 @@ horizon marginal volatilities. Opposing sensitivities therefore offset.
 
 `market_relative_strength` ranks a bounded MT5 universe with volatility-scaled,
 factor-adjusted momentum across several horizons. It also reports breadth,
-rank stability, live spread, per-symbol bar/alignment windows, and data-coverage
-exclusions. `limit` is a global output cap split between the strongest and
+temporal rank stability, live spread, per-symbol bar/alignment windows, and
+data-coverage exclusions. Standardized robust z-scores and rank percentiles
+require at least 10 scored symbols; smaller universes keep ordinal ranks,
+withhold unbounded z-scores, and add a `universe_sensitivity` warning.
+`limit` is a global output cap split between the strongest and
 weakest tails; odd limits assign the extra row to leaders. Full detail exposes
 the same bounded selection as `rankings`, not an unbounded universe dump.
 Ranking membership is based on completed-bar history; a stale or closed-session

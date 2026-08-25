@@ -30,6 +30,8 @@ from .engine_common import (
     _rates,
 )
 
+_MIN_UNIVERSE_FOR_STANDARDIZED_SCORE = 10
+
 
 def _robust_z(values: pd.Series) -> pd.Series:
     if values.empty:
@@ -243,7 +245,7 @@ def _project_relative_strength_row(
         return out
 
     for key in (
-        "rank_stability",
+        "temporal_rank_stability",
         "raw_momentum",
         "residual_momentum",
         "spread_pct",
@@ -609,10 +611,13 @@ def rank_relative_strength(  # noqa: C901
             }
         )
     row_by_symbol = {row["symbol"]: row for row in rows}
+    standardized_universe = (
+        not pairwise_mode and len(row_by_symbol) >= _MIN_UNIVERSE_FOR_STANDARDIZED_SCORE
+    )
     composite = pd.Series(0.0, index=list(row_by_symbol), dtype=float)
     for horizon, weight in zip(request.horizons, request.weights):
         values = pd.Series({symbol: value for symbol, value in score_parts[horizon].items() if symbol in row_by_symbol}, dtype=float)
-        score_values = values if pairwise_mode else _robust_z(values)
+        score_values = values if pairwise_mode or not standardized_universe else _robust_z(values)
         composite = composite.add(score_values * weight, fill_value=0.0)
     ranked = composite.sort_values(ascending=False)
     offset_ranks: Dict[int, Dict[str, int]] = {}
@@ -620,7 +625,7 @@ def rank_relative_strength(  # noqa: C901
         offset_score = pd.Series(0.0, index=list(row_by_symbol), dtype=float)
         for horizon, weight in zip(request.horizons, request.weights):
             values = pd.Series({symbol: value for symbol, value in horizons_data[horizon].items() if symbol in row_by_symbol}, dtype=float)
-            score_values = values if pairwise_mode else _robust_z(values)
+            score_values = values if pairwise_mode or not standardized_universe else _robust_z(values)
             offset_score = offset_score.add(score_values * weight, fill_value=0.0)
         offset_ranks[offset] = {symbol: rank for rank, symbol in enumerate(offset_score.sort_values(ascending=False).index, start=1)}
     score_tie_tolerance = 1e-12
@@ -633,12 +638,16 @@ def rank_relative_strength(  # noqa: C901
         previous_score = numeric_score
         row_by_symbol[symbol]["score"] = float(score)
         row_by_symbol[symbol]["rank"] = shared_rank
-        if len(ranked) >= 10:
+        if len(ranked) >= _MIN_UNIVERSE_FOR_STANDARDIZED_SCORE:
             row_by_symbol[symbol]["rank_percentile"] = float(
                 1.0 - (shared_rank - 1) / max(1, len(ranked) - 1)
             )
         observed_ranks = [mapping[symbol] for mapping in offset_ranks.values() if symbol in mapping]
-        row_by_symbol[symbol]["rank_stability"] = float(max(0.0, 1.0 - np.std(observed_ranks) / max(1.0, len(ranked) - 1)))
+        row_by_symbol[symbol]["temporal_rank_stability"] = float(
+            max(0.0, 1.0 - np.std(observed_ranks) / max(1.0, len(ranked) - 1))
+        )
+        if not pairwise_mode and not standardized_universe:
+            row_by_symbol[symbol].pop("score", None)
     ordered = [row_by_symbol[symbol] for symbol in ranked.index]
     latest_returns = {h: [row["raw_momentum"][str(h)] for row in ordered] for h in request.horizons}
     breadth = {
@@ -827,11 +836,32 @@ def rank_relative_strength(  # noqa: C901
                 "weighted_volatility_scaled_benchmark_residual_momentum"
                 if pairwise_mode
                 else "weighted_robust_z_of_volatility_scaled_residual_momentum"
+                if standardized_universe
+                else "rank_only_small_universe"
             ),
             "horizons_bars": list(request.horizons),
             "weights": list(request.weights),
             "higher_is_stronger": True,
             "score_tie_tolerance": score_tie_tolerance,
+            "min_universe_for_standardized_score": _MIN_UNIVERSE_FOR_STANDARDIZED_SCORE,
+        },
+        "universe_sensitivity": {
+            "status": (
+                "not_applicable_pairwise"
+                if pairwise_mode
+                else "ok"
+                if standardized_universe
+                else "small_universe"
+            ),
+            "universe_size": len(ordered),
+            "min_universe_for_standardized_score": _MIN_UNIVERSE_FOR_STANDARDIZED_SCORE,
+            "standardized_scores": (
+                "not_applicable_pairwise"
+                if pairwise_mode
+                else "published"
+                if standardized_universe
+                else "withheld"
+            ),
         },
         "leaders": published_leaders,
         "laggards": published_laggards,
@@ -871,8 +901,10 @@ def rank_relative_strength(  # noqa: C901
                 "volatility_scaled_residual_momentum"
                 if pairwise_mode
                 else "robust_z_composite"
+                if standardized_universe
+                else "withheld_small_universe"
             ),
-            "rank_stability": "fraction_0_to_1",
+            "temporal_rank_stability": "fraction_0_to_1",
             "tick_volume": "broker_tick_count",
             "spread_pct": "percent (1.0 = 1%)",
             "breadth.positive_by_horizon": "fraction_0_to_1",
@@ -905,6 +937,12 @@ def rank_relative_strength(  # noqa: C901
         result_warnings.append(
             "All composite scores are tied within the score tolerance; no "
             "directional leader or laggard was returned."
+        )
+    elif not pairwise_mode and not standardized_universe and ordered:
+        result_warnings.append(
+            "Universe size is below "
+            f"{_MIN_UNIVERSE_FOR_STANDARDIZED_SCORE}; standardized z-scores "
+            "were withheld because small-sample robust z-scores are unstable."
         )
     quote_not_live = result["data_quality"]["quote_not_live_ready_symbols"]
     if quote_not_live:
