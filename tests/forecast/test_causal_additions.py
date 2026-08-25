@@ -151,11 +151,50 @@ def test_cross_correlation_adjusts_selected_lag_interval(monkeypatch):
 
     assert result["success"] is True
     assert observed["confidence"] == 0.99
-    assert result["best"]["ci95_low"] == -0.01
-    assert result["best"]["ci95_high"] == 0.01
+    assert result["best"]["ci_familywise_low"] == -0.01
+    assert result["best"]["ci_familywise_high"] == 0.01
+    assert result["best"]["ci_familywise_confidence"] == 0.95
+    assert result["best"]["ci_per_lag_confidence"] == 0.99
     assert "ci_low" not in result["best"]
     assert "ci_high" not in result["best"]
     assert result["best"]["significant"] is False
+
+
+def test_cross_correlation_suppresses_boundary_lead_lag_inference(monkeypatch):
+    rng = np.random.default_rng(14)
+    left = rng.normal(size=300)
+    right = np.concatenate([np.zeros(3), left[:-3]])
+    index = pd.date_range("2025-01-01", periods=300, freq="h")
+    series = {
+        "LEFT": pd.Series(left, index=index),
+        "RIGHT": pd.Series(right, index=index),
+    }
+    monkeypatch.setattr(cross, "_causal_connection_error", lambda: None)
+    monkeypatch.setattr(
+        cross,
+        "_fetch_series_for_window",
+        lambda symbol, *args, **kwargs: (series[symbol], None),
+    )
+    monkeypatch.setattr(
+        cross,
+        "_block_bootstrap_correlation_ci",
+        lambda *args, **kwargs: (0.5, 1.0),
+    )
+
+    result = _raw(causal.cross_correlation)(
+        symbols="LEFT,RIGHT",
+        transform="diff",
+        max_lag=3,
+        min_overlap=50,
+    )
+
+    assert result["success"] is True
+    assert result["best"]["lag"] == 3
+    assert result["best"]["lag_search_boundary_hit"] is True
+    assert result["best"]["inference_valid"] is False
+    assert result["best"]["leader"] is None
+    assert result["best"]["follower"] is None
+    assert any("search boundary" in warning for warning in result["warnings"])
 
 
 def test_cross_correlation_reports_resolved_aligned_window(monkeypatch):

@@ -325,11 +325,15 @@ def cross_correlation(  # noqa: C901
         best_item = dict(best)
         inference_supported = transform_value in {"log_return", "pct", "diff"}
         best_item.update(_lead_lag_roles(int(best["lag"]), symbol_list[0], symbol_list[1]))
+        best_boundary_hit = abs(int(best["lag"])) == int(max_lag)
+        best_item["lag_search_boundary_hit"] = best_boundary_hit
         if inference_supported:
             best_item.update(
                 {
-                    "ci95_low": round(ci_low, 6) if ci_low is not None else None,
-                    "ci95_high": round(ci_high, 6) if ci_high is not None else None,
+                    "ci_familywise_low": round(ci_low, 6) if ci_low is not None else None,
+                    "ci_familywise_high": round(ci_high, 6) if ci_high is not None else None,
+                    "ci_familywise_confidence": familywise_confidence,
+                    "ci_per_lag_confidence": round(per_lag_confidence, 8),
                     "significant": bool(
                         ci_low is not None
                         and ci_high is not None
@@ -337,6 +341,11 @@ def cross_correlation(  # noqa: C901
                     ),
                 }
             )
+            if best_boundary_hit:
+                best_item["inference_valid"] = False
+                best_item["leader"] = None
+                best_item["follower"] = None
+                best_item["selection"] = "lag_search_boundary"
         else:
             best_item["inference_valid"] = False
         zero_lag = next((dict(row) for row in rows if int(row["lag"]) == 0), None)
@@ -347,6 +356,10 @@ def cross_correlation(  # noqa: C901
                 nonzero_rows, key=lambda row: abs(float(row["correlation"]))
             )
             best_nonzero = dict(best_nonzero_row)
+            nonzero_boundary_hit = (
+                abs(int(best_nonzero_row["lag"])) == int(max_lag)
+            )
+            best_nonzero["lag_search_boundary_hit"] = nonzero_boundary_hit
             nz_left, nz_right = _lagged_pair_values(
                 left_values,
                 right_values,
@@ -368,12 +381,14 @@ def cross_correlation(  # noqa: C901
                 )
                 best_nonzero.update(
                     {
-                        "ci95_low": round(nz_low, 6) if nz_low is not None else None,
-                        "ci95_high": round(nz_high, 6) if nz_high is not None else None,
+                        "ci_familywise_low": round(nz_low, 6) if nz_low is not None else None,
+                        "ci_familywise_high": round(nz_high, 6) if nz_high is not None else None,
+                        "ci_familywise_confidence": familywise_confidence,
+                        "ci_per_lag_confidence": round(per_lag_confidence, 8),
                         "significant": significant,
                     }
                 )
-                if significant:
+                if significant and not nonzero_boundary_hit:
                     best_nonzero.update(
                         _lead_lag_roles(
                             int(best_nonzero_row["lag"]),
@@ -382,9 +397,15 @@ def cross_correlation(  # noqa: C901
                         )
                     )
                 else:
+                    if nonzero_boundary_hit:
+                        best_nonzero["inference_valid"] = False
                     best_nonzero["leader"] = None
                     best_nonzero["follower"] = None
-                    best_nonzero["selection"] = "largest_observed_nonzero_lag"
+                    best_nonzero["selection"] = (
+                        "lag_search_boundary"
+                        if nonzero_boundary_hit
+                        else "largest_observed_nonzero_lag"
+                    )
             else:
                 best_nonzero["inference_valid"] = False
                 best_nonzero["leader"] = None
@@ -431,6 +452,17 @@ def cross_correlation(  # noqa: C901
                 "Correlation confidence intervals are suppressed for price-level "
                 "transforms; use log_return, pct, or diff for inferential "
                 "lead/lag analysis."
+            )
+        boundary_rows = [
+            row
+            for row in (best_item, best_nonzero)
+            if isinstance(row, dict) and row.get("lag_search_boundary_hit") is True
+        ]
+        if boundary_rows:
+            warnings_out.append(
+                "The selected lead/lag optimum is at the max_lag search boundary; "
+                "leader/follower inference is suppressed. Increase max_lag to test "
+                "whether the optimum lies outside the current search range."
             )
         if warnings_out:
             out["warnings"] = warnings_out

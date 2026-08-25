@@ -659,7 +659,7 @@ def cointegration_test(  # noqa: C901
             analysis_family_kind=(
                 "multivariate_symbol_set"
                 if method_value == "johansen"
-                else "undirected_symbol_pairs"
+                else "directed_symbol_pairs"
             ),
         )
         if errors and not series_map:
