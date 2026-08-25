@@ -1034,6 +1034,28 @@ class TestCreateCommandFunction:
             {"name": "macd", "params": {"fast": 12.0, "slow": 26.0, "signal": 9.0}},
         ]
 
+    def test_indicator_string_and_boolean_params_are_accepted(self):
+        atr = DataFetchCandlesRequest(
+            symbol="EURUSD", indicators="atr(length=14,mamode=ema)"
+        )
+        rsi = DataFetchCandlesRequest(
+            symbol="EURUSD",
+            indicators='[{"name":"rsi","params":{"talib":false}}]',
+        )
+        vwap = DataFetchCandlesRequest(
+            symbol="EURUSD", indicators="vwap(anchor=W)"
+        )
+
+        assert atr.indicators == [
+            {"name": "atr", "params": {"length": 14.0, "mamode": "ema"}}
+        ]
+        assert rsi.indicators == [
+            {"name": "rsi", "params": {"talib": False}}
+        ]
+        assert vwap.indicators == [
+            {"name": "vwap", "params": {"anchor": "W"}}
+        ]
+
     def test_indicator_param_comma_syntax_returns_friendly_error(self, capsys):
         mock_fn = MagicMock(return_value={"ok": True})
         func_info = {

@@ -256,6 +256,7 @@ def _run_data_fetch_candles_impl(
         limit=effective_limit if effective_limit is not None else request.limit,
         start=fetch_start,
         end=request.end,
+        range_selection=request.selection,
         ohlcv=request.ohlcv,
         indicators=request.indicators,
         denoise=request.denoise,
@@ -304,7 +305,7 @@ def _run_data_fetch_candles_impl(
                 effective_limit=applied_limit,
                 limit_explicit=limit_explicit,
             )
-        _annotate_empty_candle_result(result)
+        _annotate_empty_candle_result(result, request=request)
         _normalize_candle_count_field(result)
         _prune_zero_candle_exclusions(result)
         if detail_mode == "compact":
@@ -368,9 +369,19 @@ def _attach_candle_data_as_of(payload: Dict[str, Any], *, timeframe: str) -> Non
         close_epoch = bar_close_epoch(open_epoch, timeframe)
     except Exception:
         close_epoch = open_epoch
-    payload["data_as_of"] = format_datetime_utc(
+    scheduled_close = format_datetime_utc(
         datetime.fromtimestamp(float(close_epoch), tz=timezone.utc)
     )
+    if last.get("bar_state") == "forming":
+        payload["scheduled_bar_close"] = scheduled_close
+        retrieval_time = payload.get("as_of")
+        if retrieval_time in (None, ""):
+            retrieval_time = format_datetime_utc(datetime.now(timezone.utc))
+        payload["data_as_of"] = retrieval_time
+        payload["data_as_of_basis"] = "retrieval_time_unverified"
+    else:
+        payload["data_as_of"] = scheduled_close
+        payload["data_as_of_basis"] = "completed_bar_close"
     if payload.get("as_of") not in (None, ""):
         payload.setdefault("as_of_basis", "retrieval_time")
 
@@ -437,22 +448,26 @@ def _attach_forming_candle_update_freshness(
     if bar_open_age_value is not None:
         payload["bar_open_age_seconds"] = round(bar_open_age_value, 3)
         data_window["latest_bar_open_age_seconds"] = round(bar_open_age_value, 3)
-    payload["last_update_age_seconds"] = round(update_age, 3)
+    payload["market_tick_age_seconds"] = round(update_age, 3)
     if bar_open_age_value is not None:
         payload["data_age_seconds"] = round(bar_open_age_value, 3)
         payload["data_age_metric"] = str(
             data_window.get("latest_bar_age_metric") or "latest_bar_open_age_seconds"
         )
     payload["data_age_anchor"] = FRESHNESS_ANCHOR_WALL_CLOCK
-    data_window["latest_bar_update_age_seconds"] = round(update_age, 3)
+    data_window["market_tick_age_seconds"] = round(update_age, 3)
     update_text = _format_age_seconds(update_age)
     if bar_open_age_value is not None:
         payload["freshness"] = (
             f"forming bar open {_format_age_seconds(bar_open_age_value)} ago; "
-            f"last update {update_text} ago"
+            f"market tick {update_text} ago; forming-bar update time unverified"
         )
     else:
-        payload["freshness"] = f"forming bar; last update {update_text} ago"
+        payload["freshness"] = (
+            f"forming bar; market tick {update_text} ago; "
+            "forming-bar update time unverified"
+        )
+    payload["forming_bar_update_verified"] = False
 
 
 def _forming_candle_present(payload: Dict[str, Any]) -> bool:
@@ -703,7 +718,9 @@ def _effective_candle_limit(request: DataFetchCandlesRequest) -> int:
     return limit
 
 
-def _annotate_empty_candle_result(result: Dict[str, Any]) -> None:
+def _annotate_empty_candle_result(
+    result: Dict[str, Any], *, request: DataFetchCandlesRequest
+) -> None:
     if (
         result.get("error")
         or not isinstance(result.get("data"), list)
@@ -720,6 +737,13 @@ def _annotate_empty_candle_result(result: Dict[str, Any]) -> None:
     result.setdefault(
         "empty_reason",
         result.get("range_incomplete_reason") or "no_candles_in_range",
+    )
+    attach_empty_range_weekend_context(
+        result,
+        symbol=request.symbol,
+        start=request.start,
+        end=request.end,
+        item="candles",
     )
 
 
@@ -959,7 +983,7 @@ def _apply_range_limit_cap(  # noqa: C901
         "retained": "first" if start_anchored else "last",
     }
     result["range_complete"] = False
-    if available > limit_value:
+    if available >= limit_value:
         result["range_incomplete_reason"] = "limit"
     elif query.get("provider_end_bounded"):
         result["range_incomplete_reason"] = (
@@ -977,7 +1001,7 @@ def _apply_range_limit_cap(  # noqa: C901
         if query.get("provider_end_bounded"):
             warning = (
                 f"Returned the {retained_label} {len(retained)} bars because "
-                f"limit={limit_value}. Increase limit or continue paging; the "
+                f"limit={limit_value}. Increase limit; the "
                 "remaining range size is not known from this fetch window."
             )
         else:
@@ -1033,6 +1057,9 @@ def _apply_range_limit_cap(  # noqa: C901
         )
         if next_cursor is not None:
             result["pagination"]["next_cursor"] = next_cursor
+    elif retained:
+        result["pagination"]["pagination_supported"] = False
+        result["pagination"]["continuation_direction"] = "reverse"
     result.setdefault("warnings", []).append(warning)
     data_window = result.get("data_window")
     if isinstance(data_window, dict) and retained:

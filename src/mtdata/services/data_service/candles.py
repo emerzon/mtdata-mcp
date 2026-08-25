@@ -393,6 +393,7 @@ def _fetch_rates_with_warmup(  # noqa: C901
     retry: bool = True,
     sanity_check: bool = True,
     diagnostics: Optional[Dict[str, Any]] = None,
+    range_selection: Optional[str] = None,
 ):
     """Fetch MT5 rates with optional warmup, retry, and end-bar sanity checks."""
     extra_bars = 0 if include_incomplete else 1
@@ -459,6 +460,29 @@ def _fetch_rates_with_warmup(  # noqa: C901
             }
 
         def _fetch():
+            if str(range_selection or "").strip().lower() == "last_n":
+                trailing = _mt5_copy_rates_from(
+                    symbol,
+                    mt5_timeframe,
+                    to_date,
+                    requested_rows,
+                )
+                if trailing is None:
+                    return None
+                start_epoch = _utc_epoch_seconds(from_date_internal)
+                filtered = [
+                    row for row in trailing if float(row["time"]) >= start_epoch
+                ]
+                if diagnostics is not None:
+                    diagnostics["range_fetch"].update(
+                        {
+                            "provider_bounded": len(filtered) >= requested_rows,
+                            "provider_end": _format_time_explicit(expected_end_ts),
+                            "provider_end_bounded": True,
+                            "selection_anchor": "end",
+                        }
+                    )
+                return filtered
             candidate_end = min(
                 to_date,
                 from_date_internal + timedelta(seconds=initial_span_seconds),
@@ -1913,6 +1937,7 @@ def fetch_candles(  # noqa: C901
     include_spread: bool = False,
     include_incomplete: bool = False,
     allow_stale: bool = False,
+    range_selection: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Return historical candles as tabular data."""
     try:
@@ -2019,6 +2044,7 @@ def fetch_candles(  # noqa: C901
                 retry=True,
                 sanity_check=not bool(allow_stale) and not historical_bounds_requested,
                 diagnostics=rate_fetch_diagnostics,
+                range_selection=range_selection,
             )
             freshness_diagnostics = rate_fetch_diagnostics.get("freshness")
             time_normalization = describe_mt5_time_normalization(symbol=symbol)
@@ -2192,6 +2218,7 @@ def fetch_candles(  # noqa: C901
                         include_incomplete=include_incomplete,
                         retry=True,
                         sanity_check=not bool(allow_stale) and not historical_bounds_requested,
+                        range_selection=range_selection,
                     )
                     retry_applied = rates_retry is not None and len(rates_retry) > 0
                     warmup_retry_meta = {

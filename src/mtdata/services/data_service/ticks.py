@@ -54,7 +54,7 @@ from ...utils.simplify import (
     _simplify_dataframe_rows_ext,
 )
 from ...utils.tick_flags import is_mt5_trade_event
-from ...utils.time import _format_time_explicit, _resolve_client_tz
+from ...utils.time import _resolve_client_tz, format_epoch_utc
 from ...utils.utils import (
     _format_numeric_rows_from_df,
     _iana_timezone_datetime_issue,
@@ -404,7 +404,11 @@ def _live_tick_spread_reference(
         if context.get("usable_for_live_trading") is True:
             context["freshness_reason"] = "locked_or_invalid_quote"
     freshness = {
-        "reference_time": _format_time_explicit(epoch) if epoch is not None else None,
+        "reference_time": (
+            format_epoch_utc(epoch, timespec="milliseconds")
+            if epoch is not None
+            else None
+        ),
         "reference_time_epoch": epoch,
         "data_age_seconds": context.get("data_age_seconds"),
         "freshness_state": context.get("freshness_state") or "unknown",
@@ -793,8 +797,8 @@ def fetch_ticks(  # noqa: C901
                     max(1, int(TICKS_LOOKBACK_DAYS)), 30
                 )
                 if history_window_floor is not None:
-                    effective_start = _format_time_explicit(
-                        _utc_epoch_seconds(history_window_floor)
+                    effective_start = format_epoch_utc(
+                        _utc_epoch_seconds(history_window_floor), timespec="microseconds"
                     )
                     empty_payload["history_window_floor"] = effective_start
                     empty_payload["effective_start"] = effective_start
@@ -1063,10 +1067,6 @@ def fetch_ticks(  # noqa: C901
         df_ticks["volume_real"] = volumes_real
         df_ticks["flags"] = flags
         df_ticks["trade_event"] = trade_events
-        df_ticks["spread_valid"] = [
-            bid is not None and ask is not None and ask > bid
-            for bid, ask in zip(effective_bids, effective_asks, strict=False)
-        ]
         spread_sample_eligible_flags = [
             eligible
             and bid is not None
@@ -1079,6 +1079,7 @@ def fetch_ticks(  # noqa: C901
                 strict=False,
             )
         ]
+        df_ticks["spread_valid"] = spread_sample_eligible_flags
         df_ticks["spread_sample_eligible"] = spread_sample_eligible_flags
         df_ticks["spread_basis"] = [
             "quote_snapshot" if valid else "unavailable"
@@ -1203,8 +1204,8 @@ def fetch_ticks(  # noqa: C901
                     max(1, int(TICKS_LOOKBACK_DAYS)), 30
                 )
                 if history_window_floor is not None:
-                    effective_start = _format_time_explicit(
-                        _utc_epoch_seconds(history_window_floor)
+                    effective_start = format_epoch_utc(
+                        _utc_epoch_seconds(history_window_floor), timespec="microseconds"
                     )
                     payload["history_window_floor"] = effective_start
                     payload["effective_start"] = effective_start

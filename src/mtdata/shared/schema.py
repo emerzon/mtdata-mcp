@@ -532,7 +532,7 @@ class IndicatorSpec(TypedDict, total=False):
     a named numeric parameter map.
     """
     name: str
-    params: Union[List[float], Dict[str, float]]
+    params: Union[List[Any], Dict[str, Any]]
 
 # ---- Denoising (spec + application) ----
 # Keep in sync with `@register_filter` names plus schema-only `"none"`.

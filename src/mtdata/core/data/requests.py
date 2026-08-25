@@ -70,41 +70,42 @@ def _split_indicator_spec_tokens(spec: str) -> List[str]:
     return combined
 
 
-def _indicator_numeric_value_error(raw_text: str, source_spec: str) -> ValueError:
+def _indicator_param_value_error(raw_text: str, source_spec: str) -> ValueError:
     return ValueError(
-        f"Indicator params must be numeric. Invalid value {raw_text!r} in {source_spec!r}."
+        "Indicator params must be finite numbers, booleans, or non-empty strings. "
+        f"Invalid value {raw_text!r} in {source_spec!r}."
     )
 
 
-def _parse_indicator_numeric_value(value: Any, *, raw_text: str, source_spec: str) -> float:
+def _parse_indicator_param_value(value: Any, *, raw_text: str, source_spec: str) -> Any:
     parsed = value
     if isinstance(parsed, str):
         text = parsed.strip()
         if not text:
-            raise _indicator_numeric_value_error(raw_text, source_spec)
+            raise _indicator_param_value_error(raw_text, source_spec)
         try:
             parsed = json.loads(text)
         except Exception:
-            parsed_float = coerce_finite_float(text)
-            if parsed_float is None:
-                try:
-                    raise ValueError(text)
-                except ValueError as exc:
-                    raise _indicator_numeric_value_error(raw_text, source_spec) from exc
-            parsed = parsed_float
-    parsed_float = coerce_finite_float(parsed)
-    if isinstance(parsed, bool) or parsed_float is None:
-        raise _indicator_numeric_value_error(raw_text, source_spec)
-    return parsed_float
+            parsed = text
+    if isinstance(parsed, bool):
+        return parsed
+    if isinstance(parsed, (int, float)) and not isinstance(parsed, bool):
+        parsed_float = coerce_finite_float(parsed)
+        if parsed_float is None:
+            raise _indicator_param_value_error(raw_text, source_spec)
+        return parsed_float
+    if isinstance(parsed, str) and parsed.strip():
+        return parsed.strip()
+    raise _indicator_param_value_error(raw_text, source_spec)
 
 
-def _normalize_indicator_param_mapping(params: Dict[Any, Any], *, source_spec: str) -> Dict[str, float]:
-    normalized: Dict[str, float] = {}
+def _normalize_indicator_param_mapping(params: Dict[Any, Any], *, source_spec: str) -> Dict[str, Any]:
+    normalized: Dict[str, Any] = {}
     for raw_key, raw_value in params.items():
         key = str(raw_key or "").strip()
         if not key:
             raise ValueError("Indicator param names must be non-empty strings.")
-        normalized[key] = _parse_indicator_numeric_value(
+        normalized[key] = _parse_indicator_param_value(
             raw_value,
             raw_text=f"{key}={raw_value}",
             source_spec=source_spec,
@@ -123,7 +124,7 @@ def _normalize_indicator_entry(value: Any) -> Dict[str, Any]:
             normalized["params"] = _normalize_indicator_param_mapping(params, source_spec=source_spec)
         elif isinstance(params, (list, tuple)):
             normalized["params"] = [
-                _parse_indicator_numeric_value(
+                _parse_indicator_param_value(
                     item,
                     raw_text=str(item),
                     source_spec=source_spec,
@@ -132,7 +133,7 @@ def _normalize_indicator_entry(value: Any) -> Dict[str, Any]:
             ]
         elif params is not None:
             raise ValueError(
-                "'params' must be a list of numeric values like [14] or a named numeric map like {\"length\": 14}."
+                "'params' must be a list of scalar values like [14] or a named map like {\"mamode\": \"ema\"}."
             )
         return normalized
     if value is None:
@@ -160,7 +161,7 @@ def _normalize_indicator_entry(value: Any) -> Dict[str, Any]:
         if not params_blob:
             raise ValueError(f"Invalid indicator format. {_INDICATOR_FORMAT_HELP}")
         params = [
-            _parse_indicator_numeric_value(
+            _parse_indicator_param_value(
                 part.strip(),
                 raw_text=part.strip(),
                 source_spec=stripped,
@@ -181,8 +182,8 @@ def _normalize_indicator_entry(value: Any) -> Dict[str, Any]:
     if params_blob is None or not params_blob.strip():
         return {"name": name}
 
-    positional: List[float] = []
-    named: Dict[str, float] = {}
+    positional: List[Any] = []
+    named: Dict[str, Any] = {}
     for raw_part in _split_indicator_tokens(params_blob):
         part = raw_part.strip()
         if not part:
@@ -192,14 +193,14 @@ def _normalize_indicator_entry(value: Any) -> Dict[str, Any]:
             key = key.strip()
             if not key:
                 raise ValueError(f"Invalid named indicator param in {stripped!r}.")
-            named[key] = _parse_indicator_numeric_value(
+            named[key] = _parse_indicator_param_value(
                 raw_value,
                 raw_text=part,
                 source_spec=stripped,
             )
             continue
         positional.append(
-            _parse_indicator_numeric_value(
+            _parse_indicator_param_value(
                 part,
                 raw_text=part,
                 source_spec=stripped,
