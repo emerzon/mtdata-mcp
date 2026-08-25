@@ -782,6 +782,37 @@ class TestNormalizeTradeTablePayload:
         assert "price_stoplimit" not in row
         assert "external_id" not in row
 
+    def test_trade_history_humanized_style_only_renames_display_columns(self):
+        payload = {
+            "success": True,
+            "column_style": "humanized",
+            "items": [
+                {
+                    "placed_time": "2026-03-29 10:00",
+                    "done_time": "2026-03-29 10:05",
+                    "order_ticket": 1,
+                    "symbol": "BTCUSD",
+                    "volume_initial": 0.01,
+                    "time_setup_msc": 1770000000000,
+                }
+            ],
+            "units": {"volume_initial": "broker_lot"},
+        }
+
+        result = _normalize_trade_table_payload(
+            payload,
+            verbose=False,
+            tool_name="trade_history",
+        )
+
+        row = result["items"][0]
+        assert row["Placed Time"] == "2026-03-29 10:00"
+        assert row["Done Time"] == "2026-03-29 10:05"
+        assert row["Initial Volume"] == 0.01
+        assert "placed_time" not in row
+        assert "time_setup_msc" not in row
+        assert result["units"] == {"volume_initial": "broker_lot"}
+
 
 class TestCompactForecastCi:
     def test_keeps_available_ci_confidence_when_bounds_exist(self):

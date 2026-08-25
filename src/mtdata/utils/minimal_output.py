@@ -810,6 +810,23 @@ def _trade_table_hidden_keys(tool_name: str) -> set[str]:
     return set()
 
 
+def _humanize_trade_history_table_items(
+    items: List[Any],
+    payload: Any,
+) -> List[Any]:
+    style = None
+    if isinstance(payload, dict):
+        style = payload.get("column_style")
+        echo = payload.get("request_echo")
+        if not style and isinstance(echo, dict):
+            style = echo.get("column_style")
+    if str(style or "").strip().lower() != "humanized":
+        return items
+    from ..core.trading.positions import _style_trade_history_items
+
+    return _style_trade_history_items(items, column_style="humanized")
+
+
 def _normalize_trade_table_payload(
     payload: Any,
     *,
@@ -818,22 +835,25 @@ def _normalize_trade_table_payload(
 ) -> Optional[Any]:
     if tool_name not in {"trade_get_open", "trade_get_pending", "trade_history"}:
         return None
-    hidden = _trade_table_hidden_keys(tool_name)
-    if not hidden or verbose:
-        return payload
+    hidden = set() if verbose else _trade_table_hidden_keys(tool_name)
+
+    def _filter_row(row: Any) -> Any:
+        if not isinstance(row, dict) or not hidden:
+            return row
+        return {key: value for key, value in row.items() if key not in hidden}
 
     if isinstance(payload, dict):
         items = payload.get("items")
         if not isinstance(items, list):
             return payload
-        normalized_rows: List[Any] = []
-        for row in items:
-            if not isinstance(row, dict):
-                normalized_rows.append(row)
-                continue
-            normalized_rows.append(
-                {key: value for key, value in row.items() if key not in hidden}
+        normalized_rows = [_filter_row(row) for row in items]
+        if tool_name == "trade_history":
+            normalized_rows = _humanize_trade_history_table_items(
+                normalized_rows,
+                payload,
             )
+        if normalized_rows is items and not hidden:
+            return payload
         out = dict(payload)
         out["items"] = normalized_rows
         return out
@@ -841,15 +861,7 @@ def _normalize_trade_table_payload(
     if not isinstance(payload, list):
         return None
 
-    normalized_rows: List[Any] = []
-    for row in payload:
-        if not isinstance(row, dict):
-            normalized_rows.append(row)
-            continue
-        normalized_rows.append(
-            {key: value for key, value in row.items() if key not in hidden}
-        )
-    return normalized_rows
+    return [_filter_row(row) for row in payload]
 
 
 def _normalize_trade_payload(  # noqa: C901

@@ -1015,9 +1015,9 @@ def analyze_execution_quality(  # noqa: C901
         "summary_scope": summary_scope,
         "filters_applied": filters_applied,
     }
-    if request.detail != "compact":
+    if request.detail not in {"compact", "summary"}:
         common["requested_window"] = analysis_window
-    if request.detail == "compact":
+    if request.detail in {"compact", "summary"}:
         compact_summary_keys = (
             "fills",
             "orders",

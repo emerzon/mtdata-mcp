@@ -127,6 +127,9 @@ def resolve_trade_period_context(
     if minutes_back_error:
         return {"error": minutes_back_error}
 
+    if start and minutes_back_value is not None:
+        return {"error": "Use either start or minutes_back, not both."}
+
     if minutes_back_value is not None:
         from_dt = to_dt - timedelta(minutes=minutes_back_value)
     elif start:

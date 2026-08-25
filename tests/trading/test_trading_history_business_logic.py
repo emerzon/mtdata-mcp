@@ -669,7 +669,7 @@ def test_trade_history_full_detail_uses_top_level_timezone_only() -> None:
     assert "deal_details" not in out["items"][0]
 
 
-def test_trade_history_full_detail_applies_humanized_style() -> None:
+def test_trade_history_full_detail_keeps_canonical_json_keys_when_humanized() -> None:
     out = normalize_trade_history_output(
         [
             {
@@ -690,11 +690,11 @@ def test_trade_history_full_detail_applies_humanized_style() -> None:
         ),
     )
 
-    assert out["items"][0]["Deal Ticket"] == 11
-    assert out["items"][0]["Symbol"] == "EURUSD"
-    assert out["items"][0]["Comments"] == "closed"
-    assert "Deal Details" not in out["items"][0]
-    assert "deal_ticket" not in out["items"][0]
+    assert out["items"][0]["deal_ticket"] == 11
+    assert out["items"][0]["symbol"] == "EURUSD"
+    assert out["items"][0]["comment"] == "closed"
+    assert "Deal Ticket" not in out["items"][0]
+    assert out["units"] == {"volume": "broker_lot"}
     assert "normalized_items" not in out
     assert out["request_echo"]["column_style"] == "humanized"
 
@@ -758,7 +758,40 @@ def test_trade_history_normalizes_price_and_millisecond_artifacts() -> None:
     assert row["exit_trigger_price"] == 1.16274
 
 
-def test_trade_history_compact_humanized_column_style_renames_order_times() -> None:
+def test_trade_history_summary_aggregates_without_row_tape() -> None:
+    mt5, prev = _install_mock_mt5()
+    Deal = namedtuple("Deal", ["ticket", "time", "symbol", "profit", "commission"])
+    mt5.history_deals_get.return_value = [
+        Deal(ticket=1, time=1_700_000_001, symbol="EURUSD", profit=10.0, commission=-1.0),
+        Deal(ticket=2, time=1_700_000_002, symbol="EURUSD", profit=-4.0, commission=-1.0),
+        Deal(ticket=3, time=1_700_000_003, symbol="EURUSD", profit=2.0, commission=0.0),
+    ]
+
+    try:
+        with patch("mtdata.core.trading.account._use_client_tz", lambda: False):
+            out = trade_history(
+                history_kind="deals",
+                detail="summary",
+                limit=1,
+                __cli_raw=True,
+            )
+    finally:
+        if prev is not None:
+            sys.modules["MetaTrader5"] = prev
+
+    assert out["success"] is True
+    assert "items" not in out
+    assert "pagination" not in out
+    assert out["count"] == 3
+    assert out["summary"]["count"] == 3
+    assert out["summary"]["history_kind"] == "deals"
+    assert out["summary"]["net_pnl"] == 6.0
+    assert out["summary"]["period_start"]
+    assert out["summary"]["period_end"]
+    assert out["units"]["net_pnl"] == "account_currency"
+
+
+def test_trade_history_compact_humanized_keeps_canonical_json_keys() -> None:
     out = normalize_trade_history_output(
         [
             {
@@ -778,12 +811,12 @@ def test_trade_history_compact_humanized_column_style_renames_order_times() -> N
         ),
     )
 
-    # Compact humanized orders rename placed_time/done_time (not raw setup fields).
-    assert out["items"][0]["Placed Time"] == "2024-01-01 12:00:00"
-    assert out["items"][0]["Done Time"] == "2024-01-01 12:05:00"
-    assert out["items"][0]["Initial Volume"] == 1.0
+    assert out["items"][0]["placed_time"] == "2024-01-01 12:00:00"
+    assert out["items"][0]["done_time"] == "2024-01-01 12:05:00"
+    assert out["items"][0]["volume_initial"] == 1.0
+    assert out["column_style"] == "humanized"
     assert "time_setup" not in out["items"][0]
-    assert "Setup Time" not in out["items"][0]
+    assert "Placed Time" not in out["items"][0]
     assert "normalized_items" not in out
 
 
@@ -1359,6 +1392,38 @@ def test_trade_history_rejects_start_with_minutes_back() -> None:
     )
 
     assert out["error"] == "Use either start or minutes_back, not both."
+
+
+def test_trade_journal_rejects_start_with_minutes_back() -> None:
+    out = trade_journal_analyze(
+        start="2026-03-01",
+        minutes_back=30,
+        __cli_raw=True,
+    )
+
+    assert out["success"] is False
+    assert out["error"] == "Use either start or minutes_back, not both."
+
+
+def test_trade_journal_allows_end_with_minutes_back() -> None:
+    with patch(
+        "mtdata.core.trading.account._run_trade_history_request",
+        return_value={
+            "success": True,
+            "count": 0,
+            "items": [],
+        },
+    ):
+        out = trade_journal_analyze(
+            end="2026-03-02T00:00:00Z",
+            minutes_back=60,
+            __cli_raw=True,
+        )
+
+    assert out["success"] is True
+    assert out["period_source"] == "minutes_back"
+    assert out["period_end"] == "2026-03-02T00:00:00Z"
+    assert out["minutes_back_effective"] == 60
 
 
 def test_trade_history_rejects_invalid_side_filter() -> None:

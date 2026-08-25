@@ -523,7 +523,7 @@ Full examples: [FINVIZ.md](FINVIZ.md) (User). Everyday headlines: [NEWS.md](NEWS
 |---------|-------------|
 | `market_microstructure_analyze` | Analyze tick liquidity and feed-appropriate order-flow proxies |
 | `strategy_validate` | Run anchored fixed-candidate OOS validation with horizon-safe barrier outcomes and costs |
-| `portfolio_risk_decompose` | Decompose filtered-historical VaR/ES and proposed-trade risk |
+| `portfolio_risk_decompose` | Decompose filtered-historical VaR/CVaR and proposed-trade risk |
 | `market_relative_strength` | Rank a bounded MT5 universe by robust factor-adjusted momentum and breadth |
 
 See [ADVANCED_ANALYTICS.md](ADVANCED_ANALYTICS.md) for data requirements, examples, and caveats.
@@ -832,8 +832,11 @@ and expires after one hour; start a fresh query after expiration. Offset and
 page-number inputs are not supported because relative windows and changing
 account history make them unstable.
 Use `--magic` to isolate one strategy on shared accounts. The
-`trade_history --column-style humanized` option applies display labels at every
-detail level, including `--detail full`.
+`trade_history --column-style humanized` option applies display labels in TOON
+and other table renderers. JSON item keys, `units`, and `--output-fields`
+paths stay canonical snake_case at every detail level, including `--detail full`.
+`--detail summary` returns period aggregates (counts, net P&L for deals, period
+bounds) without a row tape.
 For deal history and journals, `--side buy|sell` filters the execution
 `fill_side`, while `--side long|short` filters the economic `position_side`
 after open/close direction is derived. Responses echo this choice in

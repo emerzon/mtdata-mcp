@@ -78,6 +78,31 @@ def _format_trade_history_snapshot_bound(value: datetime) -> str:
     return value.isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
+def _trade_history_period_summary(df: Any, *, history_kind: str) -> Dict[str, Any]:
+    """Aggregate matching history rows without returning a row tape."""
+    import pandas as pd
+
+    count = int(len(df))
+    summary: Dict[str, Any] = {"count": count, "history_kind": str(history_kind)}
+    if str(history_kind) != "deals":
+        return summary
+    net = 0.0
+    seen = False
+    for key in ("profit", "commission", "swap", "fee"):
+        if key not in df.columns:
+            continue
+        numeric = pd.to_numeric(df[key], errors="coerce")
+        if not bool(numeric.notna().any()):
+            continue
+        net += float(numeric.fillna(0.0).sum())
+        seen = True
+    if seen:
+        summary["net_pnl"] = round(net, 2)
+    elif count == 0:
+        summary["net_pnl"] = 0.0
+    return summary
+
+
 def _trade_history_cursor_scope(request: TradeHistoryRequest) -> Dict[str, Any]:
     return {
         "history_kind": str(request.history_kind),
@@ -793,6 +818,17 @@ def run_trade_history(  # noqa: C901
 
             limit_value = normalize_limit(request.limit)
             total_count = int(len(df))
+            if str(getattr(request, "detail", "compact") or "compact").strip().lower() == "summary":
+                return {
+                    "items": [],
+                    "total_count": total_count,
+                    "summary": _trade_history_period_summary(
+                        df,
+                        history_kind=kind,
+                    ),
+                    "snapshot_start": _format_trade_history_snapshot_bound(from_dt),
+                    "snapshot_end": _format_trade_history_snapshot_bound(to_dt),
+                }
             offset_value = (
                 int(cursor_state["position"])
                 if cursor_state is not None

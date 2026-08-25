@@ -265,7 +265,10 @@ PARAM_HINTS = {
     "check_only": "Return sample sufficiency/status checks without running the full analysis.",
     "pnl_filter": "Filter positions by profit state: all, profit, or loss.",
     "confirm_close_all": "Required confirmation flag when closing all matching positions.",
-    "column_style": "Trade-history column set: compact, standard, or full.",
+    "column_style": (
+        "Display label style for trade-history tables: snake_case (canonical JSON) "
+        "or humanized (TOON/display labels only)."
+    ),
     "breakdown_limit": "Maximum rows per journal breakdown table.",
     "min_sample": "Recommended minimum realized exit deals for journal statistics.",
     "sizing": (

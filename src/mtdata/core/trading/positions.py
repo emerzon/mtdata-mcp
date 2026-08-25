@@ -247,9 +247,6 @@ _TRADE_VOLUME_UNITS = {
     "volume_current": BROKER_VOLUME_UNIT,
     "requested_volume": BROKER_VOLUME_UNIT,
     "remaining_volume": BROKER_VOLUME_UNIT,
-    "Volume": BROKER_VOLUME_UNIT,
-    "Initial Volume": BROKER_VOLUME_UNIT,
-    "Current Volume": BROKER_VOLUME_UNIT,
 }
 _TRADE_MONEY_FIELDS = {
     "profit",
@@ -573,10 +570,13 @@ def _normalize_trade_read_output(
                 "cursor_expires_at",
                 "snapshot_start",
                 "snapshot_end",
+                "summary",
             ):
                 if key in rows:
                     out[key] = rows.get(key)
-            if len(items) == 0:
+            if isinstance(rows.get("summary"), dict) and rows.get("total_count") is not None:
+                out["count"] = int(rows["total_count"])
+            if len(items) == 0 and not isinstance(rows.get("summary"), dict):
                 _mark_trade_read_empty(out, message_text or None)
             return _compact_trade_read_output(out, request=request)
 
@@ -1083,6 +1083,122 @@ def _insert_trade_history_period_context(
     return ordered
 
 
+def _finalize_trade_history_summary(
+    out: Dict[str, Any],
+    *,
+    history_kind: Any,
+    total_count: int,
+) -> None:
+    for field in (
+        "offset",
+        "limit",
+        "has_more",
+        "more_available",
+        "truncated",
+        "page",
+        "pages",
+        "next_offset",
+        "next_page",
+        "next_cursor",
+        "cursor_expires_at",
+        "snapshot_start",
+        "snapshot_end",
+    ):
+        out.pop(field, None)
+    out.pop("items", None)
+    out.pop("pagination", None)
+    out.pop("row_key", None)
+    out["count"] = total_count
+    summary = out.get("summary")
+    if not isinstance(summary, dict):
+        summary = {}
+        out["summary"] = summary
+    summary.setdefault("count", total_count)
+    if history_kind is not None:
+        summary.setdefault("history_kind", history_kind)
+    if out.get("period_start") is not None:
+        summary.setdefault("period_start", out["period_start"])
+    if out.get("period_end") is not None:
+        summary.setdefault("period_end", out["period_end"])
+    if summary.get("net_pnl") is not None:
+        units = dict(out.get("units") or {})
+        units["net_pnl"] = "account_currency"
+        out["units"] = units
+
+
+def _finalize_trade_history_items(
+    out: Dict[str, Any],
+    *,
+    request: Any,
+    history_kind: Any,
+    raw_items: List[Any],
+    total_count: int,
+    include_request_metadata: bool,
+) -> str:
+    timezone_label = "UTC"
+    offset_value = int(out.get("offset") or getattr(request, "offset", 0) or 0)
+    limit_value = out.get("limit")
+    if limit_value is None:
+        limit_value = getattr(request, "limit", None)
+    out["pagination"] = build_pagination_meta(
+        total=total_count,
+        returned=len(raw_items),
+        offset=offset_value,
+        limit=limit_value,
+    )
+    if out.get("has_more") is not None:
+        out["pagination"]["has_more"] = bool(out["has_more"])
+    if out.get("more_available") is not None:
+        out["pagination"]["more_available"] = int(out["more_available"])
+    for field in (
+        "next_cursor",
+        "cursor_expires_at",
+        "snapshot_start",
+        "snapshot_end",
+    ):
+        if out.get(field) is not None:
+            out["pagination"][field] = out[field]
+    if out.get("next_cursor") is not None or getattr(request, "cursor", None):
+        out["pagination"]["mode"] = "keyset"
+    for field in (
+        "total_count",
+        "offset",
+        "limit",
+        "has_more",
+        "more_available",
+        "truncated",
+        "page",
+        "pages",
+        "next_offset",
+        "next_page",
+        "next_cursor",
+        "cursor_expires_at",
+        "snapshot_start",
+        "snapshot_end",
+    ):
+        out.pop(field, None)
+    for item in raw_items:
+        if isinstance(item, dict) and item.get("timezone"):
+            timezone_label = str(item["timezone"])
+            break
+    # JSON keeps canonical snake_case keys; TOON applies humanized labels.
+    if include_request_metadata:
+        out["items"] = [
+            _full_trade_history_row(item, history_kind=history_kind)
+            for item in raw_items
+            if isinstance(item, dict)
+        ]
+        out["item_schema"] = "trade_history.v3"
+    else:
+        out["items"] = [
+            _compact_trade_history_row(item, history_kind=history_kind)
+            if isinstance(item, dict)
+            else item
+            for item in raw_items
+        ]
+    return timezone_label
+
+
 def normalize_trade_history_output(
     rows: Any,
     *,
@@ -1114,73 +1230,24 @@ def normalize_trade_history_output(
         if side_filter is not None:
             out["side_filter"] = side_filter
     timezone_label = "UTC"
+    detail = str(getattr(request, "detail", "compact") or "compact").strip().lower()
     if out.get("success") is True and isinstance(out.get("items"), list):
         raw_items = list(out["items"])
         total_count = int(out.get("total_count") or len(raw_items))
-        offset_value = int(out.get("offset") or getattr(request, "offset", 0) or 0)
-        limit_value = out.get("limit")
-        if limit_value is None:
-            limit_value = getattr(request, "limit", None)
-        out["pagination"] = build_pagination_meta(
-            total=total_count,
-            returned=len(raw_items),
-            offset=offset_value,
-            limit=limit_value,
-        )
-        if out.get("has_more") is not None:
-            out["pagination"]["has_more"] = bool(out["has_more"])
-        if out.get("more_available") is not None:
-            out["pagination"]["more_available"] = int(out["more_available"])
-        for field in (
-            "next_cursor",
-            "cursor_expires_at",
-            "snapshot_start",
-            "snapshot_end",
-        ):
-            if out.get(field) is not None:
-                out["pagination"][field] = out[field]
-        if out.get("next_cursor") is not None or getattr(request, "cursor", None):
-            out["pagination"]["mode"] = "keyset"
-        for field in (
-            "total_count",
-            "offset",
-            "limit",
-            "has_more",
-            "more_available",
-            "truncated",
-            "page",
-            "pages",
-            "next_offset",
-            "next_page",
-            "next_cursor",
-            "cursor_expires_at",
-            "snapshot_start",
-            "snapshot_end",
-        ):
-            out.pop(field, None)
-        for item in raw_items:
-            if isinstance(item, dict) and item.get("timezone"):
-                timezone_label = str(item["timezone"])
-                break
-        if include_request_metadata:
-            out["items"] = _style_trade_history_items(
-                [
-                    _full_trade_history_row(item, history_kind=history_kind)
-                    for item in raw_items
-                    if isinstance(item, dict)
-                ],
-                column_style=getattr(request, "column_style", "snake_case"),
+        if detail == "summary":
+            _finalize_trade_history_summary(
+                out,
+                history_kind=history_kind,
+                total_count=total_count,
             )
-            out["item_schema"] = "trade_history.v3"
         else:
-            out["items"] = _style_trade_history_items(
-                [
-                    _compact_trade_history_row(item, history_kind=history_kind)
-                    if isinstance(item, dict)
-                    else item
-                    for item in raw_items
-                ],
-                column_style=getattr(request, "column_style", "snake_case"),
+            timezone_label = _finalize_trade_history_items(
+                out,
+                request=request,
+                history_kind=history_kind,
+                raw_items=raw_items,
+                total_count=total_count,
+                include_request_metadata=include_request_metadata,
             )
     if include_request_metadata:
         for key in ("symbol", "ticket"):
@@ -1188,8 +1255,12 @@ def normalize_trade_history_output(
         request_echo = _trade_history_request_echo(request, history_kind=history_kind)
         if request_echo:
             out["request_echo"] = request_echo
-    elif history_kind is not None:
-        out["history_kind"] = history_kind
+    else:
+        if history_kind is not None:
+            out["history_kind"] = history_kind
+        column_style = getattr(request, "column_style", None)
+        if column_style is not None:
+            out["column_style"] = column_style
     if out.get("success") is True:
         out.setdefault("timezone", timezone_label)
         _attach_trade_volume_units(out)
