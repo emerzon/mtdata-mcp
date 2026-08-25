@@ -456,6 +456,7 @@ def resolve_capability_request(
     params: Optional[Dict[str, Any]] = None,
     discover_sktime_forecasters: Optional[Callable[[], Dict[str, Tuple[str, str]]]] = None,
 ) -> Tuple[str, str, Dict[str, Any]]:
+    library_explicit = str(library or "").strip() != ""
     library_norm = str(library or "native").strip().lower() or "native"
     method_norm = str(method or "").strip()
     params_out = dict(params or {})
@@ -496,7 +497,7 @@ def resolve_capability_request(
                 merged_params = dict(params_out)
                 merged_params.update(selector_params)
                 return resolved_library, resolved_method, merged_params
-            if library_norm == "native":
+            if library_norm == "native" and not library_explicit:
                 cross_library_match = next(
                     (
                         row
@@ -531,11 +532,41 @@ def resolve_capability_request(
                 merged_params = dict(params_out)
                 merged_params.update(selector_params)
                 return resolved_library, resolved_method, merged_params
+            if library_explicit and library_norm == "native":
+                foreign = next(
+                    (
+                        row
+                        for row in get_registered_capabilities()
+                        if str(row.get("method") or "").strip().lower()
+                        == requested_method
+                    ),
+                    None,
+                )
+                if isinstance(foreign, dict):
+                    foreign_execution = (
+                        foreign.get("execution")
+                        if isinstance(foreign.get("execution"), dict)
+                        else {}
+                    )
+                    foreign_library = str(
+                        foreign_execution.get("library")
+                        or foreign.get("namespace")
+                        or ""
+                    ).strip().lower()
+                    if foreign_library and foreign_library != "native":
+                        raise ForecastError(
+                            f"method '{method_norm}' belongs to library "
+                            f"'{foreign_library}', not 'native'."
+                        )
         return library_norm, method_norm, params_out
 
     namespace = method_norm.split(":", 1)[0].strip().lower()
     if not namespace:
         return library_norm, method_norm, params_out
+    if library_explicit and namespace != library_norm:
+        raise ForecastError(
+            f"method '{method_norm}' belongs to library '{namespace}', not '{library_norm}'."
+        )
 
     capabilities: List[Dict[str, Any]] = []
     if namespace == "native":

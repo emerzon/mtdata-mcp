@@ -278,7 +278,8 @@ def run_forecast_generate(  # noqa: C901
     log_events: bool = True,
 ) -> Dict[str, Any]:
     started_at = time.perf_counter()
-    lib = str(request.library or "native").strip().lower()
+    requested_library = request.library
+    lib = str(requested_library or "").strip().lower()
     method = str(request.method or "").strip()
     params = dict(request.params or {})
     if log_events:
@@ -287,7 +288,7 @@ def run_forecast_generate(  # noqa: C901
             operation="forecast_generate",
             symbol=request.symbol,
             timeframe=request.timeframe,
-            library=lib or "native",
+            library=lib or None,
             method=method or None,
         )
 
@@ -311,11 +312,12 @@ def run_forecast_generate(  # noqa: C901
         requested_method = method
         original_resolution = (lib, method, dict(params))
         lib, method, params = resolve_capability_request(
-            library=lib,
+            library=requested_library,
             method=method,
             params=params,
             discover_sktime_forecasters=_discover_sktime_forecasters,
         )
+        lib = str(lib or "native").strip().lower() or "native"
         capability_requested = capability_requested or (lib, method, params) != original_resolution
         if capability_requested:
             if lib in ("", "native"):
