@@ -185,6 +185,21 @@ _EQUITY_DESCRIPTION_STOPWORDS = {
     "plc",
     "shares",
 }
+_EQUITY_LEGAL_SUFFIXES = frozenset(
+    {
+        "inc",
+        "incorporated",
+        "corp",
+        "corporation",
+        "ltd",
+        "limited",
+        "llc",
+        "plc",
+        "co",
+        "company",
+    }
+)
+# First token is the common/company name; remaining tokens are distinctive products.
 _EQUITY_SYMBOL_HINTS = {
     "AAPL": "apple iphone mac ipad ios",
     "MSFT": "microsoft windows azure office xbox",
@@ -379,7 +394,7 @@ class NewsItem:
     category: Optional[str] = None
     priority: NewsPriority = NewsPriority.MEDIUM
     metadata: Dict[str, Any] = field(default_factory=dict)
-    relevance_score: float = 0.0
+    relevance_score: float = 0.0  # uncalibrated lexical rank, not a probability
     importance_score: float = 0.0
 
     def __post_init__(self) -> None:
@@ -515,6 +530,85 @@ def _compact_token(value: str) -> str:
 
 def _tokenize(value: str) -> List[str]:
     return re.findall(r"[a-z0-9]+", value.lower())
+
+
+def _equity_common_name_and_products(
+    context: "InstrumentContext",
+) -> tuple[Optional[str], set[str]]:
+    ticker = _compact_token(context.symbol)
+    hint_tokens = _tokenize(_EQUITY_SYMBOL_HINTS.get(ticker, ""))
+    desc_tokens = [
+        token
+        for token in _tokenize(context.description or "")
+        if token not in _EQUITY_DESCRIPTION_STOPWORDS
+    ]
+    common_name = desc_tokens[0] if desc_tokens else (hint_tokens[0] if hint_tokens else None)
+    products: set[str] = set()
+    for token in (*hint_tokens, *desc_tokens):
+        if common_name and token == common_name:
+            continue
+        if token in _EQUITY_DESCRIPTION_STOPWORDS or len(token) < 3:
+            continue
+        products.add(token)
+    return common_name, products
+
+
+def _equity_has_legal_name(text: str, common_name: Optional[str]) -> bool:
+    if not common_name:
+        return False
+    return any(f"{common_name} {suffix}" in text for suffix in _EQUITY_LEGAL_SUFFIXES)
+
+
+def _equity_alias_is_entity(alias: str, context: "InstrumentContext") -> bool:
+    alias_tokens = _tokenize(alias)
+    alias_compact = _compact_token(alias)
+    if alias_compact and alias_compact == _compact_token(context.symbol):
+        return True
+    common_name, products = _equity_common_name_and_products(context)
+    if common_name and common_name in alias_tokens and any(
+        suffix in alias_tokens for suffix in _EQUITY_LEGAL_SUFFIXES
+    ):
+        return True
+    if products & set(alias_tokens):
+        return True
+    if len(alias_tokens) > 1:
+        return True
+    return False
+
+
+def _looks_like_person_surname(title: str, common_name: Optional[str]) -> bool:
+    if not common_name or not title:
+        return False
+    pattern = re.compile(
+        rf"\b([A-Z][a-z]{{1,20}})\s+{re.escape(common_name.title())}\b"
+    )
+    for match in pattern.finditer(title):
+        following = _tokenize(title[match.end():])
+        if following and following[0] in _EQUITY_LEGAL_SUFFIXES:
+            continue
+        return True
+    return False
+
+
+def _has_equity_entity_evidence(item: "NewsItem", context: "InstrumentContext") -> bool:
+    text = item.search_text().lower()
+    tokens = set(_tokenize(text))
+    ticker = str(context.symbol or "").lower()
+    compact_ticker = _compact_token(context.symbol)
+    if ticker and ticker in tokens:
+        return True
+    if compact_ticker and any(
+        compact_ticker == _compact_token(token) for token in tokens
+    ):
+        return True
+    common_name, products = _equity_common_name_and_products(context)
+    if _equity_has_legal_name(text, common_name):
+        return True
+    if products & tokens:
+        return True
+    if common_name and _looks_like_person_surname(item.title, common_name):
+        return False
+    return False
 
 
 def _alias_matches_text(alias: str, text: str, compact_text: str, tokens: Collection[str]) -> bool:
@@ -916,16 +1010,13 @@ def _has_textual_context_evidence(item: NewsItem, context: InstrumentContext) ->
     compact_text = _compact_token(text)
     tokens = set(_tokenize(text))
     for alias in context.aliases:
+        if context.asset_class == "equity" and not _equity_alias_is_entity(alias, context):
+            continue
         if _alias_matches_text(alias, text, compact_text, tokens):
             return True
 
-    if context.asset_class == "equity" and context.description:
-        desc_tokens = {
-            token for token in _tokenize(context.description)
-            if len(token) > 3 and token not in _EQUITY_DESCRIPTION_STOPWORDS
-        }
-        if desc_tokens & tokens:
-            return True
+    if context.asset_class == "equity":
+        return _has_equity_entity_evidence(item, context)
 
     return False
 
@@ -963,12 +1054,8 @@ def _has_asset_specific_evidence(item: NewsItem, context: InstrumentContext) -> 
             return quote_match if context.base_asset == "USD" else base_match
         return base_match or quote_match
 
-    if context.asset_class == "equity" and context.description:
-        tokens = {
-            token for token in _tokenize(context.description)
-            if len(token) > 3 and token not in _EQUITY_DESCRIPTION_STOPWORDS
-        }
-        return bool(tokens & token_set)
+    if context.asset_class == "equity":
+        return _has_equity_entity_evidence(item, context)
 
     return False
 

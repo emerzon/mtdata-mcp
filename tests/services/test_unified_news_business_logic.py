@@ -513,7 +513,7 @@ def test_fetch_unified_news_includes_direct_equity_news(monkeypatch) -> None:
             "success": True,
             "news": [
                 {
-                    "Title": "Apple unveils new AI features",
+                    "Title": "Apple Inc unveils new AI features",
                     "Source": "Reuters",
                     "Date": "2026-03-29T09:00:00Z",
                     "Link": "https://example.com/aapl-ai",
@@ -540,7 +540,7 @@ def test_fetch_unified_news_includes_direct_equity_news(monkeypatch) -> None:
     assert list(result).index("related_news") < list(result).index("general_news")
     assert result["instrument"]["asset_class"] == "equity"
     assert result["related_news"][0]["kind"] == "direct_symbol"
-    assert result["related_news"][0]["title"] == "Apple unveils new AI features"
+    assert result["related_news"][0]["title"] == "Apple Inc unveils new AI features"
 
 
 def test_fetch_unified_news_uses_root_ticker_for_equity_cfd_symbols(monkeypatch) -> None:
@@ -559,7 +559,7 @@ def test_fetch_unified_news_uses_root_ticker_for_equity_cfd_symbols(monkeypatch)
             "success": True,
             "news": [
                 {
-                    "Title": "Apple unveils new AI features",
+                    "Title": "Apple Inc unveils new AI features",
                     "Source": "Reuters",
                     "Date": "2026-03-29T09:00:00Z",
                     "Link": "https://example.com/aapl-ai",
@@ -585,7 +585,7 @@ def test_fetch_unified_news_uses_root_ticker_for_equity_cfd_symbols(monkeypatch)
     assert seen_symbols == ["AAPL"]
     assert result["success"] is True
     assert result["instrument"]["symbol"] == "AAPL.NAS-24"
-    assert result["related_news"][0]["title"] == "Apple unveils new AI features"
+    assert result["related_news"][0]["title"] == "Apple Inc unveils new AI features"
     assert result["related_news"][0]["metadata"]["direct_symbol"] == "AAPL.NAS-24"
     assert result["related_news"][0]["metadata"]["source_symbol"] == "AAPL"
 
@@ -606,7 +606,7 @@ def test_equity_stock_page_news_requires_company_evidence(monkeypatch) -> None:
         lambda symbol, limit=20, page=1: {
             "success": True,
             "news": [
-                {"Title": "Apple expands AI tooling for developers", "Source": "Reuters", "Date": "2026-03-29T09:00:00Z"},
+                {"Title": "Apple Inc expands AI tooling for developers", "Source": "Reuters", "Date": "2026-03-29T09:00:00Z"},
                 {"Title": "Netflix initiated, Instacart upgraded: Wall Street's top analyst calls", "Source": "The Fly", "Date": "2026-03-29T10:00:00Z"},
             ],
         },
@@ -624,8 +624,38 @@ def test_equity_stock_page_news_requires_company_evidence(monkeypatch) -> None:
     result = svc.fetch_unified_news("AAPL")
 
     titles = [item["title"] for item in result["related_news"]]
-    assert "Apple expands AI tooling for developers" in titles
+    assert "Apple Inc expands AI tooling for developers" in titles
     assert "Netflix initiated, Instacart upgraded: Wall Street's top analyst calls" not in titles
+
+
+def test_equity_common_name_does_not_match_person_surname() -> None:
+    context = svc.InstrumentContext(
+        symbol="AAPL",
+        asset_class="equity",
+        base_asset="AAPL",
+        quote_asset=None,
+        aliases=("AAPL",),
+        terms=("aapl", "apple", "iphone", "ipad"),
+        description="apple iphone mac ipad ios",
+    )
+    item = svc.NewsItem(
+        title="Kestra Financial names Kelly Apple wealth management head",
+        provider="finviz",
+        source="Private Banker International",
+        kind="direct_symbol",
+        metadata={"direct_symbol": "AAPL"},
+    )
+
+    assert svc._has_asset_specific_evidence(item, context) is False
+    assert svc._passes_related_gate(item, context) is False
+    genuine = svc.NewsItem(
+        title="Apple Inc unveils a new iPhone",
+        provider="finviz",
+        source="Reuters",
+        kind="direct_symbol",
+        metadata={"direct_symbol": "AAPL"},
+    )
+    assert svc._passes_related_gate(genuine, context) is True
 
 
 def test_fetch_unified_news_treats_whitespace_symbol_as_general_news(monkeypatch) -> None:
@@ -990,7 +1020,7 @@ def test_equity_symbol_hints_help_without_mt5_metadata(monkeypatch) -> None:
         lambda symbol, limit=20, page=1: {
             "success": True,
             "news": [
-                {"Title": "Apple expands AI tooling for developers", "Source": "Reuters", "Date": "2026-03-29T09:00:00Z"},
+                {"Title": "Apple unveils new iPhone AI features", "Source": "Reuters", "Date": "2026-03-29T09:00:00Z"},
             ],
         },
     )
@@ -1006,7 +1036,7 @@ def test_equity_symbol_hints_help_without_mt5_metadata(monkeypatch) -> None:
 
     result = svc.fetch_unified_news("AAPL")
 
-    assert any("Apple expands AI tooling" in item["title"] for item in result["related_news"])
+    assert any("Apple unveils new iPhone AI features" in item["title"] for item in result["related_news"])
 
 
 def test_unknown_equity_without_specific_evidence_returns_no_related_items(monkeypatch) -> None:
