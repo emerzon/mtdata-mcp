@@ -11,6 +11,7 @@ from ..shared.schema import (
     IndicatorNameLiteral,
 )
 from ..utils.indicators import clean_help_text as _clean_help_text
+from ..utils.indicators import indicator_engine_provenance
 from ..utils.indicators import list_ta_indicators as _list_ta_indicators
 from ..utils.utils import _table_from_rows
 from ._mcp_instance import mcp
@@ -397,19 +398,49 @@ def _default_indicator_sort_key(item: Dict[str, Any]) -> tuple[int, int, str, st
     return 1, len(_DEFAULT_INDICATOR_ORDER), str(item.get("category") or ""), name
 
 
+def _compact_indicator_spec_is_parser_valid(spec: str) -> bool:
+    text = str(spec or "").strip()
+    match = re.fullmatch(r"([A-Za-z0-9_]+)(?:\((.*)\))?", text)
+    if not match:
+        return False
+    params_blob = match.group(2)
+    if params_blob is None or not params_blob.strip():
+        return True
+    for raw_part in params_blob.split(","):
+        part = raw_part.strip()
+        if not part:
+            continue
+        value_text = part.split("=", 1)[-1].strip()
+        try:
+            float(value_text)
+        except (TypeError, ValueError):
+            return False
+    return True
+
+
 def _indicator_preferred_spec(name: str, params: List[Dict[str, Any]], context: Dict[str, Any]) -> str:
     lname = str(name or "").strip().lower()
+    if lname == "vwap":
+        return "vwap"
+    if lname == "cdl_pattern":
+        return "cdl_pattern"
     typical = str(context.get("typical_parameters") or "")
     match = re.search(rf"\b{re.escape(lname)}\([^)]*\)", typical, flags=re.IGNORECASE)
     if match:
-        return match.group(0).lower()
+        spec = match.group(0).lower()
+        if _compact_indicator_spec_is_parser_valid(spec):
+            return spec
     for raw in params or []:
         if not isinstance(raw, dict) or "default" not in raw:
             continue
         default = raw.get("default")
         if isinstance(default, bool) or default is None:
             continue
-        return f"{lname}({default})"
+        if not isinstance(default, (int, float)):
+            continue
+        spec = f"{lname}({default})"
+        if _compact_indicator_spec_is_parser_valid(spec):
+            return spec
     return lname
 
 
@@ -448,6 +479,21 @@ def _indicator_usage_metadata(
     params: List[Dict[str, Any]],
     context: Dict[str, Any],
 ) -> Dict[str, Any]:
+    lname = str(name or "").strip().lower()
+    if lname == "cdl_pattern":
+        return {
+            "compact_spec": None,
+            "cli_supported": False,
+            "note": (
+                "cdl_pattern is not callable via compact CLI because pattern names "
+                "are non-numeric. Use patterns_detect(mode='candlestick') to scan "
+                "named candlesticks."
+            ),
+            "alternative": {
+                "tool": "patterns_detect",
+                "example": 'patterns_detect(symbol="EURUSD", mode="candlestick")',
+            },
+        }
     spec = _indicator_preferred_spec(name, params, context)
     return {
         "compact_spec": spec,
@@ -854,7 +900,12 @@ def indicators_describe(
                 "interpretation": docs.get("interpretation"),
                 "sources": docs.get("sources") or [],
             }
-            return {"success": True, "detail": "full", "indicator": indicator}
+            return {
+                "success": True,
+                "detail": "full",
+                "indicator": indicator,
+                "indicator_engine": indicator_engine_provenance(),
+            }
         except Exception as exc:
             return {"error": f"Error getting indicator details: {exc}"}
 

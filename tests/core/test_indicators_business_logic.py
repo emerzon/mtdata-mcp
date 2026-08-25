@@ -140,3 +140,61 @@ def test_indicator_engine_provenance_is_compact():
         "pandas-ta-classic",
         "pandas-ta-classic+talib",
     }
+
+
+def test_indicators_describe_full_includes_indicator_engine(monkeypatch):
+    monkeypatch.setattr(
+        core_indicators,
+        "_list_ta_indicators",
+        lambda detailed=True: [
+            {"name": "rsi", "category": "momentum", "description": "", "params": []},
+        ],
+    )
+    raw = _unwrap(core_indicators.indicators_describe)
+    out = raw("rsi", detail="full")
+
+    assert out["indicator_engine"]["pandas_ta"]["name"] == "pandas-ta-classic"
+    assert "effective_backend" in out["indicator_engine"]
+
+
+def test_indicators_describe_vwap_usage_has_no_params(monkeypatch):
+    monkeypatch.setattr(
+        core_indicators,
+        "_list_ta_indicators",
+        lambda detailed=True: [
+            {
+                "name": "vwap",
+                "category": "overlap",
+                "description": "Volume Weighted Average Price",
+                "params": [{"name": "anchor", "default": 0}],
+            }
+        ],
+    )
+    raw = _unwrap(core_indicators.indicators_describe)
+    out = raw("vwap")
+
+    assert out["indicator"]["usage"]["compact_spec"] == "vwap"
+    assert out["indicator"]["usage"]["cli"] == '--indicators "vwap"'
+
+
+def test_indicators_describe_cdl_pattern_is_not_compact_cli(monkeypatch):
+    monkeypatch.setattr(
+        core_indicators,
+        "_list_ta_indicators",
+        lambda detailed=True: [
+            {
+                "name": "cdl_pattern",
+                "category": "candles",
+                "description": "Candlestick patterns",
+                "params": [{"name": "name", "default": "all"}],
+            }
+        ],
+    )
+    raw = _unwrap(core_indicators.indicators_describe)
+    out = raw("cdl_pattern")
+    usage = out["indicator"]["usage"]
+
+    assert usage["cli_supported"] is False
+    assert usage["compact_spec"] is None
+    assert "patterns_detect" in usage["alternative"]["tool"]
+    assert "cdl_pattern(all)" not in str(usage)
