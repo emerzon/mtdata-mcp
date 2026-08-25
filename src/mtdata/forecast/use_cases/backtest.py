@@ -80,6 +80,14 @@ def _compact_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:  # noqa:
         "half_kelly_fraction": 4,
         "annual_return_pct": 4,
     }
+    count_keys = {
+        "successful_tests",
+        "num_tests",
+        "details_count",
+        "trades_observed",
+        "low_history_anchors",
+        "recommended_history_bars",
+    }
 
     def _compact_metric(key: str, value: Any) -> Any:
         if isinstance(value, bool):
@@ -87,6 +95,8 @@ def _compact_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:  # noqa:
         numeric = _finite_float(value)
         if numeric is None:
             return value
+        if key in count_keys:
+            return int(round(numeric))
         return float(round(numeric, metric_digits.get(key, 6)))
 
     def _sort_metric(value: Any) -> Optional[float]:

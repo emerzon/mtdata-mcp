@@ -147,6 +147,36 @@ def test_strategy_backtest_full_includes_request_metadata() -> None:
     assert res_full["request"]["lookback"] == 50
 
 
+def test_compact_backtest_preserves_integer_count_serialization() -> None:
+    compact = _compact_backtest_result(
+        {
+            "success": True,
+            "units": {"successful_tests": "count", "num_tests": "count"},
+            "results": {
+                "theta": {
+                    "success": True,
+                    "avg_rmse": 0.12,
+                    "successful_tests": 5,
+                    "num_tests": 5,
+                    "details": [{}, {}, {}, {}, {}],
+                    "metrics": {"trades_observed": 5},
+                    "metrics_available": True,
+                }
+            },
+        }
+    )
+
+    method = compact["results"]["theta"]
+    assert method["successful_tests"] == 5
+    assert method["num_tests"] == 5
+    assert method["details_count"] == 5
+    assert method["trades_observed"] == 5
+    assert isinstance(method["successful_tests"], int)
+    assert isinstance(method["num_tests"], int)
+    assert isinstance(method["details_count"], int)
+    assert isinstance(method["trades_observed"], int)
+
+
 def test_compact_backtest_ranks_low_history_methods() -> None:
     compact = _compact_backtest_result(
         {
