@@ -29,6 +29,7 @@ from ..utils.mt5 import (
     _symbol_ready_guard,
     ensure_mt5_connection_or_raise,
     mt5,
+    resolve_public_symbol,
     symbol_price_digits,
     symbol_price_digits_optional,
 )
@@ -105,6 +106,8 @@ def _round_level_price(value: Any, *, digits: int) -> Any:
 
 def _round_level_payload_prices(value: Any, *, digits: Optional[int], key: Optional[str] = None) -> Any:
     if digits is None:
+        return value
+    if key == "level_counts":
         return value
     if isinstance(value, dict):
         return {
@@ -1241,17 +1244,21 @@ def support_resistance_levels(
                 ensure_connection_impl=ensure_mt5_connection_or_raise,
             )
             gateway.ensure_connection()
-            symbol_info = gateway.symbol_info(symbol)
+            resolved_symbol, symbol_input = resolve_public_symbol(
+                symbol,
+                gateway=gateway,
+            )
+            symbol_info = gateway.symbol_info(resolved_symbol)
             digits_value = _symbol_price_digits(symbol_info)
             reference_price = None
             reference_price_source = None
             reference_quote_as_of = None
             reference_quote_context: Dict[str, Any] = {}
             if not start and not end:
-                raw_tick = gateway.symbol_info_tick(symbol)
+                raw_tick = gateway.symbol_info_tick(resolved_symbol)
                 tick, tick_price, reference_quote_context = _resolve_reference_quote(
                     gateway,
-                    symbol,
+                    resolved_symbol,
                     raw_tick,
                     now_epoch=datetime.now(timezone.utc).timestamp(),
                 )
@@ -1266,7 +1273,7 @@ def support_resistance_levels(
                     reference_price_source = "live_tick_mid"
             result = compute_support_resistance_payload(
                 fetch_history_impl=_fetch_history,
-                symbol=symbol,
+                symbol=resolved_symbol,
                 timeframe=timeframe,
                 limit=int(lookback),
                 start=start,
@@ -1347,6 +1354,9 @@ def support_resistance_levels(
                     if reference_quote_context.get(key) not in (None, [], {}):
                         payload[f"reference_{key}"] = reference_quote_context[key]
             payload["detail"] = detail_value
+            payload["symbol"] = resolved_symbol
+            if symbol_input is not None:
+                payload["symbol_input"] = symbol_input
             payload.setdefault("timezone", "UTC")
             if digits_value is not None:
                 payload["price_precision"] = digits_value

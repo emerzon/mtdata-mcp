@@ -123,6 +123,81 @@ def test_support_resistance_tool_returns_weighted_levels():
     assert "method" not in result
 
 
+def test_support_resistance_resolves_alias_for_quote_history_and_precision():
+    fn = _get_support_resistance_fn()
+    calls: list[tuple[str, str]] = []
+    tick = SimpleNamespace(
+        bid=1.12345,
+        ask=1.12347,
+        last=1.12346,
+        time=1_700_100_000,
+        time_msc=1_700_100_000_000,
+    )
+
+    class Gateway:
+        COPY_TICKS_ALL = 0
+
+        def ensure_connection(self):
+            return None
+
+        def symbols_get(self):
+            return [SimpleNamespace(name="EURUSD")]
+
+        def symbol_info(self, symbol):
+            calls.append(("info", symbol))
+            return SimpleNamespace(digits=5)
+
+        def symbol_info_tick(self, symbol):
+            calls.append(("tick", symbol))
+            return tick
+
+        def copy_ticks_range(self, *args, **kwargs):
+            return []
+
+    def _fetch(*, symbol, **kwargs):
+        calls.append(("history", symbol))
+        return _frame()
+
+    with (
+        patch("mtdata.core.pivot.create_mt5_gateway", return_value=Gateway()),
+        patch("mtdata.core.pivot._fetch_history", side_effect=_fetch),
+        patch(
+            "mtdata.core.pivot.build_tick_freshness_context",
+            return_value={
+                "usable_for_live_trading": True,
+                "freshness_state": "live",
+                "freshness_reason": "live_quote",
+            },
+        ),
+    ):
+        result = fn("EUR/USD", max_distance_pct=None)
+
+    assert result["symbol"] == "EURUSD"
+    assert result["symbol_input"] == "EUR/USD"
+    assert result["price_precision"] == 5
+    assert {symbol for _, symbol in calls} == {"EURUSD"}
+
+
+def test_support_resistance_price_rounding_preserves_level_count_types():
+    from mtdata.core.pivot import _round_level_payload_prices
+
+    result = _round_level_payload_prices(
+        {
+            "level_counts": {"support": 2, "resistance": 0, "range": 1, "total": 3},
+            "swing": {"range": 1.234567},
+        },
+        digits=5,
+    )
+
+    assert result["level_counts"] == {
+        "support": 2,
+        "resistance": 0,
+        "range": 1,
+        "total": 3,
+    }
+    assert result["swing"]["range"] == 1.23457
+
+
 def test_support_resistance_tool_uses_live_tick_as_level_reference():
     fn = _get_support_resistance_fn()
     tick = SimpleNamespace(
