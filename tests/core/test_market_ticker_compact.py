@@ -106,3 +106,19 @@ def test_compact_ticker_keeps_market_status_and_conflict_size() -> None:
     assert result["quote_conflict_pips"] == 0.4
     assert result["alternate_bid"] == 1.16749
     assert result["alternate_ask"] == 1.16767
+
+
+def test_compact_ticker_keeps_last_unavailable_flag() -> None:
+    result = _compact_market_ticker_payload(
+        {
+            "success": True,
+            "symbol": "EURUSD",
+            "bid": 1.1,
+            "ask": 1.2,
+            "last": None,
+            "last_unavailable": True,
+        }
+    )
+
+    assert result["last_unavailable"] is True
+    assert "last" not in result

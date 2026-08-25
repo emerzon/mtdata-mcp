@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 from collections import namedtuple
 from types import SimpleNamespace
 from unittest.mock import call, patch
@@ -106,7 +107,8 @@ def test_market_depth_tick_fallback_hides_zero_last_display() -> None:
         out = _raw_market_depth_fetch("BTCUSD")
 
     assert out["success"] is True
-    assert out["data"]["last"] == 0.0
+    assert out["data"]["last"] is None
+    assert out["data"]["last_unavailable"] is True
 
 
 def test_market_depth_tick_fallback_marks_fresh_quote_live_ready() -> None:
@@ -611,7 +613,8 @@ def test_market_ticker_price_field_returns_simple_price() -> None:
     assert out["success"] is True
     assert out["type"] == "price"
     assert out["field"] == "mid"
-    assert out["price"] == pytest.approx(1.17229)
+    assert out["price"] == 1.17229
+    assert "1.1722899999999998" not in json.dumps(out)
     assert out["price_precision"] == 5
     assert out["price_currency"] == "USD"
     assert out["price_currency_basis"] == "quote_currency_not_cash_cost"
@@ -968,6 +971,40 @@ def test_market_ticker_mid_preserves_half_point_precision() -> None:
     assert out["mid"] == pytest.approx(1.153985)
 
 
+def test_market_ticker_price_field_mid_uses_normalized_half_point_json() -> None:
+    now = 1_700_000_100.0
+    tick = SimpleNamespace(
+        bid=1.15398,
+        ask=1.15399,
+        last=1.15398,
+        time=now - 1.0,
+        time_msc=(now - 1.0) * 1000.0,
+    )
+    with patch("mtdata.core.market_depth.mt5") as mt5, patch(
+        "mtdata.core.market_depth.time.time", return_value=now
+    ), patch("mtdata.core.market_depth._use_client_tz", return_value=False):
+        mt5.COPY_TICKS_ALL = 0
+        mt5.symbol_select.return_value = True
+        mt5.symbol_info.return_value = SimpleNamespace(
+            digits=5,
+            point=0.00001,
+            trade_tick_size=0.00001,
+            trade_tick_value=1.0,
+        )
+        mt5.symbol_info_tick.return_value = tick
+        mt5.copy_ticks_range.return_value = []
+
+        out = _raw_market_ticker("EURUSD", price_field="mid")
+
+    assert out["success"] is True
+    assert out["field"] == "mid"
+    assert out["price"] == 1.153985
+    encoded = json.dumps(out)
+    parsed = json.loads(encoded)
+    assert parsed["price"] == 1.153985
+    assert "1.153984999" not in encoded
+
+
 def test_market_ticker_compact_explains_unrefreshable_future_tick() -> None:
     now = 1_700_000_100.0
     future_tick = SimpleNamespace(
@@ -1051,9 +1088,40 @@ def test_market_ticker_price_field_reports_unavailable_last() -> None:
         mt5.symbol_info_tick.return_value = tick
         out = _raw_market_ticker("EURUSD", price_field="last")
 
+    assert out["success"] is False
+    assert out["error_code"] == "market_ticker_price_unavailable"
+    assert "last price is unavailable" in out["error"]
+    assert "price" not in out
+    assert out.get("usable_for_live_trading") is not True
+
+
+def test_market_ticker_full_quote_marks_zero_last_unavailable() -> None:
+    now = 1_700_000_100.0
+    tick = SimpleNamespace(
+        bid=1.1,
+        ask=1.2,
+        last=0.0,
+        volume=5,
+        time=now - 1.0,
+    )
+    with patch("mtdata.core.market_depth.mt5") as mt5, patch(
+        "mtdata.core.market_depth.time.time", return_value=now
+    ):
+        mt5.symbol_select.return_value = True
+        mt5.symbol_info.return_value = SimpleNamespace(
+            digits=5,
+            point=0.00001,
+            trade_tick_size=0.00001,
+            trade_tick_value=1.0,
+        )
+        mt5.symbol_info_tick.return_value = tick
+        out = _raw_market_ticker("EURUSD", detail="full")
+
     assert out["success"] is True
-    assert out["price"] == 0.0
-    assert out["field"] == "last"
+    assert out["last"] is None
+    assert out["last_unavailable"] is True
+    assert out["bid"] == 1.1
+    assert out["ask"] == 1.2
 
 
 def test_market_ticker_full_detail_preserves_verbose_fields() -> None:

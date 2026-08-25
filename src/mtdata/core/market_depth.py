@@ -188,6 +188,7 @@ def _compact_market_ticker_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
         "spread_valid",
         "spread_quality",
         "market_status_reason",
+        "last_unavailable",
         "quote_as_of",
         "time",
         "time_epoch",
@@ -640,12 +641,14 @@ def _market_depth_fetch_impl(symbol: str, spread: bool = False, require_dom: boo
                 "data": {
                     "bid": _optional_finite_float(tick_value(tick, "bid")),
                     "ask": _optional_finite_float(tick_value(tick, "ask")),
-                    "last": _optional_finite_float(tick_value(tick, "last")),
+                    "last": _positive_market_ticker_float(tick_value(tick, "last")),
                     "volume": int(tick_value(tick, "volume")) if tick_value(tick, "volume") else None,
                     "note": "Full market depth not available, showing current bid/ask snapshot.",
                 },
                 "units": dict(_MARKET_DEPTH_TICK_UNITS),
             }
+            if out["data"]["last"] is None:
+                out["data"]["last_unavailable"] = True
             if spread:
                 spread_metrics = _compute_spread_metrics(
                     out["data"].get("bid"),
@@ -831,7 +834,7 @@ def market_ticker(  # noqa: C901
             last_raw = tick_value(tick, "last")
             bid = _optional_finite_float(bid_raw)
             ask = _optional_finite_float(ask_raw)
-            last = _optional_finite_float(last_raw)
+            last = _positive_market_ticker_float(last_raw)
             tick_time = tick_epoch(tick)
             if tick_time is None and not any(
                 value not in (None, 0.0) for value in (bid, ask, last)
@@ -930,6 +933,8 @@ def market_ticker(  # noqa: C901
                     "spread_cost_per_lot": "currency_per_lot_estimate",
                 },
             }
+            if last is None:
+                out["last_unavailable"] = True
             out.update(quote_source_metadata)
             quote_conflict = out.get("quote_source_conflict")
             if isinstance(quote_conflict, dict) and point > 0:
@@ -1039,9 +1044,7 @@ def market_ticker(  # noqa: C901
                 price_values = {
                     "bid": out.get("bid"),
                     "ask": out.get("ask"),
-                    "mid": float((bid + ask) / 2.0)
-                    if bid is not None and ask is not None
-                    else None,
+                    "mid": out.get("mid"),
                     "last": out.get("last"),
                     "spread": out.get("spread"),
                 }
