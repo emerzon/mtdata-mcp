@@ -277,7 +277,9 @@ mtdata-cli forecast_barrier_optimize EURUSD --timeframe H1 --horizon 12 --params
 ```bash
 mtdata-cli regime_detect EURUSD --timeframe H1 --method hmm
 ```
-Shows regime segments: start time, end time, duration, state ID.
+Shows the current regime plus the last `max_regimes` segment rows (start, end,
+duration, state). Standard output uses the same segment cap; `detail=full`
+returns the complete segment history.
 
 ### JSON Output
 ```bash

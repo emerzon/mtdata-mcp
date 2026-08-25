@@ -951,7 +951,8 @@ class TestRegimeDetectMSAR:
                     min_regime_bars=2,
                 )
         assert "current_regime" in res_compact  # Trading-focused
-        assert "regimes" not in res_compact
+        assert "regimes" in res_compact
+        assert res_compact["total_regimes"] >= len(res_compact["regimes"])
         assert "params_used" not in res_compact  # Technical details in full only
 
 

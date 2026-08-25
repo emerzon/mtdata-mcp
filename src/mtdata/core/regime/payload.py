@@ -1152,9 +1152,9 @@ def _consolidate_payload(  # noqa: C901
             if state_count_key in payload:
                 new_payload[state_count_key] = payload[state_count_key]
 
+        if current_regime:
+            new_payload["current_regime"] = current_regime
         if method == "bocpd":
-            if current_regime:
-                new_payload["current_regime"] = current_regime
             if transition_summary:
                 new_payload["transition_summary"] = transition_summary
             if regime_context:
@@ -1167,47 +1167,33 @@ def _consolidate_payload(  # noqa: C901
                         "scale_note": "Percent values use 1.0 = 1%.",
                     },
                 )
+        elif output_mode == "compact":
+            last_transition = _last_regime_transition(final_segments)
+            if last_transition:
+                new_payload["last_transition"] = last_transition
 
-            total_regimes = len(final_segments)
-            if output_mode == "compact" and max_regimes > 0 and total_regimes > max_regimes:
-                new_payload["regimes"] = final_segments[-max_regimes:]
-                new_payload["regimes_truncated"] = True
-                new_payload["total_regimes"] = total_regimes
-                new_payload["showing_regimes"] = max_regimes
-                new_payload["has_more"] = True
-                omitted = max(0, total_regimes - max_regimes)
-                new_payload["history_hint"] = (
-                    f"{omitted} older regime segment(s) omitted; use detail='full' "
-                    "or increase max_regimes."
-                )
-            else:
-                new_payload["regimes"] = final_segments
-                new_payload["total_regimes"] = total_regimes
-                if output_mode == "compact":
-                    new_payload["has_more"] = False
-        else:
-            # Core trading info (compact)
-            if current_regime:
-                new_payload["current_regime"] = current_regime
-
-            total_regimes = len(final_segments)
-            if output_mode == "compact":
-                last_transition = _last_regime_transition(final_segments)
-                if last_transition:
-                    new_payload["last_transition"] = last_transition
-                new_payload["total_regimes"] = total_regimes
-                omitted = max(0, total_regimes - 1)
-                if omitted:
-                    new_payload["has_more"] = True
-                    new_payload["history_hint"] = (
-                        f"{omitted} older regime segment(s) omitted; use "
-                        "detail='standard' or 'full' for segment history."
-                    )
-                else:
-                    new_payload["has_more"] = False
-            else:
-                new_payload["regimes"] = final_segments
-                new_payload["total_regimes"] = total_regimes
+        total_regimes = len(final_segments)
+        cap_segments = (
+            output_mode in {"compact", "standard"}
+            and max_regimes > 0
+            and total_regimes > max_regimes
+        )
+        visible_segments = (
+            final_segments[-int(max_regimes) :] if cap_segments else final_segments
+        )
+        new_payload["regimes"] = visible_segments
+        new_payload["total_regimes"] = total_regimes
+        if cap_segments:
+            new_payload["regimes_truncated"] = True
+            new_payload["showing_regimes"] = int(max_regimes)
+            new_payload["has_more"] = True
+            omitted = max(0, total_regimes - int(max_regimes))
+            new_payload["history_hint"] = (
+                f"{omitted} older regime segment(s) omitted; use detail='full' "
+                "or increase max_regimes."
+            )
+        elif output_mode in {"compact", "standard"}:
+            new_payload["has_more"] = False
 
         if regime_descriptions:
             observed_regimes = {

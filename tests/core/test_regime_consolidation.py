@@ -337,12 +337,43 @@ class TestConsolidatePayload:
 
         result = _consolidate_payload(payload, "hmm", "compact", max_regimes=2)
 
-        assert "regimes" not in result
         assert result["has_more"] is True
         assert result["total_regimes"] == 5
+        assert result["showing_regimes"] == 2
+        assert len(result["regimes"]) == 2
+        assert result["regimes"][0]["start"] == "T4"
         assert result["last_transition"]["at"] == "T5"
         assert "older regime segment(s) omitted" in result["history_hint"]
         assert "label" in result["current_regime"]
+
+    def test_standard_hmm_output_caps_regime_rows(self):
+        payload = {
+            "symbol": "EURUSD",
+            "timeframe": "H1",
+            "method": "hmm",
+            "target": "return",
+            "success": True,
+            "times": ["T1", "T2", "T3", "T4", "T5"],
+            "state": [0, 1, 0, 1, 0],
+            "state_probabilities": [
+                [0.9, 0.1],
+                [0.1, 0.9],
+                [0.8, 0.2],
+                [0.2, 0.8],
+                [0.9, 0.1],
+            ],
+            "regime_params": {
+                "weights": [0.6, 0.4],
+                "mu": [0.002, -0.001],
+                "sigma": [0.0035, 0.0004],
+            },
+        }
+
+        result = _consolidate_payload(payload, "hmm", "standard", max_regimes=2)
+
+        assert result["total_regimes"] == 5
+        assert len(result["regimes"]) == 2
+        assert result["regimes_truncated"] is True
 
     def test_hmm_regime_info_marks_unobserved_model_states(self):
         payload = {
