@@ -31,6 +31,7 @@ from ...shared.validators import invalid_timeframe_error
 from ...utils.coercion import coerce_finite_float, round_finite
 from ...utils.denoise import (
     DenoiseCausalityError,
+    DenoiseColumnError,
     consume_denoise_warnings,
 )
 from ...utils.denoise import (
@@ -45,6 +46,7 @@ from ...utils.indicators import (
     _estimate_warmup_bars,
     _find_unknown_ta_indicators,
     _parse_ti_specs,
+    indicator_engine_provenance,
 )
 from ...utils.market_metadata import (
     FRESHNESS_ANCHOR_QUERY_EXPECTED_END,
@@ -2604,6 +2606,8 @@ def fetch_candles(  # noqa: C901
             spec_text = _normalize_indicator_spec_for_display(ti_spec)
             if spec_text:
                 payload["indicators_spec"] = spec_text
+        if ti_spec:
+            payload["indicator_engine"] = indicator_engine_provenance()
         if price_indicator_cols and price_digits > 0:
             rounding_meta = {
                 "price_columns": price_indicator_cols,
@@ -2866,6 +2870,21 @@ def fetch_candles(  # noqa: C901
                     )
 
         return payload
+    except DenoiseColumnError as exc:
+        return {
+            "success": False,
+            "error_code": "denoise_column_not_found",
+            "error": str(exc),
+            "operation": "data_fetch_candles",
+            "remediation": (
+                "Use lowercase indicator column names from the candle "
+                "response or indicators_describe, for example rsi_14."
+            ),
+            "details": {
+                "missing_columns": list(exc.columns),
+                "available_columns": list(exc.available),
+            },
+        }
     except ValueError as e:
         message = str(e)
         lowered = message.lower()

@@ -292,6 +292,41 @@ def list_ta_indicators(*, detailed: bool = False) -> List[Dict[str, Any]]:
     """Return a mutation-safe copy of the process-cached pandas-ta catalog."""
     return copy.deepcopy(list(_list_ta_indicators_cached(bool(detailed))))
 
+
+def indicator_engine_provenance() -> Dict[str, Any]:
+    """Return compact pandas-ta / TA-Lib provenance for candle indicator output."""
+    from importlib import metadata as importlib_metadata
+
+    library_name = "pandas-ta-classic"
+    library_version = getattr(pta, "__version__", None)
+    if not library_version:
+        try:
+            library_version = importlib_metadata.version("pandas-ta-classic")
+        except importlib_metadata.PackageNotFoundError:
+            library_version = None
+    talib_available = False
+    talib_version = None
+    try:
+        import talib  # type: ignore
+
+        talib_available = True
+        talib_version = getattr(talib, "__version__", None)
+        if not talib_version:
+            try:
+                talib_version = importlib_metadata.version("TA-Lib")
+            except importlib_metadata.PackageNotFoundError:
+                talib_version = None
+    except Exception:
+        talib_available = False
+        talib_version = None
+    return {
+        "pandas_ta": {"name": library_name, "version": library_version},
+        "talib": {"available": talib_available, "version": talib_version},
+        "effective_backend": (
+            "pandas-ta-classic+talib" if talib_available else "pandas-ta-classic"
+        ),
+    }
+
 def _parse_ti_specs(spec: str) -> List[Tuple[str, List[int | float], Dict[str, int | float]]]:
     """Parse a compact indicator spec string into [(name, args, kwargs)].
 

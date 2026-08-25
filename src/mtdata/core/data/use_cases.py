@@ -1195,6 +1195,7 @@ def _compact_candles_payload(
         "history_bars_fetched",
         "indicator_columns",
         "indicators_spec",
+        "indicator_engine",
     ):
         if key in public_diagnostics:
             compact[key] = public_diagnostics[key]
@@ -1455,6 +1456,7 @@ def _standard_candles_payload(result: Dict[str, Any]) -> Dict[str, Any]:
         "history_bars_fetched",
         "indicator_columns",
         "indicators_spec",
+        "indicator_engine",
     ):
         if key in public_diagnostics:
             standard[key] = public_diagnostics[key]
@@ -1636,6 +1638,9 @@ def _public_candle_diagnostics(result: Dict[str, Any]) -> Dict[str, Any]:  # noq
         spec_text = str(indicators.get("spec") or "").strip()
         if spec_text:
             public["indicators_spec"] = spec_text
+        engine = result.get("indicator_engine")
+        if isinstance(engine, dict) and engine:
+            public["indicator_engine"] = engine
 
     spread_estimate = diagnostics.get("spread_estimate")
     if isinstance(spread_estimate, dict):
