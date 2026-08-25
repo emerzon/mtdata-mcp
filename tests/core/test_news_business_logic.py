@@ -113,6 +113,7 @@ def test_news_tool_limits_globally(monkeypatch) -> None:
     assert "recent_events" not in limited
     assert limited["total_candidates"] == 10
     assert limited["limit_scope"] == "global"
+    assert limited["returned"] == 3
     assert limited["pagination"] == {
         "total": 10,
         "returned": 3,
@@ -120,8 +121,9 @@ def test_news_tool_limits_globally(monkeypatch) -> None:
         "limit": 3,
         "has_more": True,
         "more_available": 7,
+        "scope": "global",
     }
-    assert not {"returned", "offset", "has_more", "truncated"} & limited.keys()
+    assert not {"offset", "has_more", "truncated"} & limited.keys()
 
 
 def test_compact_broad_news_has_a_global_default_page(monkeypatch) -> None:
@@ -146,6 +148,7 @@ def test_compact_broad_news_has_a_global_default_page(monkeypatch) -> None:
     assert compact_rows == 10
     assert compact["compact_global_limit"] == 10
     assert compact["limit_scope"] == "global"
+    assert compact["returned"] == 10
     assert compact["pagination"] == {
         "total": 45,
         "returned": 10,
@@ -153,6 +156,7 @@ def test_compact_broad_news_has_a_global_default_page(monkeypatch) -> None:
         "limit": 10,
         "has_more": True,
         "more_available": 35,
+        "scope": "global",
     }
     assert compact["upcoming_events"] == [{"title": "u0"}]
     assert compact["bucket_truncation"]["general_news"] is True
@@ -225,7 +229,7 @@ def test_news_symbol_limit_one_keeps_direct_headline(monkeypatch) -> None:
     assert two["upcoming_events"] == [{"title": "CPI"}]
 
 
-def test_compact_symbol_news_caps_each_bucket_by_default(monkeypatch) -> None:
+def test_compact_symbol_news_uses_global_compact_budget(monkeypatch) -> None:
     raw = _unwrap(news)
     payload = {
         "success": True,
@@ -242,13 +246,21 @@ def test_compact_symbol_news_caps_each_bucket_by_default(monkeypatch) -> None:
     compact = raw(symbol="EURUSD")
     full = raw(symbol="EURUSD", detail="full")
 
-    for key in ("general_news", "impact_news", "upcoming_events", "recent_events"):
-        assert len(compact[key]) == 5
-        assert len(full[key]) == 6
-    assert compact["compact_bucket_limit"] == 5
-    assert compact["truncated"] is True
+    compact_rows = sum(
+        len(compact.get(key, []))
+        for key in ("general_news", "impact_news", "upcoming_events", "recent_events")
+    )
+    assert compact_rows == 10
+    assert compact["returned"] == 10
+    assert compact["compact_global_limit"] == 10
+    assert compact["limit_scope"] == "global"
+    assert compact["pagination"]["returned"] == 10
+    assert compact["pagination"]["scope"] == "global"
+    assert compact["upcoming_events"][0] == {"title": "u0"}
     assert compact["symbol_news_note"] == payload["symbol_news_note"]
-    assert "compact_bucket_limit" not in full
+    assert "compact_bucket_limit" not in compact
+    assert sum(len(full[key]) for key in payload if key.endswith(("news", "events"))) == 24
+    assert "compact_global_limit" not in full
 
 
 def test_compact_empty_news_discloses_provider_attempts_and_fallback() -> None:
@@ -419,6 +431,7 @@ def test_news_tool_supports_global_offset(monkeypatch) -> None:
         "limit": 2,
         "has_more": True,
         "more_available": 2,
+        "scope": "global",
     }
     assert page["limit_scope"] == "global"
 
@@ -472,6 +485,8 @@ def test_news_tool_keeps_per_bucket_limit_mode(monkeypatch) -> None:
     assert limited["returned"] == 5
     assert limited["limit_scope"] == "per_bucket"
     assert limited["truncated"] is True
+    assert limited["pagination"]["returned"] == 5
+    assert limited["pagination"]["scope"] == "per_bucket"
 
 
 def test_news_tool_rejects_invalid_limit() -> None:
@@ -624,6 +639,28 @@ def test_news_compact_mt5_feed_includes_freshness_warning() -> None:
     assert result["is_realtime"] is False
     assert result["freshness_warning"]["code"] == "non_realtime_news_provider"
     assert result["freshness_warning"]["providers"] == ["mt5"]
+    assert "broker feed" in result["freshness_warning"]["message"]
+    assert "aggregated feed" not in result["freshness_warning"]["message"]
+
+
+def test_news_compact_economic_events_expose_event_and_scheduled_at() -> None:
+    payload = {
+        "success": True,
+        "upcoming_events": [
+            {
+                "title": "Money Supply (USD)",
+                "kind": "economic_event",
+                "scheduled_at": "2026-08-25T17:00:00Z",
+                "provider": "finviz",
+            }
+        ],
+    }
+
+    result = _prepare_news_output(payload, detail="compact")
+
+    assert result["upcoming_events"][0]["title"] == "Money Supply (USD)"
+    assert result["upcoming_events"][0]["event"] == "Money Supply (USD)"
+    assert result["upcoming_events"][0]["scheduled_at"] == "2026-08-25T17:00:00Z"
 
 
 def test_news_compact_keeps_item_provider_when_feeds_are_merged() -> None:
@@ -781,6 +818,7 @@ def test_news_output_compaction_is_idempotent() -> None:
         "related_news": [
             {
                 "title": "US CPI (USD)",
+                "event": "US CPI (USD)",
                 "time_utc": "2026-04-07 12:30 UTC",
                 "kind": "economic_event",
                 "summary": "Expected: 3.2% | Prior: 3.1%",
@@ -825,6 +863,7 @@ def test_news_output_compacts_upcoming_events_bucket() -> None:
     assert "upcoming_count" not in result
     item = result["upcoming_events"][0]
     assert item["title"] == "US CPI (USD)"
+    assert item["event"] == "US CPI (USD)"
     assert item["source"] == "Finviz Economic Calendar"
     assert item["kind"] == "economic_event"
     assert item["scheduled_at"] == published_at.isoformat().replace("+00:00", "Z")
@@ -867,6 +906,7 @@ def test_news_output_compacts_recent_events_bucket() -> None:
     assert result["recent_events"] == [
         {
             "title": "US CPI (USD)",
+            "event": "US CPI (USD)",
             "source": "Finviz Economic Calendar",
             "kind": "economic_event",
             "scheduled_at": published_at.isoformat().replace("+00:00", "Z"),

@@ -59,7 +59,6 @@ _NEWS_COMPACT_ITEM_DROP_KEYS = frozenset(
         "category",
     }
 )
-_NEWS_COMPACT_SYMBOL_BUCKET_LIMIT = 5
 _NEWS_COMPACT_BROAD_LIMIT = 10
 _NEWS_PROVIDER_DELIVERY = {
     "finviz": {
@@ -175,6 +174,11 @@ def _strip_news_compact_item_fields(
     title = value.get("title")
     if title is not None:
         out["title"] = title
+    event_name = value.get("event")
+    if event_name not in (None, ""):
+        out["event"] = event_name
+    elif economic_event and title not in (None, ""):
+        out["event"] = title
     source = value.get("source")
     if source not in (None, ""):
         out["source"] = source
@@ -208,6 +212,7 @@ def _strip_news_compact_item_fields(
         key_text = str(key)
         if key_text in {
             "title",
+            "event",
             "source",
             "provider",
             "kind",
@@ -234,6 +239,8 @@ def _normalize_news_item_timestamps(value: Any) -> Any:
         out.pop("published_at", None)
         if scheduled_at not in (None, ""):
             out["scheduled_at"] = _news_iso_utc(scheduled_at)
+        if out.get("event") in (None, "") and out.get("title") not in (None, ""):
+            out["event"] = out["title"]
         return out
     if out.get("published_at") not in (None, ""):
         out["published_at"] = _news_iso_utc(out["published_at"])
@@ -269,13 +276,35 @@ def _news_compact_provenance(result: Dict[str, Any]) -> Dict[str, Any]:
         out["delivery"] = "mixed_provider_feeds"
     if non_realtime:
         out["is_realtime"] = False
+        if len(non_realtime) == 1 and non_realtime[0] in provider_details:
+            details = provider_details[non_realtime[0]]
+            message = str(details.get("freshness_note") or "").strip()
+            if not message:
+                delivery = str(details.get("delivery") or "").strip()
+                if delivery == "broker_terminal_feed":
+                    message = (
+                        "The selected provider uses a broker terminal feed and "
+                        "does not guarantee real-time delivery."
+                    )
+                elif delivery == "aggregated_web_feed":
+                    message = (
+                        "The selected provider uses an aggregated feed and does "
+                        "not guarantee real-time delivery."
+                    )
+                else:
+                    message = (
+                        "The selected provider does not guarantee real-time "
+                        "delivery."
+                    )
+        else:
+            message = (
+                "At least one selected provider does not guarantee real-time "
+                "delivery."
+            )
         out["freshness_warning"] = {
             "code": "non_realtime_news_provider",
             "providers": non_realtime,
-            "message": (
-                "At least one selected provider uses an aggregated feed and does "
-                "not guarantee real-time delivery."
-            ),
+            "message": message,
         }
     return out
 
@@ -422,14 +451,18 @@ def _apply_news_global_page(
             out[count_key] = len(selected_buckets.get(key, []))
 
     total_candidates = len(logical_rows)
+    returned = len(selected)
     out["total_candidates"] = total_candidates
+    out["returned"] = returned
     out["limit_scope"] = "global"
-    out["pagination"] = build_pagination_meta(
+    pagination = build_pagination_meta(
         total=total_candidates,
-        returned=len(selected),
+        returned=returned,
         offset=offset_value,
         limit=limit,
     )
+    pagination["scope"] = "global"
+    out["pagination"] = pagination
     out["_pagination_bucket_order"] = list(
         dict.fromkeys(key for key, _ in selected)
     )
@@ -577,17 +610,18 @@ def _apply_news_limit(  # noqa: C901
             len(out["recent_events"]) < original_recent_count
         )
     out["total_candidates"] = total_candidates
+    out["returned"] = returned
     out["limit_scope"] = limit_scope
-    if limit is not None or offset:
-        out["pagination"] = build_pagination_meta(
-            total=total_candidates,
-            returned=returned,
-            offset=int(offset or 0),
-            limit=limit,
-        )
-    else:
-        out["returned"] = returned
+    if limit is None and offset == 0:
         out["truncated"] = truncated
+    pagination = build_pagination_meta(
+        total=total_candidates,
+        returned=returned,
+        offset=int(offset or 0),
+        limit=limit if limit is not None else limit_per_bucket,
+    )
+    pagination["scope"] = limit_scope
+    out["pagination"] = pagination
     if bucket_truncation:
         out["bucket_truncation"] = bucket_truncation
     return out
@@ -829,30 +863,18 @@ def news(
     if isinstance(pagination_controls, dict):
         return pagination_controls
     limit_value, offset_value, limit_per_bucket_value = pagination_controls
-    default_compact_symbol_bucket_limit = (
-        symbol not in (None, "")
-        and detail_mode == "compact"
-        and limit_value is None
-        and limit_per_bucket_value is None
-        and offset_value == 0
-    )
-    default_compact_broad_limit = (
-        symbol in (None, "")
-        and detail_mode == "compact"
+    default_compact_global_limit = (
+        detail_mode == "compact"
         and limit_value is None
         and limit_per_bucket_value is None
         and offset_value == 0
     )
     effective_limit = (
         _NEWS_COMPACT_BROAD_LIMIT
-        if default_compact_broad_limit
+        if default_compact_global_limit
         else limit_value
     )
-    effective_limit_per_bucket = (
-        _NEWS_COMPACT_SYMBOL_BUCKET_LIMIT
-        if default_compact_symbol_bucket_limit
-        else limit_per_bucket_value
-    )
+    effective_limit_per_bucket = limit_per_bucket_value
     view_key = str(view or "unified")
     invalid_controls = _news_incompatible_controls(
         view=view_key,
@@ -943,9 +965,7 @@ def news(
             offset=offset_value,
             symbol_mode=symbol not in (None, ""),
         )
-        if default_compact_symbol_bucket_limit:
-            out["compact_bucket_limit"] = _NEWS_COMPACT_SYMBOL_BUCKET_LIMIT
-        if default_compact_broad_limit:
+        if default_compact_global_limit:
             out["compact_global_limit"] = _NEWS_COMPACT_BROAD_LIMIT
         out = _attach_news_row_keys(out)
         out.setdefault("data_fetched_at", _news_data_fetched_at())
