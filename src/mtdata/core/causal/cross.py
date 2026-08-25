@@ -347,11 +347,48 @@ def cross_correlation(  # noqa: C901
                 nonzero_rows, key=lambda row: abs(float(row["correlation"]))
             )
             best_nonzero = dict(best_nonzero_row)
-            best_nonzero.update(
-                _lead_lag_roles(
-                    int(best_nonzero_row["lag"]), symbol_list[0], symbol_list[1]
-                )
+            nz_left, nz_right = _lagged_pair_values(
+                left_values,
+                right_values,
+                int(best_nonzero_row["lag"]),
             )
+            if inference_supported:
+                nz_low, nz_high = _block_bootstrap_correlation_ci(
+                    nz_left,
+                    nz_right,
+                    method=method_value,
+                    samples=int(bootstrap_samples),
+                    block_size=block_size,
+                    confidence=per_lag_confidence,
+                )
+                significant = bool(
+                    nz_low is not None
+                    and nz_high is not None
+                    and (nz_low > 0.0 or nz_high < 0.0)
+                )
+                best_nonzero.update(
+                    {
+                        "ci95_low": round(nz_low, 6) if nz_low is not None else None,
+                        "ci95_high": round(nz_high, 6) if nz_high is not None else None,
+                        "significant": significant,
+                    }
+                )
+                if significant:
+                    best_nonzero.update(
+                        _lead_lag_roles(
+                            int(best_nonzero_row["lag"]),
+                            symbol_list[0],
+                            symbol_list[1],
+                        )
+                    )
+                else:
+                    best_nonzero["leader"] = None
+                    best_nonzero["follower"] = None
+                    best_nonzero["selection"] = "largest_observed_nonzero_lag"
+            else:
+                best_nonzero["inference_valid"] = False
+                best_nonzero["leader"] = None
+                best_nonzero["follower"] = None
         out: Dict[str, Any] = {
             "success": True,
             "symbols": symbol_list,

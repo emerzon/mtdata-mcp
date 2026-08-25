@@ -39,8 +39,9 @@ def test_cross_correlation_identifies_first_symbol_lead(monkeypatch):
     assert result["best"]["lag"] == 3
     assert result["best"]["leader"] == "LEFT"
     assert result["best_nonzero"]["lag"] == 3
-    assert result["best_nonzero"]["leader"] == "LEFT"
-    assert result["best_nonzero"]["follower"] == "RIGHT"
+    assert result["best_nonzero"]["leader"] is None
+    assert result["best_nonzero"]["follower"] is None
+    assert result["best_nonzero"]["inference_valid"] is False
     assert result["zero_lag"]["lag"] == 0
     assert result["best"]["inference_valid"] is False
     assert "significant" not in result["best"]
@@ -215,9 +216,9 @@ def test_cross_correlation_exposes_zero_lag_and_best_nonzero(monkeypatch):
     assert result["zero_lag"]["lag"] == 0
     assert result["zero_lag"]["correlation"] == result["best"]["correlation"]
     assert result["best_nonzero"]["lag"] != 0
-    assert result["best_nonzero"]["leader"] in {"LEFT", "RIGHT"}
-    assert result["best_nonzero"]["follower"] in {"LEFT", "RIGHT"}
-    assert result["best_nonzero"]["leader"] != result["best_nonzero"]["follower"]
+    assert result["best_nonzero"]["leader"] is None
+    assert result["best_nonzero"]["follower"] is None
+    assert result["best_nonzero"]["inference_valid"] is False
 
 
 def test_cointegration_johansen_reports_positive_rank(monkeypatch):
