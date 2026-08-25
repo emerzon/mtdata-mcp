@@ -3592,7 +3592,9 @@ def test_help_search_indexes_reviewed_examples():
         }
     }
 
-    assert [row[0] for row in _match_commands(functions, "swing")] == ["trade_place"]
+    assert [row[0] for row in _match_commands(functions, "sl_below_bid")] == [
+        "trade_place"
+    ]
 
 
 @pytest.mark.parametrize(

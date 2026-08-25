@@ -16,6 +16,9 @@ def _attach_tool_schema(monkeypatch, tool_name: str, base_schema: dict, *, share
     tool_obj = SimpleNamespace(func=tool_func)
     apply_calls: list[dict] = []
 
+    # Schema attachment mutates the process-wide public catalog. Keep helper
+    # fixtures isolated so synthetic tools cannot leak into later evaluations.
+    monkeypatch.setattr(schema_attach_mod, "_PUBLIC_TOOL_SCHEMAS", {})
     monkeypatch.setattr(schema_attach_mod, "get_mcp_registry", lambda _mcp: {tool_name: tool_obj})
     monkeypatch.setattr(schema_attach_mod, "_get_function_info", lambda func: {"name": tool_name, "parameters": []})
     monkeypatch.setattr(schema_attach_mod, "_build_minimal_schema", lambda info: deepcopy(base_schema))

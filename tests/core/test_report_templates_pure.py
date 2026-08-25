@@ -415,18 +415,19 @@ class TestGetRawResult:
         assert "error" in result
         assert "boom" in result["error"]
 
-    def test_cli_raw_kwarg_passed(self):
+    def test_structured_call_does_not_inject_cli_control_kwarg(self):
         fn = MagicMock(return_value={"ok": True})
         _get_raw_result(fn, x=1)
         fn.assert_called_once()
         _, kwargs = fn.call_args
-        assert kwargs.get("__cli_raw") is True
+        assert "__cli_raw" not in kwargs
 
-    def test_cli_raw_fallback_on_typeerror(self):
+    def test_strict_callable_runs_without_cli_control_fallback(self):
         def strict_fn(**kwargs):
             if "__cli_raw" in kwargs:
                 raise TypeError("unexpected kwarg")
             return {"ok": True}
+
         result = _get_raw_result(strict_fn, x=1)
         assert result == {"ok": True}
 
