@@ -1149,6 +1149,32 @@ def test_compact_report_payload_omits_duplicate_assessment_blocks():
     }
 
 
+def test_compact_report_omitted_sections_excludes_temporal_alignment():
+    from mtdata.core.report.use_cases import _compact_report_payload
+
+    out = _compact_report_payload(
+        {
+            "success": True,
+            "sections_status": {
+                "summary": {"ok": 2, "partial": 0, "error": 0, "omitted": 0}
+            },
+            "summary_structured": {
+                "market": {"close": 1.10},
+                "forecast": {"method": "arima"},
+                "temporal_alignment": {"status": "aligned"},
+            },
+        },
+        symbol="EURUSD",
+        template="minimal",
+    )
+
+    structured = out["summary_structured"]
+    omitted = structured.get("omitted_sections") or []
+    assert "temporal_alignment" not in omitted
+    assert out["health"]["omitted"] == len(omitted)
+    assert out["health"]["omitted"] == 0
+
+
 def test_compact_report_payload_uses_one_named_assessment_when_healthy():
     from mtdata.core.report.use_cases import _compact_report_payload
 

@@ -627,6 +627,8 @@ def run_patterns_detect(  # noqa: C901
             }
             for key in (
                 "pattern_status",
+                "status_scope",
+                "status_window_bars",
                 "pattern_confidence",
                 "bias",
                 "review_recommended",
@@ -1164,6 +1166,8 @@ def run_patterns_detect(  # noqa: C901
                         "n_patterns",
                         "top_patterns",
                         "pattern_status",
+                        "status_scope",
+                        "status_window_bars",
                         "pattern_confidence",
                         "bias",
                         "highlights",

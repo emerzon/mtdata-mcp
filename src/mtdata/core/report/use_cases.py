@@ -775,6 +775,11 @@ _COMPACT_SUMMARY_STRUCTURED_KEYS = (
     "template_focus",
     "health",
 )
+_COMPACT_SUMMARY_METADATA_KEYS = frozenset(
+    {
+        "temporal_alignment",
+    }
+)
 
 
 def _round_compact_summary_value(value: Any, *, significant_digits: int = 6) -> Any:
@@ -898,7 +903,11 @@ def _compact_summary_structured(value: Any) -> Any:
             out[key] = _round_compact_summary_value(section)
     if not out:
         return value
-    omitted = [str(key) for key in value if key not in out]
+    omitted = [
+        str(key)
+        for key in value
+        if key not in out and key not in _COMPACT_SUMMARY_METADATA_KEYS
+    ]
     if omitted:
         out["omitted_sections"] = omitted
         out["show_full_hint"] = "Use detail=standard or detail=full for omitted report sections."

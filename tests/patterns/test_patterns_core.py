@@ -1111,6 +1111,8 @@ def test_build_pattern_response_compact_keeps_actionable_fields():
     assert compact["pattern_confidence"] == 0.85
     assert compact["review_recommended"] is True
     assert compact["pattern_status"] == "bullish"
+    assert compact["status_scope"] == "historical_window"
+    assert compact["status_window_bars"] == 100
     assert compact["top_patterns"] == [
         {
             "name": "Double Bottom",
@@ -1374,7 +1376,9 @@ def test_build_pattern_response_compact_counts_omitted_rows_when_truncated():
     }
     assert "Showing top 8 of 9 detected patterns" in compact["result_limit_note"]
     assert "patterns_omitted" not in compact
-    assert compact["pattern_status"] == "conflicting"
+    assert compact["pattern_status"] == "historical_window_conflicting"
+    assert compact["status_scope"] == "historical_window"
+    assert compact["status_window_bars"] == 100
     assert compact["review_recommended"] is False
     assert "suggested_review" not in compact
     assert "confidence" not in compact
@@ -2191,7 +2195,9 @@ def test_build_pattern_response_compact_marks_conflicting_signal_wait():
         detail="compact",
     )
 
-    assert compact["pattern_status"] == "conflicting"
+    assert compact["pattern_status"] == "historical_window_conflicting"
+    assert compact["status_scope"] == "historical_window"
+    assert compact["status_window_bars"] == 100
     assert compact["review_recommended"] is False
     assert "bias" not in compact
     assert compact["pattern_confidence"] == 0.0

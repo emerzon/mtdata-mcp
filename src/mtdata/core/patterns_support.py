@@ -469,6 +469,10 @@ def _summarize_pattern_bias(rows: List[Dict[str, Any]]) -> Optional[Dict[str, An
     return out
 
 
+def _status_is_conflicting(status: Any) -> bool:
+    return "conflicting" in str(status or "").strip().lower()
+
+
 def _summarize_pattern_review(
     signal_bias: Dict[str, Any],
 ) -> Optional[Dict[str, Any]]:
@@ -484,13 +488,13 @@ def _summarize_pattern_review(
     conflict = bool(signal_bias.get("conflict"))
 
     if net_bias in {"neutral", "mixed"}:
-        status = "conflicting" if conflict else "neutral"
+        status = "historical_window_conflicting" if conflict else "neutral"
         suggested_review = None
     elif confidence < _ACTIONABLE_SIGNAL_MIN_CONFIDENCE:
         status = "uncertain"
         suggested_review = None
     elif conflict:
-        status = f"conflicting_{net_bias}"
+        status = f"historical_window_conflicting_{net_bias}"
         suggested_review = None
     else:
         status = net_bias
@@ -501,6 +505,7 @@ def _summarize_pattern_review(
     )
     out: Dict[str, Any] = {
         "status": status,
+        "status_scope": "historical_window",
         "confidence": confidence,
         "review_recommended": review_recommended,
     }
@@ -520,7 +525,7 @@ def _should_expose_directional_bias(
     if bool(signal_bias.get("conflict")):
         return False
     status = str(signal.get("status") or "").strip().lower()
-    if status in {"uncertain", "conflicting"} or status.startswith("conflicting_"):
+    if status == "uncertain" or _status_is_conflicting(status):
         return False
     try:
         confidence = float(
@@ -809,9 +814,22 @@ def _compact_patterns_payload(  # noqa: C901
     data_quality = _pattern_data_quality_summary(payload.get("warnings"))
     if data_quality:
         compact["data_quality"] = data_quality
+    window_bars = (
+        compact.get("lookback")
+        or compact.get("requested_lookback")
+        or compact.get("applied_last_n_bars")
+        or payload.get("candles")
+    )
+    try:
+        window_bars_i = int(window_bars) if window_bars not in (None, "") else None
+    except (TypeError, ValueError):
+        window_bars_i = None
     if signal:
         compact["review_recommended"] = bool(signal.get("review_recommended"))
         compact["pattern_status"] = signal.get("status")
+        compact["status_scope"] = signal.get("status_scope") or "historical_window"
+        if window_bars_i is not None:
+            compact["status_window_bars"] = window_bars_i
         compact["pattern_confidence"] = signal.get("confidence")
         if signal.get("review_recommended"):
             compact["suggested_review"] = signal.get("suggested_review")
@@ -841,6 +859,11 @@ def _compact_patterns_payload(  # noqa: C901
         status, blocker, reason = _aggregate_non_signal_pattern_status(rows)
         compact["review_recommended"] = False
         compact["pattern_status"] = status
+        compact["status_scope"] = (
+            "recent_bars" if status in {"forming", "provisional"} else "historical_window"
+        )
+        if window_bars_i is not None:
+            compact["status_window_bars"] = window_bars_i
         compact["blocker"] = blocker
         compact["bias_suppressed_reason"] = reason
     if signal_bias and _should_expose_directional_bias(signal_bias, signal):

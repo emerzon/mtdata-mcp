@@ -582,9 +582,7 @@ def _pattern_bias(payload: Any) -> Optional[str]:
         return None
 
     status = str(payload.get("pattern_status") or "").strip().lower()
-    if payload.get("conflict") or status == "conflicting" or status.startswith(
-        "conflicting_"
-    ):
+    if payload.get("conflict") or "conflicting" in status:
         return None
     confidence = _coerce_float(payload.get("pattern_confidence"))
     if confidence is not None and confidence < 0.5:
