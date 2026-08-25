@@ -926,6 +926,25 @@ def _compact_summary_structured(value: Any) -> Any:
             section = barriers
         if section not in (None, "", [], {}):
             out[key] = _round_compact_summary_value(section)
+    structure = out.get("structure")
+    if isinstance(structure, dict) and out.get("patterns") is not None:
+        structure = dict(structure)
+        structure.pop("patterns", None)
+        if structure:
+            out["structure"] = structure
+        else:
+            out.pop("structure", None)
+    risk = out.get("risk")
+    if isinstance(risk, dict):
+        risk = dict(risk)
+        if out.get("volatility") is not None:
+            risk.pop("volatility", None)
+        if out.get("barriers") is not None:
+            risk.pop("barriers", None)
+        if risk:
+            out["risk"] = risk
+        else:
+            out.pop("risk", None)
     if not out:
         return value
     omitted = [
@@ -1083,7 +1102,7 @@ def _compact_report_payload(  # noqa: C901
         and report.get("generated_at") != report.get("as_of")
     ):
         compact["generated_at"] = report.get("generated_at")
-    for key in ("section_run_status", "content_detail"):
+    for key in ("section_run_status", "request_completion_status", "content_detail"):
         value = report.get(key)
         if value not in (None, "", [], {}):
             compact[key] = value
@@ -2523,8 +2542,20 @@ def run_report_generate(  # noqa: C901
                 if isinstance(summary_structured.get("levels"), list) and summary_structured["levels"]:
                     nearest = summary_structured["levels"][0]
                     if isinstance(nearest, dict) and nearest.get("price") is not None:
+                        level_precision = (
+                            market_summary.get("price_precision")
+                            if isinstance(market_summary, dict)
+                            else None
+                        )
+                        level_text = (
+                            format_number(
+                                nearest.get("price"), decimals=level_precision
+                            )
+                            if isinstance(level_precision, int)
+                            else format_number(nearest.get("price"))
+                        )
                         narrative_parts.append(
-                            f"Nearest confluence is {format_number(nearest.get('price'))}"
+                            f"Nearest confluence is {level_text}"
                             + (
                                 f" ({nearest.get('role')})."
                                 if nearest.get("role")
@@ -2585,6 +2616,14 @@ def run_report_generate(  # noqa: C901
                     and missing_requested
                     and not summary_mode
                 )
+                capped_requested = (
+                    controls.get("capped_requested_sections", [])
+                    if isinstance(controls, dict)
+                    else []
+                )
+                request_capped = bool(
+                    capped_requested or section_plan.get("capped")
+                )
                 selection_failed = bool(
                     unsatisfied_selection
                     and (not sections or not request.allow_partial)
@@ -2605,6 +2644,11 @@ def run_report_generate(  # noqa: C901
                         or unsatisfied_selection
                     )
                     else "complete"
+                )
+                rep["request_completion_status"] = (
+                    "partial"
+                    if request_capped and not hard_failed
+                    else rep["section_run_status"]
                 )
                 rep["content_detail"] = (
                     "summary_only"

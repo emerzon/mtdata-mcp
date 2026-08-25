@@ -666,6 +666,8 @@ def test_run_report_generate_preserves_capped_request_provenance():
     assert result["execution_progress"]["scheduled_selection_complete"] is True
     assert "Forecast was excluded by max_sections" in result["assessment"]["summary"]
     assert "Forecast was not requested" not in result["assessment"]["summary"]
+    assert result["request_completion_status"] == "partial"
+    assert result["section_run_status"] == "complete"
 
 
 def test_conformal_only_report_executes_but_hides_backtest_dependency():
@@ -3025,3 +3027,32 @@ def test_report_request_rejects_nonpositive_params_horizon():
 
     with pytest.raises(ValidationError, match="params.horizon"):
         ReportGenerateRequest(symbol="EURUSD", params={"horizon": 0})
+
+
+def test_compact_summary_structured_drops_duplicate_aliases():
+    from mtdata.core.report.use_cases import _compact_summary_structured
+
+    compact = _compact_summary_structured(
+        {
+            "narrative": "Last close 1.16743.",
+            "levels": [{"price": 1.16641, "role": "below"}],
+            "confluence": {
+                "reference_price": 1.16743,
+                "levels": [{"price": 1.16641, "role": "below"}],
+            },
+            "patterns": {"recent": [{"name": "engulfing"}]},
+            "structure": {"patterns": [{"name": "engulfing"}]},
+            "volatility": {"method": "ewma"},
+            "barriers": {"up": {"price": 1.17}},
+            "risk": {
+                "volatility": {"method": "ewma"},
+                "barriers": {"up": {"price": 1.17}},
+            },
+        }
+    )
+    assert compact["levels"][0]["price"] == 1.16641
+    assert compact["patterns"]["recent"][0]["name"] == "engulfing"
+    assert "patterns" not in compact.get("structure", {})
+    assert compact["volatility"]["method"] == "ewma"
+    assert "volatility" not in compact.get("risk", {})
+    assert "barriers" not in compact.get("risk", {})
