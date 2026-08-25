@@ -31,8 +31,12 @@ from ...utils.symbol import (
     find_live_extended_session_symbols,
     symbol_suggestions_from_gateway,
 )
-from ...utils.time import bar_close_epoch
-from ...utils.utils import _iana_timezone_datetime_issue
+from ...utils.time import bar_close_epoch, format_datetime_utc
+from ...utils.utils import (
+    _iana_timezone_datetime_issue,
+    _parse_end_datetime,
+    _parse_start_datetime,
+)
 from ..error_envelope import build_error_payload
 from ..execution_logging import run_logged_operation
 from ..mt5_gateway import mt5_connection_error
@@ -551,7 +555,7 @@ def _normalize_candle_query_error(
         error_code = "invalid_date_range"
         remediation = "Set start to a timestamp earlier than or equal to end."
     elif "in the future" in normalized and "start" in normalized:
-        error_code = "data_fetch_candles_future_date_range"
+        error_code = "future_date_range"
         remediation = "Use a start timestamp at or before the current time."
     elif (
         "before mt5's supported history boundary" in normalized
@@ -1811,17 +1815,31 @@ def _prune_zero_candle_exclusions(result: Dict[str, Any]) -> None:
     }
 
 
+def _freeze_tick_bound(value: Any, *, end: bool) -> Optional[str]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    parsed = _parse_end_datetime(text) if end else _parse_start_datetime(text)
+    if parsed is None:
+        return None
+    return format_datetime_utc(parsed, timespec="microseconds")
+
+
 def _encode_tick_cursor(
     request: DataFetchTicksRequest,
     *,
     selection: str,
     offset: int,
+    resolved_start: Optional[str] = None,
+    resolved_end: Optional[str] = None,
 ) -> str:
     cursor_payload = {
-        "v": 1,
+        "v": 2,
         "symbol": request.symbol,
         "start": request.start,
         "end": request.end,
+        "resolved_start": resolved_start,
+        "resolved_end": resolved_end,
         "selection": selection,
         "offset": int(offset),
     }
@@ -1832,13 +1850,13 @@ def _encode_tick_cursor(
 def _decode_tick_cursor(
     cursor: str,
     request: DataFetchTicksRequest,
-) -> tuple[str, int]:
+) -> tuple[str, int, Optional[str], Optional[str]]:
     try:
         padding = "=" * (-len(cursor) % 4)
         decoded = json.loads(base64.urlsafe_b64decode(cursor + padding).decode())
     except Exception as exc:
         raise ValueError("cursor is not a valid tick continuation token") from exc
-    if not isinstance(decoded, dict) or decoded.get("v") != 1:
+    if not isinstance(decoded, dict) or decoded.get("v") not in {1, 2}:
         raise ValueError("cursor uses an unsupported tick continuation version")
     for key, expected in (
         ("symbol", request.symbol),
@@ -1853,7 +1871,13 @@ def _decode_tick_cursor(
     offset = decoded.get("offset")
     if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
         raise ValueError("cursor has an invalid tick page offset")
-    return selection, offset
+    resolved_start = decoded.get("resolved_start")
+    resolved_end = decoded.get("resolved_end")
+    if resolved_start is not None:
+        resolved_start = str(resolved_start)
+    if resolved_end is not None:
+        resolved_end = str(resolved_end)
+    return selection, offset, resolved_start, resolved_end
 
 
 def _run_data_fetch_ticks_impl(
@@ -1876,7 +1900,7 @@ def _run_data_fetch_ticks_impl(
             details["end"] = str(request.end)
         return build_error_payload(
             f"{field} datetime {value} is in the future; historical tick ranges must have elapsed.",
-            code="data_fetch_ticks_future_date_range",
+            code="future_date_range",
             operation="data_fetch_ticks",
             details=details,
             remediation="Use start and end timestamps at or before the current time.",
@@ -1894,6 +1918,8 @@ def _run_data_fetch_ticks_impl(
         else "first_n"
     )
     page_offset = 0
+    resolved_start = _freeze_tick_bound(request.start, end=False)
+    resolved_end = _freeze_tick_bound(request.end, end=True)
     if request.cursor:
         if not request.start or not request.end:
             return build_error_payload(
@@ -1903,7 +1929,7 @@ def _run_data_fetch_ticks_impl(
                 remediation="Reuse the cursor with the original start and end values.",
             )
         try:
-            range_selection, page_offset = _decode_tick_cursor(
+            range_selection, page_offset, cursor_start, cursor_end = _decode_tick_cursor(
                 request.cursor,
                 request,
             )
@@ -1917,11 +1943,15 @@ def _run_data_fetch_ticks_impl(
                     "symbol, start, or end."
                 ),
             )
+        if cursor_start:
+            resolved_start = cursor_start
+        if cursor_end:
+            resolved_end = cursor_end
     result = fetch_ticks_impl(
         symbol=request.symbol,
         limit=applied_limit,
-        start=request.start,
-        end=request.end,
+        start=resolved_start or request.start,
+        end=resolved_end or request.end,
         simplify=request.simplify,
         time_as_epoch=not _iso_timestamp_requested(request.timestamp_format),
         force_utc=_force_utc_timestamps(request.timestamp_format),
@@ -1964,6 +1994,8 @@ def _run_data_fetch_ticks_impl(
         limit_explicit=limit_explicit,
         selection=range_selection,
         page_offset=page_offset,
+        resolved_start=resolved_start,
+        resolved_end=resolved_end,
     )
     return attach_mt5_source(result, gateway=gateway)
 
@@ -2060,11 +2092,11 @@ def _normalize_tick_query_error(
         error_code = "data_fetch_ticks_invalid_date_range"
         remediation = "Set start to a timestamp earlier than or equal to end."
     elif "start datetime" in normalized and "in the future" in normalized:
-        error_code = "data_fetch_ticks_future_date_range"
+        error_code = "future_date_range"
         remediation = "Use a start timestamp at or before the current time."
     elif "no tick data" in normalized:
         if _tick_request_is_future_only(request):
-            error_code = "data_fetch_ticks_future_date_range"
+            error_code = "future_date_range"
             message = (
                 f"start datetime {request.start or request.end} is in the future; "
                 "no historical tick data is available for future dates."
@@ -2167,6 +2199,8 @@ def _attach_tick_pagination(
     limit_explicit: bool = True,
     selection: str,
     page_offset: int,
+    resolved_start: Optional[str] = None,
+    resolved_end: Optional[str] = None,
 ) -> None:
     """Attach evidence-based pagination for bounded tick queries."""
     if not isinstance(payload, dict) or payload.get("error"):
@@ -2194,6 +2228,10 @@ def _attach_tick_pagination(
             payload["query_applied"] = query_applied
         query_applied["limit"] = limit_value
         query_applied["limit_source"] = "user" if limit_explicit else "default"
+        if resolved_start:
+            query_applied["resolved_start"] = resolved_start
+        if resolved_end:
+            query_applied["resolved_end"] = resolved_end
         if not limit_explicit:
             query_applied["default_limit"] = limit_value
             payload["default_limit"] = limit_value
@@ -2225,6 +2263,8 @@ def _attach_tick_pagination(
             request,
             selection=selection,
             offset=offset + source_returned,
+            resolved_start=resolved_start,
+            resolved_end=resolved_end,
         )
         payload["truncated"] = True
         data_window = payload.get("data_window")
