@@ -808,7 +808,7 @@ def confluence_levels(  # noqa: C901
     volume_profile_max_m1_bars: Annotated[int, Field(ge=1)] = 20_000,
     detail: Literal["compact", "standard", "full"] = "compact",
 ) -> Dict[str, Any]:
-    """Find nearby high-probability price zones where pivots, support/resistance, and Fibonacci agree.
+    """Find nearby high-confluence price zones where pivots, support/resistance, and Fibonacci agree.
 
     Combines formula pivot levels, touch-derived support/resistance, and
     Fibonacci swing levels. Defaults use daily pivots, auto-timeframe S/R, and
@@ -944,7 +944,7 @@ def confluence_levels(  # noqa: C901
             reference_price_source = (
                 "historical_window_close"
                 if historical_cutoff is not None
-                else "live_tick"
+                else "live_tick_mid"
             )
             if reference_price is None:
                 if historical_cutoff is None:
@@ -1050,7 +1050,7 @@ def confluence_levels(  # noqa: C901
                 if math.isfinite(period_start)
                 else None
             )
-            if reference_price_source == "live_tick":
+            if reference_price_source == "live_tick_mid":
                 payload["reference_quote_as_of"] = (
                     format_datetime_utc(datetime.now(timezone.utc))
                 )

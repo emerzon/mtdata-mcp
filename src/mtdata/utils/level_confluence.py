@@ -511,6 +511,31 @@ def build_level_confluence_payload(
         volume_profile_payload=volume_profile_payload,
     )
     min_families = max(1, int(min_source_families))
+    enabled_families = ["pivot_formula", "touch_derived", "swing_fibonacci"]
+    if isinstance(volume_profile_payload, dict):
+        enabled_families.append("volume_profile")
+    max_enabled_families = len(enabled_families)
+    if min_families > max_enabled_families:
+        return {
+            "success": False,
+            "error": (
+                f"min_source_families={min_families} exceeds the "
+                f"{max_enabled_families} enabled source families for this request."
+            ),
+            "error_code": "invalid_parameter",
+            "parameter": "min_source_families",
+            "value": min_families,
+            "enabled_source_families": enabled_families,
+            "max_enabled_source_families": max_enabled_families,
+            "remediation": (
+                f"Set min_source_families to {max_enabled_families} or fewer"
+                + (
+                    ", or enable volume_profile_source to add a fourth family."
+                    if "volume_profile" not in enabled_families
+                    else "."
+                )
+            ),
+        }
     clusters = []
     for group in _cluster_records(records, tolerance_abs=tolerance_abs):
         families = {str(record.get("source_family") or "unknown") for record in group}
@@ -615,6 +640,8 @@ def build_level_confluence_payload(
                 "volume_profile": volume_profile_quality,
             }
     out["min_source_families"] = min_families
+    out["enabled_source_families"] = enabled_families
+    out["max_enabled_source_families"] = max_enabled_families
     if detail_value == "compact":
         out["count"] = len(top_clusters)
     else:

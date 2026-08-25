@@ -125,6 +125,48 @@ def test_confluence_standard_keeps_units_and_filter_context():
     assert payload["min_source_families"] == 1
 
 
+def test_confluence_rejects_unattainable_source_family_count():
+    payload = build_level_confluence_payload(
+        symbol="EURUSD",
+        pivot_timeframe="D1",
+        sr_timeframe="H1",
+        reference_price=1.08,
+        tolerance_pct=0.1,
+        pivot_methods=[{"method": "classic", "levels": {"PP": 1.0801}}],
+        support_resistance_payload={"levels": []},
+        min_source_families=5,
+        detail="compact",
+    )
+
+    assert payload["success"] is False
+    assert payload["error_code"] == "invalid_parameter"
+    assert payload["parameter"] == "min_source_families"
+    assert payload["value"] == 5
+    assert payload["enabled_source_families"] == [
+        "pivot_formula",
+        "touch_derived",
+        "swing_fibonacci",
+    ]
+    assert payload["max_enabled_source_families"] == 3
+    assert "volume_profile_source" in payload["remediation"]
+
+    with_profile = build_level_confluence_payload(
+        symbol="EURUSD",
+        pivot_timeframe="D1",
+        sr_timeframe="H1",
+        reference_price=1.08,
+        tolerance_pct=0.1,
+        pivot_methods=[{"method": "classic", "levels": {"PP": 1.0801}}],
+        support_resistance_payload={"levels": []},
+        min_source_families=4,
+        volume_profile_payload={"success": True, "levels": []},
+        detail="compact",
+    )
+    assert with_profile["success"] is True
+    assert with_profile["max_enabled_source_families"] == 4
+    assert with_profile["levels"] == []
+
+
 def test_confluence_default_requires_two_source_families():
     payload = build_level_confluence_payload(
         symbol="EURUSD",
