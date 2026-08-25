@@ -55,7 +55,7 @@ mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 200 --indicators "em
 
 Indicators add new columns to the output:
 ```
-time,open,high,low,close,volume,ema_20,ema_50,rsi_14,macd_12_26_9,macdh_12_26_9,macds_12_26_9
+time,open,high,low,close,volume,ema_20,ema_50,rsi_14,macd_12_26_9,macd_h_12_26_9,macd_s_12_26_9
 ```
 
 Column naming convention: lowercase `indicator_param1_param2` (the same names `indicators_describe` reports). Denoise `columns=` must use these names, not `RSI_14`.

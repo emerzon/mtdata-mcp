@@ -127,6 +127,29 @@ def test_indicators_describe_rsi_and_macd_include_calculation(monkeypatch):
     assert macd["indicator"]["documentation"]["calculation"]
     assert "EMA" in macd["indicator"]["documentation"]["calculation"]
     assert "pandas-ta-classic" in tail["indicator"]["documentation"]["calculation"]
+    assert "macd_h_{fast}_{slow}_{signal}" in macd["indicator"]["documentation"]["calculation"]
+    assert "macdh_" not in macd["indicator"]["documentation"]["calculation"]
+
+
+def test_indicators_describe_bbands_calculation_matches_backend_default(monkeypatch):
+    monkeypatch.setattr(
+        core_indicators,
+        "_list_ta_indicators",
+        lambda detailed=False: [
+            {
+                "name": "bbands",
+                "category": "overlap",
+                "description": "",
+                "params": [{"name": "length", "default": 5}],
+            },
+        ],
+    )
+    raw = _unwrap(core_indicators.indicators_describe)
+    bbands = raw("bbands", detail="full")
+    calculation = bbands["indicator"]["documentation"]["calculation"]
+    assert "backend default 5" in calculation
+    assert "bbands(20,2)" in calculation
+    assert "default 20" not in calculation
 
 
 def test_indicator_engine_provenance_is_compact():

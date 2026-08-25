@@ -51,7 +51,8 @@ _CURATED_INDICATOR_CALCULATIONS = {
     "macd": (
         "Input: close. MACD line = EMA(fast, default 12) - EMA(slow, default 26); "
         "signal = EMA(MACD, default 9); histogram = MACD - signal. "
-        "Output columns: macd_{fast}_{slow}_{signal}, macdh_..., macds_..."
+        "Output columns: macd_{fast}_{slow}_{signal}, "
+        "macd_h_{fast}_{slow}_{signal}, macd_s_{fast}_{slow}_{signal}."
     ),
     "ema": (
         "Input: close. Exponential moving average with smoothing 2/(length+1) "
@@ -67,9 +68,12 @@ _CURATED_INDICATOR_CALCULATIONS = {
         "(default 14). Output column: atr_{length}."
     ),
     "bbands": (
-        "Input: close. Middle band = SMA(length, default 20); upper/lower = middle "
-        "± stdev_multiplier * rolling standard deviation (default 2). "
-        "Output columns: bbl_{length}_{std}, bbm_..., bbu_..."
+        "Input: close. Middle band = SMA(length, backend default 5); upper/lower = "
+        "middle ± stdev_multiplier * rolling standard deviation (default 2). "
+        "A conventional 20-bar setting is available as bbands(20,2) and is not "
+        "the omitted-parameter default. "
+        "Output columns: bbl_{length}_{std}, bbm_{length}_{std}, bbu_{length}_{std}, "
+        "bbb_{length}_{std}, bbp_{length}_{std}."
     ),
 }
 
