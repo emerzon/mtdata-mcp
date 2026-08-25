@@ -399,14 +399,18 @@ def pivot_compute_points(  # noqa: C901
     symbol: str,
     timeframe: TimeframeLiteral = "D1",
     method: Optional[PivotMethodLiteral] = None,
+    end: Optional[str] = None,
+    as_of: Optional[str] = None,
     detail: DetailLiteral = "compact",
 ) -> Dict[str, Any]:
     """Compute pivot point levels from the last completed bar on `timeframe`.
-    Parameters: symbol, timeframe, method, detail
+    Parameters: symbol, timeframe, method, end, as_of, detail
 
     Defaults to D1 because daily pivots are the common floor-trader convention.
     Compact detail returns classic pivots while standard/full include every
     supported method. Set `method` to return only one pivot method.
+    Pass `end` or `as_of` for a historical cutoff so the source bar is the last
+    completed bar at or before that instant (no look-ahead).
     Use `support_resistance_levels` for complementary data-driven levels from
     historical retests and reactions.
     """
@@ -428,24 +432,39 @@ def pivot_compute_points(  # noqa: C901
             tf_secs = TIMEFRAME_SECONDS.get(timeframe)
             if not tf_secs:
                 return {"error": unsupported_timeframe_seconds_error(timeframe)}
+            cutoff_raw = end if end not in (None, "") else as_of
+            range_error = validate_historical_range(None, cutoff_raw)
+            if range_error is not None:
+                return range_error
+            historical_cutoff = _parse_end_datetime(cutoff_raw) if cutoff_raw else None
+            if cutoff_raw and historical_cutoff is None:
+                return {"error": "Invalid end time.", "error_code": "invalid_datetime"}
 
             with _symbol_ready_guard(symbol) as (err, _info_before):
                 if err:
                     return {"error": err}
                 system_now_dt = datetime.now(timezone.utc)
                 system_now_ts = system_now_dt.timestamp()
-                rates = _mt5_copy_rates_from(symbol, mt5_tf, system_now_dt, 5)
+                pivot_cutoff_dt = historical_cutoff or system_now_dt
+                rates = _mt5_copy_rates_from(symbol, mt5_tf, pivot_cutoff_dt, 5)
 
             if rates is None or len(rates) == 0:
                 return {"error": f"Failed to get rates for {symbol}: {mt5.last_error()}"}
 
-            now_ts = system_now_ts
-            latest = rates[-1]
-            if bar_close_epoch(latest["time"], timeframe) <= now_ts:
-                src = latest
-            elif len(rates) >= 2:
-                src = rates[-2]
-            else:
+            cutoff_ts = (
+                historical_cutoff.replace(tzinfo=timezone.utc).timestamp()
+                if historical_cutoff is not None
+                else system_now_ts
+            )
+            src = next(
+                (
+                    row
+                    for row in reversed(rates)
+                    if bar_close_epoch(row["time"], timeframe) <= cutoff_ts
+                ),
+                None,
+            )
+            if src is None:
                 return {"error": "No completed bars available to compute pivot points"}
 
             def _has_field(row, name: str) -> bool:
@@ -650,6 +669,8 @@ def pivot_compute_points(  # noqa: C901
             elif detail_value not in {"compact", "standard", "full"}:
                 detail_value = "compact"
 
+            requested_cutoff = None if cutoff_raw in (None, "") else str(cutoff_raw)
+            effective_cutoff = end_str
             payload: Dict[str, Any] = {
                 "success": True,
                 "symbol": symbol,
@@ -658,8 +679,17 @@ def pivot_compute_points(  # noqa: C901
                     "start": start_str,
                     "end": end_str,
                 },
+                "historical_cutoff": {
+                    "requested": requested_cutoff,
+                    "effective": effective_cutoff,
+                },
+                "analysis_as_of": effective_cutoff,
                 "calculation_basis": {
-                    "source_bar": f"last completed {timeframe} bar",
+                    "source_bar": (
+                        f"last completed {timeframe} bar at or before {requested_cutoff}"
+                        if requested_cutoff
+                        else f"last completed {timeframe} bar"
+                    ),
                     "session_boundary": "MT5 broker/session calendar",
                     "display_timezone": timezone_label,
                 },
@@ -704,6 +734,8 @@ def pivot_compute_points(  # noqa: C901
                     "symbol": symbol,
                     "timeframe": timeframe,
                     "period": payload["period"],
+                    "historical_cutoff": payload["historical_cutoff"],
+                    "analysis_as_of": payload["analysis_as_of"],
                     "method": (
                         selected_method.get("method")
                         if isinstance(selected_method, dict)
@@ -744,6 +776,8 @@ def pivot_compute_points(  # noqa: C901
         symbol=symbol,
         timeframe=timeframe,
         method=method,
+        end=end,
+        as_of=as_of,
         detail=detail,
         func=_run,
     )

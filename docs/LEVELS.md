@@ -30,9 +30,14 @@ Computes pivot levels from the **last completed bar** on `timeframe`.
 ```bash
 mtdata-cli pivot_compute_points EURUSD --timeframe D1 --json
 mtdata-cli pivot_compute_points EURUSD --timeframe D1 --method camarilla --json
+mtdata-cli pivot_compute_points EURUSD --timeframe D1 --end 2026-07-03T20:00:00Z --json
 ```
 
 - `timeframe` defaults to `D1` because daily pivots are the common floor-trader convention.
+- `end` / `as_of` is an optional historical cutoff, consistent with
+  `confluence_levels`. The source bar is the last completed bar whose close is
+  at or before that instant; later bars are not used. The payload reports both
+  the requested cutoff and the effective source-bar close.
 - `method` selects one of `classic`, `fibonacci`, `camarilla`, `woodie`, `demark`.
   Omit it to return every method at `--detail standard`/`full`; `--detail compact`
   returns the classic pivots only.

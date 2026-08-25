@@ -155,6 +155,63 @@ def test_pivot_compute_points_logs_finish_event(caplog):
     )
 
 
+def test_pivot_compute_points_historical_cutoff_selects_bar_without_lookahead():
+    fn = _get_pivot_fn()
+    info = _make_symbol_info()
+    earlier = _make_rate(open_=1.10, high=1.12, low=1.09, close=1.11, time_=1_000.0)
+    later = _make_rate(open_=1.20, high=1.25, low=1.18, close=1.24, time_=86_400.0)
+    captured: Dict[str, Any] = {}
+
+    def fake_copy(_symbol, _tf, dt, _count):
+        captured["dt"] = dt
+        return [earlier, later]
+
+    cutoff = datetime(1970, 1, 2, 1, 0, tzinfo=timezone.utc)
+
+    @contextmanager
+    def _guard(symbol):
+        yield None, info
+
+    with patch(_TF_MAP_PATCH, {"D1": 1}), \
+         patch(_TF_SECS_PATCH, {"D1": 86400}), \
+         patch(_GUARD, _guard), \
+         patch(_COPY_RATES, side_effect=fake_copy), \
+         patch(_USE_CTZ, return_value=False), \
+         patch(_FMT, side_effect=lambda x: f"T{int(x)}"):
+        res = fn("EURUSD", timeframe="D1", end="1970-01-02T01:00:00Z")
+
+    assert res["success"] is True
+    assert captured["dt"] == datetime(1970, 1, 2, 1, 0)
+    expected_pp = round((1.12 + 1.09 + 1.11) / 3.0, 5)
+    assert res["levels"]["PP"] == expected_pp
+    assert res["historical_cutoff"]["requested"] == "1970-01-02T01:00:00Z"
+    assert res["historical_cutoff"]["effective"] == "T87400"
+    assert res["analysis_as_of"] == "T87400"
+
+
+def test_pivot_compute_points_as_of_alias_matches_end():
+    fn = _get_pivot_fn()
+    info = _make_symbol_info()
+    earlier = _make_rate(open_=1.10, high=1.12, low=1.09, close=1.11, time_=1_000.0)
+    later = _make_rate(open_=1.20, high=1.25, low=1.18, close=1.24, time_=86_400.0)
+
+    @contextmanager
+    def _guard(symbol):
+        yield None, info
+
+    with patch(_TF_MAP_PATCH, {"D1": 1}), \
+         patch(_TF_SECS_PATCH, {"D1": 86400}), \
+         patch(_GUARD, _guard), \
+         patch(_COPY_RATES, return_value=[earlier, later]), \
+         patch(_USE_CTZ, return_value=False), \
+         patch(_FMT, side_effect=lambda x: f"T{int(x)}"):
+        res = fn("EURUSD", timeframe="D1", as_of="1970-01-02T01:00:00Z")
+
+    assert res["success"] is True
+    assert res["historical_cutoff"]["requested"] == "1970-01-02T01:00:00Z"
+    assert res["levels"]["PP"] == round((1.12 + 1.09 + 1.11) / 3.0, 5)
+
+
 def test_pivot_compute_points_demark_compact_returns_nonzero_levels():
     fn = _get_pivot_fn()
     info = _make_symbol_info(digits=5)
