@@ -75,6 +75,13 @@ def test_apply_ta_indicators_rejects_unknown_indicators_before_partial_apply() -
     assert list(df.columns) == ["close"]
 
 
+def test_apply_ta_indicators_rejects_reversed_macd_periods() -> None:
+    df = _sample_df()
+
+    with pytest.raises(ValueError, match=r"fast < slow"):
+        _apply_ta_indicators(df, "macd(26,12,9)")
+
+
 @pytest.mark.parametrize("ti_spec", ["rsi(0)", "sma(-1)"])
 def test_apply_ta_indicators_rejects_nonpositive_periods(ti_spec: str) -> None:
     df = _sample_df()

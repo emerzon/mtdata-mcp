@@ -586,6 +586,26 @@ def _validate_ta_indicator_parameters(
                 f"but only {available_rows} input rows are available. Request more history "
                 "or use a shorter period."
             )
+    if str(indicator or "").strip().lower() == "macd":
+        fast = values.get("fast", values.get("fast_period"))
+        slow = values.get("slow", values.get("slow_period"))
+        try:
+            fast_value = float(fast) if fast is not None else None
+            slow_value = float(slow) if slow is not None else None
+        except (TypeError, ValueError, OverflowError):
+            fast_value = None
+            slow_value = None
+        if (
+            fast_value is not None
+            and slow_value is not None
+            and math.isfinite(fast_value)
+            and math.isfinite(slow_value)
+            and fast_value >= slow_value
+        ):
+            raise ValueError(
+                f"Indicator 'macd' requires fast < slow; received fast={fast!r}, "
+                f"slow={slow!r}."
+            )
 
 
 def _apply_ta_indicators(df: pd.DataFrame, ti_spec: str) -> List[str]:  # noqa: C901
