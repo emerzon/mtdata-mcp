@@ -629,9 +629,9 @@ def forecast_barrier_closed_form(  # noqa: C901
 ) -> Dict[str, Any]:
     """Closed-form single-barrier hit probability for GBM within horizon.
 
-    Direction semantics:
-    - "long": probability of reaching an upper barrier (price >= barrier).
-    - "short": probability of reaching a lower barrier (price <= barrier).
+    ``direction`` is the trade direction (long/short). Barrier side is inferred
+    from ``barrier`` versus the reference price: above the spot is an upper
+    barrier, below the spot is a lower barrier.
     """
     try:
         symbol, symbol_requested = resolve_forecast_symbol(symbol)
@@ -725,17 +725,23 @@ def forecast_barrier_closed_form(  # noqa: C901
             return {"error": "Sigma must be positive"}
         sigma_sq = sigma_val * sigma_val
         gbm_drift = log_drift + 0.5 * sigma_sq
-        if direction_norm == 'short':
+        barrier_level = float(barrier)
+        if barrier_level > s0:
+            barrier_side = "upper"
+        elif barrier_level < s0:
+            barrier_side = "lower"
+        else:
+            barrier_side = "at_spot"
+        if barrier_side == "lower":
             s0_inv = 1.0 / s0
-            b_inv = 1.0 / float(barrier)
+            b_inv = 1.0 / barrier_level
             inv_drift = sigma_sq - gbm_drift
             prob = _gbm_upcross_prob(s0_inv, b_inv, float(inv_drift), sigma_val, float(T))
+        elif barrier_side == "upper":
+            prob = _gbm_upcross_prob(s0, barrier_level, float(gbm_drift), sigma_val, float(T))
         else:
-            prob = _gbm_upcross_prob(s0, float(barrier), float(gbm_drift), sigma_val, float(T))
-        already_hit = (
-            (direction_norm == 'long' and barrier <= s0)
-            or (direction_norm == 'short' and barrier >= s0)
-        )
+            prob = 1.0
+        already_hit = barrier_side == "at_spot"
         price_precision = _symbol_price_precision(symbol)
         result = {
             "success": True,
@@ -743,7 +749,9 @@ def forecast_barrier_closed_form(  # noqa: C901
             **({"symbol_requested": symbol_requested} if symbol_requested else {}),
             "timeframe": timeframe,
             "horizon": int(horizon),
+            "method": "closed_form",
             "direction": direction_norm,
+            "barrier_side": barrier_side,
             "last_price": s0,
             "last_price_close": float(last_price_close),
             "last_price_source": last_price_source,

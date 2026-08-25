@@ -659,25 +659,43 @@ class TestBarrierHitProbabilities(_BarrierTestBase):
         )
 
     def test_forecast_barrier_closed_form_returns_one_when_barrier_already_hit(self):
-        up = forecast_barrier_closed_form(
+        last_price = float(self.df["close"].iloc[-1])
+        at_spot = forecast_barrier_closed_form(
             symbol="EURUSD",
             timeframe="H1",
             horizon=10,
             direction="long",
-            barrier=0.5,
+            barrier=last_price,
         )
-        self.assertTrue(up["success"])
-        self.assertAlmostEqual(up["prob_hit"], 1.0, places=12)
+        self.assertTrue(at_spot["success"])
+        self.assertEqual(at_spot["method"], "closed_form")
+        self.assertEqual(at_spot["barrier_side"], "at_spot")
+        self.assertAlmostEqual(at_spot["prob_hit"], 1.0, places=12)
+        self.assertTrue(at_spot.get("already_hit"))
 
-        down = forecast_barrier_closed_form(
+        upper = forecast_barrier_closed_form(
             symbol="EURUSD",
             timeframe="H1",
             horizon=10,
             direction="short",
-            barrier=10.0,
+            barrier=last_price * 1.05,
         )
-        self.assertTrue(down["success"])
-        self.assertAlmostEqual(down["prob_hit"], 1.0, places=12)
+        self.assertTrue(upper["success"])
+        self.assertEqual(upper["direction"], "short")
+        self.assertEqual(upper["barrier_side"], "upper")
+        self.assertFalse(upper.get("already_hit"))
+
+        lower = forecast_barrier_closed_form(
+            symbol="EURUSD",
+            timeframe="H1",
+            horizon=10,
+            direction="long",
+            barrier=last_price * 0.95,
+        )
+        self.assertTrue(lower["success"])
+        self.assertEqual(lower["direction"], "long")
+        self.assertEqual(lower["barrier_side"], "lower")
+        self.assertFalse(lower.get("already_hit"))
 
     def test_forecast_barrier_closed_form_rejects_invalid_direction(self):
         result = forecast_barrier_closed_form(

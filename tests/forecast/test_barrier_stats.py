@@ -775,11 +775,14 @@ class TestBarrierSanityCheckFixes(unittest.TestCase):
         prices = np.linspace(1.05, 1.10, 600) + np.random.RandomState(42).normal(0, 0.001, 600)
         df = pd.DataFrame({"time": dates, "close": prices})
 
+        last_price = float(df["close"].iloc[-1])
         with patch("mtdata.forecast.barriers_probabilities._fetch_history", return_value=df):
             result = forecast_barrier_closed_form(
                 symbol="EURUSD", timeframe="H1", horizon=10,
-                direction="long", barrier=0.5,
+                direction="long", barrier=last_price,
             )
         self.assertTrue(result.get("success"))
+        self.assertEqual(result.get("method"), "closed_form")
+        self.assertEqual(result.get("barrier_side"), "at_spot")
         self.assertAlmostEqual(result["prob_hit"], 1.0, places=10)
         self.assertTrue(result.get("already_hit"))
