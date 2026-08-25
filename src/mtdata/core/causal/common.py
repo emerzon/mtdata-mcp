@@ -344,11 +344,29 @@ def _resolve_history_window(
 
 
 def _history_fetch_error_code(errors: List[str]) -> str:
+    if _symbol_not_found_error(errors):
+        return "symbol_not_found"
     return (
         "future_date_range"
         if any(str(error).startswith("future_date_range:") for error in errors)
         else "data_fetch_failed"
     )
+
+
+def _granger_maximum_lag_for_samples(samples: int) -> int:
+    try:
+        count = int(samples)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, int((count - 1) / 3) - 1)
+
+
+def _granger_minimum_samples_for_lag(max_lag: int) -> int:
+    try:
+        lag = int(max_lag)
+    except (TypeError, ValueError):
+        lag = 0
+    return max(1, 3 * lag + 4)
 
 
 def _symbol_not_found_error(errors: List[str]) -> Optional[str]:

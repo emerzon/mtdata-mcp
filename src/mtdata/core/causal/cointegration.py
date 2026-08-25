@@ -837,8 +837,31 @@ def cointegration_test(  # noqa: C901
                         },
                     }
                 )
+            johansen_context = {
+                **_pairwise_analysis_context([], timeframe=timeframe),
+                "window_bars": window_bars_value,
+                "samples": int(len(sample)),
+                "available_overlap_rows": available_overlap,
+                "transform": transform_value,
+                "trend": trend_value,
+                "det_order": int(det_order),
+                "k_ar_diff": int(k_ar_diff),
+                "significance": float(significance),
+                "alignment_diagnostics": _public_alignment_diagnostics(
+                    alignment_diagnostics,
+                    detail=detail_mode,
+                ),
+                **_bar_completion_context(
+                    series_map, include_incomplete=bool(include_incomplete)
+                ),
+            }
+            if len(sample.index) > 0:
+                johansen_context["period_start"] = _format_sample_time(sample.index[0])
+                johansen_context["period_end"] = _format_sample_time(sample.index[-1])
+                johansen_context["bar_timestamp_basis"] = "open_time"
             out: Dict[str, Any] = {
                 "success": True,
+                "data_quality": data_quality,
                 "method": "johansen",
                 "transform": transform_value,
                 "symbols": symbols_used,
@@ -849,21 +872,7 @@ def cointegration_test(  # noqa: C901
                 "items": rank_rows,
                 "count": len(rank_rows),
                 "cointegrating_vectors": vectors,
-                "context": {
-                    **_pairwise_analysis_context([], timeframe=timeframe),
-                    "window_bars": window_bars_value,
-                    "samples": int(len(sample)),
-                    "available_overlap_rows": available_overlap,
-                    "transform": transform_value,
-                    "trend": trend_value,
-                    "det_order": int(det_order),
-                    "k_ar_diff": int(k_ar_diff),
-                    "significance": float(significance),
-                    "alignment_diagnostics": _public_alignment_diagnostics(
-                        alignment_diagnostics,
-                        detail=detail_mode,
-                    ),
-                },
+                "context": johansen_context,
                 "summary": {
                     "selected_rank": int(selected_rank),
                     "independent_stochastic_trends": int(max(0, len(symbols_used) - selected_rank)),

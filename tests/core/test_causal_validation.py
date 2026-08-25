@@ -16,6 +16,21 @@ _TOOL_MODULES = {
 }
 
 
+def test_granger_sample_formula_matches_execution_gate():
+    assert common._granger_minimum_samples_for_lag(5) == 19
+    assert common._granger_maximum_lag_for_samples(11) == 2
+    assert common._granger_maximum_lag_for_samples(19) == 5
+
+
+def test_history_fetch_error_code_classifies_missing_symbols():
+    assert (
+        common._history_fetch_error_code(
+            ["Symbol 'NOTAREAL' was not found in MT5."]
+        )
+        == "symbol_not_found"
+    )
+
+
 def test_history_window_resolves_daily_labels_in_broker_timezone():
     with patch(
         "mtdata.services.data_service.candles.mt5_config.get_server_tz",
@@ -148,9 +163,9 @@ def test_causal_discovery_fails_when_requested_lag_prevents_all_tests():
         )
 
     assert result["success"] is False
-    assert result["error_code"] == "no_tests_completed"
-    assert result["details"]
-    assert all("maximum_allowable_lag" in item for item in result["details"])
+    assert result["error_code"] == "insufficient_overlap"
+    assert result["minimum_window_bars_for_requested_lag"] == 64
+    assert result["maximum_lag_for_current_window"] == 15
 
 
 def test_fetch_series_excludes_forming_bar_by_default():

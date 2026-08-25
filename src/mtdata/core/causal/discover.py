@@ -30,6 +30,8 @@ from mtdata.core.causal.common import (
     _format_alignment_detail_summary,
     _format_overlap_details,
     _format_sample_time,
+    _granger_maximum_lag_for_samples,
+    _granger_minimum_samples_for_lag,
     _history_fetch_error_code,
     _insufficient_symbol_payload,
     _limit_pair_rows,
@@ -407,8 +409,12 @@ def causal_discover_signals(  # noqa: C901
         frame = _build_pairwise_frame(series_map, symbol_list)
         meta["symbols_used"] = list(frame.columns)
         meta["alignment_mode"] = "pairwise"
-        min_required_samples = int(max_lag + 6)
+        min_required_samples = _granger_minimum_samples_for_lag(max_lag)
         meta["minimum_samples_required"] = int(min_required_samples)
+        meta["minimum_window_bars_for_requested_lag"] = int(min_required_samples)
+        meta["maximum_lag_for_current_window"] = _granger_maximum_lag_for_samples(
+            int(window_bars)
+        )
         # Retain joint overlap as a basket diagnostic only. Granger execution
         # below uses each pair's own overlap and window.
         meta["samples_aligned_raw"] = int(len(joint_frame))
@@ -426,7 +432,7 @@ def causal_discover_signals(  # noqa: C901
                 align_summary = _format_alignment_detail_summary(alignment_detail)
                 if align_summary:
                     details_out.append(align_summary)
-            return _causal_error(
+            out = _causal_error(
                 f"Insufficient pairwise observations after applying window_bars={int(window_bars)}; "
                 f"minimum required is {min_required_samples}. Increase --window-bars to at least "
                 f"{min_required_samples} or reduce max_lag (currently {int(max_lag)}).",
@@ -435,6 +441,11 @@ def causal_discover_signals(  # noqa: C901
                 warnings=warnings_out,
                 details=details_out or None,
             )
+            out["minimum_window_bars_for_requested_lag"] = int(min_required_samples)
+            out["maximum_lag_for_current_window"] = _granger_maximum_lag_for_samples(
+                int(window_bars)
+            )
+            return out
         usable_pair_overlaps = {
             pair: int(samples)
             for pair, samples in pair_overlaps.items()
@@ -510,9 +521,7 @@ def causal_discover_signals(  # noqa: C901
                     )
                     continue
                 pair_attempts += 1
-                maximum_allowable_lag = max(
-                    0, int((len(subset) - 1) / 3) - 1
-                )
+                maximum_allowable_lag = _granger_maximum_lag_for_samples(len(subset))
                 maximum_allowable_lags.append(maximum_allowable_lag)
                 if int(max_lag) > maximum_allowable_lag:
                     if len(pair_failures) < 10:
