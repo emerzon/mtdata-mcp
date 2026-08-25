@@ -20,7 +20,7 @@ def execute_forecast(
     start: Optional[str] = None,
     end: Optional[str] = None,
     params: Optional[Dict[str, Any]] = None,
-    ci_alpha: Optional[float] = 0.05,
+    ci_alpha: Optional[float] = None,
     quantity: Literal['price','return','volatility'] = 'price',  # type: ignore
     proxy: Optional[Literal['squared_return','abs_return','log_r2']] = None,  # type: ignore
     denoise: Optional[DenoiseSpec] = None,
@@ -151,7 +151,7 @@ def forecast(
     start: Optional[str] = None,
     end: Optional[str] = None,
     params: Optional[Dict[str, Any]] = None,
-    ci_alpha: Optional[float] = 0.05,
+    ci_alpha: Optional[float] = None,
     quantity: Literal["price", "return", "volatility"] = "price",  # type: ignore
     proxy: Optional[Literal["squared_return", "abs_return", "log_r2"]] = None,  # type: ignore
     denoise: Optional[DenoiseSpec] = None,

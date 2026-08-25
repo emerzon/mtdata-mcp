@@ -69,9 +69,20 @@ def test_forecast_routes_to_volatility_endpoint(monkeypatch):
     )
     assert out == {"volatility": True, "method": "theta"}
     assert captured[-1]["denoise"] == denoise
+    assert captured[-1]["method"] == "theta"
 
     out = ff.forecast(symbol="EURUSD", timeframe="H1", quantity="price", method="vol_garch")
     assert out == {"volatility": True, "method": "vol_garch"}
+
+    requested = ff.forecast(
+        symbol="EURUSD",
+        timeframe="H1",
+        quantity="volatility",
+        method="theta",
+        ci_alpha=0.05,
+    )
+    assert requested["ci_status"] == "requested_but_unavailable"
+    assert requested["requested_ci_alpha"] == 0.05
 
 
 def test_forecast_volatility_uses_and_discloses_top_level_lookback(monkeypatch):
