@@ -2336,7 +2336,11 @@ class TestReportWarnings:
                 "context": "2026-06-30T23:00:00Z",
                 "forecast": "2026-06-30T22:00:00Z",
             },
-            "basis": "context_last_snapshot_vs_forecast_last_observation",
+            "basis": "context_last_snapshot_vs_forecast_last_bar_open",
+            "timestamp_basis": {
+                "context": "last_completed_bar_open",
+                "forecast": "last_observation_time",
+            },
         }
         assert "narrative" not in res["summary_structured"]
 
@@ -2349,7 +2353,11 @@ class TestReportWarnings:
                 "context": "2026-06-30T23:00:00Z",
                 "forecast": "2026-06-30T22:00:00Z",
             },
-            "basis": "context_last_snapshot_vs_forecast_last_observation",
+            "basis": "context_last_snapshot_vs_forecast_last_bar_open",
+            "timestamp_basis": {
+                "context": "last_completed_bar_open",
+                "forecast": "last_observation_time",
+            },
         }
 
         def mock_template(_symbol, _horizon, _denoise, _params):
@@ -2606,6 +2614,11 @@ class TestReportWarnings:
 
         assert res["section_run_status"] == "failed"
         assert res["success"] is False
+        assert res["execution_progress"]["completed_sections"] == []
+        assert "context" in res["execution_progress"]["failed_sections"]
+        assert "forecast" in res["execution_progress"]["failed_sections"]
+        narrative = (res.get("summary_structured") or {}).get("narrative")
+        assert not narrative or "Forecast method" not in narrative
         assert res["sections_to_retry"] == [
             "context",
             "pivot",
@@ -2944,6 +2957,32 @@ def test_report_temporal_alignment_accepts_timeframe_aware_source_offsets():
     assert alignment is not None
     assert alignment["status"] == "aligned"
     assert alignment["mismatched_sections"] == []
+
+
+def test_report_temporal_alignment_uses_forecast_bar_open_not_close():
+    from mtdata.core.report.use_cases import _report_temporal_alignment
+
+    alignment = _report_temporal_alignment(
+        {
+            "context": {
+                "timeframe": "H1",
+                "last_snapshot": {"time": "2026-08-25T15:00:00Z"},
+            },
+            "forecast": {
+                "last_bar_open": "2026-08-25T15:00:00Z",
+                "last_observation_time": "2026-08-25T16:00:00Z",
+                "data_window": {"last_bar_open": "2026-08-25T15:00:00Z"},
+            },
+        }
+    )
+
+    assert alignment is not None
+    assert alignment["status"] == "aligned"
+    assert alignment["section_as_of"] == {
+        "context": "2026-08-25T15:00:00Z",
+        "forecast": "2026-08-25T15:00:00Z",
+    }
+    assert alignment["timestamp_basis"]["forecast"] == "last_bar_open"
 
 
 def test_report_assessment_elevates_closed_session_freshness():

@@ -328,6 +328,18 @@ def _derive_report_timestamp_contract(
     }
 
 
+def _forecast_bar_open_timestamp(forecast: Dict[str, Any]) -> Any:
+    last_bar_open = forecast.get("last_bar_open")
+    if last_bar_open not in (None, ""):
+        return last_bar_open
+    data_window = forecast.get("data_window")
+    if isinstance(data_window, dict):
+        window_open = data_window.get("last_bar_open")
+        if window_open not in (None, ""):
+            return window_open
+    return forecast.get("last_observation_time")
+
+
 def _report_temporal_alignment(sections: Any) -> Dict[str, Any] | None:
     if not isinstance(sections, dict):
         return None
@@ -337,7 +349,7 @@ def _report_temporal_alignment(sections: Any) -> Dict[str, Any] | None:
         return None
     snapshot = context.get("last_snapshot")
     context_time = snapshot.get("time") if isinstance(snapshot, dict) else None
-    forecast_time = forecast.get("last_observation_time")
+    forecast_time = _forecast_bar_open_timestamp(forecast)
     parsed_context = _parse_report_timestamp(context_time)
     parsed_forecast = _parse_report_timestamp(forecast_time)
     if parsed_context is None or parsed_forecast is None:
@@ -352,7 +364,20 @@ def _report_temporal_alignment(sections: Any) -> Dict[str, Any] | None:
             "context": _format_report_timestamp(parsed_context),
             "forecast": _format_report_timestamp(parsed_forecast),
         },
-        "basis": "context_last_snapshot_vs_forecast_last_observation",
+        "basis": "context_last_snapshot_vs_forecast_last_bar_open",
+        "timestamp_basis": {
+            "context": "last_completed_bar_open",
+            "forecast": (
+                "last_bar_open"
+                if forecast.get("last_bar_open") not in (None, "")
+                or (
+                    isinstance(forecast.get("data_window"), dict)
+                    and forecast.get("data_window", {}).get("last_bar_open")
+                    not in (None, "")
+                )
+                else "last_observation_time"
+            ),
+        },
     }
     contexts_multi = sections.get("contexts_multi")
     if not isinstance(contexts_multi, dict):
@@ -2144,7 +2169,14 @@ def run_report_generate(  # noqa: C901
 
             try:
                 fc = rep.get("sections", {}).get("forecast", {})
-                if isinstance(fc, dict) and "method" in fc:
+                forecast_section_failed = isinstance(fc, dict) and (
+                    fc.get("success") is False or fc.get("error") not in (None, "")
+                )
+                if (
+                    isinstance(fc, dict)
+                    and "method" in fc
+                    and not forecast_section_failed
+                ):
                     method_name = str(fc.get("method"))
                     forecast_line = f"forecast={method_name}"
                     forecast_summary: Dict[str, Any] = {"method": method_name}
@@ -2658,8 +2690,9 @@ def run_report_generate(  # noqa: C901
                     "completed_sections": [
                         name
                         for name, status in sections_status.get("sections", {}).items()
-                        if status in {"ok", "partial", "error"}
+                        if status in {"ok", "partial"}
                     ],
+                    "failed_sections": error_section_names,
                     "omitted_sections": omitted_section_names,
                     "missing_requested_sections": list(missing_requested),
                     "complete": bool(
