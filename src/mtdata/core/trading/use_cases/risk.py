@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from mtdata.bootstrap.settings import trade_guardrails_config
 from mtdata.core.execution_logging import (
     infer_result_success,
     log_operation_finish,
@@ -19,7 +20,7 @@ from mtdata.core.trading.requests import (
     TradeStressTestRequest,
     TradeVarCvarRequest,
 )
-from mtdata.core.trading.safety import assess_margin_stress
+from mtdata.core.trading.safety import assess_margin_stress, resolve_volume_guardrail
 from mtdata.core.trading.sizing import (
     _floor_volume_steps,
     _resolve_risk_tick_value,
@@ -344,6 +345,10 @@ _COMPACT_POSITION_SIZING_FIELDS = (
     "recommendation_status",
     "sizing_method",
     "suggested_volume",
+    "unconstrained_volume",
+    "guardrail_capped_volume",
+    "guardrail_max_volume",
+    "guardrail_rule",
     "requested_risk_currency",
     "requested_risk_pct",
     "risk_currency",
@@ -471,6 +476,29 @@ def _apply_trade_candidate_outcome(result: Dict[str, Any]) -> Dict[str, Any]:
         return result
 
     candidate_status = str(evaluation.get("status") or "").strip().lower()
+    geometry_valid = candidate_status == "valid"
+    position_sizing = result.get("position_sizing")
+    sizing_error = result.get("position_sizing_error")
+    sizing_blocked = isinstance(sizing_error, dict)
+    suggested_volume = None
+    if isinstance(position_sizing, dict):
+        suggested_volume = position_sizing.get("suggested_volume")
+    try:
+        suggested_volume_value = float(suggested_volume)
+    except (TypeError, ValueError):
+        suggested_volume_value = 0.0
+    sizing_eligible = (
+        geometry_valid
+        and not sizing_blocked
+        and isinstance(position_sizing, dict)
+        and str(position_sizing.get("recommendation_status") or "").strip().lower()
+        == "proposed"
+        and math.isfinite(suggested_volume_value)
+        and suggested_volume_value > 0.0
+    )
+    result["geometry_valid"] = geometry_valid
+    result["sizing_eligible"] = sizing_eligible
+
     if candidate_status == "valid":
         quote_context = result.get("quote_context")
         if (
@@ -488,6 +516,8 @@ def _apply_trade_candidate_outcome(result: Dict[str, Any]) -> Dict[str, Any]:
                     "success": False,
                     "candidate_valid": False,
                     "candidate_status": "blocked",
+                    "geometry_valid": True,
+                    "sizing_eligible": False,
                     "error_code": "quote_not_live_ready",
                     "error": reason,
                     "portfolio_snapshot_status": "available",
@@ -503,6 +533,26 @@ def _apply_trade_candidate_outcome(result: Dict[str, Any]) -> Dict[str, Any]:
                 }
             )
             result.pop("position_sizing", None)
+            return result
+        if sizing_blocked:
+            error_code = str(sizing_error.get("code") or "position_sizing_blocked")
+            error_message = str(
+                sizing_error.get("reason")
+                or sizing_error.get("message")
+                or "Position sizing is blocked."
+            )
+            result.update(
+                {
+                    "success": False,
+                    "candidate_valid": False,
+                    "candidate_status": "blocked",
+                    "geometry_valid": True,
+                    "sizing_eligible": False,
+                    "error_code": error_code,
+                    "error": error_message,
+                    "portfolio_snapshot_status": "available",
+                }
+            )
             return result
         result["candidate_valid"] = True
         result["candidate_status"] = "valid"
@@ -549,6 +599,8 @@ def _apply_trade_candidate_outcome(result: Dict[str, Any]) -> Dict[str, Any]:
             "success": False,
             "candidate_valid": False,
             "candidate_status": "invalid",
+            "geometry_valid": False,
+            "sizing_eligible": False,
             "error_code": error_code,
             "error": error_message,
             "portfolio_snapshot_status": "available",
@@ -2177,6 +2229,52 @@ def run_trade_risk_analyze(  # noqa: C901
                         sizing_notes.append(
                             "Volume was rounded down to the nearest broker step to avoid exceeding requested risk."
                         )
+                    unconstrained_volume = suggested_volume
+                    guardrail = resolve_volume_guardrail(
+                        trade_guardrails_config,
+                        symbol=str(request.symbol or ""),
+                        account_info=account,
+                    )
+                    guardrail_capped_volume = None
+                    guardrail_max_volume = guardrail.get("max_volume")
+                    guardrail_rule = guardrail.get("binding_rule")
+                    guardrail_blocked = False
+                    if guardrail.get("blocked"):
+                        guardrail_blocked = True
+                        suggested_volume = 0.0
+                        rounding_mode = "blocked_by_volume_guardrail"
+                        sizing_notes.append(
+                            str(
+                                guardrail.get("reason")
+                                or "Volume is blocked by guardrail policy."
+                            )
+                        )
+                    elif (
+                        guardrail.get("active")
+                        and guardrail_max_volume is not None
+                        and math.isfinite(float(guardrail_max_volume))
+                        and suggested_volume > float(guardrail_max_volume)
+                    ):
+                        capped_steps = _floor_volume_steps(
+                            float(guardrail_max_volume), volume_step
+                        )
+                        capped_volume = capped_steps * volume_step
+                        if capped_volume < min_volume or capped_volume <= 0:
+                            guardrail_blocked = True
+                            suggested_volume = 0.0
+                            rounding_mode = "blocked_by_volume_guardrail"
+                            sizing_notes.append(
+                                "No broker-accepted volume fits the configured "
+                                "volume guardrail."
+                            )
+                        else:
+                            suggested_volume = capped_volume
+                            guardrail_capped_volume = capped_volume
+                            rounding_mode = "clamped_to_guardrail_max_volume"
+                            sizing_notes.append(
+                                "mtdata volume guardrails cap the size below "
+                                "the unconstrained target."
+                            )
                     if direction_source == "inferred_from_stop_loss":
                         sizing_notes.append(
                             "Direction was inferred from stop-loss placement."
@@ -2198,8 +2296,20 @@ def run_trade_risk_analyze(  # noqa: C901
                         suggested_volume = float(
                             f"{suggested_volume:.{step_decimals}f}"
                         )
+                        unconstrained_volume = float(
+                            f"{unconstrained_volume:.{step_decimals}f}"
+                        )
+                        if guardrail_capped_volume is not None:
+                            guardrail_capped_volume = float(
+                                f"{guardrail_capped_volume:.{step_decimals}f}"
+                            )
                     else:
                         suggested_volume = float(round(suggested_volume))
+                        unconstrained_volume = float(round(unconstrained_volume))
+                        if guardrail_capped_volume is not None:
+                            guardrail_capped_volume = float(
+                                round(guardrail_capped_volume)
+                            )
 
                     actual_risk = sl_distance_ticks * risk_tick_value * suggested_volume
                     actual_risk_pct = (actual_risk / equity) * 100.0
@@ -2258,9 +2368,32 @@ def run_trade_risk_analyze(  # noqa: C901
                             "Strict risk is enabled; no broker-accepted volume fits the requested risk."
                         )
 
+                    if guardrail_blocked:
+                        result["position_sizing_error"] = _build_position_sizing_error(
+                            code="guardrail_volume_block",
+                            reason=str(
+                                guardrail.get("reason")
+                                or "Suggested volume is blocked by mtdata volume guardrails."
+                            ),
+                            remediation=(
+                                "Reduce requested risk or raise the configured "
+                                "volume guardrail, then rerun trade_risk_analyze."
+                            ),
+                            details={
+                                "unconstrained_volume": unconstrained_volume,
+                                "guardrail_max_volume": guardrail_max_volume,
+                                "guardrail_rule": guardrail_rule,
+                                "volume_min": min_volume,
+                            },
+                        )
+
                     rr_ratio = None
                     reward_currency = None
-                    if request.take_profit is not None and not strict_risk_blocked:
+                    if (
+                        request.take_profit is not None
+                        and not strict_risk_blocked
+                        and not guardrail_blocked
+                    ):
                         if direction_norm == "long":
                             tp_distance_ticks = price_delta_ticks(
                                 request.take_profit,
@@ -2344,7 +2477,9 @@ def run_trade_risk_analyze(  # noqa: C901
                             else {}
                         ),
                         "recommendation_status": (
-                            "blocked" if strict_risk_blocked else "proposed"
+                            "blocked"
+                            if strict_risk_blocked or guardrail_blocked
+                            else "proposed"
                         ),
                         **(
                             {"sizing_method": "kelly", "kelly": kelly_context}
@@ -2353,6 +2488,29 @@ def run_trade_risk_analyze(  # noqa: C901
                         ),
                         "suggested_volume": suggested_volume,
                         "volume_lots": suggested_volume,
+                        **(
+                            {
+                                "unconstrained_volume": unconstrained_volume,
+                            }
+                            if guardrail_blocked
+                            or guardrail_capped_volume is not None
+                            else {}
+                        ),
+                        **(
+                            {
+                                "guardrail_capped_volume": guardrail_capped_volume,
+                            }
+                            if guardrail_capped_volume is not None
+                            else {}
+                        ),
+                        **(
+                            {
+                                "guardrail_max_volume": guardrail_max_volume,
+                                "guardrail_rule": guardrail_rule,
+                            }
+                            if guardrail.get("active") and guardrail_rule
+                            else {}
+                        ),
                         "requested_risk_currency": round(risk_amount, 2),
                         "risk_amount_account_currency": round(risk_amount, 2),
                         "requested_risk_pct": effective_risk_pct,

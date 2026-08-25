@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import logging
 import sys
 import time
@@ -10,9 +11,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 from pydantic import ValidationError
 
+from mtdata.bootstrap.settings import trade_guardrails_config
 from mtdata.core.trading import risk as core_trading_risk
 from mtdata.core.trading import trade_risk_analyze as _trade_risk_analyze_tool
 from mtdata.core.trading.requests import TradeRiskAnalyzeRequest
+from mtdata.core.trading.safety import evaluate_trade_guardrails
 from mtdata.core.trading.sizing import _floor_volume_steps
 from mtdata.core.trading.use_cases import run_trade_risk_analyze
 from mtdata.core.trading.use_cases.common import _validate_trading_symbol
@@ -173,6 +176,12 @@ def test_trade_risk_analyze_blocks_sizing_and_escalates_critical_margin() -> Non
     assert out["scoped_risk"]["margin_stress"]["status"] == "critical"
     assert out["position_sizing_error"]["code"] == "portfolio_safety_block"
     assert "position_sizing" not in out
+    assert out["success"] is False
+    assert out["candidate_valid"] is False
+    assert out["candidate_status"] == "blocked"
+    assert out["geometry_valid"] is True
+    assert out["sizing_eligible"] is False
+    assert out["error_code"] == "portfolio_safety_block"
 
 
 def test_trade_risk_analyze_removes_stop_distance_tick_residue() -> None:
@@ -521,6 +530,8 @@ def test_trade_risk_analyze_evaluates_trade_levels_without_desired_risk_pct() ->
     assert out["success"] is True
     assert out["candidate_valid"] is True
     assert out["candidate_status"] == "valid"
+    assert out["geometry_valid"] is True
+    assert out["sizing_eligible"] is False
     assert out["position_sizing"]["missing"] == ["desired_risk_pct"]
     assert "risk_pct field in --sizing" in out["position_sizing"]["message"]
     assert out["trade_evaluation"] == {
@@ -1731,3 +1742,93 @@ def test_trade_risk_analyze_marks_no_stop_total_incomplete() -> None:
     assert risk["total_risk_pct"] is None
     assert risk["open_position_risk_currency"] is None
     assert risk["quantified_risk_currency"] == 0.0
+
+
+@contextmanager
+def _guardrail_snapshot():
+    snapshot = copy.deepcopy(trade_guardrails_config.model_dump())
+    try:
+        yield
+    finally:
+        for name, value in snapshot.items():
+            setattr(trade_guardrails_config, name, value)
+
+
+def test_trade_risk_analyze_clamps_to_configured_volume_guardrail() -> None:
+    mt5 = MagicMock()
+    mt5.account_info.return_value = SimpleNamespace(equity=1000.0, currency="USD")
+    mt5.positions_get.return_value = []
+    mt5.orders_get.return_value = []
+    mt5.symbol_info.return_value = _make_symbol_info(
+        volume_min=0.01,
+        volume_step=0.01,
+        volume_max=10.0,
+    )
+
+    with _guardrail_snapshot():
+        trade_guardrails_config.enabled = True
+        trade_guardrails_config.ignore_on_demo = False
+        trade_guardrails_config.max_volume_by_symbol = {"EURUSD": 0.05}
+        with _patched_mt5_module(mt5):
+            out = trade_risk_analyze(
+                symbol="EURUSD",
+                detail="full",
+                direction="long",
+                entry=100.0,
+                stop_loss=90.0,
+                sizing=_fixed_sizing(10.0),
+            )
+        sizing = out["position_sizing"]
+        guardrail_block = evaluate_trade_guardrails(
+            trade_guardrails_config,
+            symbol="EURUSD",
+            volume=sizing["suggested_volume"],
+            account_info=mt5.account_info.return_value,
+        )
+
+    assert out["success"] is True
+    assert out["candidate_valid"] is True
+    assert out["sizing_eligible"] is True
+    assert sizing["recommendation_status"] == "proposed"
+    assert sizing["suggested_volume"] == 0.05
+    assert sizing["unconstrained_volume"] == 10.0
+    assert sizing["guardrail_capped_volume"] == 0.05
+    assert sizing["guardrail_max_volume"] == 0.05
+    assert sizing["guardrail_rule"] == "symbol_policy"
+    assert guardrail_block is None
+
+
+def test_trade_risk_analyze_blocks_when_no_guardrail_compliant_volume() -> None:
+    mt5 = MagicMock()
+    mt5.account_info.return_value = SimpleNamespace(equity=1000.0, currency="USD")
+    mt5.positions_get.return_value = []
+    mt5.orders_get.return_value = []
+    mt5.symbol_info.return_value = _make_symbol_info(
+        volume_min=0.1,
+        volume_step=0.1,
+        volume_max=10.0,
+    )
+
+    with _guardrail_snapshot():
+        trade_guardrails_config.enabled = True
+        trade_guardrails_config.ignore_on_demo = False
+        trade_guardrails_config.max_volume_by_symbol = {"EURUSD": 0.05}
+        with _patched_mt5_module(mt5):
+            out = trade_risk_analyze(
+                symbol="EURUSD",
+                detail="full",
+                direction="long",
+                entry=100.0,
+                stop_loss=90.0,
+                sizing=_fixed_sizing(10.0),
+            )
+
+    assert out["success"] is False
+    assert out["candidate_valid"] is False
+    assert out["candidate_status"] == "blocked"
+    assert out["geometry_valid"] is True
+    assert out["sizing_eligible"] is False
+    assert out["error_code"] == "guardrail_volume_block"
+    assert out["position_sizing"]["recommendation_status"] == "blocked"
+    assert out["position_sizing"]["suggested_volume"] == 0.0
+    assert out["position_sizing"]["guardrail_rule"] == "symbol_policy"

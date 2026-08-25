@@ -47,11 +47,20 @@ account-wide margin stress remains a hard safety gate. Existing positions on oth
 symbols do not prevent sizing, but the returned `sizing_risk_policy` states that the
 suggestion is not an aggregate portfolio stop-risk cap.
 
-Candidate validation is independent of portfolio observation. A valid proposed
-trade returns `candidate_valid: true`. If its direction, stop, or target is
-invalid, the response retains the account and portfolio snapshot but returns
-`success: false`, `candidate_valid: false`, a structured `error_code`, and
-`portfolio_snapshot_status: available`; CLI callers receive a nonzero exit status.
+Candidate validation splits geometry from sizing eligibility.
+`geometry_valid` is true when direction, stop, and target are internally
+consistent. `sizing_eligible` is true only when a proposed volume can be
+executed under account safety and mtdata volume guardrails.
+`candidate_valid: true` means both the geometry is valid and, when sizing was
+requested, the candidate is sizeable. If direction, stop, or target is invalid,
+or sizing was requested and blocked (critical margin, guardrail volume, or a
+non-live quote), the response retains the account and portfolio snapshot but
+returns `success: false`, `candidate_valid: false`, `candidate_status: invalid`
+or `blocked`, a structured `error_code` or `position_sizing_error`, and
+`portfolio_snapshot_status: available`; CLI callers receive a nonzero exit
+status. Suggested volume is clamped to the same symbol volume guardrails that
+`trade_place` enforces; when no compliant size exists,
+`recommendation_status` is `blocked` and the binding rule is included.
 
 ### Kelly sizing
 

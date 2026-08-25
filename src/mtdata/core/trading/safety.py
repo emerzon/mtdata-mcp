@@ -538,6 +538,100 @@ def _evaluate_account_risk_gate(
     return result
 
 
+def resolve_volume_guardrail(
+    config: Optional[TradeGuardrailsConfig],
+    *,
+    symbol: str,
+    account_info: Any = None,
+) -> Dict[str, Any]:
+    """Return the effective mtdata volume policy used by trade_place."""
+    inactive = {
+        "active": False,
+        "blocked": False,
+        "max_volume": None,
+        "binding_rule": None,
+        "reason": None,
+    }
+    if not _guardrails_active(config):
+        return inactive
+    if _guardrails_ignored_for_demo(config, account_info=account_info):
+        return inactive
+
+    normalized_symbol = _normalize_symbol(symbol)
+    if config is not None and not config.trading_enabled:
+        return {
+            "active": True,
+            "blocked": True,
+            "max_volume": 0.0,
+            "binding_rule": "trading_disabled",
+            "reason": "Trading is disabled by guardrail configuration.",
+        }
+
+    blocked = {_normalize_symbol(item) for item in (config.blocked_symbols or [])}
+    if normalized_symbol and normalized_symbol in blocked:
+        return {
+            "active": True,
+            "blocked": True,
+            "max_volume": 0.0,
+            "binding_rule": "symbol_policy",
+            "reason": f"Symbol {normalized_symbol} is blocked by guardrail policy.",
+        }
+
+    allowed = {_normalize_symbol(item) for item in (config.allowed_symbols or [])}
+    allowed.discard("")
+    if allowed and normalized_symbol not in allowed:
+        return {
+            "active": True,
+            "blocked": True,
+            "max_volume": 0.0,
+            "binding_rule": "symbol_policy",
+            "reason": f"Symbol {normalized_symbol} is not in the configured allowlist.",
+        }
+
+    caps: List[tuple[str, float]] = []
+    if config.max_volume is not None:
+        caps.append(("symbol_policy", float(config.max_volume)))
+    if config.max_volume_by_symbol:
+        symbol_limit = config.max_volume_by_symbol.get(normalized_symbol)
+        if symbol_limit is None:
+            return {
+                "active": True,
+                "blocked": True,
+                "max_volume": 0.0,
+                "binding_rule": "symbol_policy",
+                "reason": (
+                    f"Symbol {normalized_symbol} is not in the configured "
+                    "max_volume_by_symbol allowlist."
+                ),
+            }
+        caps.append(("symbol_policy", float(symbol_limit)))
+    safety_cap = getattr(getattr(config, "safety_policy", None), "max_volume", None)
+    if safety_cap is not None:
+        caps.append(("safety_policy", float(safety_cap)))
+
+    if not caps:
+        return {
+            "active": True,
+            "blocked": False,
+            "max_volume": None,
+            "binding_rule": None,
+            "reason": None,
+        }
+
+    binding_rule, max_volume = min(caps, key=lambda item: item[1])
+    return {
+        "active": True,
+        "blocked": False,
+        "max_volume": max_volume,
+        "binding_rule": binding_rule,
+        "reason": (
+            f"Configured max volume for {normalized_symbol} is {max_volume}."
+            if binding_rule == "symbol_policy"
+            else f"Configured safety max volume is {max_volume}."
+        ),
+    }
+
+
 def _evaluate_symbol_guardrails(
     config: TradeGuardrailsConfig,
     *,
