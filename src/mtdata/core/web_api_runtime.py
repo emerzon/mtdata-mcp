@@ -9,14 +9,16 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from starlette.responses import JSONResponse, Response
 from starlette.staticfiles import StaticFiles
 
 from ..bootstrap.runtime import WebApiRuntimeSettings, load_web_api_runtime_settings
+from .error_envelope import build_error_payload
 from .output_serialization import sanitize_json
-from .request_context import normalize_request_id, request_id_scope
+from .request_context import current_request_id, normalize_request_id, request_id_scope
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +72,35 @@ def create_web_api_app(settings: WebApiRuntimeSettings | None = None) -> FastAPI
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.exception_handler(RequestValidationError)
+    async def request_validation_error(
+        request: Request, exc: RequestValidationError
+    ) -> SafeJSONResponse:
+        path = request.url.path.rstrip("/")
+        operation = "web_api_request"
+        if "/tools/" in path and path.endswith("/invoke"):
+            operation = path.rsplit("/", 2)[-2]
+        elif path.endswith("/tools"):
+            operation = "tools_list"
+        elif "/tools/" in path:
+            operation = "tools_get"
+        issues = [
+            {
+                "location": [str(part) for part in error.get("loc", ())],
+                "type": str(error.get("type") or "validation_error"),
+                "message": str(error.get("msg") or "Invalid request value."),
+            }
+            for error in exc.errors()
+        ]
+        payload = build_error_payload(
+            "Request validation failed.",
+            code="web_api_validation_error",
+            request_id=current_request_id(),
+            operation=operation,
+            details={"issues": issues},
+        )
+        return SafeJSONResponse(status_code=422, content={"detail": payload})
 
     @app.middleware("http")
     async def attach_request_id(request: Request, call_next: Any) -> Response:

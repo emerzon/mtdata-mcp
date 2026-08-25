@@ -87,6 +87,8 @@ def test_history_available_on_versioned_route() -> None:
         "data": payload["data"],
         "count": 2,
         "forming_candle_status": "none",
+        "data_as_of": "2025-01-01T02:00:00Z",
+        "data_as_of_basis": "completed_bar_close",
         "timestamp_format": "iso_utc",
         "server_utc_offset_seconds": 7200,
         "server_timezone": "Europe/Nicosia",

@@ -517,7 +517,8 @@ class TestWebApiRoutes:
         assert "safety" in tool
         schema = tool.get("input_schema")
         assert isinstance(schema, dict)
-        assert {"json", "output_fields"}.issubset(schema["properties"])
+        assert "json" not in schema["properties"]
+        assert "output_fields" in schema["properties"]
         assert "extras" not in schema["properties"]
         assert "cli" not in tool
         assert "module" not in tool
@@ -564,6 +565,56 @@ class TestWebApiRoutes:
         compact_size = len(json.dumps(compact.json(), sort_keys=True))
         full_size = len(json.dumps(full.json(), sort_keys=True))
         assert compact_size < full_size
+
+    def test_mcp_policy_does_not_disable_web_trade_catalog(self, monkeypatch):
+        monkeypatch.setenv("MTDATA_MCP_TRADING_MODE", "disabled")
+
+        res = self.client.get("/api/v1/tools/trade_place")
+
+        assert res.status_code == 200
+        tool = res.json()["tool"]
+        assert tool["name"] == "trade_place"
+        assert "enabled" not in tool
+        assert "status" not in tool
+        assert "why_disabled" not in tool
+        assert "mcp_trading_mode" not in tool
+        assert tool["safety"]["requires_confirmation"] is True
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            {"arguments": [], "confirm": False},
+            {"arguments": {}, "confirm": "notabool"},
+        ],
+    )
+    def test_invoke_request_validation_uses_error_envelope(self, body):
+        res = self.client.post(
+            "/api/v1/tools/tools_list/invoke",
+            json=body,
+        )
+
+        assert res.status_code == 422
+        envelope = res.json()["detail"]
+        _assert_error_envelope(
+            envelope,
+            error_code="web_api_validation_error",
+            operation="tools_list",
+        )
+        assert envelope["details"]["issues"]
+        assert res.headers["x-request-id"] == envelope["request_id"]
+
+    def test_catalog_request_validation_uses_error_envelope(self):
+        res = self.client.get("/api/v1/tools", params={"category": "tradng"})
+
+        assert res.status_code == 422
+        envelope = res.json()["detail"]
+        _assert_error_envelope(
+            envelope,
+            error_code="web_api_validation_error",
+            operation="tools_list",
+        )
+        assert envelope["details"]["issues"][0]["location"][-1] == "category"
+        assert res.headers["x-request-id"] == envelope["request_id"]
 
     def test_get_unknown_tool_uses_error_envelope(self):
         res = self.client.get("/api/v1/tools/not_a_real_tool")

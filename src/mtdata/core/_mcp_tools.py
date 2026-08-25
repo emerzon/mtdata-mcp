@@ -37,6 +37,9 @@ from .request_context import ensure_request_id_scope
 _ORIG_TOOL_DECORATOR: Any = None
 _REGISTRY_UNSET = object()
 _MARKET_DEPTH_FETCH_ENV = "MTDATA_ENABLE_MARKET_DEPTH_FETCH"
+_MCP_MUTATING_TRADING_TOOLS = frozenset(
+    {"trade_place", "trade_modify", "trade_close"}
+)
 _TOOL_CATALOG_SCHEMA_VERSION = "1.0"
 logger = logging.getLogger(__name__)
 
@@ -1903,6 +1906,29 @@ def install_tool_registry(mcp_obj: Any) -> None:
         except Exception:
             _ORIG_TOOL_DECORATOR = None
     try:
+        manager = getattr(mcp_obj, "_tool_manager", None)
+        if manager is not None and not hasattr(
+            manager, "_mtdata_unfiltered_list_tools"
+        ):
+            original_list_tools = manager.list_tools
+            manager._mtdata_unfiltered_list_tools = original_list_tools
+
+            def _list_tools_for_mcp_policy(_manager: Any) -> List[Any]:
+                tools = list(original_list_tools())
+                from .mcp_trading_policy import mcp_trading_mode
+
+                if mcp_trading_mode() != "disabled":
+                    return tools
+                return [
+                    tool
+                    for tool in tools
+                    if str(getattr(tool, "name", ""))
+                    not in _MCP_MUTATING_TRADING_TOOLS
+                ]
+
+            manager.list_tools = types.MethodType(
+                _list_tools_for_mcp_policy, manager
+            )
         mcp_obj.tool = _recording_tool_decorator
         mcp_obj.tools = _TOOL_REGISTRY
         mcp_obj.registry = _TOOL_REGISTRY

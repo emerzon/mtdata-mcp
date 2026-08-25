@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import difflib
 import inspect
 import logging
@@ -351,10 +352,27 @@ def _catalog_offset_value(offset: Any) -> int:
 def _enrich_catalog_row(row: Dict[str, Any], *, include_fields: bool = False) -> Dict[str, Any]:
     name = str(row.get("name") or "")
     out = dict(row)
+    if name in LIVE_TRADE_MUTATION_TOOLS:
+        for key in (
+            "mcp_trading_mode",
+            "enabled",
+            "enable_env",
+            "status",
+            "why_disabled",
+            "live_submission_allowed",
+        ):
+            out.pop(key, None)
     out["surface"] = classify_tool_surface(name)
     out["safety"] = tool_safety_meta(name)
     if include_fields:
-        out["input_schema"] = get_public_tool_schema(name)
+        schema = copy.deepcopy(get_public_tool_schema(name))
+        properties = schema.get("properties") if isinstance(schema, dict) else None
+        if isinstance(properties, dict):
+            properties.pop("json", None)
+        required = schema.get("required") if isinstance(schema, dict) else None
+        if isinstance(required, list):
+            schema["required"] = [item for item in required if item != "json"]
+        out["input_schema"] = schema
     return out
 
 
