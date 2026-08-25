@@ -178,7 +178,7 @@ def test_template_minimal_anchors_bounded_context_at_end() -> None:
         )
 
     assert calls["data_fetch_candles"]["start"] is None
-    assert calls["data_fetch_candles"]["end"] == "2026-03-29"
+    assert calls["data_fetch_candles"]["end"] == "2026-03-29T23:59:59.999999Z"
     assert calls["data_fetch_candles"]["allow_stale"] is True
     assert calls["forecast_generate"]["start"] == "2026-03-01"
     assert calls["forecast_generate"]["end"] == "2026-03-29"
@@ -319,7 +319,7 @@ def test_template_basic_anchors_bounded_context_at_end() -> None:
         )
 
     assert requested["start"] is None
-    assert requested["end"] == "2026-03-29"
+    assert requested["end"] == "2026-03-29T23:59:59.999999Z"
 
 
 def test_template_basic_forwards_context_indicators_param() -> None:
