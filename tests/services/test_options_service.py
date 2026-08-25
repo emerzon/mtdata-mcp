@@ -1125,7 +1125,7 @@ def test_select_options_expiration_skips_same_day_after_cash_close() -> None:
     )
 
     assert chosen == "2026-08-17"
-    assert status == "live"
+    assert status == "listed"
     assert defaulted is True
 
 

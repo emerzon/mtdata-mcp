@@ -1205,6 +1205,14 @@ def _split_market_status_symbols(symbols: str) -> List[str]:
     return out
 
 
+_SYMBOL_STATUS_SHARED_COMPACT_KEYS = (
+    "heuristic_note",
+    "market_clock",
+    "market_clock_timezone",
+    "authoritative_clock",
+)
+
+
 def _compact_symbol_market_status(row: Dict[str, Any], *, detail: str) -> Dict[str, Any]:
     if detail == "full":
         return row
@@ -1231,6 +1239,28 @@ def _compact_symbol_market_status(row: Dict[str, Any], *, detail: str) -> Dict[s
         "message",
     )
     return {key: row.get(key) for key in keys if row.get(key) is not None}
+
+
+def _hoist_shared_symbol_status_fields(
+    rows: List[Dict[str, Any]],
+    *,
+    detail: str,
+) -> Dict[str, Any]:
+    """Move identical methodology/clock fields to the basket payload once."""
+    shared: Dict[str, Any] = {}
+    if detail == "full" or len(rows) < 2:
+        return shared
+    for key in _SYMBOL_STATUS_SHARED_COMPACT_KEYS:
+        values = [row.get(key) for row in rows if isinstance(row, dict)]
+        if len(values) != len(rows):
+            continue
+        first = values[0]
+        if first is None or any(value != first for value in values[1:]):
+            continue
+        shared[key] = first
+        for row in rows:
+            row.pop(key, None)
+    return shared
 
 
 def _check_symbol_market_status_batch(
@@ -1261,6 +1291,8 @@ def _check_symbol_market_status_batch(
             continue
         rows.append(_compact_symbol_market_status(result, detail=detail))
 
+    shared_fields = _hoist_shared_symbol_status_fields(rows, detail=detail)
+
     status_counts: Dict[str, int] = {}
     for row in rows:
         status = str(row.get("status") or "unknown")
@@ -1287,6 +1319,7 @@ def _check_symbol_market_status_batch(
         "summary": f"{can_open_count}/{total} symbol(s) can open new positions.",
         "status_counts": status_counts,
         "timezone_context": _symbol_market_status_timezone_context(timezone_display),
+        **shared_fields,
     }
     if failed_count == total:
         payload.update(
@@ -1355,7 +1388,8 @@ def market_status(  # noqa: C901
         `full` preserves them.
     allow_partial : bool, optional
         For comma-separated symbol batches, keep usable rows when some symbols
-        fail. Set false to return `success=false` unless every symbol succeeds.
+        fail. Explicit lists default permissive. Set false to return
+        `success=false` unless every symbol succeeds.
 
     Returns
     -------

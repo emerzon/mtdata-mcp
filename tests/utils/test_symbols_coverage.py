@@ -68,6 +68,13 @@ _NORM_LIMIT = "mtdata.core.symbols.catalog._normalize_limit"
 
 _COMPACT_IDENTIFICATION_HEADERS = [
     "currency_base",
+    "currency_profit",
+    "digits",
+    "spread_is_floating",
+    "session_type",
+]
+_STANDARD_IDENTIFICATION_HEADERS = [
+    "currency_base",
     "currency_base_reported",
     "currency_base_inferred",
     "currency_base_source",
@@ -179,7 +186,7 @@ class TestSymbolsListNoSearch:
             "symbol",
             "group",
             "description",
-            *_COMPACT_IDENTIFICATION_HEADERS,
+            *_STANDARD_IDENTIFICATION_HEADERS,
             "in_marketwatch",
         ]
         row = _row_map(res)[0]
@@ -493,11 +500,12 @@ class TestSymbolsListNoSearch:
             "description",
             *_COMPACT_IDENTIFICATION_HEADERS,
         ]
+        assert "currency_base_reported" not in page_one["headers"]
+        assert "currency_base_warning" not in page_one["headers"]
         rows = _row_map(page_one) + _row_map(page_two) + _row_map(page_three)
         by_symbol = {row["symbol"]: row for row in rows}
         assert set(by_symbol) == {"EURUSD", "BTCUSD", "AAPL.NAS"}
-        assert by_symbol["EURUSD"]["currency_base_warning"] is None
-        assert by_symbol["BTCUSD"]["currency_base_inferred"] == "BTC"
+        assert "currency_base_warning" not in by_symbol["EURUSD"]
         assert by_symbol["AAPL.NAS"]["session_type"] == "regular"
 
     def test_invalid_category_uses_structured_error(self):

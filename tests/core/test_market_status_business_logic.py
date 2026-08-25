@@ -41,6 +41,41 @@ def test_market_status_tool_supports_detail_contract() -> None:
     )
 
 
+def test_symbol_batch_hoists_shared_heuristic_and_clock(monkeypatch) -> None:
+    note = (
+        "Symbol status is inferred from MT5 trade_mode, tick freshness, "
+        "and recent broker M1 candles; it is not an exchange-calendar guarantee."
+    )
+
+    def fake_status(symbol, **kwargs):
+        return {
+            "symbol": symbol,
+            "status": "open",
+            "heuristic_note": note,
+            "market_clock": "2026-01-02T12:00:00Z",
+            "market_clock_timezone": "UTC",
+            "authoritative_clock": "utc",
+            "tick_freshness": "live",
+            "can_open_new_positions": True,
+        }
+
+    monkeypatch.setattr(market_status_mod, "_check_symbol_market_status", fake_status)
+
+    result = market_status_mod._check_symbol_market_status_batch(
+        ["EURUSD", "GBPUSD"],
+        detail="compact",
+        timezone_display="utc",
+        gateway=object(),
+    )
+
+    assert result["heuristic_note"] == note
+    assert result["market_clock"] == "2026-01-02T12:00:00Z"
+    assert result["authoritative_clock"] == "utc"
+    assert all("heuristic_note" not in row for row in result["data"])
+    assert all("market_clock" not in row for row in result["data"])
+    assert [row["symbol"] for row in result["data"]] == ["EURUSD", "GBPUSD"]
+
+
 def test_symbol_batch_reports_partial_failure_counts(monkeypatch) -> None:
     def fake_status(symbol, **kwargs):
         if symbol == "BAD":

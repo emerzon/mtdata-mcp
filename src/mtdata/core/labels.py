@@ -60,7 +60,7 @@ def _label_outcome(label: int) -> str:
         return "tp"
     if label == -1:
         return "sl"
-    return "neutral"
+    return "timeout"
 
 
 def _compact_label_sample_indices(
@@ -416,7 +416,7 @@ def labels_triple_barrier(  # noqa: C901
     the completed-bar close when its entry price first exists. TP/SL hit fields
     identify the hit bar's open label, not an exact intrabar touch instant.
     Compact and standard `data` contain the most recent labeled rows, including
-    neutral outcomes; full detail returns the complete labeled series.
+    timeout (no-barrier-hit) outcomes; full detail returns the complete labeled series.
     """
 
     def _run() -> Dict[str, Any]:  # noqa: C901
@@ -924,15 +924,19 @@ def labels_triple_barrier(  # noqa: C901
                     },
                     "0": {
                         "code": 0,
-                        "label": "hold",
+                        "label": "timeout",
                         "description": (
-                            "Unresolved: neither barrier hit within horizon, or both "
+                            "Timeout: neither barrier hit within horizon, or both "
                             "hit on the same bar when same_bar_policy='neutral'"
                         ),
                     },
                 }
             elif output_mode in {"compact", "standard"}:
-                payload["label_key"] = {"1": "tp_first", "-1": "sl_first", "0": "hold"}
+                payload["label_key"] = {
+                    "1": "tp_first",
+                    "-1": "sl_first",
+                    "0": "timeout",
+                }
             if warnings_out:
                 payload["warnings"] = list(warnings_out)
             if skipped_entries > 0:
@@ -976,7 +980,7 @@ def labels_triple_barrier(  # noqa: C901
                 counts = {
                     "tp": int(sum(1 for v in lab_tail if v == 1)),
                     "sl": int(sum(1 for v in lab_tail if v == -1)),
-                    "neutral": int(sum(1 for v in lab_tail if v == 0)),
+                    "timeout": int(sum(1 for v in lab_tail if v == 0)),
                 }
                 med_hold = (
                     float(_np.median(_np.array(hold_tail, dtype=float)))
@@ -986,8 +990,8 @@ def labels_triple_barrier(  # noqa: C901
                 summary = {
                     "lookback": int(n),
                     "counts": counts,
-                    "neutral_rate": (
-                        round(float(counts["neutral"] / n), 6) if n else None
+                    "timeout_rate": (
+                        round(float(counts["timeout"] / n), 6) if n else None
                     ),
                     "barrier_resolution_rate": (
                         round(float((counts["tp"] + counts["sl"]) / n), 6)
@@ -999,9 +1003,10 @@ def labels_triple_barrier(  # noqa: C901
                     "median_holding_bars": med_hold,
                     "sample_quality": sample_quality,
                 }
-                if n and counts["neutral"] / n >= 0.8:
+                if n and counts["timeout"] / n >= 0.8:
                     warnings_out.append(
-                        "At least 80% of summarized labels are neutral timeouts. "
+                        "At least 80% of summarized labels are timeouts "
+                        "(no barrier hit within horizon). "
                         "Tighten the barriers or increase horizon to produce more hits."
                     )
                 favorable_tail = max_favorable_moves_pct[-n:] if n > 0 else max_favorable_moves_pct
@@ -1011,10 +1016,10 @@ def labels_triple_barrier(  # noqa: C901
                         "favorable": round(float(max(favorable_tail or [0.0])), 6),
                         "adverse": round(float(max(adverse_tail or [0.0])), 6),
                     }
-                if counts["tp"] == 0 and counts["sl"] == 0 and counts["neutral"] > 0:
+                if counts["tp"] == 0 and counts["sl"] == 0 and counts["timeout"] > 0:
                     summary["explanation"] = (
-                        "All labels are neutral because no price path hit TP or SL within "
-                        "the horizon. Label 0 means a timeout/hold outcome, not a "
+                        "All labels are timeouts because no price path hit TP or SL within "
+                        "the horizon. Label 0 means no_barrier_hit / timeout, not a "
                         "calculation failure; consider tightening barriers or increasing "
                         "horizon if you need more barrier hits."
                     )
@@ -1123,13 +1128,13 @@ def labels_triple_barrier(  # noqa: C901
                         if resolved_representatives:
                             payload["data_note"] = (
                                 f"data rows include {resolved_representatives} recent "
-                                "resolved outcome example(s) plus the newest neutral "
+                                "resolved outcome example(s) plus the newest timeout "
                                 "labels; summary counts cover the full lookback."
                             )
                         else:
                             payload["data_note"] = (
                                 f"data rows cover the most recent {len(sample_indices)} "
-                                "labels, including neutral outcomes."
+                                "labels, including timeout outcomes."
                             )
                     payload["data"] = _sample_rows(sample_indices)
                     for key in (

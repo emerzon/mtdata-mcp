@@ -49,14 +49,21 @@ _OPTIONS_CHAIN_COMPACT_FIELDS = (
     "delta",
     "in_the_money",
     "contract_as_of",
+    "quote_quality",
+)
+_OPTIONS_CHAIN_COMPACT_FRESHNESS_FIELDS = (
     "contract_data_age_seconds",
     "contract_data_stale",
     "contract_freshness",
     "contract_freshness_reason",
-    "quote_quality",
     "quote_usable_for_live_analysis",
     "quote_usability_reason",
 )
+_OPTIONS_CHAIN_FRESHNESS_AGGREGATES = {
+    "contract_data_stale": "option_chain_data_stale",
+    "contract_freshness": "option_chain_freshness",
+    "quote_usable_for_live_analysis": "option_chain_live_usable",
+}
 _OPTIONS_SYMBOL_PATTERN = re.compile(r"^[A-Z0-9^][A-Z0-9.^=_/-]{0,63}$")
 _OPTIONS_EXPIRATION_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _OPTIONS_PROVIDER_SYMBOL_ALIASES = {
@@ -377,19 +384,34 @@ def _compact_option_contract(
     row: Any,
     *,
     include_uniform_terms: bool = True,
+    include_freshness: bool = False,
+    chain_aggregates: Optional[Dict[str, Any]] = None,
 ) -> Any:
     if not isinstance(row, dict):
         return row
     fields = _OPTIONS_CHAIN_COMPACT_FIELDS
+    if include_freshness:
+        fields = (*fields, *_OPTIONS_CHAIN_COMPACT_FRESHNESS_FIELDS)
     if not include_uniform_terms:
         fields = tuple(
             key for key in fields if key not in _OPTIONS_CHAIN_UNIFORM_TERM_FIELDS
         )
-    return {
+    out = {
         key: row[key]
         for key in fields
         if key in row and row[key] is not None
     }
+    if include_freshness and isinstance(chain_aggregates, dict):
+        for field in _OPTIONS_CHAIN_COMPACT_FRESHNESS_FIELDS:
+            if field not in out:
+                continue
+            aggregate_key = _OPTIONS_CHAIN_FRESHNESS_AGGREGATES.get(field)
+            if out[field] == chain_aggregates.get(field) or (
+                aggregate_key is not None
+                and out[field] == chain_aggregates.get(aggregate_key)
+            ):
+                out.pop(field, None)
+    return out
 
 
 def _barrier_pricing_inputs(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -505,6 +527,7 @@ def _apply_options_detail(
                 "provider_symbol",
                 "expiration",
                 "expiration_status",
+                "expiration_lifecycle",
                 "underlying_price",
                 "currency",
                 "contract_terms_summary",
@@ -533,10 +556,30 @@ def _apply_options_detail(
                 "mixed_or_unresolved_terms"
             ) is False:
                 include_uniform_terms = False
+            chain_aggregates: Optional[Dict[str, Any]] = None
+            if detail_mode == "compact":
+                chain_aggregates = {
+                    key: out.get(key)
+                    for key in (
+                        "option_chain_data_stale",
+                        "option_chain_freshness",
+                        "option_chain_live_usable",
+                    )
+                }
+                for field in _OPTIONS_CHAIN_COMPACT_FRESHNESS_FIELDS:
+                    values = [
+                        row.get(field)
+                        for row in options
+                        if isinstance(row, dict) and field in row
+                    ]
+                    if values and all(value == values[0] for value in values):
+                        chain_aggregates[field] = values[0]
             compact["options"] = [
                 _compact_option_contract(
                     row,
                     include_uniform_terms=include_uniform_terms,
+                    include_freshness=True,
+                    chain_aggregates=chain_aggregates,
                 )
                 for row in options
             ]

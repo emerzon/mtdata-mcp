@@ -107,7 +107,7 @@ def test_news_tool_limits_globally(monkeypatch) -> None:
     assert limited["related_news"] == [{"title": "r1"}, {"title": "r2"}]
     assert limited["upcoming_events"] == [{"title": "u1"}]
     assert limited["row_keys"] == ["upcoming_events", "related_news"]
-    assert limited["row_key"] == "upcoming_events"
+    assert "row_key" not in limited
     assert "general_news" not in limited
     assert "impact_news" not in limited
     assert "recent_events" not in limited
@@ -185,7 +185,7 @@ def test_news_tool_symbol_limit_is_a_global_row_cap(monkeypatch) -> None:
     assert limited["related_news"] == [{"title": "r1"}]
     assert limited["upcoming_events"] == [{"title": "u1"}]
     assert limited["row_keys"] == ["upcoming_events", "related_news"]
-    assert limited["row_key"] == "upcoming_events"
+    assert "row_key" not in limited
     assert "general_news" not in limited
     assert "impact_news" not in limited
     assert "recent_events" not in limited
@@ -355,6 +355,7 @@ def test_news_tool_fx_symbol_limit_keeps_useful_general_buckets(monkeypatch) -> 
         "related_news",
         "general_news",
     ]
+    assert "row_key" not in limited
     assert "impact_news" not in limited
     assert "recent_events" not in limited
     assert "market_context" not in limited
@@ -380,6 +381,7 @@ def test_news_tool_supports_global_offset(monkeypatch) -> None:
 
     assert page["general_news"] == [{"title": "g1"}, {"title": "g2"}]
     assert page["row_keys"] == ["general_news"]
+    assert page["row_key"] == "general_news"
     assert "related_news" not in page
     assert "impact_news" not in page
     assert page["total_candidates"] == 6

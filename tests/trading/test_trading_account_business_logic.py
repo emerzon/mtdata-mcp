@@ -200,7 +200,7 @@ def test_trade_account_info_compact_detail_includes_account_fields_without_diagn
     assert out["margin"] == 100.0
     assert out["margin_free"] == 9950.0
     assert out["leverage"] == 100
-    assert out["login"] == 123456
+    assert "login" not in out
     assert out["server"] == "Demo-Server"
     assert out["company"] == "Broker LLC"
     assert out["trade_mode"] == "demo"

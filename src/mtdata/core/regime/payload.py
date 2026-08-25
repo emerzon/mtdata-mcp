@@ -1190,26 +1190,24 @@ def _consolidate_payload(  # noqa: C901
             if current_regime:
                 new_payload["current_regime"] = current_regime
 
-            # Limit regimes for compact mode (keep most recent N)
             total_regimes = len(final_segments)
-            if output_mode == "compact" and max_regimes > 0 and total_regimes > max_regimes:
-                # Keep only the most recent max_regimes
-                truncated_segments = final_segments[-max_regimes:]
-                new_payload["regimes"] = truncated_segments
-                new_payload["regimes_truncated"] = True
+            if output_mode == "compact":
+                last_transition = _last_regime_transition(final_segments)
+                if last_transition:
+                    new_payload["last_transition"] = last_transition
                 new_payload["total_regimes"] = total_regimes
-                new_payload["showing_regimes"] = max_regimes
-                new_payload["has_more"] = True
-                omitted = max(0, total_regimes - max_regimes)
-                new_payload["history_hint"] = (
-                    f"{omitted} older regime segment(s) omitted; use detail='full' "
-                    "or increase max_regimes."
-                )
+                omitted = max(0, total_regimes - 1)
+                if omitted:
+                    new_payload["has_more"] = True
+                    new_payload["history_hint"] = (
+                        f"{omitted} older regime segment(s) omitted; use "
+                        "detail='standard' or 'full' for segment history."
+                    )
+                else:
+                    new_payload["has_more"] = False
             else:
                 new_payload["regimes"] = final_segments
-                if output_mode == "compact":
-                    new_payload["total_regimes"] = total_regimes
-                    new_payload["has_more"] = False
+                new_payload["total_regimes"] = total_regimes
 
         if regime_descriptions:
             observed_regimes = {
@@ -1283,6 +1281,28 @@ def _consolidate_payload(  # noqa: C901
         payload["partial_failure"] = True
         payload["success"] = False
         return payload
+
+
+def _last_regime_transition(
+    segments: List[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    if len(segments) < 2:
+        return None
+    previous = segments[-2]
+    current = segments[-1]
+    if not isinstance(previous, dict) or not isinstance(current, dict):
+        return None
+    out: Dict[str, Any] = {
+        "from_regime": previous.get("regime"),
+        "to_regime": current.get("regime"),
+        "at": current.get("start"),
+        "previous_bars": previous.get("bars"),
+    }
+    if previous.get("label") is not None:
+        out["from_label"] = previous["label"]
+    if current.get("label") is not None:
+        out["to_label"] = current["label"]
+    return out
 
 
 def _summary_only_payload(payload: Dict[str, Any]) -> Dict[str, Any]:

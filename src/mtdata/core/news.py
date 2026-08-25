@@ -587,7 +587,8 @@ def _attach_news_row_keys(result: Dict[str, Any]) -> Dict[str, Any]:
     )
     if row_keys:
         out["row_keys"] = row_keys
-        out["row_key"] = row_keys[0]
+        if len(row_keys) == 1:
+            out["row_key"] = row_keys[0]
         summary_present = False
         summary_missing = False
         for key in row_keys:

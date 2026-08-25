@@ -337,10 +337,12 @@ class TestConsolidatePayload:
 
         result = _consolidate_payload(payload, "hmm", "compact", max_regimes=2)
 
-        assert result["regimes_truncated"] is True
+        assert "regimes" not in result
         assert result["has_more"] is True
-        assert result["showing_regimes"] == 2
+        assert result["total_regimes"] == 5
+        assert result["last_transition"]["at"] == "T5"
         assert "older regime segment(s) omitted" in result["history_hint"]
+        assert "label" in result["current_regime"]
 
     def test_hmm_regime_info_marks_unobserved_model_states(self):
         payload = {

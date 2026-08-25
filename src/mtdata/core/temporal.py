@@ -399,6 +399,7 @@ def _compact_temporal_stats(
     keys = (
         "group_label",
         "bars",
+        "return_observations",
         "avg_return_pct",
         "median_return_pct",
         "win_rate_pct",
@@ -411,7 +412,7 @@ def _compact_temporal_stats(
 
 def _standard_temporal_stats(row: Dict[str, Any]) -> Dict[str, Any]:
     out = _compact_temporal_stats(row, include_group=True)
-    for key in ("return_observations", "avg_abs_return_pct", "avg_range_pct", "avg_volume"):
+    for key in ("avg_abs_return_pct", "avg_range_pct", "avg_volume"):
         value = row.get(key)
         if value is not None:
             out[key] = value

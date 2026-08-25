@@ -341,16 +341,17 @@ def _symbol_list_table_headers(
         headers.append("category")
     if search_term:
         headers.append("match_reason")
-    headers.extend(
-        (
-            "currency_base",
-            "currency_base_reported",
-            "currency_base_inferred",
-            "currency_base_source",
-            "currency_base_inference_source",
-            "currency_base_warning",
+    headers.append("currency_base")
+    if detail_mode in {"standard", "full"}:
+        headers.extend(
+            (
+                "currency_base_reported",
+                "currency_base_inferred",
+                "currency_base_source",
+                "currency_base_inference_source",
+                "currency_base_warning",
+            )
         )
-    )
     if currency_filter:
         headers.append("currency_match_basis")
     headers.extend(
@@ -738,6 +739,33 @@ def symbols_list(  # noqa: C901
             )
             rows = [[s.get(header) for header in headers] for s in symbol_list]
             result = _table_from_rows(headers, rows)
+            if detail_mode == "compact":
+                optional_fields = (
+                    "currency_base_reported",
+                    "currency_base_inferred",
+                    "currency_base_source",
+                    "currency_base_inference_source",
+                    "currency_base_warning",
+                    "session_type",
+                )
+                compact_rows = []
+                sources = list(symbol_list)
+                for index, row in enumerate(result.get("data") or []):
+                    if not isinstance(row, dict):
+                        compact_rows.append(row)
+                        continue
+                    compact_row = {
+                        key: value
+                        for key, value in row.items()
+                        if value is not None
+                    }
+                    if index < len(sources) and isinstance(sources[index], dict):
+                        for key in optional_fields:
+                            value = sources[index].get(key)
+                            if value is not None:
+                                compact_row[key] = value
+                    compact_rows.append(compact_row)
+                result["data"] = compact_rows
             result["universe"] = effective_universe
             if filters:
                 result["filters"] = filters

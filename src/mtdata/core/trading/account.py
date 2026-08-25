@@ -57,7 +57,6 @@ _TRADE_ACCOUNT_COMPACT_KEYS = (
     "server_time",
     "server_time_source",
     "clock_skew_seconds",
-    "login",
     "server",
     "company",
     "account_type",

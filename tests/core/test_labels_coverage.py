@@ -462,11 +462,11 @@ class TestLabelsTripleBarrier:
         assert result["success"] is True
         assert result["labeling_coverage"]["rows_after_labeling"] == 50
         assert result["summary"]["lookback"] == 50
-        assert 0.0 <= result["summary"]["neutral_rate"] <= 1.0
+        assert 0.0 <= result["summary"]["timeout_rate"] <= 1.0
         assert 0.0 <= result["summary"]["barrier_resolution_rate"] <= 1.0
         assert "hit_rate" not in result["summary"]
         assert (
-            result["summary"]["neutral_rate"]
+            result["summary"]["timeout_rate"]
             + result["summary"]["barrier_resolution_rate"]
             == 1.0
         )
@@ -500,9 +500,13 @@ class TestLabelsTripleBarrier:
         assert len(result["data"]) == 10
         assert result["sample_basis"] == "recent"
         assert "data_note" in result
-        assert "including neutral outcomes" in result["data_note"]
+        assert "including timeout outcomes" in result["data_note"]
         assert "label_legend" not in result
-        assert result["label_key"] == {"1": "tp_first", "-1": "sl_first", "0": "hold"}
+        assert result["label_key"] == {
+            "1": "tp_first",
+            "-1": "sl_first",
+            "0": "timeout",
+        }
 
     @patch(f"{_LABELS_MOD}._get_tick_size", return_value=0.0001)
     @patch(f"{_LABELS_MOD}.resolve_denoise_base_col", return_value="close")
@@ -553,6 +557,12 @@ class TestLabelsTripleBarrier:
             "outcome",
             "holding_bars",
         }.issubset(result["data"][0])
+        assert result["data"][0]["outcome"] in {
+            "tp",
+            "sl",
+            "timeout",
+            "same_bar_neutral",
+        }
         assert "labels" not in result
         assert "entry_bar_open_times" not in result
         assert result["data_note"] == "data rows cover the recent summary lookback window."
@@ -604,7 +614,7 @@ class TestLabelsTripleBarrier:
 
         assert result["label_legend"]["1"]["label"] == "tp_first"
         assert result["label_legend"]["-1"]["label"] == "sl_first"
-        assert result["label_legend"]["0"]["label"] == "hold"
+        assert result["label_legend"]["0"]["label"] == "timeout"
 
     @patch(f"{_LABELS_MOD}._get_tick_size", return_value=0.0001)
     @patch(f"{_LABELS_MOD}.resolve_denoise_base_col", return_value="close")
@@ -615,7 +625,7 @@ class TestLabelsTripleBarrier:
         assert result["success"] is True
         assert "summary" in result
         assert "entry_bar_open_times" not in result
-        assert any("neutral timeouts" in warning for warning in result["warnings"])
+        assert any("are timeouts" in warning for warning in result["warnings"])
 
     @patch(f"{_LABELS_MOD}._get_tick_size", return_value=0.0001)
     @patch(f"{_LABELS_MOD}.resolve_denoise_base_col", return_value="close")
@@ -723,7 +733,7 @@ class TestLabelsTripleBarrier:
         summary = result["summary"]
         assert summary["counts"]["tp"] == 0
         assert summary["counts"]["sl"] == 0
-        assert summary["counts"]["neutral"] > 0
+        assert summary["counts"]["timeout"] > 0
         assert "no price path hit TP or SL" in summary["explanation"]
         assert summary["max_observed_move_pct"]["favorable"] >= 0.0
         assert summary["max_observed_move_pct"]["adverse"] >= 0.0

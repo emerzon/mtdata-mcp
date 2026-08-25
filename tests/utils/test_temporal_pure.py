@@ -715,6 +715,7 @@ class TestTemporalAnalyze:
         assert "group_label" in r["groups"][0]
         assert "win_rate" not in r["groups"][0]
         assert "win_rate_pct" in r["groups"][0]
+        assert "return_observations" in r["groups"][0]
         assert "avg_range" not in r["groups"][0]
         assert "avg_volume" not in r["groups"][0]
         assert "best" in r

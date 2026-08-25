@@ -140,7 +140,7 @@ class TestTradeAccountInfo:
 
         result = _trade_account_payload_for_mode(payload, mode="compact")
 
-        assert result["login"] == 123456
+        assert "login" not in result
         assert result["server"] == "Broker-Demo"
         assert result["company"] == "Broker Inc."
         assert result["account_type"] == "demo"

@@ -461,18 +461,18 @@ def _select_options_expiration(
     if requested not in (None, ""):
         chosen = str(requested).strip()
         status = (
-            "live"
+            "listed"
             if _us_equity_option_expiration_is_live(chosen, now=now)
             else "expired"
         )
         return chosen, status, False
-    live = [
+    listed = [
         item
         for item in expirations
         if _us_equity_option_expiration_is_live(item, now=now)
     ]
-    if live:
-        return live[0], "live", True
+    if listed:
+        return listed[0], "listed", True
     return expirations[0], "expired", True
 
 
@@ -496,10 +496,13 @@ def _expiration_not_listed_payload(
         "symbol": symbol,
         "expiration": expiration,
         "expiration_status": expiration_status,
+        "expiration_lifecycle": (
+            "active" if expiration_status == "listed" else "expired"
+        ),
         "expirations": list(expirations),
         "remediation": (
             "Choose a date from expirations or omit expiration to use the next "
-            "live listed expiration."
+            "listed expiration."
         ),
         "related_tools": ["options_expirations"],
     }
@@ -1408,6 +1411,9 @@ def _options_chain_payload(
         "symbol": symbol,
         "expiration": expiration,
         "expiration_status": expiration_status,
+        "expiration_lifecycle": (
+            "active" if expiration_status == "listed" else "expired"
+        ),
         "underlying_price": underlying_price,
         "currency": currency,
         "contract_terms_summary": _option_contract_terms_summary(selected),
