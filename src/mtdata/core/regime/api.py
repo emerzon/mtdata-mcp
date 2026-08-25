@@ -734,6 +734,16 @@ def regime_detect(  # noqa: C901
                 )
                 if warning not in global_warnings:
                     global_warnings.append(warning)
+                observations_for_summary = max(0, int(x.size))
+                if requested_lookback > observations_for_summary:
+                    truncation_warning = (
+                        "summary_window_truncated: requested lookback="
+                        f"{int(requested_lookback)} but only "
+                        f"{observations_for_summary} observations are available "
+                        "after converting prices to returns; raise fetch_limit."
+                    )
+                    if truncation_warning not in global_warnings:
+                        global_warnings.append(truncation_warning)
             observations_available = int(x.size)
             if observations_available > analysis_limit:
                 x = x[-analysis_limit:]

@@ -1214,8 +1214,9 @@ def temporal_analyze(  # noqa: C901
             except Exception:
                 return _error_response("Failed to normalize bar times.", stage="process", context=context)
 
+            forming_trimmed = False
             if timeframe in TIMEFRAME_SECONDS:
-                df, _ = _drop_incomplete_tail_df(df, timeframe)
+                df, forming_trimmed = _drop_incomplete_tail_df(df, timeframe)
 
             if len(df) < 2:
                 return _error_response(
@@ -1597,6 +1598,12 @@ def temporal_analyze(  # noqa: C901
                 "bars": int(len(analysis_df)),
                 "start": start_str,
                 "end": end_str,
+                "history_policy": "completed_bars_only",
+                "bar_timestamp_basis": "open_time",
+                "latest_bar_complete": True,
+                "forming_candle_status": (
+                    "skipped" if forming_trimmed else "none_detected"
+                ),
                 "filters": filters,
                 "overall": overall,
                 "overall_basis": (

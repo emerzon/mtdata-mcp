@@ -16,6 +16,20 @@ def _summary_window_size(lookback: int, size: int) -> int:
     return min(max(lookback_i, 0), int(size))
 
 
+def _summary_lookback_meta(lookback: int, size: int) -> Dict[str, Any]:
+    requested = max(0, int(lookback) if lookback is not None else int(size))
+    effective = _summary_window_size(requested, size)
+    satisfied = effective >= requested and requested > 0
+    meta: Dict[str, Any] = {
+        "requested_lookback": requested,
+        "effective_lookback": effective,
+        "lookback_satisfied": bool(satisfied),
+    }
+    if not satisfied:
+        meta["summary_window_truncated"] = True
+    return meta
+
+
 _DIRECTION_SIGNALS = frozenset({"bullish", "bearish", "neutral"})
 _VOLATILITY_SIGNALS = frozenset(
     {"very_low_vol", "low_vol", "moderate_vol", "high_vol", "very_high_vol"}
@@ -427,6 +441,7 @@ def _apply_bocpd_output_mode(
     recent_cps = [cp for cp in change_points if cp.get("idx", 0) >= recent_floor]
     summary = {
         "lookback": int(n),
+        **_summary_lookback_meta(lookback, len(cp_prob)),
         "last_cp_prob": float(cp_prob[-1]) if len(cp_prob) else float("nan"),
         "max_cp_prob": float(np.nanmax(tail)) if tail.size else float("nan"),
         "mean_cp_prob": float(np.nanmean(tail)) if tail.size else float("nan"),
@@ -473,6 +488,10 @@ def _apply_state_output_mode(
     - 'full': Research-focused (adds raw series, params, technical details)
     """
     payload["summary"] = summary
+    if isinstance(summary, dict):
+        effective = int(summary.get("lookback") or 0)
+        summary.update(_summary_lookback_meta(lookback, effective))
+        summary["lookback"] = int(summary.get("effective_lookback") or effective)
     if output == "summary":
         return _summary_only_payload(payload)
     # Note: Raw series (times, state, state_probabilities) are now handled

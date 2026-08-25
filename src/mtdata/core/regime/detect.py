@@ -44,6 +44,7 @@ from .summarize import (
     _build_all_method_comparison,
     _common_reliability,
     _mark_collapsed_state_confidence,
+    _reliability_label,
     _smoothing_warnings,
     _summary_window_size,
 )
@@ -2230,14 +2231,33 @@ def _detect_rule_based(  # noqa: C901
         current_regime["window_bias"] = direction
     regime_payload = dict(regime_info)
 
+    classification_strength = regime_confidence
+    reliability_confidence = classification_strength
+    severe_history_shortfall = False
+    if window_quality is not None:
+        recommended = float(window_quality.get("recommended_min_bars") or 1)
+        observed = float(window_quality.get("window_bars") or 0)
+        sample_ratio = min(1.0, max(0.0, observed / max(recommended, 1.0)))
+        current_regime["classification_strength"] = classification_strength
+        current_regime["window_quality"] = window_quality["status"]
+        if sample_ratio <= 0.2:
+            severe_history_shortfall = True
+            reliability_confidence = round(classification_strength * sample_ratio, 4)
     reliability = _common_reliability(
         {
-            "confidence": regime_confidence,
+            "confidence": reliability_confidence,
+            "classification_strength": classification_strength,
             "trend_strength": trend_strength_out,
             "efficiency_ratio": efficiency_ratio_out,
         },
         source="rule_based_trend_efficiency",
     )
+    if severe_history_shortfall:
+        reliability["reliability_label"] = _reliability_label(reliability_confidence)
+        reliability["confidence_note"] = (
+            "Limited history reduces reliability; classification_strength is "
+            "signal strength only and is not a sample-size-adjusted probability."
+        )
     payload = {
         "success": True,
         "symbol": symbol,
