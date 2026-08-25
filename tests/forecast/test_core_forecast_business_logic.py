@@ -333,11 +333,8 @@ def test_forecast_generate_routes_by_library_and_validates_inputs(monkeypatch):
     assert "model_name" not in captured["params"]
 
     out = raw(request=ForecastGenerateRequest(symbol="EURUSD", library="native", method="statsforecast:autoarima", params={}))
-    assert out["ok"] is True
-    assert captured["method"] == "statsforecast"
-    assert captured["params"]["model_name"] == "AutoARIMA"
-    assert out["method"] == "autoarima"
-    assert out["library"] == "statsforecast"
+    assert out["success"] is False
+    assert "belongs to library 'statsforecast'" in out["error"]
 
     out = raw(
         request=ForecastGenerateRequest(
@@ -346,9 +343,8 @@ def test_forecast_generate_routes_by_library_and_validates_inputs(monkeypatch):
             method="sf_theta",
         )
     )
-    assert out["ok"] is True
-    assert captured["method"] == "statsforecast"
-    assert captured["params"]["model_name"] == "Theta"
+    assert out["success"] is False
+    assert "belongs to library 'statsforecast'" in out["error"]
 
     out = raw(
         request=ForecastGenerateRequest(
@@ -387,9 +383,8 @@ def test_forecast_generate_routes_by_library_and_validates_inputs(monkeypatch):
     assert captured["model_id"] == stored_sktime_model_id
 
     out = raw(request=ForecastGenerateRequest(symbol="EURUSD", library="native", method="sktime:theta", params={}))
-    assert out["ok"] is True
-    assert captured["method"] == "sktime"
-    assert captured["params"]["estimator"] == "sktime.forecasting.theta.ThetaForecaster"
+    assert out["success"] is False
+    assert "belongs to library 'sktime'" in out["error"]
 
     out = raw(
         request=ForecastGenerateRequest(
@@ -417,9 +412,8 @@ def test_forecast_generate_routes_by_library_and_validates_inputs(monkeypatch):
     assert out["library"] == "mlforecast"
 
     out = raw(request=ForecastGenerateRequest(symbol="EURUSD", library="native", method="mlforecast:rf", params={"lags": [1, 2, 3]}))
-    assert out["ok"] is True
-    assert captured["method"] == "mlf_rf"
-    assert captured["params"]["lags"] == [1, 2, 3]
+    assert out["success"] is False
+    assert "belongs to library 'mlforecast'" in out["error"]
 
     out = raw(request=ForecastGenerateRequest(symbol="EURUSD", library="native", method="native:theta"))
     assert out["ok"] is True
