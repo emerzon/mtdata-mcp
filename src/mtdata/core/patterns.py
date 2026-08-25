@@ -50,7 +50,7 @@ from ..utils.mt5 import (
     mt5,
 )
 from ..utils.ohlcv import validate_and_clean_ohlcv_frame
-from ..utils.time import _format_time_minimal
+from ..utils.time import _format_time_minimal, format_epoch_utc
 from ..utils.utils import _parse_end_datetime, _parse_start_datetime
 from ..utils.utils import to_float_np as __to_float_np
 from ..utils.volume_profile import annotate_level_confluence
@@ -1517,6 +1517,171 @@ def _attach_pattern_usage_notice(result: Dict[str, Any]) -> None:
     )
 
 
+_LIVE_FRESHNESS_AGE_KEYS = (
+    "data_age_seconds",
+    "data_stale",
+    "stale_after_seconds",
+    "freshness",
+    "stale_warning",
+    "history_policy_ok",
+    "freshness_age_metric",
+    "freshness_policy_relaxed",
+    "market_status",
+    "market_status_reason",
+    "market_status_source",
+    "assumed_closure_start",
+    "assumed_closure_end",
+    "assumed_closure_seconds",
+    "note",
+)
+_PATTERN_OBSERVATION_KEYS = (
+    "last_bar_open",
+    "last_bar_open_epoch",
+    "first_bar_open",
+)
+
+
+def _strip_live_freshness_age(freshness: Dict[str, Any]) -> Dict[str, Any]:
+    out = dict(freshness)
+    for key in _LIVE_FRESHNESS_AGE_KEYS:
+        out.pop(key, None)
+    if out.get("data_as_of"):
+        out["freshness_basis"] = "historical_cutoff_last_completed_bar_close"
+    return out
+
+
+def _attach_pattern_observation_window(
+    result: Dict[str, Any],
+    request: "PatternsDetectRequest",
+    freshness_by_timeframe: Dict[str, Dict[str, Any]],
+) -> None:
+    if not isinstance(result, dict) or result.get("error"):
+        return
+    if request.start not in (None, ""):
+        result["requested_start"] = request.start
+    if request.end not in (None, ""):
+        result["requested_end"] = request.end
+    first_opens = [
+        freshness.get("first_bar_open")
+        for freshness in freshness_by_timeframe.values()
+        if isinstance(freshness, dict) and freshness.get("first_bar_open")
+    ]
+    last_opens = [
+        freshness.get("last_bar_open")
+        for freshness in freshness_by_timeframe.values()
+        if isinstance(freshness, dict) and freshness.get("last_bar_open")
+    ]
+    if first_opens:
+        result.setdefault("effective_start", min(str(value) for value in first_opens))
+    if last_opens:
+        last_bar_open = max(str(value) for value in last_opens)
+        result.setdefault("last_bar_open", last_bar_open)
+        result.setdefault("effective_end", last_bar_open)
+    window = result.get("effective_window")
+    if isinstance(window, dict):
+        for source_key, window_key in (
+            ("requested_start", "requested_start"),
+            ("requested_end", "requested_end"),
+            ("effective_start", "start"),
+            ("effective_end", "end"),
+            ("last_bar_open", "last_bar_open"),
+            ("data_as_of", "data_as_of"),
+        ):
+            value = result.get(source_key)
+            if value not in (None, "") and window_key not in window:
+                window[window_key] = value
+
+
+def _record_pattern_observation(
+    request: "PatternsDetectRequest",
+    freshness_by_timeframe: Dict[str, Dict[str, Any]],
+    timeframe: Any,
+    last_bar_epoch: Any,
+    first_bar_epoch: Any = None,
+) -> None:
+    freshness = completed_bar_freshness_fields(
+        request.symbol,
+        timeframe,
+        last_bar_epoch,
+        item="bar",
+    )
+    if not freshness:
+        freshness = {}
+    try:
+        last_open = format_epoch_utc(float(last_bar_epoch))
+    except Exception:
+        last_open = None
+    if last_open:
+        freshness["last_bar_open"] = last_open
+        try:
+            freshness["last_bar_open_epoch"] = float(last_bar_epoch)
+        except Exception:
+            pass
+    if first_bar_epoch is not None:
+        try:
+            first_open = format_epoch_utc(float(first_bar_epoch))
+        except Exception:
+            first_open = None
+        if first_open:
+            freshness["first_bar_open"] = first_open
+    if request.start or request.end:
+        freshness = _strip_live_freshness_age(freshness)
+    if freshness:
+        freshness_by_timeframe[str(timeframe).upper()] = freshness
+
+
+def _track_pattern_data_deps(
+    request: "PatternsDetectRequest",
+    deps: "PatternsDetectDeps",
+    freshness_by_timeframe: Dict[str, Dict[str, Any]],
+) -> "PatternsDetectDeps":
+    fetch_pattern_data = deps.fetch_pattern_data
+    detect_candlestick_patterns = deps.detect_candlestick_patterns
+
+    def _tracked_fetch_pattern_data(*args: Any, **kwargs: Any) -> Any:
+        frame, error = fetch_pattern_data(*args, **kwargs)
+        timeframe = args[1] if len(args) > 1 else kwargs.get("timeframe")
+        if (
+            error is None
+            and isinstance(frame, pd.DataFrame)
+            and not frame.empty
+            and "time" in frame
+        ):
+            _record_pattern_observation(
+                request,
+                freshness_by_timeframe,
+                timeframe,
+                frame["time"].iloc[-1],
+                first_bar_epoch=frame["time"].iloc[0],
+            )
+        return frame, error
+
+    def _tracked_detect_candlestick_patterns(**kwargs: Any) -> Dict[str, Any]:
+        payload = detect_candlestick_patterns(**kwargs)
+        if isinstance(payload, dict) and not payload.get("error"):
+            freshness = {
+                key: payload[key]
+                for key in (
+                    *COMPLETED_BAR_FRESHNESS_KEYS,
+                    *_PATTERN_OBSERVATION_KEYS,
+                )
+                if key in payload
+            }
+            if request.start or request.end:
+                freshness = _strip_live_freshness_age(freshness)
+            if freshness:
+                freshness_by_timeframe[
+                    str(kwargs.get("timeframe") or "").upper()
+                ] = freshness
+        return payload
+
+    return replace(
+        deps,
+        fetch_pattern_data=_tracked_fetch_pattern_data,
+        detect_candlestick_patterns=_tracked_detect_candlestick_patterns,
+    )
+
+
 def _attach_pattern_freshness_contract(
     result: Dict[str, Any],
     freshness_by_timeframe: Dict[str, Dict[str, Any]],
@@ -1750,57 +1915,17 @@ def patterns_detect(
         if connection_error is not None:
             return connection_error
         freshness_by_timeframe: Dict[str, Dict[str, Any]] = {}
-
-        def _record_freshness(timeframe: Any, last_bar_epoch: Any) -> None:
-            if request.start or request.end:
-                return
-            freshness = completed_bar_freshness_fields(
-                request.symbol,
-                timeframe,
-                last_bar_epoch,
-                item="bar",
-            )
-            if freshness:
-                freshness_by_timeframe[str(timeframe).upper()] = freshness
-
-        deps = _patterns_detect_deps()
-        fetch_pattern_data = deps.fetch_pattern_data
-        detect_candlestick_patterns = deps.detect_candlestick_patterns
-
-        def _tracked_fetch_pattern_data(*args: Any, **kwargs: Any) -> Any:
-            frame, error = fetch_pattern_data(*args, **kwargs)
-            timeframe = args[1] if len(args) > 1 else kwargs.get("timeframe")
-            if (
-                error is None
-                and isinstance(frame, pd.DataFrame)
-                and not frame.empty
-                and "time" in frame
-            ):
-                _record_freshness(timeframe, frame["time"].iloc[-1])
-            return frame, error
-
-        def _tracked_detect_candlestick_patterns(**kwargs: Any) -> Dict[str, Any]:
-            payload = detect_candlestick_patterns(**kwargs)
-            if isinstance(payload, dict) and not payload.get("error"):
-                freshness = {
-                    key: payload[key]
-                    for key in COMPLETED_BAR_FRESHNESS_KEYS
-                    if key in payload
-                }
-                if freshness:
-                    freshness_by_timeframe[
-                        str(kwargs.get("timeframe") or "").upper()
-                    ] = freshness
-            return payload
-
-        deps = replace(
-            deps,
-            fetch_pattern_data=_tracked_fetch_pattern_data,
-            detect_candlestick_patterns=_tracked_detect_candlestick_patterns,
+        deps = _track_pattern_data_deps(
+            request,
+            _patterns_detect_deps(),
+            freshness_by_timeframe,
         )
         result = run_patterns_detect(request, deps)
         if isinstance(result, dict) and "error" not in result:
             _attach_pattern_freshness_contract(result, freshness_by_timeframe)
+            _attach_pattern_observation_window(
+                result, request, freshness_by_timeframe
+            )
             result.setdefault("timezone", "UTC")
             if request.denoise is not None:
                 effective_denoise = (

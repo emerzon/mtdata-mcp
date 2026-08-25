@@ -381,6 +381,62 @@ def test_patterns_detect_public_default_is_compact_for_classic_mode(monkeypatch)
     assert "patterns" not in out
 
 
+def test_patterns_detect_historical_end_keeps_observation_window(monkeypatch):
+    times = [1_724_000_000.0 + index * 3600 for index in range(4)]
+    df = pd.DataFrame(
+        {
+            "time": times,
+            "open": [1.0, 1.1, 1.2, 1.3],
+            "high": [1.1, 1.2, 1.3, 1.4],
+            "low": [0.9, 1.0, 1.1, 1.2],
+            "close": [1.05, 1.15, 1.25, 1.35],
+            "tick_volume": [10, 11, 12, 13],
+        }
+    )
+
+    monkeypatch.setattr(core_patterns, "_patterns_connection_error", lambda: None)
+    monkeypatch.setattr(core_patterns, "_fetch_pattern_data", lambda *args, **kwargs: (df, None))
+    monkeypatch.setattr(
+        core_patterns,
+        "_select_classic_engines",
+        lambda engine, ensemble: (["native"], []),
+    )
+    monkeypatch.setattr(core_patterns, "_enrich_classic_patterns", lambda rows, *_: rows)
+    monkeypatch.setattr(
+        core_patterns,
+        "_run_classic_engine",
+        lambda *args, **kwargs: (
+            [
+                {
+                    "name": "Ascending Triangle",
+                    "status": "forming",
+                    "confidence": 0.81,
+                    "start_index": 0,
+                    "end_index": 3,
+                    "details": {"bias": "bullish"},
+                }
+            ],
+            None,
+        ),
+    )
+
+    out = patterns_detect(
+        symbol="EURUSD",
+        mode="classic",
+        timeframe="H1",
+        end="2024-07-31T12:00:00Z",
+    )
+
+    assert out["requested_end"] == "2024-07-31T12:00:00Z"
+    assert out["last_bar_open"].endswith("Z")
+    assert out["data_as_of"].endswith("Z")
+    assert out["effective_start"].endswith("Z")
+    assert out["effective_end"] == out["last_bar_open"]
+    assert "data_age_seconds" not in out
+    assert "data_stale" not in out
+    assert "freshness" not in out
+
+
 def test_patterns_detect_standard_detail_preserves_full_payload(monkeypatch):
     df = pd.DataFrame(
         {
@@ -748,6 +804,10 @@ def test_completed_bullish_harmonic_past_target_is_not_a_long_setup(monkeypatch)
     assert compact.get("suggested_review") != "long_setup"
     assert compact["review_recommended"] is False
     assert compact["top_patterns"][0]["lifecycle"] == "target_reached"
+    assert compact["top_patterns"][0]["is_recent"] is True
+    assert compact["pattern_status"] == "target_reached"
+    assert compact["blocker"] == "target_reached"
+    assert compact["status_scope"] == "recent_bars"
     assert compact["top_patterns"][0]["target_price"] == 12.0
     assert compact["top_patterns"][0]["invalidation_price"] == 9.5
 
@@ -1369,6 +1429,7 @@ def test_build_pattern_response_suppresses_stale_harmonic_current_bias():
 
     assert compact["pattern_status"] == "historical"
     assert compact["blocker"] == "historical_outside_recent_window"
+    assert compact["status_scope"] == "historical_window"
     assert compact["review_recommended"] is False
     assert "suggested_review" not in compact
     assert "bias" not in compact

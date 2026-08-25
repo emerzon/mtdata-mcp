@@ -140,15 +140,26 @@ def _count_patterns_with_status(rows: List[Dict[str, Any]], status: str) -> int:
     return int(sum(1 for row in rows if _pattern_has_status(row, status)))
 
 
+_RECENT_COMPLETED_LIFECYCLES = ("target_reached", "expired")
+_RECENT_NON_SIGNAL_STATUSES = {
+    "forming",
+    "provisional",
+    *_RECENT_COMPLETED_LIFECYCLES,
+}
+
+
 def _aggregate_non_signal_pattern_status(
     rows: List[Dict[str, Any]],
 ) -> Tuple[str, str, str]:
     """Label compact status when no signal-eligible rows remain.
 
     Returns (pattern_status, blocker, bias_suppressed_reason).
+    Recent completed/inactive structures keep a lifecycle-specific blocker
+    instead of being collapsed into a recency/historical-window blocker.
     """
     forming = False
     provisional = False
+    recent_completed: List[str] = []
     for row in rows:
         if not isinstance(row, dict):
             continue
@@ -156,9 +167,13 @@ def _aggregate_non_signal_pattern_status(
             forming = True
             continue
         lifecycle = str(row.get("lifecycle") or "").strip().lower()
-        if lifecycle in {"target_reached", "expired", "historical"}:
-            continue
         is_recent = bool(row.get("is_recent"))
+        if lifecycle in _RECENT_COMPLETED_LIFECYCLES:
+            if is_recent:
+                recent_completed.append(lifecycle)
+            continue
+        if lifecycle == "historical":
+            continue
         bias_scope = str(row.get("bias_scope") or "").strip().lower()
         if is_recent or bias_scope == "provisional_structure":
             provisional = True
@@ -174,6 +189,23 @@ def _aggregate_non_signal_pattern_status(
             "provisional_not_signal_eligible",
             "visible patterns are recent but not signal-eligible",
         )
+    if recent_completed:
+        lifecycle = (
+            "target_reached"
+            if "target_reached" in recent_completed
+            else recent_completed[0]
+        )
+        if lifecycle == "target_reached":
+            reason = (
+                "visible patterns already reached their target and are not "
+                "signal-eligible"
+            )
+        else:
+            reason = (
+                "visible patterns expired inside the recent window and are not "
+                "signal-eligible"
+            )
+        return (lifecycle, lifecycle, reason)
     return (
         "historical",
         "historical_outside_recent_window",
@@ -798,6 +830,12 @@ def _compact_patterns_payload(  # noqa: C901
         "top_k_contract": payload.get("top_k_contract"),
         "effective_window": payload.get("effective_window"),
         "completion_filter": payload.get("completion_filter"),
+        "requested_start": payload.get("requested_start"),
+        "requested_end": payload.get("requested_end"),
+        "effective_start": payload.get("effective_start"),
+        "effective_end": payload.get("effective_end"),
+        "last_bar_open": payload.get("last_bar_open"),
+        "data_as_of": payload.get("data_as_of"),
     }
     compact = {key: value for key, value in compact.items() if value is not None}
     compact["patterns_shown"] = len(top_patterns)
@@ -868,7 +906,9 @@ def _compact_patterns_payload(  # noqa: C901
         compact["review_recommended"] = False
         compact["pattern_status"] = status
         compact["status_scope"] = (
-            "recent_bars" if status in {"forming", "provisional"} else "historical_window"
+            "recent_bars"
+            if status in _RECENT_NON_SIGNAL_STATUSES
+            else "historical_window"
         )
         if window_bars_i is not None:
             compact["status_window_bars"] = window_bars_i
