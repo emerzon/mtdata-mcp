@@ -19,12 +19,16 @@ _FULL_BY_DEFAULT_PREFIXES = ("trade_",)
 
 _FULL_BY_DEFAULT_TOOLS = {
     "asset_performance",
+    "calendar",
     "forecast_barrier_optimize",
     "forecast_barrier_prob",
     "forecast_generate",
     "market_depth_fetch",
     "market_snapshot",
     "market_ticker",
+    "options_barrier_price",
+    "options_chain",
+    "options_expirations",
     "report_generate",
     "support_resistance_levels",
 }

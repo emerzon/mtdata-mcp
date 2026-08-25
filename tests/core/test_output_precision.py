@@ -51,11 +51,20 @@ def test_auto_precision_compacts_large_tables_but_not_trading_tools():
     market_snapshot = resolve_output_precision(None, tool_name="market_snapshot")
     report_generate = resolve_output_precision(None, tool_name="report_generate")
 
+    calendar = resolve_output_precision(None, tool_name="calendar")
+    options_chain = resolve_output_precision(None, tool_name="options_chain")
+    options_expirations = resolve_output_precision(None, tool_name="options_expirations")
+    options_barrier = resolve_output_precision(None, tool_name="options_barrier_price")
+
     assert compact.simplify_numbers is True
     assert trading.simplify_numbers is False
     assert support_resistance.simplify_numbers is False
     assert market_snapshot.simplify_numbers is False
     assert report_generate.simplify_numbers is False
+    assert calendar.simplify_numbers is False
+    assert options_chain.simplify_numbers is False
+    assert options_expirations.simplify_numbers is False
+    assert options_barrier.simplify_numbers is False
 
 
 def test_full_precision_rendering_does_not_display_round_price_fields():
