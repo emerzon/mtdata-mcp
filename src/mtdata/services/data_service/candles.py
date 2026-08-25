@@ -664,7 +664,7 @@ def _fetch_rates_with_warmup(  # noqa: C901
                     seconds_per_bar=seconds_per_bar,
                 )
             tail_is_forming = _is_last_bar_forming(
-                rates, timeframe, current_time_epoch=freshness_reference_ts
+                rates, timeframe, current_time_epoch=wall_clock_ts
             )
             if tail_is_forming and include_incomplete:
                 # The forming bar itself proves the feed reached its open

@@ -346,6 +346,27 @@ def test_validate_historical_range_rejects_future_start() -> None:
     assert "no historical data" in error["error"]
 
 
+def test_validate_historical_range_rejects_future_end() -> None:
+    error = validate_historical_range(
+        None,
+        "2030-01-01",
+        now=datetime(2026, 8, 11, tzinfo=timezone.utc),
+    )
+
+    assert error["error_code"] == "future_date_range"
+    assert "historical ranges must have elapsed" in error["error"]
+
+
+def test_validate_historical_range_allows_date_only_current_day() -> None:
+    error = validate_historical_range(
+        None,
+        "2026-08-11",
+        now=datetime(2026, 8, 11, 18, 0, tzinfo=timezone.utc),
+    )
+
+    assert error is None
+
+
 @pytest.mark.parametrize(
     ("value", "expected_code", "message_fragment"),
     [

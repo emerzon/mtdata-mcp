@@ -395,6 +395,14 @@ class DataFetchCandlesRequest(_DetailNormalizedRequest):
             "is treated as that exact instant and returns only bars closed by it."
         ),
     )
+    selection: Optional[Literal["first_n", "last_n"]] = Field(
+        None,
+        description=(
+            "Which end of a bounded candle range to keep when limit truncates the "
+            "result. first_n keeps the earliest bars; last_n keeps the latest. "
+            "Omit to use the default: first_n when start is set, otherwise last_n."
+        ),
+    )
     cursor: Optional[str] = Field(
         None,
         description=(
@@ -488,6 +496,15 @@ class DataFetchTicksRequest(_DetailNormalizedRequest):
     )
     start: Optional[str] = None
     end: Optional[str] = None
+    selection: Optional[Literal["first_n", "last_n"]] = Field(
+        None,
+        description=(
+            "Which end of a bounded tick range to keep when limit truncates the "
+            "result. first_n keeps the earliest ticks; last_n keeps the latest. "
+            "Omit to use the default: last_n for a fully bounded start/end range, "
+            "first_n for start-only queries."
+        ),
+    )
     cursor: Optional[str] = Field(
         None,
         description=(

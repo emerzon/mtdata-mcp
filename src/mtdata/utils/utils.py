@@ -576,6 +576,22 @@ def _parse_end_datetime(value: str) -> Optional[datetime]:
     return parsed
 
 
+def _is_in_progress_calendar_day_end(
+    value: Optional[str],
+    end_dt: datetime,
+    now_naive: datetime,
+) -> bool:
+    """True for an inclusive current-day bound such as YYYY-MM-DD or 'today'."""
+    if end_dt.date() != now_naive.date():
+        return False
+    text = str(value or "").strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        return True
+    if re.search(r"T\d{1,2}:\d{2}", text) or re.search(r"\s\d{1,2}:\d{2}", text):
+        return False
+    return bool(text)
+
+
 def validate_historical_range(
     start: Optional[str],
     end: Optional[str],
@@ -645,6 +661,22 @@ def validate_historical_range(
             },
             "remediation": "Choose a start datetime at or before the current time.",
         }
+    if end_dt is not None and end_dt > now_naive:
+        if not _is_in_progress_calendar_day_end(end, end_dt, now_naive):
+            return {
+                "success": False,
+                "error": (
+                    f"end datetime {end_dt.isoformat()}Z is in the future; "
+                    "historical ranges must have elapsed."
+                ),
+                "error_code": "future_date_range",
+                "details": {
+                    "resolved_start": f"{start_dt.isoformat()}Z" if start_dt else None,
+                    "resolved_end": f"{end_dt.isoformat()}Z",
+                    "current_time": now_utc.isoformat(),
+                },
+                "remediation": "Choose an end datetime at or before the current time.",
+            }
     return None
 
 

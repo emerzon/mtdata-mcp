@@ -3382,6 +3382,7 @@ def test_data_fetch_ticks_request_uses_detail_control():
         "limit",
         "start",
         "end",
+        "selection",
         "cursor",
         "timestamp_format",
         "simplify",

@@ -34,6 +34,7 @@ from ...utils.symbol import (
 from ...utils.time import bar_close_epoch, format_datetime_utc
 from ...utils.utils import (
     _iana_timezone_datetime_issue,
+    _is_in_progress_calendar_day_end,
     _parse_end_datetime,
     _parse_start_datetime,
 )
@@ -205,6 +206,25 @@ def _run_data_fetch_candles_impl(
     connection_error = _ensure_gateway_connection(gateway)
     if connection_error is not None:
         return connection_error
+    future_bound = _future_candle_bound(request)
+    if future_bound is not None:
+        field, value = future_bound
+        details: Dict[str, Any] = {
+            "symbol": request.symbol,
+            "timeframe": request.timeframe,
+            "timezone": "UTC",
+        }
+        if request.start is not None:
+            details["start"] = str(request.start)
+        if request.end is not None:
+            details["end"] = str(request.end)
+        return build_error_payload(
+            f"{field} datetime {value} is in the future; historical candle ranges must have elapsed.",
+            code="future_date_range",
+            operation="data_fetch_candles",
+            details=details,
+            remediation="Use start and end timestamps at or before the current time.",
+        )
     fetch_start = request.start
     page_offset = 0
     if request.cursor:
@@ -307,6 +327,7 @@ def _run_data_fetch_candles_impl(
             gateway=gateway,
         )
         _attach_forming_indicator_warning(result, request=request)
+        _attach_candle_data_as_of(result, timeframe=request.timeframe)
         result = attach_mt5_source(result, gateway=gateway)
     if isinstance(result, dict) and isinstance(result.get("data"), list):
         out = attach_collection_contract(
@@ -320,6 +341,38 @@ def _run_data_fetch_candles_impl(
             out.pop("canonical_source", None)
         return out
     return result
+
+
+def _attach_candle_data_as_of(payload: Dict[str, Any], *, timeframe: str) -> None:
+    if not isinstance(payload, dict) or payload.get("error"):
+        return
+    data = payload.get("data")
+    if not isinstance(data, list) or not data:
+        return
+    last = data[-1]
+    if not isinstance(last, dict):
+        return
+    raw_time = last.get("time")
+    open_epoch: Optional[float] = None
+    try:
+        open_epoch = float(raw_time)
+    except (TypeError, ValueError):
+        parsed = _parse_start_datetime(str(raw_time or ""))
+        if parsed is not None:
+            if parsed.tzinfo is not None:
+                parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+            open_epoch = parsed.replace(tzinfo=timezone.utc).timestamp()
+    if open_epoch is None:
+        return
+    try:
+        close_epoch = bar_close_epoch(open_epoch, timeframe)
+    except Exception:
+        close_epoch = open_epoch
+    payload["data_as_of"] = format_datetime_utc(
+        datetime.fromtimestamp(float(close_epoch), tz=timezone.utc)
+    )
+    if payload.get("as_of") not in (None, ""):
+        payload.setdefault("as_of_basis", "retrieval_time")
 
 
 def _attach_forming_indicator_warning(
@@ -478,7 +531,7 @@ def _attach_latest_candle_quote_freshness(
     )
 
 
-def _normalize_candle_query_error(
+def _normalize_candle_query_error(  # noqa: C901
     result: Any,
     *,
     request: DataFetchCandlesRequest,
@@ -573,6 +626,20 @@ def _normalize_candle_query_error(
         remediation = (
             "Confirm the market session and broker feed, or set allow_stale=true "
             "when historical data is intentionally acceptable."
+        )
+    elif "invalid ohlcv token" in normalized:
+        error_code = "invalid_ohlcv_selector"
+        remediation = (
+            "Use open, high, low, close, volume (or o,h,l,c,v)."
+        )
+    elif (
+        "indicator 'macd' requires fast < slow" in normalized
+        or "requires fast < slow" in normalized
+    ):
+        error_code = "invalid_indicator_parameters"
+        remediation = (
+            "Pass MACD as macd(fast,slow,signal) with fast < slow, for example "
+            "macd(12,26,9)."
         )
 
     if error_code is None:
@@ -805,7 +872,7 @@ def _forming_bar_exclusion_affects_range(
     return latest_close_epoch < end_dt.astimezone(timezone.utc).timestamp() - 1e-6
 
 
-def _apply_range_limit_cap(
+def _apply_range_limit_cap(  # noqa: C901
     result: Dict[str, Any],
     *,
     limit: int,
@@ -832,7 +899,11 @@ def _apply_range_limit_cap(
         query_applied.setdefault("start", str(start))
     if end not in (None, ""):
         query_applied.setdefault("end", str(end))
-    start_anchored = start not in (None, "")
+    requested_selection = str(getattr(request, "selection", None) or "").strip().lower()
+    if requested_selection in {"first_n", "last_n"}:
+        start_anchored = requested_selection == "first_n"
+    else:
+        start_anchored = start not in (None, "")
     query_applied["limit_anchor"] = "start" if start_anchored else "end"
     query_applied["selection"] = "first_n" if start_anchored else "last_n"
     query_applied["order"] = "ascending"
@@ -1944,11 +2015,15 @@ def _run_data_fetch_ticks_impl(
         effective_limit if effective_limit is not None else request.limit
     )
     limit_explicit = "limit" in getattr(request, "model_fields_set", set())
-    range_selection = (
-        "last_n"
-        if request.start and request.end
-        else "first_n"
-    )
+    requested_selection = str(getattr(request, "selection", None) or "").strip().lower()
+    if requested_selection in {"first_n", "last_n"}:
+        range_selection = requested_selection
+    else:
+        range_selection = (
+            "last_n"
+            if request.start and request.end
+            else "first_n"
+        )
     page_offset = 0
     resolved_start = _freeze_tick_bound(request.start, end=False)
     resolved_end = _freeze_tick_bound(request.end, end=True)
@@ -2196,6 +2271,34 @@ def _normalize_tick_query_error(
         remediation=remediation,
         related_tools=["symbols_list"] if error_code == "symbol_not_found" else None,
     )
+
+
+def _future_candle_bound(
+    request: DataFetchCandlesRequest,
+) -> Optional[tuple[str, str]]:
+    now_utc = datetime.now(timezone.utc)
+    now_naive = now_utc.replace(tzinfo=None)
+    for field in ("start", "end"):
+        value = getattr(request, field, None)
+        if value in (None, ""):
+            continue
+        parsed = (
+            _parse_start_datetime(str(value))
+            if field == "start"
+            else _parse_end_datetime(str(value))
+        )
+        if parsed is None:
+            continue
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+        if parsed <= now_naive:
+            continue
+        if field == "end" and _is_in_progress_calendar_day_end(
+            str(value), parsed, now_naive
+        ):
+            continue
+        return field, str(value)
+    return None
 
 
 def _future_tick_bound(
