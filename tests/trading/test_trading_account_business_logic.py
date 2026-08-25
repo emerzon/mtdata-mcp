@@ -208,7 +208,9 @@ def test_trade_account_info_compact_detail_includes_account_fields_without_diagn
     assert out["is_demo"] is True
     assert out["is_live"] is False
     assert out["trade_allowed"] is True
+    assert out["new_exposure_allowed"] is True
     assert out["broker_trade_allowed"] is True
+    assert out["execution_ready_scope"] == "account_and_terminal_enablement"
     assert out["account_risk_status"] == "healthy"
     assert out["trade_expert"] is True
     assert out["execution_ready"] is True
@@ -240,6 +242,14 @@ def test_trade_account_info_blocks_actionable_flag_on_critical_margin() -> None:
 
     assert out["broker_trade_allowed"] is True
     assert out["trade_allowed"] is False
+    assert out["new_exposure_allowed"] is False
+    assert out["trade_allowed_basis"] == [
+        "broker_trade_allowed",
+        "margin_not_critical",
+        "execution_ready_strict",
+    ]
+    assert out["execution_ready"] is True
+    assert out["execution_ready_scope"] == "account_and_terminal_enablement"
     assert out["account_risk_status"] == "critical"
 
 

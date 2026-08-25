@@ -74,10 +74,13 @@ _TRADE_ACCOUNT_COMPACT_KEYS = (
     "currency",
     "leverage",
     "trade_allowed",
+    "trade_allowed_basis",
     "broker_trade_allowed",
     "readiness_scope",
     "session_note",
+    "new_exposure_allowed",
     "execution_ready",
+    "execution_ready_scope",
     "execution_hard_blockers",
     "account_risk_status",
     "account_risk_reasons",
@@ -1196,11 +1199,17 @@ def trade_account_info(
         strict_execution_ready = preflight.get("execution_ready_strict")
         if strict_execution_ready is None:
             strict_execution_ready = preflight.get("execution_ready")
+        margin_allows_new_exposure = margin_stress.get("status") != "critical"
         actionable_trade_allowed = bool(
             broker_trade_allowed is True
-            and margin_stress.get("status") != "critical"
+            and margin_allows_new_exposure
             and strict_execution_ready is True
         )
+        trade_allowed_basis = [
+            "broker_trade_allowed",
+            "margin_not_critical",
+            "execution_ready_strict",
+        ]
         login = preflight.get("login")
         if login is None:
             login = getattr(info, "login", None)
@@ -1243,8 +1252,10 @@ def trade_account_info(
             "currency": info.currency,
             "leverage": info.leverage,
             "trade_allowed": actionable_trade_allowed,
+            "trade_allowed_basis": trade_allowed_basis,
             "broker_trade_allowed": broker_trade_allowed,
             "readiness_scope": "account_and_terminal_not_symbol_session",
+            "new_exposure_allowed": actionable_trade_allowed,
             "account_risk_status": margin_stress.get("status"),
             "account_risk_reasons": margin_stress.get("reasons"),
             "trade_expert": info.trade_expert,
@@ -1259,6 +1270,7 @@ def trade_account_info(
             "terminal_connected": preflight.get("terminal_connected"),
             "auto_trading_enabled": preflight.get("auto_trading_enabled"),
             "execution_ready": strict_execution_ready,
+            "execution_ready_scope": "account_and_terminal_enablement",
             "execution_ready_relaxed": preflight.get("execution_ready"),
             "execution_ready_strict": preflight.get("execution_ready_strict"),
             "execution_hard_blockers": preflight.get("execution_hard_blockers"),

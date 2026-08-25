@@ -65,14 +65,16 @@ assert on:
 ```
 
 Eligible previews return `success=true` and `preview_ok=true`. A preview that is
-not eligible for live submission returns `success=false`,
-`error_code=preview_blocked`, and `preview_ok=false` while retaining the preview
-body and its actionable `blockers`. This includes missing required SL/TP,
-closed-market or stale-quote checks, and other local safety failures.
-Ticketless bulk `trade_close` previews also remain blocked until
-`--confirm-close-all true` is present; `required_confirmation` and
-`validation.live_submission_eligible` make that remaining live gate explicit.
-The CLI prints those blocked previews and exits `1`; an eligible preview exits `0`.
+not eligible for live submission because of local safety failures returns
+`success=false`, `error_code=preview_blocked`, and `preview_ok=false` while
+retaining the preview body and its actionable `blockers`. This includes missing
+required SL/TP, closed-market or stale-quote checks, and other local safety
+failures. Ticketless bulk `trade_close` dry runs are different: when selection
+and local validation succeed they return `success=true` and `preview_ok=true`
+with `authorization_status=required`, `required_confirmation`, and
+`validation.live_submission_eligible=false`. Confirmation is enforced only for
+`--dry-run false`. The CLI prints blocked safety previews and exits `1`; an
+eligible preview, including an unconfirmed bulk dry run, exits `0`.
 Compact output always retains these gate fields and the broker-validation
 limitations. Its `guardrails_preview` summary retains `enabled`, `blocked`,
 `ignored_for_demo`, `would_block_live`, `live_projection`, and
@@ -242,11 +244,12 @@ For `all_exposure`, the response keeps `closed_positions` and
 one failed leg does not prevent the other from being attempted. There is no
 separate "confirm" token for `trade_place`/`trade_modify`; the extra
 `--confirm-close-all` gate applies to every ticketless live bulk close.
-Dry-run bulk previews can still enumerate the matching exposure without the
-flag, but they report `preview_ok=false` and
-`required_confirmation="--confirm-close-all true"`. Add the confirmation to
-the preview as well when you want to verify that the same request is locally
-eligible to switch to `--dry-run false`.
+Dry-run bulk previews can enumerate matching exposure without the flag. They
+remain successful previews (`success=true`, `preview_ok=true`) and report
+`authorization_status=required`, `required_confirmation="--confirm-close-all true"`,
+and `validation.live_submission_eligible=false`. Add the confirmation only when
+you intend `--dry-run false`, or include it on a preview if you want to verify
+that the same request is locally eligible to go live.
 
 ---
 
@@ -320,6 +323,15 @@ Look at the account **without** placing an order. None of these send
 | What filled recently? | `trade_history` |
 | How did closed trades perform? | `trade_journal_analyze` |
 | Session + quote + exposure in one bundle | `trade_session_context` |
+
+`trade_account_info` compact output keeps several similarly named gates.
+`execution_ready` is terminal/account enablement only
+(`execution_ready_scope=account_and_terminal_enablement`); it does **not**
+include margin policy. `trade_allowed` and the canonical
+`new_exposure_allowed` combine broker permission, non-critical margin, and
+strict execution readiness (`trade_allowed_basis`). Prefer
+`new_exposure_allowed` before adding risk. `trade_session_context` still adds
+symbol/session checks on top of that account gate.
 
 ```bash
 mtdata-cli trade_account_info --json
