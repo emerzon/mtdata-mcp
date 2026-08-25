@@ -26,6 +26,9 @@ def test_market_snapshot_help_discloses_builtin_section_methods():
     assert "quote_as_of" in doc
     assert "top-level `timezone` is `UTC`" in doc
     assert "lookback=150" in doc
+    assert "lookback=200 completed" in doc
+    assert "input_bar_policy=closed_bars_only" in doc
+    assert "full status detail" in doc
 
 
 def test_market_snapshot_rejects_invalid_forecast_horizon_before_preflight():
@@ -105,6 +108,40 @@ def test_market_snapshot_quote_compaction_formats_epoch_without_display():
 
     assert quote["time"] == "2023-11-14T22:13:20Z"
     assert quote["time_epoch"] == 1700000000
+
+
+def test_market_snapshot_quote_compaction_keeps_price_context():
+    quote = snapshot_mod._compact_quote(
+        {
+            "success": True,
+            "symbol": "EURUSD",
+            "price_precision": 5,
+            "price_currency": "USD",
+            "point": 0.00001,
+            "bid": 1.1,
+            "ask": 1.1002,
+            "last": None,
+            "last_unavailable": True,
+            "units": {
+                "bid": "absolute_price",
+                "ask": "absolute_price",
+                "mid": "absolute_price",
+                "point": "price_increment",
+                "contract_size": "contract_units_per_lot",
+            },
+        }
+    )
+
+    assert quote["price_precision"] == 5
+    assert quote["price_currency"] == "USD"
+    assert quote["point"] == 0.00001
+    assert quote["last_unavailable"] is True
+    assert quote["units"] == {
+        "bid": "absolute_price",
+        "ask": "absolute_price",
+        "mid": "absolute_price",
+        "point": "price_increment",
+    }
 
 
 def test_market_snapshot_summary_surfaces_locked_quote_warning() -> None:
@@ -189,20 +226,69 @@ def test_snapshot_preserves_non_quote_status_block() -> None:
     assert result["execution"]["can_open_new_positions"] is False
 
 
+def test_snapshot_execution_keeps_heuristic_status_separate_from_tradability() -> None:
+    result = snapshot_mod._snapshot_summary_payload(
+        {
+            "quote": {"usable_for_live_trading": True},
+            "status": {
+                "status": "probably_open",
+                "status_source": "trade_mode_and_tick_freshness",
+                "status_confidence": "heuristic",
+                "heuristic_note": "Inferred from MT5 trade_mode.",
+                "is_tradable": True,
+                "is_tradable_confidence": "broker_trade_mode",
+                "is_tradable_means": "broker_trade_mode",
+                "can_open_new_positions": True,
+            },
+        }
+    )
+
+    execution = result["execution"]
+    assert execution["status"] == "probably_open"
+    assert execution["status_source"] == "trade_mode_and_tick_freshness"
+    assert execution["status_confidence"] == "heuristic"
+    assert execution["heuristic_note"] == "Inferred from MT5 trade_mode."
+    assert execution["is_tradable"] is True
+    assert "is_tradable_confidence" not in execution
+    assert execution["tradability"] == {
+        "confidence": "broker_trade_mode",
+        "means": "broker_trade_mode",
+    }
+
+
 def test_snapshot_summary_preserves_quote_price_precision() -> None:
     result = snapshot_mod._snapshot_summary_payload(
         {
             "quote": {
                 "price_precision": 5,
+                "price_currency": "USD",
+                "point": 0.00001,
                 "bid": 1.15279,
                 "ask": 1.1528,
                 "mid": 1.152795,
                 "spread": 0.00001,
+                "units": {
+                    "bid": "absolute_price",
+                    "ask": "absolute_price",
+                    "mid": "absolute_price",
+                    "spread": "absolute_price",
+                    "point": "price_increment",
+                    "contract_size": "contract_units_per_lot",
+                },
             }
         }
     )
 
     assert result["price_precision"] == 5
+    assert result["price_currency"] == "USD"
+    assert result["point"] == 0.00001
+    assert result["units"] == {
+        "bid": "absolute_price",
+        "ask": "absolute_price",
+        "mid": "absolute_price",
+        "spread": "absolute_price",
+        "point": "price_increment",
+    }
 
 
 def test_market_snapshot_summary_explains_non_live_quote_age() -> None:
@@ -445,6 +531,9 @@ def test_market_snapshot_summary_detail_returns_lean_snapshot(monkeypatch):
         "nearest_resistance": 1.105,
         "support_count": 1,
         "resistance_count": 1,
+        "levels_context": {
+            "scan_window": {"start": "2026-01-01", "end": "2026-01-02"},
+        },
         "pattern_count": 2,
         "pattern_bias": "bullish",
         "pattern_is_signal": False,
@@ -480,14 +569,23 @@ def test_market_snapshot_compact_defaults_to_lean_snapshot(monkeypatch):
             return {
                 "success": True,
                 "status": "open",
+                "status_source": "trade_mode_and_tick_freshness",
+                "status_confidence": "heuristic",
+                "heuristic_note": "Inferred from MT5 trade_mode, not an exchange calendar.",
                 "is_tradable": True,
-                "is_tradable_confidence": "heuristic",
+                "is_tradable_confidence": "broker_trade_mode",
+                "is_tradable_means": "broker_trade_mode",
                 "can_open_new_positions": True,
             }
         if name == "levels":
             return {
                 "success": True,
                 "scan_window": {"start": "2026-01-01", "end": "2026-01-02"},
+                "structure_as_of": "2026-01-02T00:00:00Z",
+                "lookback_bars": 200,
+                "input_bar_policy": "closed_bars_only",
+                "current_price_source": "live_tick_mid",
+                "current_price_as_of": "2026-01-02T00:00:01Z",
                 "supports": [{"type": "support", "value": 1.098}],
                 "resistances": [{"type": "resistance", "value": 1.105}],
             }
@@ -516,14 +614,28 @@ def test_market_snapshot_compact_defaults_to_lean_snapshot(monkeypatch):
             "usable_for_live_trading": True,
             "live_max_age_seconds": 30.0,
             "status": "open",
+            "status_source": "trade_mode_and_tick_freshness",
+            "status_confidence": "heuristic",
+            "heuristic_note": "Inferred from MT5 trade_mode, not an exchange calendar.",
             "is_tradable": True,
-            "is_tradable_confidence": "heuristic",
             "can_open_new_positions": True,
+            "tradability": {
+                "confidence": "broker_trade_mode",
+                "means": "broker_trade_mode",
+            },
         },
         "nearest_support": 1.098,
         "nearest_resistance": 1.105,
         "support_count": 1,
         "resistance_count": 1,
+        "levels_context": {
+            "lookback_bars": 200,
+            "structure_as_of": "2026-01-02T00:00:00Z",
+            "scan_window": {"start": "2026-01-01", "end": "2026-01-02"},
+            "input_bar_policy": "closed_bars_only",
+            "current_price_source": "live_tick_mid",
+            "current_price_as_of": "2026-01-02T00:00:01Z",
+        },
         "pattern_count": 2,
         "pattern_bias": "bullish",
         "pattern_is_signal": False,
@@ -953,3 +1065,35 @@ def test_snapshot_patterns_section_requests_recent_candlestick_triggers(monkeypa
     assert captured["kwargs"]["top_k"] == 3
     assert captured["kwargs"]["last_n_bars"] == 3
     assert captured["kwargs"]["detail"] == "summary"
+
+
+def test_snapshot_status_section_requests_full_detail_for_full_snapshot(monkeypatch):
+    captured = {}
+
+    def fake_call_tool(func, **kwargs):
+        captured["func_name"] = getattr(func, "__name__", "")
+        captured["kwargs"] = kwargs
+        return {"success": True, "status": "probably_open"}
+
+    monkeypatch.setattr(snapshot_mod, "call_tool_sync_structured", fake_call_tool)
+
+    compact = snapshot_mod._call_section(
+        "status",
+        symbol="EURUSD",
+        timeframe="H1",
+        horizon=8,
+        detail="compact",
+    )
+    assert compact == {"success": True, "status": "probably_open"}
+    assert captured["func_name"] == "market_status"
+    assert captured["kwargs"]["detail"] == "compact"
+
+    full = snapshot_mod._call_section(
+        "status",
+        symbol="EURUSD",
+        timeframe="H1",
+        horizon=8,
+        detail="full",
+    )
+    assert full == {"success": True, "status": "probably_open"}
+    assert captured["kwargs"]["detail"] == "full"

@@ -121,10 +121,14 @@ def _compact_quote(quote: Any, *, detail: str = "compact") -> Any:
         return normalized_quote
     keys = (
         "symbol",
+        "price_precision",
+        "price_currency",
+        "point",
         "bid",
         "ask",
         "mid",
         "last",
+        "last_unavailable",
         "spread",
         "spread_points",
         "spread_pips",
@@ -148,8 +152,64 @@ def _compact_quote(quote: Any, *, detail: str = "compact") -> Any:
         "time_epoch",
         "data_stale",
         "source",
+        "units",
     )
-    return {key: normalized_quote[key] for key in keys if key in normalized_quote}
+    compact = {key: normalized_quote[key] for key in keys if key in normalized_quote}
+    units = _compact_quote_units(compact.get("units"))
+    if units:
+        compact["units"] = units
+    elif "units" in compact:
+        compact.pop("units", None)
+    return compact
+
+
+_COMPACT_QUOTE_UNIT_KEYS = (
+    "bid",
+    "ask",
+    "mid",
+    "last",
+    "spread",
+    "spread_points",
+    "spread_pips",
+    "spread_pct",
+    "point",
+)
+
+
+def _compact_quote_units(units: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(units, dict):
+        return None
+    compact = {
+        key: units[key]
+        for key in _COMPACT_QUOTE_UNIT_KEYS
+        if units.get(key) is not None
+    }
+    return compact or None
+
+
+def _compact_levels_context(levels: Dict[str, Any]) -> Dict[str, Any]:
+    context: Dict[str, Any] = {}
+    lookback_bars = levels.get("lookback_bars")
+    if lookback_bars in (None, "", [], {}):
+        lookback_bars = levels.get("lookback")
+    if lookback_bars in (None, "", [], {}):
+        lookback_bars = levels.get("limit")
+    if lookback_bars not in (None, "", [], {}):
+        try:
+            context["lookback_bars"] = int(lookback_bars)
+        except (TypeError, ValueError):
+            context["lookback_bars"] = lookback_bars
+    for key in (
+        "structure_as_of",
+        "scan_window",
+        "input_bar_policy",
+        "current_price_source",
+        "current_price_as_of",
+    ):
+        value = levels.get(key)
+        if value not in (None, "", [], {}):
+            context[key] = value
+    return context
 
 
 def _revalidate_snapshot_quote(
@@ -584,6 +644,8 @@ def _snapshot_summary_payload(sections: Dict[str, Any]) -> Dict[str, Any]:  # no
     if isinstance(quote, dict):
         for key in (
             "price_precision",
+            "price_currency",
+            "point",
             "bid",
             "ask",
             "mid",
@@ -606,6 +668,9 @@ def _snapshot_summary_payload(sections: Dict[str, Any]) -> Dict[str, Any]:  # no
             value = quote.get(key)
             if value is not None:
                 out[key] = value
+        units = _compact_quote_units(quote.get("units"))
+        if units:
+            out["units"] = units
 
     execution: Dict[str, Any] = {}
     if isinstance(quote, dict):
@@ -621,14 +686,23 @@ def _snapshot_summary_payload(sections: Dict[str, Any]) -> Dict[str, Any]:  # no
     if isinstance(status, dict):
         for key in (
             "status",
+            "status_source",
+            "status_confidence",
+            "heuristic_note",
             "is_tradable",
-            "is_tradable_confidence",
             "can_open_new_positions",
             "trade_mode_allows_opening",
             "reason",
         ):
             if status.get(key) is not None:
                 execution[key] = status[key]
+        tradability: Dict[str, Any] = {}
+        if status.get("is_tradable_confidence") is not None:
+            tradability["confidence"] = status["is_tradable_confidence"]
+        if status.get("is_tradable_means") is not None:
+            tradability["means"] = status["is_tradable_means"]
+        if tradability:
+            execution["tradability"] = tradability
     if (
         execution.get("usable_for_live_trading") is True
         and execution.get("status") == "quote_not_live_ready"
@@ -684,6 +758,9 @@ def _snapshot_summary_payload(sections: Dict[str, Any]) -> Dict[str, Any]:  # no
             out["range_count"] = int(range_count)
             if isinstance(ranges, list) and ranges:
                 out["containing_range"] = ranges[0]
+        levels_context = _compact_levels_context(levels)
+        if levels_context:
+            out["levels_context"] = levels_context
 
     pattern_bias = _pattern_bias(patterns)
     if pattern_bias:
@@ -805,10 +882,15 @@ def _call_section(name: str, symbol: str, timeframe: str, horizon: int, detail: 
         if name == "status":
             from .market_status import market_status
 
+            status_detail = (
+                "full"
+                if str(detail or "").strip().lower() in {"standard", "full"}
+                else "compact"
+            )
             return call_tool_sync_structured(
                 market_status,
                 symbol=symbol,
-                detail="compact",
+                detail=status_detail,
             )
         if name == "patterns":
             from .patterns import patterns_detect
@@ -867,7 +949,9 @@ def market_snapshot(
 
     - quote: ``market_ticker``; honors top-level ``detail``
     - status: ``market_status`` symbol tradability, detail=compact
-    - levels: support/resistance, detail=compact, lookback=200, max_levels=4
+      (full status detail when snapshot ``detail`` is standard/full)
+    - levels: support/resistance, detail=compact, lookback=200 completed
+      bars (``input_bar_policy=closed_bars_only``), max_levels=4
     - patterns: candlestick mode only, detail=summary, lookback=150, top_k=3,
       last_n_bars=3
     - regime (opt-in): HMM only, detail=summary
