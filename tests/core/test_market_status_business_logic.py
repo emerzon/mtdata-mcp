@@ -303,6 +303,18 @@ def test_market_status_rejects_ambiguous_symbol_and_venue() -> None:
     assert result["error_code"] == "invalid_market_status_scope"
 
 
+def test_market_status_rejects_incompatible_venue_and_region() -> None:
+    raw = _unwrap(market_status_mod.market_status)
+
+    result = raw(venue="NYSE", region="asia")
+
+    assert result["success"] is False
+    assert result["error_code"] == "incompatible_parameters"
+    assert result["details"]["requested_region"] == "asia"
+    assert result["details"]["effective_region"] == "us"
+    assert result["valid_values"]["region"] == ["all", "us"]
+
+
 def test_asx_overnight_is_closed_before_configured_pre_open(monkeypatch) -> None:
     monkeypatch.setattr(
         market_status_mod,

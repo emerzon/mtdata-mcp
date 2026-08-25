@@ -37,6 +37,7 @@ from ..utils.quote import (
 )
 from ..utils.time import format_datetime_utc, format_epoch_utc
 from ._mcp_instance import mcp
+from .error_envelope import build_error_payload
 from .execution_logging import run_logged_operation
 from .mt5_gateway import create_mt5_gateway
 from .output_contract import normalize_output_verbosity_detail
@@ -69,6 +70,17 @@ VenueLiteral = Literal[
     "SSE",
     "ASX",
 ]
+_VENUE_REGIONS = {
+    "NYSE": "us",
+    "NASDAQ": "us",
+    "LSE": "europe",
+    "XETRA": "europe",
+    "EURONEXT": "europe",
+    "TSE": "asia",
+    "HKEX": "asia",
+    "SSE": "asia",
+    "ASX": "asia",
+}
 
 
 @lru_cache(maxsize=64)
@@ -1463,6 +1475,28 @@ def market_status(  # noqa: C901
             "venue": venue_id,
             "valid_venues": list(MARKET_SESSIONS),
         }
+    region_value = str(region or "all").strip().lower()
+    if venue_mode and region_value not in {"", "all"}:
+        venue_region = _VENUE_REGIONS.get(venue_id)
+        if venue_region is not None and venue_region != region_value:
+            return build_error_payload(
+                (
+                    f"venue '{venue_id}' is in region '{venue_region}', not "
+                    f"'{region_value}'."
+                ),
+                code="incompatible_parameters",
+                operation="market_status",
+                details={
+                    "invalid": ["venue", "region"],
+                    "venue": venue_id,
+                    "requested_region": region_value,
+                    "effective_region": venue_region,
+                },
+                valid_values={"region": ["all", venue_region]},
+                remediation=(
+                    f"Omit --region, pass --region {venue_region}, or drop --venue."
+                ),
+            )
     timezone_display_mode = _normalize_timezone_display(
         timezone_display,
         symbol_mode=symbol_mode,
