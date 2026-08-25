@@ -939,18 +939,49 @@ def options_chain(
     option_type: Literal["call", "put", "both"] = "both",  # type: ignore
     min_open_interest: Annotated[int, Field(ge=0)] = 0,
     min_volume: Annotated[int, Field(ge=0)] = 0,
-    min_strike: Optional[float] = None,
-    max_strike: Optional[float] = None,
-    min_moneyness_pct: Optional[float] = None,
-    max_moneyness_pct: Optional[float] = None,
-    quote_usable_only: bool = False,
-    max_quote_age_seconds: Optional[int] = None,
-    sort_by: Literal[
-        "nearest_strike",
-        "strike",
-        "open_interest",
-        "volume",
-        "moneyness_pct",
+    min_strike: Annotated[Optional[float], Field(description="Minimum option strike to include before pagination.")] = None,
+    max_strike: Annotated[Optional[float], Field(description="Maximum option strike to include before pagination.")] = None,
+    min_moneyness_pct: Annotated[
+        Optional[float],
+        Field(description="Minimum moneyness percent: (strike / underlying_price - 1) * 100."),
+    ] = None,
+    max_moneyness_pct: Annotated[
+        Optional[float],
+        Field(description="Maximum moneyness percent: (strike / underlying_price - 1) * 100."),
+    ] = None,
+    quote_usable_only: Annotated[
+        bool,
+        Field(
+            description=(
+                "Keep only contracts with a two-sided quote and a provider quote "
+                "timestamp within the live age threshold."
+            )
+        ),
+    ] = False,
+    max_quote_age_seconds: Annotated[
+        Optional[int],
+        Field(
+            ge=1,
+            description=(
+                "Maximum age in seconds for a provider quote timestamp. Unknown "
+                "quote timestamps are excluded."
+            ),
+        ),
+    ] = None,
+    sort_by: Annotated[
+        Literal[
+            "nearest_strike",
+            "strike",
+            "open_interest",
+            "volume",
+            "moneyness_pct",
+        ],
+        Field(
+            description=(
+                "Option-chain sort: nearest_strike, strike, open_interest, "
+                "volume, or moneyness_pct."
+            )
+        ),
     ] = "nearest_strike",  # type: ignore
     limit: Annotated[Optional[int], Field(ge=1)] = None,
     offset: Annotated[int, Field(ge=0)] = 0,

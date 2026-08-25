@@ -280,6 +280,38 @@ PARAM_HINTS = {
     "deal_ticket": "Filter deal history by deal ticket.",
     "order_ticket": "Filter history by order ticket.",
     "minutes_back": "Look back this many minutes from end/now instead of using start.",
+    "cursor": (
+        "Opaque continuation token from pagination.next_cursor. Reuse it with "
+        "the same filters."
+    ),
+    "spread_bps": (
+        "Round-trip spread in basis points deducted from every simulated trade. "
+        "Required with commission_bps_per_side for trading-metric searches."
+    ),
+    "commission_bps_per_side": (
+        "Commission in basis points per side, deducted twice per simulated "
+        "round-trip. Required with spread_bps for trading-metric searches."
+    ),
+    "min_strike": "Minimum option strike to include before pagination.",
+    "max_strike": "Maximum option strike to include before pagination.",
+    "min_moneyness_pct": (
+        "Minimum moneyness percent: (strike / underlying_price - 1) * 100."
+    ),
+    "max_moneyness_pct": (
+        "Maximum moneyness percent: (strike / underlying_price - 1) * 100."
+    ),
+    "quote_usable_only": (
+        "Keep only contracts with a two-sided quote and a provider quote "
+        "timestamp within the live age threshold."
+    ),
+    "max_quote_age_seconds": (
+        "Maximum age in seconds for a provider quote timestamp. Unknown quote "
+        "timestamps are excluded."
+    ),
+    "sort_by": (
+        "Option-chain sort: nearest_strike, strike, open_interest, volume, or "
+        "moneyness_pct."
+    ),
     "min_strength": (
         "Candlestick strength threshold 0.0-1.0, default 0.70. "
         "Strength uses the detected candle's OHLC geometry plus pattern "
