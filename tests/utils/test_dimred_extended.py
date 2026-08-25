@@ -17,7 +17,6 @@ from mtdata.utils.dimred import (
     list_dimred_methods,
 )
 
-
 # ===== UMAPReducer (lines 269-277) =========================================
 
 class TestUMAPReducerInit:

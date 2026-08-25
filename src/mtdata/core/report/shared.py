@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from ...utils.formatting import format_number
+from ...utils.formatting import format_number as format_number
 
 
 def _indicator_key_variants(key: str) -> List[str]:

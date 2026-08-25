@@ -24,7 +24,11 @@ from mtdata.patterns.classic_impl.utils import (
     _tol_abs_from_close,
     _znorm,
 )
-from mtdata.patterns.common import compute_atr_sma, compute_pivot_thresholds, fallback_local_extrema
+from mtdata.patterns.common import (
+    compute_atr_sma,
+    compute_pivot_thresholds,
+    fallback_local_extrema,
+)
 from mtdata.utils.dtw import dtw_distance
 
 
