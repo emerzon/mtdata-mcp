@@ -5005,6 +5005,44 @@ def test_options_tools_validate_and_normalize_symbols(monkeypatch):
     out = raw_exp(symbol=" brk.b ")
     assert out["success"] is True
     assert out["symbol"] == "BRK.B"
+    assert out.get("provider_symbol") == "BRK-B"
+
+    out = raw_exp(symbol="AAPL.NAS")
+    assert out["success"] is True
+    assert out["symbol"] == "AAPL.NAS"
+    assert out.get("provider_symbol") == "AAPL"
+
+
+def test_options_tools_reject_venue_qualified_non_us_symbols(monkeypatch):
+    raw_exp = _unwrap(opt.options_expirations)
+    raw_chain = _unwrap(opt.options_chain)
+    raw_cal = _unwrap(opt.options_heston_calibrate)
+
+    import mtdata.forecast.quantlib_tools as quantlib_tools
+    import mtdata.services.options_service as options_service
+
+    def fail_call(**_kwargs):
+        raise AssertionError("venue-qualified symbols must not hit the provider")
+
+    monkeypatch.setattr(options_service, "get_options_expirations", fail_call)
+    monkeypatch.setattr(options_service, "get_options_chain", fail_call)
+    monkeypatch.setattr(
+        quantlib_tools,
+        "calibrate_heston_quantlib_from_options",
+        fail_call,
+    )
+    monkeypatch.setattr(opt, "_options_provider_readiness", _ready_options_provider)
+
+    for tool, symbol in (
+        (raw_exp, "VOD.L"),
+        (raw_chain, "SHOP.TO"),
+        (raw_cal, "VOD.L"),
+    ):
+        out = tool(symbol=symbol)
+        assert out["success"] is False
+        assert out["error_code"] == "options_unsupported_symbol"
+        assert "venue-qualified" in out["error"]
+        assert out["symbol"] == symbol
 
 
 def test_options_tools_reject_fx_symbols_before_provider_calls(monkeypatch):
@@ -5472,9 +5510,8 @@ def test_options_tools_support_compact_and_full_detail(monkeypatch):
     assert compact_chain["options"][0]["contract_as_of"] == (
         "2026-06-01T20:00:00Z"
     )
-    assert "quote_usable_for_live_analysis" not in compact_chain["options"][0]
-    assert "contract_data_stale" not in compact_chain["options"][0]
-    assert "contract_freshness" not in compact_chain["options"][0]
+    assert compact_chain["options"][0]["quote_usable_for_live_analysis"] is True
+    assert compact_chain["options"][0]["contract_data_stale"] is False
     assert compact_chain["options"][0]["implied_volatility"] == 0.2
     assert compact_chain["options"][0]["in_the_money"] is True
     assert raw_chain("AAPL", detail="full")["options"][0]["implied_volatility"] == 0.2

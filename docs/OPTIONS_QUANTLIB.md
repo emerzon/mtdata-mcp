@@ -49,7 +49,10 @@ cannot mistake a typo for a valid Yahoo configuration.
 
 ### `options_expirations`
 
-List available option expiration dates for a US stock.
+List available option expiration dates for a US-listed underlier. Venue-qualified
+non-US symbols such as `VOD.L` and `SHOP.TO` are rejected rather than rewritten
+to a different country's ticker. US share classes such as `BRK.B` still map to
+Yahoo's `BRK-B`. The provider-neutral `SPX` alias still resolves to `^SPX`.
 
 ```bash
 mtdata-cli options_expirations AAPL --json
@@ -80,56 +83,63 @@ mtdata-cli options_chain TSLA --min-open-interest 100 --min-volume 50 --json
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `symbol` | (required) | Stock ticker |
+| `symbol` | (required) | US-listed ticker. Venue suffixes such as `.L` and `.TO` are rejected |
 | `--expiration` | (nearest) | Currently listed expiration date `YYYY-MM-DD`; use `options_expirations` to discover valid dates |
 | `--option-type` | `both` | `call`, `put`, or `both` |
 | `--min-open-interest` | 0 | Minimum open interest filter; must be at least 0 |
 | `--min-volume` | 0 | Minimum volume filter; must be at least 0 |
+| `--min-strike` / `--max-strike` | (none) | Inclusive strike bounds, applied before pagination |
+| `--min-moneyness-pct` / `--max-moneyness-pct` | (none) | Inclusive moneyness bounds. Formula: `(strike / underlying_price - 1) * 100` |
+| `--quote-usable-only` | false | Keep only rows with a provider quote timestamp and a two-sided live quote. Unknown quote timestamps are excluded |
+| `--max-quote-age-seconds` | (none) | Maximum option-quote age. Rows without a quote timestamp are excluded |
+| `--sort-by` | `nearest_strike` | `nearest_strike`, `strike`, `open_interest`, `volume`, or `moneyness_pct` |
 | `--limit` | 20 compact; 200 full | Maximum contracts to return; must be at least 1 |
-| `--offset` | 0 | Zero-based index of the first contract in this page |
+| `--offset` | 0 | Zero-based index of the first contract in this live page |
 
-Chain results report exact filtered `available_count`, the nearest-strike
-`selection_order`, and the standard nested `pagination` object. Calls and puts
-share one deterministic order. Advance `--offset` by the returned page size
-while `pagination.has_more` is true:
+Chain results report exact filtered `available_count` (after side, liquidity,
+strike, moneyness, and quote filters), `selection_order`, `retrieved_at`, and
+the standard nested `pagination` object. Offset pages are independent live
+queries, not a cursor over one immutable snapshot. Prefer strike/moneyness
+filters and a larger `--limit` over paging when you need one consistent slice.
 
 ```bash
+mtdata-cli options_chain AAPL --min-moneyness-pct 5 --max-moneyness-pct 10 --option-type put --json
 mtdata-cli options_chain AAPL --limit 20 --offset 0 --json
-mtdata-cli options_chain AAPL --limit 20 --offset 20 --json
 ```
 
 Each option row reports the provider's `contract_size` classification,
-`contract_multiplier`, multiplier status, deliverable status, and
-`premium_quote_unit`. Compact rows also retain provider `implied_volatility`
-(a decimal fraction where `1.0 = 100%`) and `in_the_money` when available, so
-volatility and moneyness comparisons do not require full detail. A
-provider-classified `REGULAR` US equity option has a
-multiplier of 100 underlying units. Nonstandard, adjusted, or missing provider
-metadata leaves the multiplier unavailable instead of inheriting a chain-level
-default. Convert a quoted bid, ask, or last price to cash premium only when the
+`contract_multiplier`, `settlement_type`, deliverable status, and
+`premium_quote_unit`. Compact JSON keeps those safety fields explicit. A
+provider-classified `REGULAR` US equity option has a multiplier of 100 and
+physical delivery of 100 shares. Cash-settled index options such as SPX/SPXW
+and XSP keep multiplier 100, report `settlement_type: cash`, and do **not**
+claim a physical deliverable. `REGULAR` never implies physical delivery by
+itself. Convert a quoted bid, ask, or last price to cash premium only when the
 row multiplier is known:
 
 ```text
 cash premium = quoted premium × contract_multiplier
 ```
 
-Expiration results report when the catalog was retrieved through
-`catalog_fetched_at`, `catalog_cached`, and `catalog_freshness`. They name the
-separate underlying quote scope explicitly with `underlying_as_of`,
-`underlying_data_age_seconds`, and `underlying_data_stale`. An old underlying
-quote does not make a newly fetched expiration catalog stale. Chain results use
-the same `underlying_*` names; those fields do not qualify the option contracts.
+Expiration and chain results expose an `underlying_quote` envelope with venue,
+exchange timezone, market state, quote source, and delay metadata when the
+provider supplies it. That envelope describes the underlying quote only; it is
+not the option-contract venue.
 
-Every option row separately reports `contract_as_of`, contract age and stale
-status, `quote_quality`, and `quote_usable_for_live_analysis`. The aggregate
-`option_chain_freshness`, `option_chain_quality`, and count fields summarize
-the returned page. A contract is live-usable only when its provider last-trade
-timestamp is available and no more than 15 minutes old and its bid/ask are
-positive and non-crossed. This timestamp is a provider last-trade observation,
-not an exchange guarantee that both displayed quote sides updated at that
-instant. Missing timestamps, zero/one-sided markets, crossed markets, and stale
-timestamps fail closed. Yahoo's underlying price remains a regular-session
-price, as shown by `underlying_price_session`.
+Every option row separately reports last-trade time (`contract_as_of`,
+`contract_timestamp_source: provider_last_trade`) and quote freshness.
+Yahoo and Tradier currently do not supply option quote timestamps, so
+`quote_freshness` is `unknown` and `quote_usable_for_live_analysis` is false.
+A recent last trade plus a two-sided market is reported as
+`last_trade_recent_and_market_two_sided` and is **not** treated as a current
+quote. Compact JSON always keeps `contract_data_stale`,
+`quote_usable_for_live_analysis`, `last_trade_recent_and_market_two_sided`,
+and `quote_freshness` on each row.
+
+Greeks are a stable nullable contract: `greeks_available`, `greeks_source`,
+and `greeks_unavailable_reason`. Tradier may supply delta/gamma/theta/vega/rho.
+Yahoo currently supplies implied volatility without Greeks. Compact JSON keeps
+any Greeks that are present.
 
 Provider timestamps up to 30 seconds ahead of the local clock are reported as
 `clock_skew_within_tolerance` and are not marked stale solely for that skew.
@@ -145,12 +155,13 @@ Price a European barrier option with QuantLib's analytic continuous-monitoring e
 
 By default, QuantLib pricing assumes the `UnitedStates.NYSE` calendar and interprets `maturity_days` as calendar days. Override `--calendar` and `--maturity-basis` for non-US or non-equity workflows.
 When `--valuation-date` is omitted, mtdata uses the selected calendar's local
-date. The default `UnitedStates.NYSE` calendar uses `America/New_York`.
-Responses expose `valuation_timezone` and
-`valuation_date_source: default_calendar_local_date`; pass an explicit date for
-a portfolio-specific accounting date. `TARGET` uses `Europe/Brussels`,
-`NullCalendar` uses UTC, and other QuantLib calendars currently fall back to
-UTC.
+date when an IANA timezone is mapped (`UnitedStates.NYSE` →
+`America/New_York`, `Japan` → `Asia/Tokyo`, `UnitedKingdom` →
+`Europe/London`, `TARGET` → `Europe/Brussels`, `NullCalendar` → UTC).
+Unmapped calendars use UTC and label
+`valuation_date_source: utc_fallback` with a warning rather than claiming a
+calendar-local date. Invalid calendars are rejected before any knocked-out
+early return.
 
 ```bash
 # Down-and-out call (knock-out if price falls to barrier)
@@ -172,7 +183,7 @@ mtdata-cli options_barrier_price 150 --strike 145 --barrier 160 --maturity-days 
 | `--dividend-yield` | 0.0 | Dividend yield (decimal) |
 | `--volatility` | 0.2 | Implied volatility (decimal, e.g., 0.2 = 20%) |
 | `--rebate` | 0.0 | Knock-out: paid if the barrier is hit. Knock-in: paid at expiry only if the barrier is never hit |
-| `--valuation-date` | selected calendar's local date | Valuation date in `YYYY-MM-DD`; omitted uses the calendar local date (not an options-chain snapshot) |
+| `--valuation-date` | mapped calendar local date | Valuation date in `YYYY-MM-DD`; omitted uses the calendar's IANA local date, or UTC with `utc_fallback` when unmapped |
 | `--calendar` | `UnitedStates.NYSE` | QuantLib calendar name (for example `UnitedStates.NYSE` or `NullCalendar`) |
 | `--maturity-basis` | `calendar_days` | Interpret `--maturity-days` as `calendar_days` or `business_days` in the selected calendar |
 
@@ -195,7 +206,11 @@ volatility, so a one-volatility-point (`0.01`) scenario uses `vega * 0.01`.
 
 ### `options_heston_calibrate`
 
-Calibrate the Heston stochastic volatility model from live options data. The Heston model captures volatility clustering and the volatility smile/skew.
+Fit a **single-expiry** Heston smile from live options data. This is a
+cross-sectional calibration to one expiration, not a term-structure fit.
+Parameters such as `kappa` and `theta` are weakly identified from one slice
+and should not be treated as general variance dynamics for other maturities.
+The result is labeled `calibration_mode: single_expiry_fit`.
 
 ```bash
 # Calibrate from call options
@@ -220,11 +235,13 @@ mtdata-cli options_heston_calibrate TSLA --option-type both --min-open-interest 
 | `--maturity-basis` | `calendar_days` | Basis for the reported `days_to_expiry` diagnostic. The Heston helper maturity is always anchored to the contract's calendar expiry date. |
 
 Calibration requires a timezone-qualified `underlying_as_of` timestamp and at
-least five contracts that are current, timestamped, two-sided, and within 15
-minutes of the spot observation. Contracts that fail timestamp, freshness,
-quote, or spot-skew checks are excluded before fitting. If fewer than five
-remain, calibration is not attempted and returns
-`heston_contract_inputs_rejected` with rejection counts.
+least five two-sided contracts whose last trade is within 15 minutes of the
+spot observation. Providers do not currently supply option quote timestamps, so
+this gate is an explicit `last_trade_proxy` rather than quote freshness.
+Contracts that fail timestamp, last-trade recency, two-sided quote, or
+spot-skew checks are excluded before fitting. If fewer than five remain,
+calibration is not attempted and returns `heston_contract_inputs_rejected`
+with rejection counts.
 
 `calibration_data_status: current` and `usable_for_pricing: true` therefore
 qualify both the underlying and every selected contract. A stale underlying

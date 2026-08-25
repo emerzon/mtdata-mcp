@@ -21,18 +21,20 @@ def _call_expirations(*, symbol: str, detail: str = "compact"):
     return fn(symbol=symbol, detail=detail)
 
 
-def test_compact_provider_status_keeps_actionable_setup_steps():
+def test_compact_provider_status_is_an_operational_summary():
     out = _call("compact")
-    if out.get("action_required"):
-        assert "remediation" not in out
-        assert out["remediation_hint"] == (
-            "Reliable options-chain access requires Tradier credentials."
-        )
-        assert out["next_steps"] == [
-            "Set MTDATA_OPTIONS_PROVIDER=tradier.",
-            "Set MTDATA_OPTIONS_API_KEY to a Tradier API token, then restart mtdata.",
-            "Yahoo cookie/crumb fallback is best-effort and may still return 401/429.",
-        ]
+
+    assert out["detail"] == "compact"
+    assert "effective_provider" in out
+    assert "provider_mode" in out
+    assert "configuration_status" in out
+    assert "health_status" in out
+    assert "degraded" in out
+    assert "chain_health_checked" not in out
+    assert "usable_now" not in out
+    assert "allowed_provider_values" not in out
+    assert "chain_dependent_tools" not in out
+    assert "tradier_docs" not in out
 
 
 def test_full_provider_status_keeps_remediation_when_unconfigured():

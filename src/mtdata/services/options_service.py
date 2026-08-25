@@ -55,6 +55,23 @@ _YAHOO_AUTH_LOCK = _threading.Lock()
 _YAHOO_RATE_LIMIT_LOCK = _threading.Lock()
 _YAHOO_LAST_REQUEST_MONOTONIC = 0.0
 _OPTIONS_PROVIDER_MODES = {"auto", "tradier", "yahoo"}
+_OPTIONS_MONEYNESS_FORMULA = "(strike / underlying_price - 1) * 100"
+_CASH_SETTLED_INDEX_ROOTS = frozenset(
+    {
+        "SPX",
+        "SPXW",
+        "XSP",
+        "NDX",
+        "NDXP",
+        "RUT",
+        "RUTW",
+        "DJX",
+        "VIX",
+        "OEX",
+        "XEO",
+    }
+)
+_GREEK_FIELD_NAMES = ("delta", "gamma", "theta", "vega", "rho")
 
 
 class _OptionsRateLimitError(ValueError):
@@ -183,7 +200,59 @@ def _options_underlying_metadata(
     for source_key, target_key in key_map.items():
         if source_key in metadata:
             out[target_key] = metadata[source_key]
+    envelope = _underlying_quote_envelope(provider, quote)
+    if envelope:
+        out["underlying_quote"] = envelope
     return out
+
+
+def _underlying_quote_envelope(
+    provider: str,
+    quote: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Venue/delay metadata for the underlying quote, not option contracts."""
+    quote = quote if isinstance(quote, dict) else {}
+    if provider == "yahoo":
+        delay_raw = quote.get("exchangeDataDelayedBy")
+        delay_seconds = None
+        if delay_raw not in (None, ""):
+            delay_seconds = _to_numeric(
+                delay_raw,
+                int,
+                0,
+                field_name="exchangeDataDelayedBy",
+            )
+        is_delayed = None if delay_seconds is None else delay_seconds > 0
+        envelope = {
+            "scope": "underlying_quote",
+            "exchange": quote.get("exchange"),
+            "venue": quote.get("fullExchangeName"),
+            "exchange_timezone": quote.get("exchangeTimezoneName"),
+            "market_state": quote.get("marketState"),
+            "quote_source": quote.get("quoteSourceName"),
+            "is_delayed": is_delayed,
+            "delay_seconds": delay_seconds,
+        }
+    else:
+        delay_raw = quote.get("delay")
+        delay_seconds = None
+        if delay_raw not in (None, ""):
+            delay_seconds = _to_numeric(delay_raw, int, 0, field_name="delay")
+        envelope = {
+            "scope": "underlying_quote",
+            "exchange": quote.get("exch") or quote.get("exchange"),
+            "venue": quote.get("exch_description") or quote.get("description"),
+            "exchange_timezone": quote.get("exchange_timezone"),
+            "market_state": quote.get("market_state") or quote.get("type"),
+            "quote_source": provider,
+            "is_delayed": None if delay_seconds is None else delay_seconds > 0,
+            "delay_seconds": delay_seconds,
+        }
+    return {
+        key: value
+        for key, value in envelope.items()
+        if value not in (None, "")
+    }
 
 
 def _options_catalog_metadata() -> Dict[str, Any]:
@@ -202,8 +271,9 @@ def _option_contract_market_metadata(
     bid: Any,
     ask: Any,
     now_epoch: Optional[float] = None,
+    quote_epoch: Any = None,
 ) -> Dict[str, Any]:
-    """Qualify one contract's provider timestamp and executable quote sides."""
+    """Qualify last-trade recency separately from quote freshness."""
     timestamp_epoch = _parse_tradier_epoch(last_trade_epoch)
     bid_value = _finite_option_quote(bid)
     ask_value = _finite_option_quote(ask)
@@ -280,17 +350,50 @@ def _option_contract_market_metadata(
                 "provider_contract_age_exceeds_live_threshold"
             )
 
-    timestamp_usable = metadata.get("contract_data_stale") is False
-    quote_usable = quote_quality == "two_sided" and timestamp_usable
+    last_trade_recent = metadata.get("contract_data_stale") is False
+    metadata["last_trade_recent_and_market_two_sided"] = (
+        quote_quality == "two_sided" and last_trade_recent
+    )
+
+    quote_timestamp_epoch = _parse_tradier_epoch(quote_epoch)
+    if quote_timestamp_epoch is None or quote_timestamp_epoch <= 0:
+        metadata["quote_freshness"] = "unknown"
+        metadata["quote_freshness_reason"] = (
+            "provider_quote_timestamp_unavailable"
+        )
+        metadata["quote_usable_for_live_analysis"] = False
+        if quote_quality != "two_sided":
+            metadata["quote_usability_reason"] = f"quote_{quote_quality}"
+        else:
+            metadata["quote_usability_reason"] = "quote_timestamp_unavailable"
+        return metadata
+
+    observed_epoch = float(_time.time()) if now_epoch is None else float(now_epoch)
+    quote_age = observed_epoch - float(quote_timestamp_epoch)
+    quote_stale = quote_age > _OPTION_CONTRACT_STALE_AFTER_SECONDS
+    metadata["quote_as_of"] = (
+        _dt.datetime.fromtimestamp(
+            float(quote_timestamp_epoch),
+            tz=_dt.timezone.utc,
+        )
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
+    metadata["quote_age_seconds"] = round(max(0.0, quote_age), 3)
+    metadata["quote_freshness"] = "stale" if quote_stale else "provider_timestamped"
+    metadata["quote_freshness_reason"] = (
+        "provider_quote_age_exceeds_live_threshold"
+        if quote_stale
+        else "provider_quote_timestamped"
+    )
+    quote_usable = quote_quality == "two_sided" and not quote_stale
     metadata["quote_usable_for_live_analysis"] = quote_usable
     if quote_quality != "two_sided":
         metadata["quote_usability_reason"] = f"quote_{quote_quality}"
-    elif metadata.get("contract_data_stale") is True:
-        metadata["quote_usability_reason"] = "contract_timestamp_stale"
-    elif metadata.get("contract_data_stale") is None:
-        metadata["quote_usability_reason"] = "contract_timestamp_unavailable"
+    elif quote_stale:
+        metadata["quote_usability_reason"] = "quote_timestamp_stale"
     else:
-        metadata["quote_usability_reason"] = "two_sided_current_quote"
+        metadata["quote_usability_reason"] = "two_sided_timestamped_quote"
     return metadata
 
 
@@ -352,11 +455,18 @@ def _option_chain_quality_metadata(rows: List[Dict[str, Any]]) -> Dict[str, Any]
     if observed_times:
         out["option_contract_earliest_as_of"] = observed_times[0]
         out["option_contract_latest_as_of"] = observed_times[-1]
+    last_trade_proxy_count = sum(
+        1
+        for row in rows
+        if row.get("last_trade_recent_and_market_two_sided") is True
+    )
+    out["option_contract_last_trade_proxy_count"] = last_trade_proxy_count
     if quality != "live_usable":
         out["warnings"] = [
             (
-                "Returned option contracts are not all current, timestamped, and "
-                "two-sided; do not treat this chain as a live executable surface."
+                "Returned option contracts are not all live-usable. Quote "
+                "usability requires a provider quote timestamp; last-trade "
+                "recency is reported separately and is not quote freshness."
             )
         ]
     return out
@@ -1116,6 +1226,73 @@ def _tradier_option_side(row: Dict[str, Any]) -> str:
     return raw or "unknown"
 
 
+def _option_moneyness_pct(strike: Any, underlying_price: Any) -> Optional[float]:
+    try:
+        spot = float(underlying_price)
+        strike_value = float(strike)
+    except (TypeError, ValueError):
+        return None
+    if not (spot == spot and spot > 0 and strike_value == strike_value):
+        return None
+    return (strike_value / spot - 1.0) * 100.0
+
+
+def _annotate_option_moneyness(
+    items: List[Dict[str, Any]],
+    underlying_price: Any,
+) -> None:
+    for item in items:
+        moneyness = _option_moneyness_pct(item.get("strike"), underlying_price)
+        if moneyness is not None:
+            item["moneyness_pct"] = round(float(moneyness), 6)
+
+
+def _filter_option_contracts(
+    items: List[Dict[str, Any]],
+    *,
+    min_strike: Optional[float] = None,
+    max_strike: Optional[float] = None,
+    min_moneyness_pct: Optional[float] = None,
+    max_moneyness_pct: Optional[float] = None,
+    quote_usable_only: bool = False,
+    max_quote_age_seconds: Optional[float] = None,
+) -> List[Dict[str, Any]]:
+    """Apply strike, moneyness, and quote-usability filters before pagination."""
+    out: List[Dict[str, Any]] = []
+    for item in items:
+        strike = item.get("strike")
+        try:
+            strike_value = float(strike)
+        except (TypeError, ValueError):
+            continue
+        if min_strike is not None and strike_value < float(min_strike):
+            continue
+        if max_strike is not None and strike_value > float(max_strike):
+            continue
+        moneyness = item.get("moneyness_pct")
+        if min_moneyness_pct is not None or max_moneyness_pct is not None:
+            if moneyness is None:
+                continue
+            if (
+                min_moneyness_pct is not None
+                and float(moneyness) < float(min_moneyness_pct)
+            ):
+                continue
+            if (
+                max_moneyness_pct is not None
+                and float(moneyness) > float(max_moneyness_pct)
+            ):
+                continue
+        if quote_usable_only and item.get("quote_usable_for_live_analysis") is not True:
+            continue
+        if max_quote_age_seconds is not None:
+            quote_age = item.get("quote_age_seconds")
+            if quote_age is None or float(quote_age) > float(max_quote_age_seconds):
+                continue
+        out.append(item)
+    return out
+
+
 def _limit_option_contracts(
     items: List[Dict[str, Any]],
     *,
@@ -1123,6 +1300,7 @@ def _limit_option_contracts(
     limit: int,
     offset: int = 0,
     underlying_price: Any,
+    sort_by: str = "nearest_strike",
 ) -> List[Dict[str, Any]]:
     """Return one deterministic page, balanced by side when both are requested."""
     safe_limit = max(1, int(limit))
@@ -1131,19 +1309,49 @@ def _limit_option_contracts(
         spot = float(underlying_price)
     except Exception:
         spot = float("nan")
+    order = str(sort_by or "nearest_strike").strip().lower()
 
-    def _key(item: Dict[str, Any]) -> tuple[float, float, str]:
+    def _tie(item: Dict[str, Any]) -> str:
+        return str(item.get("contract") or item.get("symbol") or "")
+
+    def _nearest_key(item: Dict[str, Any]) -> tuple[float, float, str]:
         strike = float(item.get("strike", 0.0))
         distance = abs(strike - spot) if spot == spot else float("inf")
-        contract = str(item.get("contract") or item.get("symbol") or "")
-        return distance, strike, contract
+        return distance, strike, _tie(item)
 
-    if option_type != "both":
-        ordered = sorted(items, key=_key)
+    def _numeric_key(field: str, *, reverse: bool = False):
+        sign = -1.0 if reverse else 1.0
+
+        def _key(item: Dict[str, Any]) -> tuple[float, float, str]:
+            raw = item.get(field)
+            try:
+                value = float(raw)
+            except (TypeError, ValueError):
+                value = float("nan")
+            if value != value:
+                value = float("-inf") if reverse else float("inf")
+            strike = float(item.get("strike", 0.0))
+            return sign * value, strike, _tie(item)
+
+        return _key
+
+    if order == "strike":
+        key = _numeric_key("strike")
+    elif order == "open_interest":
+        key = _numeric_key("open_interest", reverse=True)
+    elif order == "volume":
+        key = _numeric_key("volume", reverse=True)
+    elif order == "moneyness_pct":
+        key = _numeric_key("moneyness_pct")
+    else:
+        key = _nearest_key
+
+    if option_type != "both" or order != "nearest_strike":
+        ordered = sorted(items, key=key)
         return ordered[safe_offset : safe_offset + safe_limit]
 
-    calls = sorted((item for item in items if item.get("side") == "call"), key=_key)
-    puts = sorted((item for item in items if item.get("side") == "put"), key=_key)
+    calls = sorted((item for item in items if item.get("side") == "call"), key=key)
+    puts = sorted((item for item in items if item.get("side") == "put"), key=key)
     ordered: List[Dict[str, Any]] = []
     for index in range(max(len(calls), len(puts))):
         if index < len(calls):
@@ -1164,6 +1372,17 @@ def _option_side_coverage(items: List[Dict[str, Any]]) -> str:
     return "none"
 
 
+def _option_selection_order(option_type: str, sort_by: str) -> str:
+    order = str(sort_by or "nearest_strike").strip().lower()
+    if order == "nearest_strike":
+        return (
+            "nearest_strike_to_underlying_balanced_by_side"
+            if option_type == "both"
+            else "nearest_strike_to_underlying"
+        )
+    return order
+
+
 def _option_selection_metadata(
     available: List[Dict[str, Any]],
     selected: List[Dict[str, Any]],
@@ -1171,6 +1390,8 @@ def _option_selection_metadata(
     option_type: str,
     limit: int,
     offset: int = 0,
+    sort_by: str = "nearest_strike",
+    extra_filters: bool = False,
 ) -> Dict[str, Any]:
     available_count = len(available)
     returned = len(selected)
@@ -1178,7 +1399,11 @@ def _option_selection_metadata(
     more_available = max(0, available_count - page_end)
     return {
         "available_count": available_count,
-        "available_count_basis": "after_side_and_liquidity_filters",
+        "available_count_basis": (
+            "after_side_liquidity_strike_and_quote_filters"
+            if extra_filters
+            else "after_side_and_liquidity_filters"
+        ),
         "available_calls_count": sum(
             1 for item in available if item.get("side") == "call"
         ),
@@ -1193,11 +1418,8 @@ def _option_selection_metadata(
             "has_more": more_available > 0,
             "more_available": more_available,
         },
-        "selection_order": (
-            "nearest_strike_to_underlying_balanced_by_side"
-            if option_type == "both"
-            else "nearest_strike_to_underlying"
-        ),
+        "selection_order": _option_selection_order(option_type, sort_by),
+        "sort_by": str(sort_by or "nearest_strike"),
     }
 
 
@@ -1208,6 +1430,7 @@ def _normalize_tradier_options(
     min_open_interest: int,
     min_volume: int,
     underlying_price: Any,
+    underlier: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     try:
@@ -1232,7 +1455,7 @@ def _normalize_tradier_options(
         implied_volatility = row.get("implied_volatility")
         if implied_volatility in (None, ""):
             implied_volatility = greeks.get("mid_iv")
-        mapped_greeks = _tradier_greeks_fields(greeks)
+        mapped_greeks = _greeks_contract_fields(_tradier_greeks_fields(greeks))
         in_the_money = False
         if underlying == underlying:
             if side == "call":
@@ -1278,6 +1501,8 @@ def _normalize_tradier_options(
             ),
             **_option_contract_terms(
                 row.get("contract_size") or row.get("contractSize"),
+                underlier=underlier or row.get("underlying") or row.get("root_symbol"),
+                contract=row.get("symbol") or row.get("contractSymbol"),
             ),
             **mapped_greeks,
         }
@@ -1289,7 +1514,7 @@ def _tradier_greeks_fields(greeks: Dict[str, Any]) -> Dict[str, Any]:
     if not greeks:
         return {}
     out: Dict[str, Any] = {}
-    for name in ("delta", "gamma", "theta", "vega", "rho"):
+    for name in _GREEK_FIELD_NAMES:
         raw = greeks.get(name)
         if raw in (None, ""):
             continue
@@ -1305,14 +1530,78 @@ def _tradier_greeks_fields(greeks: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def _option_contract_terms(classification: Any) -> Dict[str, Any]:
+def _greeks_contract_fields(mapped: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    mapped = mapped if isinstance(mapped, dict) else {}
+    available = [name for name in _GREEK_FIELD_NAMES if name in mapped]
+    out: Dict[str, Any] = {
+        "greeks_available": bool(available),
+        "greeks_source": mapped.get("greeks_source"),
+    }
+    if mapped.get("greeks_as_of") not in (None, ""):
+        out["greeks_as_of"] = mapped["greeks_as_of"]
+    for name in _GREEK_FIELD_NAMES:
+        if name in mapped:
+            out[name] = mapped[name]
+    if not available:
+        out["greeks_unavailable_reason"] = "provider_does_not_supply_greeks"
+    elif len(available) < len(_GREEK_FIELD_NAMES):
+        missing = [name for name in _GREEK_FIELD_NAMES if name not in mapped]
+        out["greeks_unavailable_reason"] = (
+            "provider_partial_greeks:" + ",".join(missing)
+        )
+    return out
+
+
+def _cash_settled_index_underlier(
+    underlier: Any,
+    *,
+    contract: Any = None,
+) -> bool:
+    text = str(underlier or "").strip().upper()
+    if text.startswith("^"):
+        text = text[1:]
+    root = re.split(r"[._-]", text, maxsplit=1)[0]
+    if root in _CASH_SETTLED_INDEX_ROOTS:
+        return True
+    contract_text = str(contract or "").strip().upper()
+    return any(
+        contract_text.startswith(prefix)
+        for prefix in ("SPXW", "SPX", "XSP", "NDXP", "NDX", "RUTW", "RUT", "VIX")
+    )
+
+
+def _option_contract_terms(
+    classification: Any,
+    *,
+    underlier: Any = None,
+    contract: Any = None,
+) -> Dict[str, Any]:
     provider_size = str(classification or "").strip().upper() or None
+    cash_settled = _cash_settled_index_underlier(
+        underlier,
+        contract=contract,
+    )
     if provider_size == "REGULAR":
+        if cash_settled:
+            return {
+                "contract_size": provider_size,
+                "contract_multiplier": 100,
+                "multiplier_status": "standard_from_provider_classification",
+                "settlement_type": "cash",
+                "asset_class": "index_option",
+                "exercise_style": "european",
+                "deliverable": None,
+                "deliverable_status": "cash_settled",
+                "premium_quote_unit": "currency_per_underlying_unit",
+            }
         return {
             "contract_size": provider_size,
             "contract_multiplier": 100,
             "multiplier_status": "standard_from_provider_classification",
-            "deliverable": "100 underlying units",
+            "settlement_type": "physical",
+            "asset_class": "equity_option",
+            "exercise_style": "american",
+            "deliverable": "100 underlying shares",
             "deliverable_status": "standard",
             "premium_quote_unit": "currency_per_underlying_unit",
         }
@@ -1321,6 +1610,9 @@ def _option_contract_terms(classification: Any) -> Dict[str, Any]:
             "contract_size": provider_size,
             "contract_multiplier": None,
             "multiplier_status": "unavailable_nonstandard_or_adjusted",
+            "settlement_type": "cash" if cash_settled else None,
+            "asset_class": "index_option" if cash_settled else None,
+            "exercise_style": "european" if cash_settled else None,
             "deliverable": None,
             "deliverable_status": "provider_classification_only",
             "premium_quote_unit": "currency_per_underlying_unit",
@@ -1329,10 +1621,59 @@ def _option_contract_terms(classification: Any) -> Dict[str, Any]:
         "contract_size": None,
         "contract_multiplier": None,
         "multiplier_status": "unavailable_provider_metadata_missing",
+        "settlement_type": "cash" if cash_settled else None,
+        "asset_class": "index_option" if cash_settled else None,
+        "exercise_style": "european" if cash_settled else None,
         "deliverable": None,
         "deliverable_status": "unavailable",
         "premium_quote_unit": "currency_per_underlying_unit",
     }
+
+
+def _select_option_page(
+    items: List[Dict[str, Any]],
+    *,
+    option_type: str,
+    limit: int,
+    offset: int,
+    underlying_price: Any,
+    min_strike: Optional[float] = None,
+    max_strike: Optional[float] = None,
+    min_moneyness_pct: Optional[float] = None,
+    max_moneyness_pct: Optional[float] = None,
+    quote_usable_only: bool = False,
+    max_quote_age_seconds: Optional[float] = None,
+    sort_by: str = "nearest_strike",
+) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], bool]:
+    _annotate_option_moneyness(items, underlying_price)
+    extra_filters = any(
+        value is not None
+        for value in (
+            min_strike,
+            max_strike,
+            min_moneyness_pct,
+            max_moneyness_pct,
+            max_quote_age_seconds,
+        )
+    ) or bool(quote_usable_only)
+    available = _filter_option_contracts(
+        items,
+        min_strike=min_strike,
+        max_strike=max_strike,
+        min_moneyness_pct=min_moneyness_pct,
+        max_moneyness_pct=max_moneyness_pct,
+        quote_usable_only=quote_usable_only,
+        max_quote_age_seconds=max_quote_age_seconds,
+    )
+    selected = _limit_option_contracts(
+        available,
+        option_type=option_type,
+        limit=limit,
+        offset=offset,
+        underlying_price=underlying_price,
+        sort_by=sort_by,
+    )
+    return available, selected, extra_filters
 
 
 def _option_contract_terms_summary(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -1360,6 +1701,13 @@ def _option_contract_terms_summary(rows: List[Dict[str, Any]]) -> Dict[str, Any]
     all_known = bool(rows) and all(
         row.get("contract_multiplier") is not None for row in rows
     )
+    settlements = sorted(
+        {
+            str(row.get("settlement_type"))
+            for row in rows
+            if row.get("settlement_type") not in (None, "")
+        }
+    )
     return {
         "provider_classifications": classifications,
         "multiplier_statuses": statuses,
@@ -1367,6 +1715,9 @@ def _option_contract_terms_summary(rows: List[Dict[str, Any]]) -> Dict[str, Any]
             multipliers[0]
             if all_known and len(multipliers) == 1
             else None
+        ),
+        "uniform_settlement_type": (
+            settlements[0] if len(settlements) == 1 else None
         ),
         "mixed_or_unresolved_terms": not all_known or len(multipliers) > 1,
     }
@@ -1403,11 +1754,25 @@ def _options_chain_payload(
     min_volume: int,
     limit: int,
     offset: int,
+    min_strike: Optional[float] = None,
+    max_strike: Optional[float] = None,
+    min_moneyness_pct: Optional[float] = None,
+    max_moneyness_pct: Optional[float] = None,
+    quote_usable_only: bool = False,
+    max_quote_age_seconds: Optional[float] = None,
+    sort_by: str = "nearest_strike",
+    extra_filters: bool = False,
 ) -> Dict[str, Any]:
     """Build the provider-neutral options-chain response contract."""
-    return {
+    retrieved_at = _dt.datetime.fromtimestamp(
+        float(_time.time()), tz=_dt.timezone.utc
+    ).isoformat().replace("+00:00", "Z")
+    payload: Dict[str, Any] = {
         "success": True,
         **_options_underlying_metadata(provider, quote),
+        "retrieved_at": retrieved_at,
+        "pagination_scope": "independent_live_query",
+        "moneyness_formula": _OPTIONS_MONEYNESS_FORMULA,
         "symbol": symbol,
         "expiration": expiration,
         "expiration_status": expiration_status,
@@ -1422,6 +1787,7 @@ def _options_chain_payload(
         "option_type": option_type,
         "min_open_interest": int(min_open_interest),
         "min_volume": int(min_volume),
+        "quote_usable_only": bool(quote_usable_only),
         "count": int(len(selected)),
         "calls_count": sum(1 for item in selected if item.get("side") == "call"),
         "puts_count": sum(1 for item in selected if item.get("side") == "put"),
@@ -1432,10 +1798,36 @@ def _options_chain_payload(
             option_type=option_type,
             limit=limit,
             offset=offset,
+            sort_by=sort_by,
+            extra_filters=extra_filters,
         ),
         **_option_chain_quality_metadata(selected),
         "options": selected,
     }
+    for key, value in (
+        ("min_strike", min_strike),
+        ("max_strike", max_strike),
+        ("min_moneyness_pct", min_moneyness_pct),
+        ("max_moneyness_pct", max_moneyness_pct),
+        ("max_quote_age_seconds", max_quote_age_seconds),
+    ):
+        if value is not None:
+            payload[key] = value
+    warnings = list(payload.get("warnings") or [])
+    if int(offset) > 0:
+        warnings.append(
+            "Offset pages are independent live queries, not a cursor over one "
+            "immutable snapshot. retrieved_at identifies this page only."
+        )
+    if quote_usable_only or max_quote_age_seconds is not None:
+        warnings.append(
+            "Quote usability filters require a provider option-quote timestamp. "
+            "Yahoo and Tradier currently supply last-trade time only, so "
+            "unknown quote freshness is excluded rather than treated as live."
+        )
+    if warnings:
+        payload["warnings"] = warnings
+    return payload
 
 
 def _get_tradier_options_expirations(symbol: str) -> Dict[str, Any]:
@@ -1479,6 +1871,13 @@ def _get_tradier_options_chain(
     min_volume: int,
     limit: int,
     offset: int,
+    min_strike: Optional[float] = None,
+    max_strike: Optional[float] = None,
+    min_moneyness_pct: Optional[float] = None,
+    max_moneyness_pct: Optional[float] = None,
+    quote_usable_only: bool = False,
+    max_quote_age_seconds: Optional[float] = None,
+    sort_by: str = "nearest_strike",
 ) -> Dict[str, Any]:
     symbol_norm = str(symbol).upper().strip()
     expirations = _extract_tradier_expiration_dates(
@@ -1521,13 +1920,21 @@ def _get_tradier_options_chain(
         min_open_interest=min_open_interest,
         min_volume=min_volume,
         underlying_price=underlying_price,
+        underlier=symbol_norm,
     )
-    normalized = _limit_option_contracts(
+    available, normalized, extra_filters = _select_option_page(
         available,
         option_type=option_type,
         limit=limit,
         offset=offset,
         underlying_price=underlying_price,
+        min_strike=min_strike,
+        max_strike=max_strike,
+        min_moneyness_pct=min_moneyness_pct,
+        max_moneyness_pct=max_moneyness_pct,
+        quote_usable_only=quote_usable_only,
+        max_quote_age_seconds=max_quote_age_seconds,
+        sort_by=sort_by,
     )
     return _options_chain_payload(
         provider="tradier",
@@ -1545,6 +1952,14 @@ def _get_tradier_options_chain(
         min_volume=min_volume,
         limit=limit,
         offset=offset,
+        min_strike=min_strike,
+        max_strike=max_strike,
+        min_moneyness_pct=min_moneyness_pct,
+        max_moneyness_pct=max_moneyness_pct,
+        quote_usable_only=quote_usable_only,
+        max_quote_age_seconds=max_quote_age_seconds,
+        sort_by=sort_by,
+        extra_filters=extra_filters,
     )
 
 
@@ -1585,6 +2000,13 @@ def _get_yahoo_options_chain(
     min_volume: int,
     limit: int,
     offset: int,
+    min_strike: Optional[float] = None,
+    max_strike: Optional[float] = None,
+    min_moneyness_pct: Optional[float] = None,
+    max_moneyness_pct: Optional[float] = None,
+    quote_usable_only: bool = False,
+    max_quote_age_seconds: Optional[float] = None,
+    sort_by: str = "nearest_strike",
 ) -> Dict[str, Any]:
     symbol_norm = str(symbol).upper().strip()
     base = _fetch_yahoo_options_payload(symbol_norm)
@@ -1675,7 +2097,12 @@ def _get_yahoo_options_chain(
                     ask=ask,
                     now_epoch=observed_epoch,
                 ),
-                **_option_contract_terms(row.get("contractSize")),
+                **_option_contract_terms(
+                    row.get("contractSize"),
+                    underlier=symbol_norm,
+                    contract=row.get("contractSymbol"),
+                ),
+                **_greeks_contract_fields(),
             }
             out.append(entry)
         out.sort(key=lambda x: float(x.get("strike", 0.0)))
@@ -1690,12 +2117,19 @@ def _get_yahoo_options_chain(
         field_name="quote.regularMarketPrice",
     )
     available = calls + puts
-    combined = _limit_option_contracts(
+    available, combined, extra_filters = _select_option_page(
         available,
         option_type=option_type,
         limit=limit,
         offset=offset,
         underlying_price=underlying_price,
+        min_strike=min_strike,
+        max_strike=max_strike,
+        min_moneyness_pct=min_moneyness_pct,
+        max_moneyness_pct=max_moneyness_pct,
+        quote_usable_only=quote_usable_only,
+        max_quote_age_seconds=max_quote_age_seconds,
+        sort_by=sort_by,
     )
 
     return _options_chain_payload(
@@ -1714,6 +2148,14 @@ def _get_yahoo_options_chain(
         min_volume=min_volume,
         limit=limit,
         offset=offset,
+        min_strike=min_strike,
+        max_strike=max_strike,
+        min_moneyness_pct=min_moneyness_pct,
+        max_moneyness_pct=max_moneyness_pct,
+        quote_usable_only=quote_usable_only,
+        max_quote_age_seconds=max_quote_age_seconds,
+        sort_by=sort_by,
+        extra_filters=extra_filters,
     )
 
 
@@ -1737,6 +2179,13 @@ def get_options_chain(
     min_volume: int = 0,
     limit: int = 200,
     offset: int = 0,
+    min_strike: Optional[float] = None,
+    max_strike: Optional[float] = None,
+    min_moneyness_pct: Optional[float] = None,
+    max_moneyness_pct: Optional[float] = None,
+    quote_usable_only: bool = False,
+    max_quote_age_seconds: Optional[float] = None,
+    sort_by: str = "nearest_strike",
 ) -> Dict[str, Any]:
     """Fetch options chain (calls/puts) for a symbol and expiration."""
     try:
@@ -1744,6 +2193,20 @@ def get_options_chain(
         option_type_norm = str(option_type or "both").lower().strip()
         if option_type_norm not in {"call", "put", "both"}:
             return {"error": f"Invalid option_type: {option_type}. Use call|put|both."}
+        sort_value = str(sort_by or "nearest_strike").strip().lower()
+        if sort_value not in {
+            "nearest_strike",
+            "strike",
+            "open_interest",
+            "volume",
+            "moneyness_pct",
+        }:
+            return {
+                "error": (
+                    f"Invalid sort_by: {sort_by}. Use nearest_strike|strike|"
+                    "open_interest|volume|moneyness_pct."
+                )
+            }
         min_oi = _to_numeric(
             min_open_interest, int, 0, field_name="min_open_interest"
         )
@@ -1759,26 +2222,26 @@ def get_options_chain(
         if start_index < 0:
             raise ValueError("offset must be greater than or equal to 0.")
 
+        chain_kwargs = {
+            "symbol": symbol_norm,
+            "expiration": expiration,
+            "option_type": option_type_norm,
+            "min_open_interest": min_oi,
+            "min_volume": min_vol,
+            "limit": max_rows,
+            "offset": start_index,
+            "min_strike": min_strike,
+            "max_strike": max_strike,
+            "min_moneyness_pct": min_moneyness_pct,
+            "max_moneyness_pct": max_moneyness_pct,
+            "quote_usable_only": bool(quote_usable_only),
+            "max_quote_age_seconds": max_quote_age_seconds,
+            "sort_by": sort_value,
+        }
         return _run_options_provider_query(
             operation="options chain",
-            yahoo_func=lambda: _get_yahoo_options_chain(
-                symbol=symbol_norm,
-                expiration=expiration,
-                option_type=option_type_norm,
-                min_open_interest=min_oi,
-                min_volume=min_vol,
-                limit=max_rows,
-                offset=start_index,
-            ),
-            tradier_func=lambda: _get_tradier_options_chain(
-                symbol=symbol_norm,
-                expiration=expiration,
-                option_type=option_type_norm,
-                min_open_interest=min_oi,
-                min_volume=min_vol,
-                limit=max_rows,
-                offset=start_index,
-            ),
+            yahoo_func=lambda: _get_yahoo_options_chain(**chain_kwargs),
+            tradier_func=lambda: _get_tradier_options_chain(**chain_kwargs),
         )
     except Exception as e:
         return _options_error(e, prefix="Failed to fetch options chain")

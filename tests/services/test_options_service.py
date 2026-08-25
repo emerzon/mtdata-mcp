@@ -119,8 +119,13 @@ def test_option_contract_metadata_marks_current_two_sided_quote_usable(
     assert metadata["contract_data_age_seconds"] == 120.0
     assert metadata["contract_data_stale"] is False
     assert metadata["quote_quality"] == "two_sided"
-    assert metadata["quote_usable_for_live_analysis"] is True
-    assert metadata["quote_usability_reason"] == "two_sided_current_quote"
+    assert metadata["last_trade_recent_and_market_two_sided"] is True
+    assert metadata["quote_freshness"] == "unknown"
+    assert metadata["quote_freshness_reason"] == (
+        "provider_quote_timestamp_unavailable"
+    )
+    assert metadata["quote_usable_for_live_analysis"] is False
+    assert metadata["quote_usability_reason"] == "quote_timestamp_unavailable"
 
 
 def test_get_options_expirations_parses_payload(monkeypatch):
@@ -308,8 +313,16 @@ def test_get_options_chain_filters_and_selects_expiration(monkeypatch):
         "provider_classifications": ["REGULAR"],
         "multiplier_statuses": ["standard_from_provider_classification"],
         "uniform_contract_multiplier": 100,
+        "uniform_settlement_type": "physical",
         "mixed_or_unresolved_terms": False,
     }
+    assert out["options"][0]["settlement_type"] == "physical"
+    assert out["options"][0]["deliverable"] == "100 underlying shares"
+    assert out["options"][0]["greeks_available"] is False
+    assert out["retrieved_at"]
+    assert out["pagination_scope"] == "independent_live_query"
+    assert out["moneyness_formula"] == "(strike / underlying_price - 1) * 100"
+    assert out["underlying_quote"]["scope"] == "underlying_quote"
     assert out["contract_premium_formula"] == (
         "cash premium = quoted bid/ask/last * contract_multiplier"
     )
@@ -373,6 +386,8 @@ def test_options_chain_separates_fresh_underlying_from_stale_zero_sided_contract
     assert contract["contract_data_stale"] is True
     assert contract["contract_freshness"] == "stale"
     assert contract["quote_quality"] == "zero_sided"
+    assert contract["last_trade_recent_and_market_two_sided"] is False
+    assert contract["quote_freshness"] == "unknown"
     assert contract["quote_usable_for_live_analysis"] is False
     assert out["option_chain_data_stale"] is True
     assert out["option_chain_freshness"] == "stale"
@@ -388,6 +403,14 @@ def test_option_contract_terms_fail_closed_for_adjusted_and_missing_metadata():
     missing = osvc._option_contract_terms(None)
 
     assert regular["contract_multiplier"] == 100
+    assert regular["settlement_type"] == "physical"
+    assert regular["deliverable"] == "100 underlying shares"
+    index_terms = osvc._option_contract_terms("REGULAR", underlier="^SPX")
+    assert index_terms["settlement_type"] == "cash"
+    assert index_terms["deliverable"] is None
+    assert index_terms["deliverable_status"] == "cash_settled"
+    assert index_terms["contract_multiplier"] == 100
+    assert index_terms["asset_class"] == "index_option"
     assert adjusted["contract_multiplier"] is None
     assert adjusted["multiplier_status"] == (
         "unavailable_nonstandard_or_adjusted"
@@ -535,6 +558,7 @@ def test_option_selection_metadata_uses_normalized_pagination():
             "more_available": 2,
         },
         "selection_order": "nearest_strike_to_underlying_balanced_by_side",
+        "sort_by": "nearest_strike",
     }
 
 
@@ -1140,3 +1164,182 @@ def test_select_options_expiration_labels_explicit_expired_date() -> None:
     assert chosen == "2026-08-14"
     assert status == "expired"
     assert defaulted is False
+
+
+def test_option_contract_terms_never_infer_physical_delivery_from_regular_index():
+    xsp = osvc._option_contract_terms("REGULAR", underlier="XSP")
+    spxw = osvc._option_contract_terms(
+        "REGULAR",
+        underlier="^SPX",
+        contract="SPXW260825C07670000",
+    )
+
+    assert xsp["settlement_type"] == "cash"
+    assert xsp["deliverable"] is None
+    assert spxw["settlement_type"] == "cash"
+    assert spxw["exercise_style"] == "european"
+    assert spxw["contract_multiplier"] == 100
+
+
+def test_filter_option_contracts_applies_strike_and_moneyness_before_limit():
+    items = [
+        {
+            "side": "call",
+            "strike": strike,
+            "contract": f"C{strike}",
+            "moneyness_pct": strike - 100.0,
+            "quote_usable_for_live_analysis": strike == 105.0,
+            "quote_age_seconds": 10.0 if strike == 105.0 else None,
+            "open_interest": 1,
+            "volume": 1,
+        }
+        for strike in (90.0, 100.0, 105.0, 120.0)
+    ]
+
+    filtered = osvc._filter_option_contracts(
+        items,
+        min_strike=100.0,
+        max_strike=110.0,
+        min_moneyness_pct=0.0,
+        max_moneyness_pct=10.0,
+    )
+    assert [item["strike"] for item in filtered] == [100.0, 105.0]
+
+    usable = osvc._filter_option_contracts(items, quote_usable_only=True)
+    assert [item["strike"] for item in usable] == [105.0]
+
+    aged = osvc._filter_option_contracts(items, max_quote_age_seconds=30)
+    assert [item["strike"] for item in aged] == [105.0]
+
+
+def test_get_options_chain_propagates_underlying_quote_envelope(monkeypatch):
+    expiry = osvc._ymd_to_epoch("2026-04-17")
+    monkeypatch.setattr(osvc._time, "time", lambda: 1_700_000_120.0)
+
+    def fake_fetch(_symbol, expiry_epoch=None):
+        quote = {
+            "regularMarketPrice": 100.0,
+            "regularMarketTime": 1_700_000_000,
+            "currency": "USD",
+            "exchange": "NMS",
+            "fullExchangeName": "NasdaqGS",
+            "exchangeTimezoneName": "America/New_York",
+            "marketState": "REGULAR",
+            "quoteSourceName": "Nasdaq Real Time Price",
+            "exchangeDataDelayedBy": 0,
+        }
+        if expiry_epoch is None:
+            return {"expirationDates": [expiry], "quote": quote}
+        return {
+            "expirationDates": [expiry],
+            "quote": quote,
+            "options": [
+                {
+                    "calls": [
+                        {
+                            "contractSymbol": "AAPL260417C00100000",
+                            "strike": 100.0,
+                            "bid": 1.0,
+                            "ask": 1.1,
+                            "volume": 10,
+                            "openInterest": 20,
+                            "impliedVolatility": 0.2,
+                            "lastTradeDate": 1_700_000_000,
+                            "contractSize": "REGULAR",
+                        },
+                        {
+                            "contractSymbol": "AAPL260417C00100500",
+                            "strike": 100.5,
+                            "bid": 0.8,
+                            "ask": 0.9,
+                            "volume": 8,
+                            "openInterest": 12,
+                            "impliedVolatility": 0.21,
+                            "lastTradeDate": 1_700_000_000,
+                            "contractSize": "REGULAR",
+                        },
+                    ],
+                    "puts": [],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(osvc, "_fetch_yahoo_options_payload", fake_fetch)
+
+    out = osvc.get_options_chain(
+        "AAPL",
+        expiration="2026-04-17",
+        option_type="call",
+        min_strike=99.0,
+        max_strike=101.0,
+        min_moneyness_pct=-1.0,
+        max_moneyness_pct=1.0,
+        sort_by="strike",
+        offset=1,
+        limit=10,
+    )
+
+    assert out["success"] is True
+    assert out["underlying_quote"] == {
+        "scope": "underlying_quote",
+        "exchange": "NMS",
+        "venue": "NasdaqGS",
+        "exchange_timezone": "America/New_York",
+        "market_state": "REGULAR",
+        "quote_source": "Nasdaq Real Time Price",
+        "is_delayed": False,
+        "delay_seconds": 0,
+    }
+    assert out["options"][0]["quote_usable_for_live_analysis"] is False
+    assert out["options"][0]["last_trade_recent_and_market_two_sided"] is True
+    assert out["min_strike"] == 99.0
+    assert out["sort_by"] == "strike"
+    assert out["pagination_scope"] == "independent_live_query"
+    assert any("independent live queries" in warning for warning in out["warnings"])
+
+
+def test_get_options_chain_quote_usable_only_excludes_unknown_quote_timestamps(
+    monkeypatch,
+):
+    expiry = osvc._ymd_to_epoch("2026-04-17")
+
+    def fake_fetch(_symbol, expiry_epoch=None):
+        if expiry_epoch is None:
+            return {"expirationDates": [expiry]}
+        return {
+            "expirationDates": [expiry],
+            "quote": {"regularMarketPrice": 100.0, "currency": "USD"},
+            "options": [
+                {
+                    "calls": [
+                        {
+                            "contractSymbol": "AAPL260417C00100000",
+                            "strike": 100.0,
+                            "bid": 1.0,
+                            "ask": 1.1,
+                            "volume": 10,
+                            "openInterest": 20,
+                            "impliedVolatility": 0.2,
+                            "lastTradeDate": 1_700_000_000,
+                            "contractSize": "REGULAR",
+                        }
+                    ],
+                    "puts": [],
+                }
+            ],
+        }
+
+    monkeypatch.setattr(osvc, "_fetch_yahoo_options_payload", fake_fetch)
+
+    out = osvc.get_options_chain(
+        "AAPL",
+        expiration="2026-04-17",
+        option_type="call",
+        quote_usable_only=True,
+    )
+
+    assert out["success"] is True
+    assert out["count"] == 0
+    assert out["available_count"] == 0
+    assert out["quote_usable_only"] is True
+    assert any("quote timestamp" in warning.lower() for warning in out["warnings"])

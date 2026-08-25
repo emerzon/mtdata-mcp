@@ -11,9 +11,9 @@ from pydantic import Field
 
 from ..shared.schema import DetailLiteral
 from ..shared.symbols import (
+    EQUITY_BROKER_SUFFIXES,
     is_probably_crypto_symbol,
     is_probably_forex_symbol,
-    normalize_equity_provider_symbol,
 )
 from ._mcp_instance import mcp
 from .error_envelope import build_error_payload
@@ -26,6 +26,9 @@ _OPTIONS_CHAIN_UNIFORM_TERM_FIELDS = (
     "contract_size",
     "contract_multiplier",
     "multiplier_status",
+    "settlement_type",
+    "asset_class",
+    "exercise_style",
     "deliverable",
     "deliverable_status",
     "premium_quote_unit",
@@ -34,12 +37,16 @@ _OPTIONS_CHAIN_COMPACT_FIELDS = (
     "side",
     "contract",
     "strike",
+    "moneyness_pct",
     "last",
     "bid",
     "ask",
     "contract_size",
     "contract_multiplier",
     "multiplier_status",
+    "settlement_type",
+    "asset_class",
+    "exercise_style",
     "deliverable",
     "deliverable_status",
     "premium_quote_unit",
@@ -47,6 +54,13 @@ _OPTIONS_CHAIN_COMPACT_FIELDS = (
     "open_interest",
     "implied_volatility",
     "delta",
+    "gamma",
+    "theta",
+    "vega",
+    "rho",
+    "greeks_available",
+    "greeks_source",
+    "greeks_unavailable_reason",
     "in_the_money",
     "contract_as_of",
     "quote_quality",
@@ -56,14 +70,88 @@ _OPTIONS_CHAIN_COMPACT_FRESHNESS_FIELDS = (
     "contract_data_stale",
     "contract_freshness",
     "contract_freshness_reason",
+    "quote_freshness",
+    "quote_freshness_reason",
+    "last_trade_recent_and_market_two_sided",
     "quote_usable_for_live_analysis",
     "quote_usability_reason",
 )
-_OPTIONS_CHAIN_FRESHNESS_AGGREGATES = {
-    "contract_data_stale": "option_chain_data_stale",
-    "contract_freshness": "option_chain_freshness",
-    "quote_usable_for_live_analysis": "option_chain_live_usable",
-}
+_OPTIONS_CHAIN_REQUIRED_JSON_FIELDS = (
+    "contract_data_stale",
+    "quote_usable_for_live_analysis",
+    "last_trade_recent_and_market_two_sided",
+    "quote_freshness",
+    "greeks_available",
+)
+_OPTIONS_PROVIDER_STATUS_COMPACT_FIELDS = (
+    "success",
+    "error",
+    "error_code",
+    "effective_provider",
+    "provider_mode",
+    "configuration_status",
+    "health_status",
+    "degraded",
+    "recommended_action",
+    "warnings",
+    "detail",
+)
+_OPTIONS_CHAIN_SORT_BY = (
+    "nearest_strike",
+    "strike",
+    "open_interest",
+    "volume",
+    "moneyness_pct",
+)
+# Documented MT5 US-listing suffixes, excluding L (London Stock Exchange).
+_OPTIONS_US_LISTING_SUFFIXES = frozenset(EQUITY_BROKER_SUFFIXES - {"L"})
+# Venue suffixes that identify a non-US listing. These must not be stripped
+# and must not be rewritten to a different country's underlier.
+_OPTIONS_NON_US_VENUE_SUFFIXES = frozenset(
+    {
+        "L",
+        "LSE",
+        "LON",
+        "TO",
+        "CN",
+        "PA",
+        "BE",
+        "DE",
+        "HA",
+        "HM",
+        "DU",
+        "MU",
+        "SW",
+        "VX",
+        "MI",
+        "MA",
+        "MC",
+        "AS",
+        "LS",
+        "ST",
+        "CO",
+        "HE",
+        "OL",
+        "IC",
+        "IR",
+        "HK",
+        "AX",
+        "NZ",
+        "KS",
+        "KQ",
+        "SS",
+        "SZ",
+        "TW",
+        "TWO",
+        "SI",
+        "BO",
+        "NS",
+        "SA",
+        "MX",
+        "JO",
+        "TA",
+    }
+)
 _OPTIONS_SYMBOL_PATTERN = re.compile(r"^[A-Z0-9^][A-Z0-9.^=_/-]{0,63}$")
 _OPTIONS_EXPIRATION_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 _OPTIONS_PROVIDER_SYMBOL_ALIASES = {
@@ -71,6 +159,52 @@ _OPTIONS_PROVIDER_SYMBOL_ALIASES = {
         "SPX": "^SPX",
     },
 }
+
+
+def _options_unsupported_venue_error(normalized: str, suffix: str) -> Dict[str, Any]:
+    return {
+        "success": False,
+        "error": (
+            f"{normalized} is a venue-qualified non-US symbol. Options tools "
+            "do not rewrite exchange suffixes such as .{suffix} onto a different "
+            "country's listing."
+        ),
+        "error_code": "options_unsupported_symbol",
+        "symbol": normalized,
+        "parameter": "symbol",
+        "unsupported_suffix": suffix,
+        "remediation": (
+            "Use an unqualified US-listed options underlier such as AAPL or SPX. "
+            "Venue suffixes including .L and .TO are not stripped and are not "
+            "mapped to another market's ticker."
+        ),
+        "related_tools": [
+            "options_provider_status",
+            "market_ticker",
+            "symbols_list",
+        ],
+    }
+
+
+def _normalize_options_underlier(normalized: str) -> tuple[Optional[str], Optional[Dict[str, Any]]]:
+    """Map US options underliers without treating venue suffixes as broker codes."""
+    without_session = re.sub(r"(?:[._-]24)$", "", normalized)
+    match = re.fullmatch(r"(.+)[._-]([A-Z0-9]+)", without_session)
+    if match is not None:
+        root, suffix = match.group(1), match.group(2)
+        if suffix in _OPTIONS_NON_US_VENUE_SUFFIXES:
+            return None, _options_unsupported_venue_error(normalized, suffix)
+        if suffix in _OPTIONS_US_LISTING_SUFFIXES:
+            without_session = root
+    if re.fullmatch(r"[A-Z0-9]{1,6}[./][A-Z]", without_session):
+        without_session = without_session[:-2] + "-" + without_session[-1]
+    leftover = re.fullmatch(r"(.+)[._-]([A-Z]{2,})", without_session)
+    if leftover is not None:
+        return None, _options_unsupported_venue_error(
+            normalized,
+            leftover.group(2),
+        )
+    return without_session, None
 
 
 def _normalize_options_symbol(
@@ -110,7 +244,7 @@ def _normalize_options_symbol(
                 "symbols_list",
             ],
         }
-    return normalize_equity_provider_symbol(normalized), None
+    return _normalize_options_underlier(normalized)
 
 
 def _resolve_options_provider_symbol(symbol: str) -> str:
@@ -194,6 +328,38 @@ def _validate_options_integer(
         "value": value,
         "minimum": minimum,
     }
+
+
+def _validate_options_optional_number(
+    parameter: str,
+    value: Any,
+    *,
+    minimum: Optional[float] = None,
+) -> Optional[Dict[str, Any]]:
+    if value in (None, ""):
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        numeric = float("nan")
+    if isinstance(value, bool) or numeric != numeric:
+        return {
+            "success": False,
+            "error": f"{parameter} must be a finite number.",
+            "error_code": "invalid_input",
+            "parameter": parameter,
+            "value": value,
+        }
+    if minimum is not None and numeric < minimum:
+        return {
+            "success": False,
+            "error": f"{parameter} must be greater than or equal to {minimum}.",
+            "error_code": "invalid_input",
+            "parameter": parameter,
+            "value": value,
+            "minimum": minimum,
+        }
+    return None
 
 
 def _validate_options_valuation_date(value: Any) -> Optional[Dict[str, Any]]:
@@ -385,7 +551,6 @@ def _compact_option_contract(
     *,
     include_uniform_terms: bool = True,
     include_freshness: bool = False,
-    chain_aggregates: Optional[Dict[str, Any]] = None,
 ) -> Any:
     if not isinstance(row, dict):
         return row
@@ -401,16 +566,9 @@ def _compact_option_contract(
         for key in fields
         if key in row and row[key] is not None
     }
-    if include_freshness and isinstance(chain_aggregates, dict):
-        for field in _OPTIONS_CHAIN_COMPACT_FRESHNESS_FIELDS:
-            if field not in out:
-                continue
-            aggregate_key = _OPTIONS_CHAIN_FRESHNESS_AGGREGATES.get(field)
-            if out[field] == chain_aggregates.get(field) or (
-                aggregate_key is not None
-                and out[field] == chain_aggregates.get(aggregate_key)
-            ):
-                out.pop(field, None)
+    for field in _OPTIONS_CHAIN_REQUIRED_JSON_FIELDS:
+        if field in row:
+            out[field] = row[field]
     return out
 
 
@@ -483,6 +641,7 @@ def _apply_options_detail(
                 "underlying_freshness_reason",
                 "underlying_price_source",
                 "underlying_price_session",
+                "underlying_quote",
                 "symbol",
                 "requested_symbol",
                 "provider_symbol",
@@ -510,12 +669,17 @@ def _apply_options_detail(
                 "underlying_freshness_reason",
                 "underlying_price_source",
                 "underlying_price_session",
+                "underlying_quote",
+                "retrieved_at",
+                "pagination_scope",
+                "moneyness_formula",
                 "option_contract_stale_after_seconds",
                 "option_contract_count",
                 "option_contract_timestamped_count",
                 "option_contract_current_count",
                 "option_contract_stale_count",
                 "option_contract_quote_usable_count",
+                "option_contract_last_trade_proxy_count",
                 "option_contract_earliest_as_of",
                 "option_contract_latest_as_of",
                 "option_chain_data_stale",
@@ -541,6 +705,13 @@ def _apply_options_detail(
                 "available_count_basis",
                 "available_calls_count",
                 "available_puts_count",
+                "min_strike",
+                "max_strike",
+                "min_moneyness_pct",
+                "max_moneyness_pct",
+                "quote_usable_only",
+                "max_quote_age_seconds",
+                "sort_by",
                 "pagination",
                 "selection_order",
                 "warnings",
@@ -556,30 +727,11 @@ def _apply_options_detail(
                 "mixed_or_unresolved_terms"
             ) is False:
                 include_uniform_terms = False
-            chain_aggregates: Optional[Dict[str, Any]] = None
-            if detail_mode == "compact":
-                chain_aggregates = {
-                    key: out.get(key)
-                    for key in (
-                        "option_chain_data_stale",
-                        "option_chain_freshness",
-                        "option_chain_live_usable",
-                    )
-                }
-                for field in _OPTIONS_CHAIN_COMPACT_FRESHNESS_FIELDS:
-                    values = [
-                        row.get(field)
-                        for row in options
-                        if isinstance(row, dict) and field in row
-                    ]
-                    if values and all(value == values[0] for value in values):
-                        chain_aggregates[field] = values[0]
             compact["options"] = [
                 _compact_option_contract(
                     row,
                     include_uniform_terms=include_uniform_terms,
                     include_freshness=True,
-                    chain_aggregates=chain_aggregates,
                 )
                 for row in options
             ]
@@ -618,6 +770,7 @@ def _apply_options_detail(
                 "pricing_assumptions",
                 "pricing_inputs",
                 "pricing_note",
+                "warnings",
                 "detail",
             )
             if key in out
@@ -631,6 +784,9 @@ def _apply_options_detail(
                 "requested_symbol",
                 "provider_symbol",
                 "expiration",
+                "calibration_mode",
+                "identification_limitations",
+                "quote_freshness_policy",
                 "valuation_date",
                 "valuation_timezone",
                 "valuation_date_source",
@@ -685,6 +841,8 @@ def options_provider_status(
     payload: Dict[str, Any] = {
         "success": not invalid_provider,
         **readiness,
+        "configuration_status": readiness.get("configured_provider_status"),
+        "health_status": readiness.get("chain_health_status"),
     }
     if invalid_provider:
         payload.update(
@@ -703,33 +861,20 @@ def options_provider_status(
                 },
             }
         )
-    if _options_detail_mode(detail) == "full":
+    detail_mode = _options_detail_mode(detail)
+    if detail_mode == "full":
         from ..bootstrap.settings import options_data_config
 
         payload["tradier_docs"] = "https://documentation.tradier.com/"
         payload["base_url"] = getattr(options_data_config, "base_url", None)
-    elif invalid_provider:
-        payload["remediation_hint"] = (
-            "Correct MTDATA_OPTIONS_PROVIDER; Yahoo is only the effective fallback."
-        )
-        payload["next_steps"] = [
-            "Set MTDATA_OPTIONS_PROVIDER to auto, tradier, or yahoo.",
-            "If using Tradier, set MTDATA_OPTIONS_API_KEY, then restart mtdata.",
-        ]
-    elif payload.get("action_required") and payload.get("remediation"):
-        payload["remediation_hint"] = (
-            "Reliable options-chain access requires Tradier credentials."
-        )
-        payload["next_steps"] = [
-            "Set MTDATA_OPTIONS_PROVIDER=tradier.",
-            "Set MTDATA_OPTIONS_API_KEY to a Tradier API token, then restart mtdata.",
-            "Yahoo cookie/crumb fallback is best-effort and may still return 401/429.",
-        ]
-        payload.pop("remediation", None)
-    elif payload.get("recommendation"):
-        payload["recommendation_hint"] = (
-            "Anonymous Yahoo supports requests but live data health was not checked."
-        )
+    else:
+        compact = {
+            key: payload[key]
+            for key in _OPTIONS_PROVIDER_STATUS_COMPACT_FIELDS
+            if key in payload and payload[key] is not None
+        }
+        compact["detail"] = "compact"
+        payload = compact
     return _run_options_operation(
         "options_provider_status",
         detail=detail,
@@ -794,6 +939,19 @@ def options_chain(
     option_type: Literal["call", "put", "both"] = "both",  # type: ignore
     min_open_interest: Annotated[int, Field(ge=0)] = 0,
     min_volume: Annotated[int, Field(ge=0)] = 0,
+    min_strike: Optional[float] = None,
+    max_strike: Optional[float] = None,
+    min_moneyness_pct: Optional[float] = None,
+    max_moneyness_pct: Optional[float] = None,
+    quote_usable_only: bool = False,
+    max_quote_age_seconds: Optional[int] = None,
+    sort_by: Literal[
+        "nearest_strike",
+        "strike",
+        "open_interest",
+        "volume",
+        "moneyness_pct",
+    ] = "nearest_strike",  # type: ignore
     limit: Annotated[Optional[int], Field(ge=1)] = None,
     offset: Annotated[int, Field(ge=0)] = 0,
     detail: DetailLiteral = "compact",  # type: ignore
@@ -810,9 +968,12 @@ def options_chain(
     Compact output defaults to the 20 contracts nearest the underlying price,
     balanced across calls and puts. Full detail defaults to 200 contracts.
     Pass ``limit`` explicitly to override either default and ``offset`` to
-    request the next deterministic page. Underlying freshness, per-contract
-    timestamp/quote usability, and aggregate chain quality are reported
-    separately; a fresh underlying does not qualify stale option contracts.
+    request the next independent live page. Strike and moneyness filters, and
+    ``quote_usable_only``, apply before pagination. Moneyness is
+    ``(strike / underlying_price - 1) * 100``. Quote usability requires a
+    provider quote timestamp; last-trade recency is reported separately and is
+    not treated as quote freshness. Offset pages are independent live queries,
+    not a cursor over one immutable snapshot.
     """
     from ..services.options_service import get_options_chain as _impl
 
@@ -841,6 +1002,27 @@ def options_chain(
         if detail_mode == "full"
         else 20
     )
+    sort_value = str(sort_by or "nearest_strike").strip().lower()
+    if sort_value not in _OPTIONS_CHAIN_SORT_BY:
+        sort_error = {
+            "success": False,
+            "error": (
+                f"Invalid sort_by: {sort_by}. Use "
+                + "|".join(_OPTIONS_CHAIN_SORT_BY)
+                + "."
+            ),
+            "error_code": "invalid_input",
+            "parameter": "sort_by",
+            "value": sort_by,
+            "valid_values": list(_OPTIONS_CHAIN_SORT_BY),
+        }
+        return _run_options_operation(
+            "options_chain",
+            symbol=symbol_value,
+            expiration=expiration_value,
+            detail=detail,
+            func=lambda: sort_error,
+        )
     input_error = next(
         (
             error
@@ -851,6 +1033,21 @@ def options_chain(
                 _validate_options_integer("min_volume", min_volume, minimum=0),
                 _validate_options_integer("limit", effective_limit, minimum=1),
                 _validate_options_integer("offset", offset, minimum=0),
+                _validate_options_optional_number("min_strike", min_strike),
+                _validate_options_optional_number("max_strike", max_strike),
+                _validate_options_optional_number(
+                    "min_moneyness_pct",
+                    min_moneyness_pct,
+                ),
+                _validate_options_optional_number(
+                    "max_moneyness_pct",
+                    max_moneyness_pct,
+                ),
+                _validate_options_optional_number(
+                    "max_quote_age_seconds",
+                    max_quote_age_seconds,
+                    minimum=0,
+                ),
             )
             if error is not None
         ),
@@ -893,6 +1090,13 @@ def options_chain(
                     option_type=option_type,
                     min_open_interest=int(min_open_interest),
                     min_volume=int(min_volume),
+                    min_strike=min_strike,
+                    max_strike=max_strike,
+                    min_moneyness_pct=min_moneyness_pct,
+                    max_moneyness_pct=max_moneyness_pct,
+                    quote_usable_only=bool(quote_usable_only),
+                    max_quote_age_seconds=max_quote_age_seconds,
+                    sort_by=sort_value,
                     limit=effective_limit,
                     offset=int(offset),
                 ),
@@ -1021,7 +1225,12 @@ def options_heston_calibrate(
     maturity_basis: Literal["calendar_days", "business_days"] = "calendar_days",  # type: ignore
     detail: DetailLiteral = "compact",  # type: ignore
 ) -> Dict[str, Any]:
-    """Calibrate Heston from the configured options-chain provider.
+    """Calibrate a single-expiry Heston smile from the options-chain provider.
+
+    This is a cross-sectional fit to one expiration, not a term-structure
+    calibration. Mean-reversion speed (kappa) and long-run variance (theta)
+    are weakly identified from a single smile slice and should not be used
+    as general dynamics for other maturities.
 
     Tradier requires MTDATA_OPTIONS_API_KEY. Yahoo Finance uses anonymous
     cookie/crumb negotiation and may still return 401 responses. When provider mode is `tradier` or
@@ -1032,12 +1241,13 @@ def options_heston_calibrate(
     `maturity_basis` to override the default `UnitedStates.NYSE` /
     `calendar_days` maturity assumptions. The selected expiry must be at least
     seven calendar days after the chain observation date. Calibration requires
-    at least five current, two-sided contracts observed within 15 minutes of
-    the underlying timestamp. The fit is not attempted when that input gate
-    fails. Fits that hit parameter or IV-error quality gates return
-    `success=false`, `usable_for_pricing=false`, and
-    `calibration_status=rejected`, while preserving fitted parameters for
-    diagnostics.
+    at least five current, two-sided contracts whose last trade is within 15
+    minutes of the underlying timestamp. Providers do not supply option quote
+    timestamps, so this gate is a last-trade proxy rather than quote
+    freshness. The fit is not attempted when that input gate fails. Fits that
+    hit parameter or IV-error quality gates return `success=false`,
+    `usable_for_pricing=false`, and `calibration_status=rejected`, while
+    preserving fitted parameters for diagnostics.
     """
     from ..forecast.quantlib_tools import (
         calibrate_heston_quantlib_from_options as _impl,
