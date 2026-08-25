@@ -1166,11 +1166,19 @@ def run_trade_risk_analyze(  # noqa: C901
                     rr_ratio = None
                     reward_status = "undefined"
                     risk_status = "undefined"
-                    is_buy_position = (
-                        validation._resolve_position_side(pos, gateway) or "SELL"
-                    ) == "BUY"
+                    side = validation._resolve_position_side(pos, gateway)
+                    is_buy_position = side == "BUY"
 
-                    if sl_price and tick_size > 0 and tick_value_valid:
+                    if side is None:
+                        risk_calculation_failures.append(
+                            {
+                                "ticket": getattr(pos, "ticket", None),
+                                "symbol": getattr(pos, "symbol", None),
+                                "error": "Unable to determine position side.",
+                                "error_type": "UnknownPositionSide",
+                            }
+                        )
+                    elif sl_price and tick_size > 0 and tick_value_valid:
                         risk_ticks = (
                             price_delta_ticks(mark_price, sl_price, tick_size)
                             if is_buy_position
@@ -1233,7 +1241,7 @@ def run_trade_risk_analyze(  # noqa: C901
                         {
                             "ticket": pos.ticket,
                             "symbol": pos.symbol,
-                            "type": "BUY" if is_buy_position else "SELL",
+                            "type": side or "UNKNOWN",
                             "volume": volume,
                             "volume_unit": "broker_lot",
                             "contract_size": round(contract_size, 6),
@@ -2829,7 +2837,16 @@ def run_trade_stress_test(
             )
             continue
         shocked_price = current_price * (1.0 + shock_value / 100.0)
-        side = validation._resolve_position_side(position, gateway) or "SELL"
+        side = validation._resolve_position_side(position, gateway)
+        if side is None:
+            warnings_out.append(
+                {
+                    "ticket": getattr(position, "ticket", None),
+                    "symbol": symbol,
+                    "warning": "Unable to determine position side.",
+                }
+            )
+            continue
         side_sign = 1.0 if side == "BUY" else -1.0
         ticks_moved = (shocked_price - current_price) / tick_size
         raw_pnl_sign = side_sign * ticks_moved
@@ -2917,6 +2934,7 @@ def run_trade_stress_test(
     if warnings_out:
         result["warnings"] = warnings_out
         result["partial_failure"] = True
+        result["completeness"] = False
     result.update(
         _position_mark_freshness(
             gateway,
@@ -3366,7 +3384,14 @@ def run_trade_var_cvar_calculate(  # noqa: C901
             )
             continue
 
-        side = validation._resolve_position_side(position, gateway) or "SELL"
+        side = validation._resolve_position_side(position, gateway)
+        if side is None:
+            _record_valuation_failure(
+                position,
+                symbol=symbol,
+                error="Unable to determine position side.",
+            )
+            continue
         side_sign = 1.0 if side == "BUY" else -1.0
         account_notional = _linearized_account_currency_notional(
             volume=volume,
