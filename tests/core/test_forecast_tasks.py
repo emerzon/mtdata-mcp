@@ -522,6 +522,21 @@ class TestForecastTaskList:
             row["adapter_method"] == "statsforecast" for row in family["tasks"]
         )
 
+    def test_empty_list_hint_names_only_task_producers(self):
+        from mtdata.core.forecast_tasks import forecast_task_list
+
+        mock_tm = MagicMock()
+        mock_tm.list_tasks.return_value = []
+        mock_tm.runtime_snapshot.return_value = {}
+
+        with patch(_PATCH_TM, return_value=mock_tm):
+            result = _unwrap(forecast_task_list)(status_filter="running")
+
+        assert result["success"] is True
+        assert result["count"] == 0
+        assert "forecast_train" in result["hint"]
+        assert "forecast_backtest_run" not in result["hint"]
+
     @pytest.mark.parametrize(
         ("kwargs", "error_code"),
         [

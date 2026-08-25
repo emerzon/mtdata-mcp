@@ -1243,8 +1243,9 @@ def forecast_task_list(
             else:
                 out["message"] = "No forecast tasks found."
             out["hint"] = (
-                "Create tasks with forecast_train or forecast_backtest_run; "
-                "status_filter values: pending,running,completed,failed,cancelled."
+                "Create tasks with forecast_train (interactive shell, MCP, or "
+                "Web API can submit without waiting). status_filter values: "
+                "pending,running,completed,failed,cancelled."
             )
         return out
 
