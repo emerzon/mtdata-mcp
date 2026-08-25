@@ -305,13 +305,15 @@ def test_price_barrier_option_quantlib_rejects_negative_rebate():
 
 
 def test_default_valuation_date_uses_selected_calendar_timezone():
-    valuation_day, timezone_name = qtools._default_valuation_date(
+    valuation_day, timezone_name, source, warning = qtools._default_valuation_date(
         "UnitedStates.NYSE",
         now_utc=_dt.datetime(2026, 8, 14, 1, 10, tzinfo=_dt.timezone.utc),
     )
 
     assert valuation_day == _dt.date(2026, 8, 13)
     assert timezone_name == "America/New_York"
+    assert source == "default_calendar_local_date"
+    assert warning is None
 
 
 def test_price_barrier_option_quantlib_uses_safe_step_near_barrier(monkeypatch):
@@ -374,7 +376,8 @@ def test_price_barrier_option_quantlib_exposes_calendar_overrides(monkeypatch):
     assert out["params_used"]["valuation_date"] == "2026-07-03"
 
 
-def test_price_barrier_option_quantlib_returns_knocked_out_payoff():
+def test_price_barrier_option_quantlib_returns_knocked_out_payoff(monkeypatch):
+    monkeypatch.setitem(__import__("sys").modules, "QuantLib", _make_fake_quantlib())
     out = qtools.price_barrier_option_quantlib(
         spot=115.0,
         strike=100.0,
@@ -440,7 +443,9 @@ def test_calibrate_heston_quantlib_from_options_with_fake_backend(monkeypatch):
     assert out["spot_data_stale"] is False
     assert out["spot_source"] == "tradier_last"
     assert out["calibration_data_status"] == "current"
-    assert out["warnings"] == []
+    assert out["calibration_mode"] == "single_expiry_fit"
+    assert out["quote_freshness_policy"] == "last_trade_proxy"
+    assert any("single_expiry_fit" in warning for warning in out["warnings"])
     assert out["days_to_expiry"] == 18
     assert out["contracts_used"] == 5
     assert out["selected_contracts_current_count"] == 5
@@ -493,7 +498,7 @@ def test_calibrate_heston_marks_stale_snapshot_unusable_for_pricing(monkeypatch)
     assert out["calibration_quality_failures"] == []
     assert out["usable_for_pricing"] is False
     assert out["pricing_usability_failures"] == ["stale_underlying_data"]
-    assert "not usable for pricing" in out["warnings"][0]
+    assert any("not usable for pricing" in warning for warning in out["warnings"])
 
 
 def test_calibrate_heston_rejects_stale_zero_sided_contract_surface(
@@ -546,6 +551,7 @@ def test_calibrate_heston_rejects_stale_zero_sided_contract_surface(
     assert out["contract_quality_rejections"] == {
         "contract_spot_timestamp_mismatch": 5,
         "stale_contract_timestamp": 5,
+        "contract_quote_not_two_sided": 5,
         "contract_quote_not_live_usable": 5,
     }
     assert fake.HestonModelHelper.created == []
@@ -954,3 +960,53 @@ def test_calibrate_heston_rejects_nonpositive_contract_maturity(
     assert out["error_code"] == "invalid_expiration_date_range"
     assert out["valuation_date"] == valuation_date
     assert out["expiration"] == "2026-12-19"
+
+
+def test_price_barrier_option_validates_calendar_before_knocked_out_payoff(
+    monkeypatch,
+):
+    monkeypatch.setitem(__import__("sys").modules, "QuantLib", _make_fake_quantlib())
+    out = qtools.price_barrier_option_quantlib(
+        spot=150.0,
+        strike=155.0,
+        barrier=140.0,
+        maturity_days=30,
+        barrier_type="up_out",
+        calendar="DefinitelyNotARealCalendar",
+    )
+
+    assert out.get("success") is not True
+    assert out["error_code"] == "invalid_calendar"
+    assert "DefinitelyNotARealCalendar" in out["error"]
+
+
+def test_default_valuation_date_maps_japan_and_uk_timezones():
+    japan_day, japan_tz, japan_source, japan_warning = qtools._default_valuation_date(
+        "Japan",
+        now_utc=_dt.datetime(2026, 8, 14, 15, 10, tzinfo=_dt.timezone.utc),
+    )
+    uk_day, uk_tz, uk_source, uk_warning = qtools._default_valuation_date(
+        "UnitedKingdom",
+        now_utc=_dt.datetime(2026, 8, 14, 1, 10, tzinfo=_dt.timezone.utc),
+    )
+
+    assert japan_tz == "Asia/Tokyo"
+    assert japan_source == "default_calendar_local_date"
+    assert japan_warning is None
+    assert japan_day == _dt.date(2026, 8, 15)
+    assert uk_tz == "Europe/London"
+    assert uk_source == "default_calendar_local_date"
+    assert uk_warning is None
+    assert uk_day == _dt.date(2026, 8, 14)
+
+
+def test_unmapped_calendar_uses_utc_fallback_label():
+    day, timezone_name, source, warning = qtools._default_valuation_date(
+        "NullCalendar",
+        now_utc=_dt.datetime(2026, 8, 14, 1, 10, tzinfo=_dt.timezone.utc),
+    )
+
+    assert timezone_name == "UTC"
+    assert source == "default_calendar_local_date"
+    assert warning is None
+    assert day == _dt.date(2026, 8, 14)

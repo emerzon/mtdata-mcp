@@ -16,9 +16,53 @@ _DEFAULT_MATURITY_BASIS = "calendar_days"
 _HESTON_CONTRACT_SPOT_SKEW_LIMIT_SECONDS = 900.0
 _QUANTLIB_CALENDAR_TIMEZONES = {
     "NullCalendar": "UTC",
+    "WeekendsOnly": "UTC",
     "TARGET": "Europe/Brussels",
+    "UnitedStates": "America/New_York",
     "UnitedStates.NYSE": "America/New_York",
+    "UnitedStates.GovernmentBond": "America/New_York",
+    "UnitedStates.Settlement": "America/New_York",
+    "Japan": "Asia/Tokyo",
+    "UnitedKingdom": "Europe/London",
+    "UnitedKingdom.Exchange": "Europe/London",
+    "UnitedKingdom.Settlement": "Europe/London",
+    "Canada": "America/Toronto",
+    "Canada.TSX": "America/Toronto",
+    "Australia": "Australia/Sydney",
+    "HongKong": "Asia/Hong_Kong",
+    "Switzerland": "Europe/Zurich",
+    "Germany": "Europe/Berlin",
+    "Germany.FrankfurtStockExchange": "Europe/Berlin",
+    "SouthKorea": "Asia/Seoul",
+    "China": "Asia/Shanghai",
+    "India": "Asia/Kolkata",
+    "Brazil": "America/Sao_Paulo",
+    "Italy": "Europe/Rome",
+    "France": "Europe/Paris",
+    "Singapore": "Asia/Singapore",
+    "Taiwan": "Asia/Taipei",
+    "Poland": "Europe/Warsaw",
+    "Sweden": "Europe/Stockholm",
+    "Denmark": "Europe/Copenhagen",
+    "Norway": "Europe/Oslo",
+    "Finland": "Europe/Helsinki",
+    "NewZealand": "Pacific/Auckland",
+    "SouthAfrica": "Africa/Johannesburg",
+    "Mexico": "America/Mexico_City",
+    "Argentina": "America/Argentina/Buenos_Aires",
+    "Hungary": "Europe/Budapest",
+    "CzechRepublic": "Europe/Prague",
+    "Iceland": "Atlantic/Reykjavik",
+    "Russia": "Europe/Moscow",
+    "SaudiArabia": "Asia/Riyadh",
+    "Thailand": "Asia/Bangkok",
+    "Turkey": "Europe/Istanbul",
+    "Israel": "Asia/Jerusalem",
 }
+_HESTON_SINGLE_EXPIRY_LIMITATIONS = [
+    "single_expiry_fit: kappa and theta are weakly identified from one smile slice",
+    "do not treat fitted parameters as a general Heston term-structure calibration",
+]
 
 
 def _build_bs_merton_process(
@@ -71,19 +115,35 @@ def _normalize_maturity_basis(maturity_basis: Any) -> str:
     return value
 
 
-def _valuation_timezone_for_calendar(calendar_name: Any) -> str:
+def _valuation_timezone_for_calendar(calendar_name: Any) -> Optional[str]:
     normalized_name = _normalize_quantlib_calendar_name(calendar_name)
-    return _QUANTLIB_CALENDAR_TIMEZONES.get(normalized_name, "UTC")
+    return _QUANTLIB_CALENDAR_TIMEZONES.get(normalized_name)
 
 
 def _default_valuation_date(
     calendar_name: Any,
     *,
     now_utc: Optional[_dt.datetime] = None,
-) -> tuple[_dt.date, str]:
-    timezone_name = _valuation_timezone_for_calendar(calendar_name)
+) -> tuple[_dt.date, str, str, Optional[str]]:
+    mapped_timezone = _valuation_timezone_for_calendar(calendar_name)
+    if mapped_timezone is None:
+        timezone_name = "UTC"
+        source = "utc_fallback"
+        warning = (
+            f"No IANA timezone is mapped for calendar {calendar_name!r}; "
+            "valuation_date used UTC. Pass valuation_date explicitly."
+        )
+    else:
+        timezone_name = mapped_timezone
+        source = "default_calendar_local_date"
+        warning = None
     current_utc = now_utc or _dt.datetime.now(_dt.timezone.utc)
-    return current_utc.astimezone(ZoneInfo(timezone_name)).date(), timezone_name
+    return (
+        current_utc.astimezone(ZoneInfo(timezone_name)).date(),
+        timezone_name,
+        source,
+        warning,
+    )
 
 
 def _resolve_quantlib_calendar(ql: Any, calendar_name: Any) -> tuple[Any, str]:
@@ -206,10 +266,27 @@ def price_barrier_option_quantlib(
     except ValueError as ex:
         return {"error": str(ex)}
     calendar_name = _normalize_quantlib_calendar_name(calendar)
-    valuation_timezone = _valuation_timezone_for_calendar(calendar_name)
+    try:
+        import QuantLib as ql
+    except Exception as ex:
+        return {"error": f"QuantLib is required: {ex}"}
+    try:
+        calendar_obj, calendar_name = _resolve_quantlib_calendar(ql, calendar_name)
+    except ValueError as ex:
+        return {
+            "error": str(ex),
+            "error_code": "invalid_calendar",
+            "parameter": "calendar",
+            "value": calendar,
+        }
+    valuation_warning: Optional[str] = None
     if valuation_date is None:
-        valuation_day, valuation_timezone = _default_valuation_date(calendar_name)
-        valuation_date_source = "default_calendar_local_date"
+        (
+            valuation_day,
+            valuation_timezone,
+            valuation_date_source,
+            valuation_warning,
+        ) = _default_valuation_date(calendar_name)
     else:
         try:
             valuation_day = _dt.datetime.strptime(
@@ -222,6 +299,7 @@ def price_barrier_option_quantlib(
                     f"Invalid valuation_date: {valuation_date}. Use YYYY-MM-DD."
                 )
             }
+        valuation_timezone = _valuation_timezone_for_calendar(calendar_name) or "UTC"
         valuation_date_source = "explicit"
 
     barrier_status = _barrier_option_status(
@@ -245,7 +323,7 @@ def price_barrier_option_quantlib(
             maturity_basis=maturity_basis_norm,
             valuation_date=valuation_day.isoformat(),
         )
-        return {
+        knocked_out: Dict[str, Any] = {
             "success": True,
             "price": float(rebate_val),
             "status": "knocked_out",
@@ -265,19 +343,12 @@ def price_barrier_option_quantlib(
             ),
             "params_used": params_used,
         }
-
-    try:
-        import QuantLib as ql
-    except Exception as ex:
-        return {"error": f"QuantLib is required: {ex}"}
-
-    try:
-        calendar_obj, calendar_name = _resolve_quantlib_calendar(ql, calendar_name)
-    except ValueError as ex:
-        return {"error": str(ex)}
+        if valuation_warning:
+            knocked_out["warnings"] = [valuation_warning]
+        return knocked_out
 
     if barrier_status == "knocked_in":
-        return _price_knocked_in_as_vanilla(
+        knocked_in = _price_knocked_in_as_vanilla(
             ql=ql,
             spot_val=spot_val,
             strike_val=strike_val,
@@ -296,6 +367,13 @@ def price_barrier_option_quantlib(
             valuation_timezone=valuation_timezone,
             valuation_date_source=valuation_date_source,
         )
+        if (
+            valuation_warning
+            and isinstance(knocked_in, dict)
+            and knocked_in.get("success")
+        ):
+            knocked_in["warnings"] = [valuation_warning]
+        return knocked_in
 
     opt_map = {"call": ql.Option.Call, "put": ql.Option.Put}
     barrier_map = {
@@ -415,6 +493,7 @@ def price_barrier_option_quantlib(
         "greeks_method": greeks_method,
         "greeks_spot_step": float(eps_s),
         **({"greeks_warnings": greeks_warnings} if greeks_warnings else {}),
+        **({"warnings": [valuation_warning]} if valuation_warning else {}),
         "pricing_assumptions": _quantlib_pricing_assumptions(
             "BlackScholesMerton analytic barrier",
             calendar=calendar_name,
@@ -650,7 +729,15 @@ def _heston_contract_quality(
             if row.get("contract_data_stale") is True
             else "contract_freshness_unqualified"
         )
-    if row.get("quote_usable_for_live_analysis") is not True:
+    if row.get("quote_quality") not in (None, "two_sided"):
+        failures.append("contract_quote_not_two_sided")
+    last_trade_proxy = row.get("last_trade_recent_and_market_two_sided")
+    if last_trade_proxy is False:
+        failures.append("last_trade_not_recent_or_market_not_two_sided")
+    elif (
+        last_trade_proxy is not True
+        and row.get("quote_usable_for_live_analysis") is not True
+    ):
         failures.append("contract_quote_not_live_usable")
     return failures, skew_seconds
 
@@ -723,7 +810,9 @@ def calibrate_heston_quantlib_from_options(  # noqa: C901
             except (TypeError, ValueError):
                 continue
         listed_expirations = sorted(set(listed_expirations))
-        valuation_timezone = _valuation_timezone_for_calendar(calendar_name)
+        valuation_timezone = (
+            _valuation_timezone_for_calendar(calendar_name) or "UTC"
+        )
         if valuation_date is not None:
             selection_day = _dt.datetime.strptime(
                 str(valuation_date).strip(), "%Y-%m-%d"
@@ -823,7 +912,9 @@ def calibrate_heston_quantlib_from_options(  # noqa: C901
                 "underlying_as_of timestamp."
             ),
         }
-    valuation_timezone = _valuation_timezone_for_calendar(calendar_name)
+    valuation_timezone = (
+        _valuation_timezone_for_calendar(calendar_name) or "UTC"
+    )
     observation_day = _chain_observation_date(
         spot_as_of,
         timezone_name=valuation_timezone,
@@ -1102,7 +1193,8 @@ def calibrate_heston_quantlib_from_options(  # noqa: C901
     selected_contracts_quote_usable_count = sum(
         1
         for row in rows
-        if row.get("quote_usable_for_live_analysis") is True
+        if row.get("last_trade_recent_and_market_two_sided") is True
+        or row.get("quote_usable_for_live_analysis") is True
     )
     selected_contract_max_spot_skew_seconds = max(
         (
@@ -1127,15 +1219,18 @@ def calibrate_heston_quantlib_from_options(  # noqa: C901
         if spot_data_stale is False and selected_contracts_qualified
         else "unqualified"
     )
-    warnings = (
-        [
+    warnings = [
+        "Calibration mode is single_expiry_fit; kappa and theta are weakly "
+        "identified from one expiration and are not a term-structure surface.",
+        "Contract selection uses last-trade recency as a quote-freshness "
+        "proxy because providers do not supply option quote timestamps.",
+    ]
+    if calibration_data_stale:
+        warnings.append(
             "Heston calibration used a stale underlying quote; the "
             "fitted parameters are not usable for pricing until a current "
             "snapshot is calibrated."
-        ]
-        if calibration_data_stale
-        else []
-    )
+        )
     if spot_data_stale is not False and not calibration_data_stale:
         warnings.append(
             "Underlying quote freshness is unqualified; the fitted parameters "
@@ -1200,6 +1295,9 @@ def calibrate_heston_quantlib_from_options(  # noqa: C901
         ),
         "symbol": str(symbol).upper().strip(),
         "expiration": expiry_text,
+        "calibration_mode": "single_expiry_fit",
+        "identification_limitations": list(_HESTON_SINGLE_EXPIRY_LIMITATIONS),
+        "quote_freshness_policy": "last_trade_proxy",
         **(
             {"expiration_selection": expiration_selection}
             if expiration_selection is not None
