@@ -746,16 +746,18 @@ class TestFormatForecastOutput:
                 quantity="price", denoise_used=False,
             )
         assert result["last_observation_epoch"] == 1000.0
+        assert result["last_bar_open"] == _format_time_minimal(1000.0)
         assert result["forecast_start_epoch"] == 1300.0
-        assert result["last_observation_time"] == _format_time_minimal(1000.0)
+        assert result["last_observation_time"] == _format_time_minimal(1300.0)
+        assert result["data_as_of"] == _format_time_minimal(1300.0)
         assert result["forecast_start_time"] == _format_time_minimal(1300.0)
         assert result["forecast_start_gap_bars"] == 1.0
         assert result["forecast_step_seconds"] == 300
         assert result["forecast_anchor"] == "next_timeframe_bar_after_last_observation"
         assert result["timezone"] == "UTC"
         assert result["forecast_from"] == {
-            "time": _format_time_minimal(1000.0),
-            "anchor": "last_observation",
+            "time": _format_time_minimal(1300.0),
+            "anchor": "last_completed_bar_close",
         }
 
     def test_forecast_timezone_uses_resolved_client_zone_label(self):

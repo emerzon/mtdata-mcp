@@ -33,7 +33,13 @@ simulated bar closes count. For a TP/SL pair, the bridge samples each barrier
 independently; `bridge_joint_first_passage: false` marks the resulting
 same-bar ordering as an approximation. Methods that evaluate only simulated
 closes report `intra_bar_hit_detection: simulated_bar_close` and emit an
-undercount warning.
+undercount warning. Close-only methods such as `mc_gbm` cannot observe dual
+intrabar hits, so a non-default `same_bar_policy` is rejected with guidance to
+use `mc_gbm_bb`. The default `sl_first` is recorded as
+`same_bar_policy_applied=false` / `same_bar_policy_reason=close_only_path`.
+Compact output keeps Wilson intervals, `n_sims`, `history_bars_used`, and a
+concise `history_window` so probability edges can be judged against sampling
+error.
 
 ### 2) Search for “good” TP/SL levels
 

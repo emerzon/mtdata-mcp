@@ -282,6 +282,22 @@ class ForecastBacktestRequest(_PublicForecastRequest):
     features: Optional[Dict[str, Any]] = None
     dimred: Optional[DimensionalityReductionSpec] = None
     slippage_bps: FiniteFloat = Field(0.0, ge=0.0)
+    spread_bps: Optional[float] = Field(
+        None,
+        ge=0.0,
+        description=(
+            "Explicit round-trip spread in basis points deducted from every "
+            "simulated trade. Omit to leave spread unmodeled."
+        ),
+    )
+    commission_bps_per_side: Optional[float] = Field(
+        None,
+        ge=0.0,
+        description=(
+            "Explicit commission in basis points per side, deducted twice per "
+            "simulated round-trip. Omit to leave commission unmodeled."
+        ),
+    )
     trade_threshold: float = Field(0.0, ge=0.0)
     detail: DetailLiteral = "compact"
 
@@ -459,6 +475,23 @@ class _ForecastTuneRequestBase(_PublicForecastRequest):
         0.0,
         ge=0.0,
         description="Execution slippage in basis points per side, deducted from every simulated trade.",
+    )
+    spread_bps: Optional[float] = Field(
+        None,
+        ge=0.0,
+        description=(
+            "Explicit round-trip spread in basis points. Required with "
+            "commission_bps_per_side when optimizing a trading metric."
+        ),
+    )
+    commission_bps_per_side: Optional[float] = Field(
+        None,
+        ge=0.0,
+        description=(
+            "Explicit commission in basis points per side. Required with "
+            "spread_bps when optimizing a trading metric. Pass 0 to model "
+            "zero commission."
+        ),
     )
     trade_threshold: float = Field(0.0, ge=0.0)
     denoise: DenoiseSpecInput = None
@@ -699,6 +732,23 @@ class ForecastOptimizeHintsRequest(_PublicForecastRequest):
         0.0,
         ge=0.0,
         description="Execution slippage in basis points per side, deducted from every simulated trade.",
+    )
+    spread_bps: Optional[float] = Field(
+        None,
+        ge=0.0,
+        description=(
+            "Explicit round-trip spread in basis points. Required with "
+            "commission_bps_per_side when optimizing a trading metric."
+        ),
+    )
+    commission_bps_per_side: Optional[float] = Field(
+        None,
+        ge=0.0,
+        description=(
+            "Explicit commission in basis points per side. Required with "
+            "spread_bps when optimizing a trading metric. Pass 0 to model "
+            "zero commission."
+        ),
     )
     trade_threshold: float = Field(0.0, ge=0.0)
     seed: int = 42

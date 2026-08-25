@@ -1479,7 +1479,7 @@ class TestFormatResultMinimal:
         assert "source_tool_calls" not in compact
         assert "source_tool_calls" in verbose
 
-    def test_compact_barrier_probability_output_hides_confidence_bands(self):
+    def test_compact_barrier_probability_output_keeps_wilson_intervals(self):
         payload = {
             "success": True,
             "symbol": "EURUSD",
@@ -1491,6 +1491,9 @@ class TestFormatResultMinimal:
             "probability_edge_definition": "prob_tp_first - prob_sl_first",
             "seed": 42,
             "seed_source": "request",
+            "n_sims": 1000,
+            "prob_tp_first_ci95": {"low": 0.48, "high": 0.56},
+            "history_bars_used": 2000,
             "confidence": {
                 "prob_tp_first_ci95": {"low": 0.48, "high": 0.56},
             },
@@ -1505,7 +1508,9 @@ class TestFormatResultMinimal:
         assert "prob_tp_first: 0.52" in compact
         assert "prob_sl_first: 0.48" in compact
         assert "confidence" not in compact
-        assert "ci95" not in compact
+        assert "prob_tp_first_ci95" in compact
+        assert "history_bars_used: 2000" in compact
+        assert "n_sims: 1000" in compact
         assert "seed: 42" in compact
         assert "seed_source: request" in compact
 

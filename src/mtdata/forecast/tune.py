@@ -44,6 +44,24 @@ def _tuning_units(metric: Any, quantity: Any) -> Dict[str, str]:
     return units
 
 
+def _copy_best_backtest_provenance(
+    payload: Dict[str, Any],
+    best_result: Optional[Dict[str, Any]],
+) -> None:
+    if not isinstance(best_result, dict):
+        return
+    window = best_result.get("analysis_time_window")
+    if isinstance(window, dict) and window:
+        payload["analysis_time_window"] = dict(window)
+    plan = best_result.get("backtest_plan")
+    if not isinstance(plan, dict):
+        return
+    if plan.get("model_lookback_bars") is not None:
+        payload["model_lookback_bars"] = plan.get("model_lookback_bars")
+    if plan.get("history_bars_used") is not None:
+        payload["history_bars_used"] = plan.get("history_bars_used")
+
+
 def _optimization_fitness_unit(metric: Any) -> str:
     metric_key = str(metric or "").strip()
     if metric_key == "composite":
@@ -402,6 +420,8 @@ def _eval_candidate(
     dimred_method: Optional[str] = None,
     dimred_params: Optional[Dict[str, Any]] = None,
     slippage_bps: float = 0.0,
+    spread_bps: Optional[float] = None,
+    commission_bps_per_side: Optional[float] = None,
     trade_threshold: float = 0.0,
 ) -> Tuple[float, Dict[str, Any]]:
     """Run a backtest for a single candidate and return (score, result_dict).
@@ -431,6 +451,8 @@ def _eval_candidate(
         dimred_method=dimred_method,
         dimred_params=dimred_params,
         slippage_bps=float(slippage_bps),
+        spread_bps=spread_bps,
+        commission_bps_per_side=commission_bps_per_side,
         trade_threshold=float(trade_threshold),
         detail="full",
     )
@@ -650,6 +672,8 @@ def optuna_search_forecast_params(  # noqa: C901
     dimred_method: Optional[str] = None,
     dimred_params: Optional[Dict[str, Any]] = None,
     slippage_bps: float = 0.0,
+    spread_bps: Optional[float] = None,
+    commission_bps_per_side: Optional[float] = None,
     trade_threshold: float = 0.0,
 ) -> Dict[str, Any]:
     """Optuna search for best params for a forecast method under backtest."""
@@ -770,6 +794,8 @@ def optuna_search_forecast_params(  # noqa: C901
             dimred_method=dimred_method,
             dimred_params=dimred_params,
             slippage_bps=float(slippage_bps),
+            spread_bps=spread_bps,
+            commission_bps_per_side=commission_bps_per_side,
             trade_threshold=float(trade_threshold),
         )
 
@@ -859,6 +885,7 @@ def optuna_search_forecast_params(  # noqa: C901
         payload["best_method"] = sel
         if isinstance(agg, dict):
             payload["best_result_summary"] = {"horizon": int(horizon), "result": agg}
+        _copy_best_backtest_provenance(payload, best_result)
     if history:
         compact_tail = _compact_optuna_history_tail(history, limit=10)
         payload["history_tail"] = compact_tail
@@ -920,6 +947,8 @@ def genetic_search_forecast_params(  # noqa: C901
     dimred_method: Optional[str] = None,
     dimred_params: Optional[Dict[str, Any]] = None,
     slippage_bps: float = 0.0,
+    spread_bps: Optional[float] = None,
+    commission_bps_per_side: Optional[float] = None,
     trade_threshold: float = 0.0,
 ) -> Dict[str, Any]:
     """Genetic search for best params for a forecast method under backtest.
@@ -1025,6 +1054,8 @@ def genetic_search_forecast_params(  # noqa: C901
                 dimred_method=dimred_method,
                 dimred_params=dimred_params,
                 slippage_bps=float(slippage_bps),
+                spread_bps=spread_bps,
+                commission_bps_per_side=commission_bps_per_side,
                 trade_threshold=float(trade_threshold),
             )
             scored.append((score, cand))
@@ -1159,6 +1190,7 @@ def genetic_search_forecast_params(  # noqa: C901
         payload["best_method"] = sel
         if isinstance(agg, dict):
             payload["best_result_summary"] = {"horizon": int(horizon), "result": agg}
+        _copy_best_backtest_provenance(payload, best_result)
     # Optional: compact history preview (keeps payload small)
     try:
         tail_n = 50
@@ -1195,6 +1227,8 @@ def genetic_search_optimize_hints(  # noqa: C901
     dimred_method: Optional[str] = None,
     dimred_params: Optional[Dict[str, Any]] = None,
     slippage_bps: float = 0.0,
+    spread_bps: Optional[float] = None,
+    commission_bps_per_side: Optional[float] = None,
     trade_threshold: float = 0.0,
     top_n: int = 5,
 ) -> Dict[str, Any]:
@@ -1332,6 +1366,8 @@ def genetic_search_optimize_hints(  # noqa: C901
             dimred_method=dimred_method,
             dimred_params=dimred_params,
             slippage_bps=float(slippage_bps),
+            spread_bps=spread_bps,
+            commission_bps_per_side=commission_bps_per_side,
             trade_threshold=float(trade_threshold),
         )
 
@@ -1644,6 +1680,7 @@ def genetic_search_optimize_hints(  # noqa: C901
         },
         'history_tail': history[-10:] if history else [],
     }
+    _copy_best_backtest_provenance(result, finite_pop[0][2])
 
     finite_scores = [
         float(item['fitness_score'])

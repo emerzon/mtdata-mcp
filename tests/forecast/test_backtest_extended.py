@@ -22,10 +22,12 @@ sys.modules["MetaTrader5"] = _mt5_mock
 
 from mtdata.forecast.backtest import (
     _compute_performance_metrics,
+    _net_forecast_trade_return,
     forecast_backtest,
+    forecast_cost_assumptions,
 )
-from mtdata.forecast.forecast_registry import get_forecast_methods_data
 from mtdata.forecast.common import bars_per_year as _bars_per_year
+from mtdata.forecast.forecast_registry import get_forecast_methods_data
 from mtdata.utils.time import _format_time_minimal, bar_close_epoch
 
 # ── Helper to build a fake df ────────────────────────────────────────────────
@@ -770,3 +772,27 @@ def test_backtest_vol_proxy_not_mutated_across_anchors() -> None:
     proxies = [c.kwargs.get("proxy") for c in mock_vol.call_args_list]
     assert proxies == ["abs_return", "abs_return"]
     assert params_per_method["ewma"]["proxy"] == "abs_return"
+
+
+def test_forecast_trade_costs_net_spread_and_commission() -> None:
+    net = _net_forecast_trade_return(
+        0.01,
+        slippage_bps=2.0,
+        spread_bps=1.0,
+        commission_bps_per_side=0.5,
+    )
+    # 2 * 2 + 1 + 2 * 0.5 = 6 bps round-trip
+    assert net == pytest.approx(0.01 - 0.0006)
+
+    modeled = forecast_cost_assumptions(
+        slippage_bps=2.0,
+        spread_bps=1.0,
+        commission_bps_per_side=0.0,
+    )
+    assert modeled["score_basis"] == "net_of_configured_costs"
+    assert modeled["spread_and_commission"] == "modeled"
+    assert modeled["complete"] is True
+
+    unmodeled = forecast_cost_assumptions(slippage_bps=2.0)
+    assert unmodeled["score_basis"] == "net_of_configured_slippage"
+    assert unmodeled["spread_and_commission"] == "not_modeled"

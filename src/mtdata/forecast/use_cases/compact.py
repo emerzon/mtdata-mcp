@@ -838,6 +838,9 @@ def _forecast_generate_data_window(payload: Dict[str, Any]) -> Optional[Dict[str
             else "includes_forming_bar"
         ),
     }
+    last_bar_open = payload.get("last_bar_open")
+    if last_bar_open not in (None, "", [], {}):
+        out["last_bar_open"] = last_bar_open
     diagnostics = payload.get("diagnostics")
     if isinstance(diagnostics, dict):
         for source_key, target_key in (
@@ -1104,6 +1107,7 @@ def _forecast_generate_summary_from_compact(compact: Dict[str, Any]) -> Dict[str
         "quantity",
         "data_as_of",
         "last_observation_time",
+        "last_bar_open",
         "timezone",
         "last_price",
         "last_price_source",
@@ -1225,6 +1229,7 @@ def _apply_forecast_generate_detail(  # noqa: C901
     for key in (
         "data_as_of",
         "last_observation_time",
+        "last_bar_open",
         "timezone",
         "forecast_time",
         "forecast_price",
@@ -1667,11 +1672,23 @@ def _apply_barrier_prob_detail(
         "bridge_dual_barrier_model",
         "bridge_joint_first_passage",
         "same_bar_policy",
+        "same_bar_policy_applied",
+        "same_bar_policy_reason",
         "n_sims",
         "seed",
         "seed_source",
+        "prob_tp_first_se",
+        "prob_sl_first_se",
+        "prob_same_bar_se",
+        "prob_no_hit_se",
+        "prob_tp_first_ci95",
+        "prob_sl_first_ci95",
+        "prob_same_bar_ci95",
+        "prob_no_hit_ci95",
+        "history_bars_used",
         "as_of",
         "data_as_of",
+        "last_bar_open",
         "execution_blockers",
         "remediation",
         "verdict",
@@ -1684,6 +1701,15 @@ def _apply_barrier_prob_detail(
         "sl_ticks",
     ):
         _set_if_present(compact, key, payload.get(key))
+    history_window = payload.get("history_window")
+    if isinstance(history_window, dict):
+        concise_window = {
+            key: history_window.get(key)
+            for key in ("start", "end", "bars_used")
+            if history_window.get(key) not in (None, "", [], {})
+        }
+        if concise_window:
+            compact["history_window"] = concise_window
     if payload.get("warnings") not in (None, "", [], {}):
         compact["warnings"] = payload.get("warnings")
     if set(compact) == {"success", "detail"}:
@@ -1968,10 +1994,12 @@ def _attach_analysis_time_window(
         "start": getattr(request, "start", None),
         "end": getattr(request, "end", None),
     }
+    lookback = getattr(request, "lookback", None)
     existing_window = result.get("analysis_time_window")
-    if not any(value not in (None, "") for value in values.values()) and not isinstance(
-        existing_window,
-        dict,
+    if (
+        not any(value not in (None, "") for value in values.values())
+        and lookback is None
+        and not isinstance(existing_window, dict)
     ):
         return result
     out = dict(result)
@@ -1982,6 +2010,8 @@ def _attach_analysis_time_window(
     window.update(
         {key: value for key, value in values.items() if value not in (None, "")}
     )
+    if lookback is not None:
+        window["lookback"] = int(lookback)
     data_window = out.get("data_window")
     if not isinstance(data_window, dict):
         data_window = out.get("history_window")

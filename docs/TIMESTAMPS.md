@@ -138,9 +138,10 @@ discontinuity in `session_gaps` and `gap_after_last_bar`. In that case,
 remain true because it describes the dominant interval, while
 `spacing_complete=false` describes the missing session interval.
 
-For completed-bar analytics, freshness ages are measured from bar close, even
-though `data_as_of` and row timestamps remain bar-open anchors. Forecast and
-volatility payloads identify this as
+For completed-bar analytics, `data_as_of` is the latest completed-bar close.
+MT5 row timestamps stay bar-open and are exposed as `last_bar_open` (forecast
+and barrier payloads) or the candle `time` column. Freshness ages are measured
+from that close; forecast and volatility payloads identify this as
 `latest_completed_bar_close_age_seconds`. Point-in-time `as_of` cutoffs must
 not be in the future; an unfulfillable future cutoff is rejected instead of
 falling back to current data.

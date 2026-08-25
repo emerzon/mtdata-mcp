@@ -14,6 +14,9 @@ from mtdata.core.execution_logging import (
 from mtdata.forecast.backtest import (
     execute_forecast_backtest as _forecast_backtest_impl,
 )
+from mtdata.forecast.backtest import (
+    forecast_cost_assumptions,
+)
 from mtdata.forecast.requests import ForecastBacktestRequest, StrategyBacktestRequest
 from mtdata.forecast.use_cases.compact import (
     _attach_analysis_time_window,
@@ -223,15 +226,20 @@ def _compact_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:  # noqa:
             "stop_loss": "none",
         },
     )
-    compact_out["cost_assumptions"] = {
-        "score_basis": (
-            "net_of_configured_slippage"
-            if slippage_bps > 0.0
-            else "gross_before_execution_costs"
-        ),
-        "slippage_bps_per_side": slippage_bps,
-        "spread_and_commission": "not_modeled",
-    }
+    existing_costs = compact_out.get("cost_assumptions")
+    if isinstance(existing_costs, dict) and existing_costs:
+        compact_out["cost_assumptions"] = dict(existing_costs)
+    else:
+        compact_out["cost_assumptions"] = forecast_cost_assumptions(
+            slippage_bps=slippage_bps,
+            spread_bps=compact_out.get("spread_bps"),
+            commission_bps_per_side=compact_out.get("commission_bps_per_side"),
+            trade_threshold=compact_out.get("trade_threshold"),
+        )
+    if compact_out.get("spread_bps") is None:
+        compact_out.pop("spread_bps", None)
+    if compact_out.get("commission_bps_per_side") is None:
+        compact_out.pop("commission_bps_per_side", None)
     if compact_out.get("trade_threshold") in (0, 0.0, None):
         compact_out.pop("trade_threshold", None)
     compact_out["methods_total"] = methods_total
@@ -364,6 +372,8 @@ def run_forecast_backtest(
             dimred_method=request.dimred_method,
             dimred_params=request.dimred_params,
             slippage_bps=request.slippage_bps,
+            spread_bps=request.spread_bps,
+            commission_bps_per_side=request.commission_bps_per_side,
             trade_threshold=request.trade_threshold,
             detail=request.detail,
         )

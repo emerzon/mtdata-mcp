@@ -149,13 +149,20 @@ timestamp-free generic fallback.
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `--slippage-bps` | 0.0 | Transaction cost in basis points (1 bp = 0.01%) |
+| `--slippage-bps` | 0.0 | Execution slippage in basis points per side (not a complete transaction-cost model) |
+| `--spread-bps` | unset | Explicit round-trip spread in basis points. Omit to leave spread unmodeled. |
+| `--commission-bps-per-side` | unset | Explicit commission in basis points per side, deducted twice per round-trip. Omit to leave commission unmodeled. |
 | `--trade-threshold` | 0.0 | Minimum expected return to trigger a trade |
+
+Slippage alone is not a complete transaction-cost model. Trading metrics are
+gross unless you also pass `--spread-bps` and `--commission-bps-per-side`
+(explicit `0` is a modeled zero). `cost_assumptions.spread_and_commission`
+reports `modeled` only when both are supplied.
 
 **Example with trading costs:**
 ```bash
-# Simulate 2 bps slippage per side (4 bps round-trip)
-mtdata-cli forecast_backtest_run EURUSD --horizon 12 --methods theta --slippage-bps 2 --trade-threshold 0.0005
+# 2 bps slippage per side, 1 bp round-trip spread, 0 commission
+mtdata-cli forecast_backtest_run EURUSD --horizon 12 --methods theta --slippage-bps 2 --spread-bps 1 --commission-bps-per-side 0 --trade-threshold 0.0005
 ```
 
 ### Preprocessing Options
@@ -229,7 +236,8 @@ baseline, so a below-reference result is not automatically invertible.
 
 ### Trading Performance Metrics
 
-When `slippage-bps` or `trade-threshold` is set:
+When `slippage-bps`, `spread-bps`, `commission-bps-per-side`, or
+`trade-threshold` is set:
 
 ```json
 {
@@ -335,6 +343,8 @@ mtdata-cli forecast_tune_genetic EURUSD --timeframe H1 --methods fourier_ols --h
 | `--steps` | 5 | Rolling-origin anchors evaluated for every candidate |
 | `--spacing` | 20 | Bars between anchors; must be at least the horizon when steps is greater than 1 |
 | `--slippage-bps` | `0` | Execution slippage per side; always disclosed in tuning output |
+| `--spread-bps` | unset | Round-trip spread in basis points. Required with `--commission-bps-per-side` when optimizing a trading metric. |
+| `--commission-bps-per-side` | unset | Commission per side in basis points. Required with `--spread-bps` when optimizing a trading metric. Pass `0` for a zero-commission assumption. |
 | `--trade-threshold` | `0` | Minimum expected return required to enter a simulated trade |
 | `--population` | 12 | Population size per generation (minimum 2) |
 | `--generations` | 10 | Number of generations |
@@ -405,7 +415,7 @@ Each method has sensible defaults. Examples:
 
 ```bash
 # Short horizon, tight spacing
-mtdata-cli forecast_backtest_run EURUSD --timeframe M5 --horizon 6 --methods "naive theta fourier_ols sf_autoarima" --steps 50 --spacing 12 --slippage-bps 1 --trade-threshold 0.0003
+mtdata-cli forecast_backtest_run EURUSD --timeframe M5 --horizon 6 --methods "naive theta fourier_ols sf_autoarima" --steps 50 --spacing 12 --slippage-bps 1 --spread-bps 1 --commission-bps-per-side 0 --trade-threshold 0.0003
 ```
 
 **What to look for:**
@@ -417,10 +427,10 @@ mtdata-cli forecast_backtest_run EURUSD --timeframe M5 --horizon 6 --methods "na
 
 ```bash
 # Step 1: Find an optimal Fourier period
-mtdata-cli forecast_tune_genetic EURUSD --timeframe H4 --methods fourier_ols --horizon 48 --steps 30 --spacing 48 --metric sharpe_ratio --mode auto --slippage-bps 2 --population 20 --generations 15
+mtdata-cli forecast_tune_genetic EURUSD --timeframe H4 --methods fourier_ols --horizon 48 --steps 30 --spacing 48 --metric sharpe_ratio --mode auto --slippage-bps 2 --spread-bps 1 --commission-bps-per-side 0 --population 20 --generations 15
 
 # Step 2: Backtest with optimal params
-mtdata-cli forecast_backtest_run EURUSD --timeframe H4 --horizon 48 --methods fourier_ols --params "seasonality=48 terms=3" --steps 50 --spacing 48 --slippage-bps 2
+mtdata-cli forecast_backtest_run EURUSD --timeframe H4 --horizon 48 --methods fourier_ols --params "seasonality=48 terms=3" --steps 50 --spacing 48 --slippage-bps 2 --spread-bps 1 --commission-bps-per-side 0
 ```
 
 ### Example 3: Compare Volatility Methods
@@ -485,11 +495,15 @@ the available history or the explicit `--lookback` before relying on the result
 ### Avoiding Overfitting
 
 1. **Use enough test points:** start with `steps` ≥ 20 for accuracy checks;
-   annualized metrics require at least 30
+   trading metrics (`win_rate`, Sharpe, drawdown, Kelly, and annualized
+   returns) require at least 30 observed trades, so `steps` must be ≥ 30
+   before the search starts
 2. **Test across timeframes:** Method should work on H1, H4, D1
 3. **Test across symbols:** Don't optimize for a single pair
 4. **Out-of-sample validation:** Reserve recent data for final test
-5. **Realistic costs:** Include `slippage-bps` and `trade-threshold`
+5. **Realistic costs:** Include `slippage-bps`, `spread-bps`,
+   `commission-bps-per-side`, and `trade-threshold`. Trading-metric searches
+   require the spread and commission fields even when they are zero.
 
 ---
 
@@ -532,7 +546,7 @@ mtdata-cli forecast_backtest_run GBPUSD --methods theta --steps 30
 | Task | Command |
 |------|---------|
 | Compare methods | `mtdata-cli forecast_backtest_run EURUSD --methods "theta arima analog" --steps 20` |
-| With trading costs | `--slippage-bps 2 --trade-threshold 0.0005` |
+| With trading costs | `--slippage-bps 2 --spread-bps 1 --commission-bps-per-side 0 --trade-threshold 0.0005` |
 | Volatility backtest | `--quantity volatility --methods "ewma garch"` |
 | With denoising | `--denoise ema --denoise-params "alpha=0.2"` |
 | Optimize params | `mtdata-cli forecast_tune_genetic EURUSD --methods fourier_ols --metric avg_rmse` |

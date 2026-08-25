@@ -11,6 +11,7 @@ from mtdata.core.execution_logging import (
     log_operation_finish,
     log_operation_start,
 )
+from mtdata.forecast.backtest import forecast_cost_assumptions
 from mtdata.forecast.forecast_methods import get_forecast_method_names
 from mtdata.forecast.forecast_registry import ForecastRegistry
 from mtdata.forecast.forecast_validation import format_invalid_method_error
@@ -22,6 +23,7 @@ from mtdata.forecast.requests import (
 from mtdata.forecast.tuning_contract import (
     ANNUALIZED_TUNING_METRICS,
     MIN_ANNUALIZED_TUNING_TRADES,
+    TRADING_TUNING_METRICS,
     TUNING_METRIC_DIRECTIONS,
     resolve_tuning_mode,
 )
@@ -104,18 +106,26 @@ def _validate_tuning_metric(metric: Any) -> Optional[Dict[str, Any]]:
     }
 
 
+def _trading_metric_requires_costs(metric: Any) -> bool:
+    metric_key = str(metric or "").strip().lower()
+    return (
+        metric_key in TRADING_TUNING_METRICS
+        or metric_key in ANNUALIZED_TUNING_METRICS
+    )
+
+
 def _validate_tuning_sample(metric: Any, steps: int) -> Optional[Dict[str, Any]]:
     metric_key = str(metric or "").strip().lower()
     if (
-        metric_key not in ANNUALIZED_TUNING_METRICS
+        not _trading_metric_requires_costs(metric_key)
         or int(steps) >= MIN_ANNUALIZED_TUNING_TRADES
     ):
         return None
     return {
         "success": False,
         "error": (
-            f"Metric '{metric_key}' requires at least "
-            f"{MIN_ANNUALIZED_TUNING_TRADES} successful trades, but steps={int(steps)} "
+            f"Trading metric '{metric_key}' requires at least "
+            f"{MIN_ANNUALIZED_TUNING_TRADES} observed trades, but steps={int(steps)} "
             "cannot produce that sample. Increase --steps before starting the search."
         ),
         "error_code": "insufficient_tuning_sample",
@@ -133,23 +143,52 @@ def _validate_tuning_sample(metric: Any, steps: int) -> Optional[Dict[str, Any]]
     }
 
 
+def _validate_tuning_costs(request: Any) -> Optional[Dict[str, Any]]:
+    metric = getattr(request, "metric", None) or getattr(request, "fitness_metric", None)
+    if not _trading_metric_requires_costs(metric):
+        return None
+    spread_bps = getattr(request, "spread_bps", None)
+    commission_bps = getattr(request, "commission_bps_per_side", None)
+    missing: List[str] = []
+    if spread_bps is None:
+        missing.append("spread_bps")
+    if commission_bps is None:
+        missing.append("commission_bps_per_side")
+    if not missing:
+        return None
+    metric_key = str(metric or "").strip().lower()
+    return {
+        "success": False,
+        "error": (
+            f"Trading metric '{metric_key}' requires a complete cost model. "
+            "Pass --spread-bps (round-trip) and --commission-bps-per-side "
+            "(explicit 0 is allowed)."
+        ),
+        "error_code": "incomplete_cost_model",
+        "metric": metric_key,
+        "missing_cost_parameters": missing,
+        "remediation": (
+            "Retry with --spread-bps and --commission-bps-per-side; use 0 if you "
+            "want a zero-cost assumption."
+        ),
+    }
+
+
 def _attach_tuning_assumptions(
     result: Dict[str, Any],
     *,
     slippage_bps: float,
     trade_threshold: float,
+    spread_bps: Optional[float] = None,
+    commission_bps_per_side: Optional[float] = None,
 ) -> Dict[str, Any]:
     out = dict(result)
-    out["cost_assumptions"] = {
-        "score_basis": (
-            "net_of_configured_slippage"
-            if float(slippage_bps) > 0.0
-            else "gross_before_execution_costs"
-        ),
-        "slippage_bps_per_side": float(slippage_bps),
-        "trade_threshold": float(trade_threshold),
-        "spread_and_commission": "not_modeled",
-    }
+    out["cost_assumptions"] = forecast_cost_assumptions(
+        slippage_bps=float(slippage_bps),
+        spread_bps=spread_bps,
+        commission_bps_per_side=commission_bps_per_side,
+        trade_threshold=float(trade_threshold),
+    )
     return out
 
 
@@ -169,11 +208,23 @@ def _attach_tuning_context(
         "methods": list(request.methods),
         "metric": str(request.metric),
         "seed": int(request.seed),
+        "lookback": (
+            int(request.lookback) if request.lookback is not None else None
+        ),
     }
     for key in ("as_of", "start", "end"):
         value = getattr(request, key, None)
         if value is not None:
             context[key] = value
+    window = out.get("analysis_time_window")
+    if isinstance(window, dict) and window:
+        context["analysis_time_window"] = dict(window)
+    if out.get("history_bars_used") is not None:
+        context["history_bars_used"] = out.get("history_bars_used")
+    if out.get("model_lookback_bars") is not None:
+        context["model_lookback_bars"] = out.get("model_lookback_bars")
+    elif request.lookback is not None:
+        context["model_lookback_bars"] = int(request.lookback)
     for key in ("symbol", "timeframe", "quantity", "horizon", "steps", "spacing"):
         out[key] = context[key]
     out["methods"] = list(context["methods"])
@@ -353,6 +404,36 @@ def _validate_tuning_parameter_names(
     }
 
 
+def _filter_units_to_present_fields(payload: Dict[str, Any]) -> Dict[str, Any]:
+    units = payload.get("units")
+    if not isinstance(units, dict) or not units:
+        return payload
+    present: set[str] = set()
+
+    def _collect(value: Any) -> None:
+        if isinstance(value, dict):
+            for key, nested in value.items():
+                if key == "units":
+                    continue
+                present.add(str(key))
+                _collect(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                _collect(nested)
+
+    _collect(payload)
+    filtered = {
+        key: unit
+        for key, unit in units.items()
+        if key in present
+    }
+    if filtered:
+        payload["units"] = filtered
+    else:
+        payload.pop("units", None)
+    return payload
+
+
 def _apply_tuning_detail(result: Dict[str, Any], detail: str) -> Dict[str, Any]:
     detail_value = _requested_detail_label(detail)
     out = dict(result)
@@ -368,7 +449,7 @@ def _apply_tuning_detail(result: Dict[str, Any], detail: str) -> Dict[str, Any]:
             out.setdefault("best_horizon", summary.get("horizon"))
         out["best_result_summary_omitted"] = "Use detail=full for nested backtest result details."
         out.pop("best_result_summary", None)
-    return out
+    return _filter_units_to_present_fields(out)
 
 
 def run_forecast_tune_genetic(
@@ -416,6 +497,20 @@ def run_forecast_tune_genetic(
     invalid_sample = _validate_tuning_sample(request.metric, request.steps)
     if invalid_sample is not None:
         result = _apply_tuning_detail(invalid_sample, request.detail)
+        log_operation_finish(
+            logger,
+            operation="forecast_tune_genetic",
+            started_at=started_at,
+            success=False,
+            symbol=request.symbol,
+            timeframe=request.timeframe,
+            method=request.method,
+            methods=len(request.methods or []),
+        )
+        return result
+    invalid_costs = _validate_tuning_costs(request)
+    if invalid_costs is not None:
+        result = _apply_tuning_detail(invalid_costs, request.detail)
         log_operation_finish(
             logger,
             operation="forecast_tune_genetic",
@@ -487,6 +582,8 @@ def run_forecast_tune_genetic(
                 else None
             ),
             slippage_bps=float(request.slippage_bps),
+            spread_bps=request.spread_bps,
+            commission_bps_per_side=request.commission_bps_per_side,
             trade_threshold=float(request.trade_threshold),
             denoise=request.denoise,
             features=request.features,
@@ -507,10 +604,12 @@ def run_forecast_tune_genetic(
     result = _attach_tuning_assumptions(
         result,
         slippage_bps=request.slippage_bps,
+        spread_bps=request.spread_bps,
+        commission_bps_per_side=request.commission_bps_per_side,
         trade_threshold=request.trade_threshold,
     )
-    result = _attach_tuning_context(result, request)
     result = _attach_analysis_time_window(result, request)
+    result = _attach_tuning_context(result, request)
     result = _apply_tuning_detail(result, request.detail)
     log_operation_finish(
         logger,
@@ -581,6 +680,20 @@ def run_forecast_tune_optuna(
             methods=len(request.methods or []),
         )
         return result
+    invalid_costs = _validate_tuning_costs(request)
+    if invalid_costs is not None:
+        result = _apply_tuning_detail(invalid_costs, request.detail)
+        log_operation_finish(
+            logger,
+            operation="forecast_tune_optuna",
+            started_at=started_at,
+            success=False,
+            symbol=request.symbol,
+            timeframe=request.timeframe,
+            method=request.method,
+            methods=len(request.methods or []),
+        )
+        return result
     invalid_search_space = _validate_tuning_search_space(request.search_space)
     if invalid_search_space is not None:
         result = _apply_tuning_detail(invalid_search_space, request.detail)
@@ -638,6 +751,8 @@ def run_forecast_tune_optuna(
             storage=str(request.storage) if request.storage is not None else None,
             seed=int(request.seed),
             slippage_bps=float(request.slippage_bps),
+            spread_bps=request.spread_bps,
+            commission_bps_per_side=request.commission_bps_per_side,
             trade_threshold=float(request.trade_threshold),
             denoise=request.denoise,
             features=request.features,
@@ -658,10 +773,12 @@ def run_forecast_tune_optuna(
     result = _attach_tuning_assumptions(
         result,
         slippage_bps=request.slippage_bps,
+        spread_bps=request.spread_bps,
+        commission_bps_per_side=request.commission_bps_per_side,
         trade_threshold=request.trade_threshold,
     )
-    result = _attach_tuning_context(result, request)
     result = _attach_analysis_time_window(result, request)
+    result = _attach_tuning_context(result, request)
     result = _apply_tuning_detail(result, request.detail)
     log_operation_finish(
         logger,
@@ -709,6 +826,9 @@ def run_forecast_optimize_hints(
     invalid_sample = _validate_tuning_sample(request.fitness_metric, request.steps)
     if invalid_sample is not None:
         return _apply_tuning_detail(invalid_sample, request.detail)
+    invalid_costs = _validate_tuning_costs(request)
+    if invalid_costs is not None:
+        return _apply_tuning_detail(invalid_costs, request.detail)
 
     try:
         result = optimize_hints_impl(
@@ -730,6 +850,8 @@ def run_forecast_optimize_hints(
             if request.max_search_time_seconds is not None
             else None,
             slippage_bps=float(request.slippage_bps),
+            spread_bps=request.spread_bps,
+            commission_bps_per_side=request.commission_bps_per_side,
             trade_threshold=float(request.trade_threshold),
             denoise=request.denoise,
             features=request.features,
@@ -750,6 +872,8 @@ def run_forecast_optimize_hints(
     result = _attach_tuning_assumptions(
         result,
         slippage_bps=request.slippage_bps,
+        spread_bps=request.spread_bps,
+        commission_bps_per_side=request.commission_bps_per_side,
         trade_threshold=request.trade_threshold,
     )
     result = _attach_analysis_time_window(result, request)

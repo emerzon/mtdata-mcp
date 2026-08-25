@@ -286,6 +286,23 @@ def forecast_barrier_hit_probabilities(  # noqa: C901
                 symbol, timeframe, prices, horizon=horizon_val
             )
         bb_enabled = method_key == 'mc_gbm_bb'
+        if not bb_enabled and same_bar_policy_value != "sl_first":
+            return {
+                "success": False,
+                "error": (
+                    f"same_bar_policy={same_bar_policy_value} has no effect for "
+                    f"close-only method '{method_key}'. Use method=mc_gbm_bb for "
+                    "intra-bar dual-barrier resolution, or omit same_bar_policy."
+                ),
+                "error_code": "same_bar_policy_not_applicable",
+                "method": method_key,
+                "same_bar_policy": same_bar_policy_value,
+                "same_bar_policy_applied": False,
+                "same_bar_policy_reason": "close_only_path",
+                "remediation": (
+                    "Retry with --method mc_gbm_bb, or omit --same-bar-policy."
+                ),
+            }
         seed_raw = p.get('seed')
         seed_provided = seed_raw is not None
         # Live reference prices change the barrier geometry, not the stochastic
@@ -491,6 +508,7 @@ def forecast_barrier_hit_probabilities(  # noqa: C901
             "horizon": horizon_val,
             "direction": direction_norm,
             "same_bar_policy": same_bar_policy_value,
+            "same_bar_policy_applied": bool(bb_enabled),
             "last_price": last_price,
             "last_price_close": float(last_price_close),
             "last_price_source": last_price_source,
@@ -544,6 +562,7 @@ def forecast_barrier_hit_probabilities(  # noqa: C901
             out["bridge_joint_first_passage"] = False
             warnings_out.append(BROWNIAN_BRIDGE_DUAL_BARRIER_WARNING)
         else:
+            out["same_bar_policy_reason"] = "close_only_path"
             warnings_out.append(
                 "Barrier hits are evaluated at simulated bar closes; transient "
                 "intra-bar touches may be undercounted."

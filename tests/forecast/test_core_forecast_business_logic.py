@@ -1684,6 +1684,7 @@ def test_run_forecast_backtest_strips_per_anchor_details_in_compact_mode():
     }
     assert result["slippage_bps"] == 0.0
     assert result["cost_assumptions"]["score_basis"] == "gross_before_execution_costs"
+    assert result["cost_assumptions"]["spread_and_commission"] == "not_modeled"
     assert result["units"] == {
         "forecast_error": "price",
         "avg_mae": "price",
@@ -2129,6 +2130,60 @@ def test_forecast_tune_detail_compacts_history_tail():
     assert "history_tail_count" not in full
 
 
+def test_forecast_tune_compact_filters_units_and_keeps_data_window():
+    def fake_genetic(**kwargs):
+        return {
+            "success": True,
+            "best_score": 0.012,
+            "metric": "avg_rmse",
+            "units": {
+                "best_score": "price",
+                "avg_rmse": "price",
+                "gross_before_costs_pct": "percent",
+                "kelly_fraction": "fraction",
+                "annual_return_pct": "percent",
+            },
+            "analysis_time_window": {
+                "history_start": "2026-01-01T00:00Z",
+                "history_end": "2026-01-10T00:00Z",
+                "first_anchor": "2026-01-08T00:00Z",
+                "last_anchor": "2026-01-08T00:00Z",
+            },
+            "history_bars_used": 100,
+            "model_lookback_bars": 100,
+            "history_tail": [{"score": 0.012}],
+        }
+
+    compact = forecast_use_cases.run_forecast_tune_genetic(
+        ForecastTuneGeneticRequest(
+            symbol="EURUSD",
+            methods=["theta"],
+            lookback=100,
+        ),
+        genetic_search_impl=fake_genetic,
+    )
+    assert compact["units"] == {"best_score": "price"}
+    assert compact["tuning_context"]["lookback"] == 100
+    assert compact["tuning_context"]["model_lookback_bars"] == 100
+    assert compact["tuning_context"]["history_bars_used"] == 100
+    assert compact["tuning_context"]["analysis_time_window"]["history_start"] == (
+        "2026-01-01T00:00Z"
+    )
+    assert compact["analysis_time_window"]["lookback"] == 100
+    assert "history_tail" not in compact
+
+    full = forecast_use_cases.run_forecast_tune_genetic(
+        ForecastTuneGeneticRequest(
+            symbol="EURUSD",
+            methods=["theta"],
+            lookback=100,
+            detail="full",
+        ),
+        genetic_search_impl=fake_genetic,
+    )
+    assert full["units"]["kelly_fraction"] == "fraction"
+
+
 def test_forecast_tuning_propagates_historical_anchor_and_discloses_window():
     captured = {}
 
@@ -2167,15 +2222,17 @@ def test_forecast_tuning_resolves_direction_costs_and_sample_requirements():
         ForecastTuneGeneticRequest(
             symbol="EURUSD",
             methods=["drift"],
-            metric="win_rate",
+            metric="avg_rmse",
             slippage_bps=2.0,
         ),
         genetic_search_impl=fake_genetic,
     )
 
-    assert captured["mode"] == "max"
+    assert captured["mode"] == "min"
     assert captured["slippage_bps"] == 2.0
     assert result["cost_assumptions"]["score_basis"] == "net_of_configured_slippage"
+    assert result["cost_assumptions"]["spread_and_commission"] == "not_modeled"
+    assert result["tuning_context"]["lookback"] is None
 
     rejected = forecast_use_cases.run_forecast_tune_genetic(
         ForecastTuneGeneticRequest(
@@ -2188,6 +2245,33 @@ def test_forecast_tuning_resolves_direction_costs_and_sample_requirements():
     )
     assert rejected["error_code"] == "insufficient_tuning_sample"
     assert rejected["minimum_steps"] == 30
+
+    rejected_win_rate = forecast_use_cases.run_forecast_tune_genetic(
+        ForecastTuneGeneticRequest(
+            symbol="EURUSD",
+            methods=["drift"],
+            metric="win_rate",
+            steps=5,
+        ),
+        genetic_search_impl=lambda **kwargs: pytest.fail("search must not start"),
+    )
+    assert rejected_win_rate["error_code"] == "insufficient_tuning_sample"
+    assert rejected_win_rate["minimum_steps"] == 30
+
+    rejected_costs = forecast_use_cases.run_forecast_tune_genetic(
+        ForecastTuneGeneticRequest(
+            symbol="EURUSD",
+            methods=["drift"],
+            metric="win_rate",
+            steps=30,
+        ),
+        genetic_search_impl=lambda **kwargs: pytest.fail("search must not start"),
+    )
+    assert rejected_costs["error_code"] == "incomplete_cost_model"
+    assert rejected_costs["missing_cost_parameters"] == [
+        "spread_bps",
+        "commission_bps_per_side",
+    ]
 
 
 def test_forecast_tune_optuna_and_optimize_hints_accept_detail():
@@ -4238,7 +4322,7 @@ def test_forecast_barrier_prob_standard_hides_curves_only(monkeypatch):
     assert "prob_tp_first_ci95" in out
 
 
-def test_forecast_barrier_prob_compact_omits_confidence_diagnostics():
+def test_forecast_barrier_prob_compact_keeps_confidence_and_history():
     payload = {
         "success": True,
         "symbol": "EURUSD",
@@ -4254,6 +4338,14 @@ def test_forecast_barrier_prob_compact_omits_confidence_diagnostics():
         "prob_tp_first_ci95": {"low": 0.5, "high": 0.6},
         "prob_sl_first_ci95": {"low": 0.25, "high": 0.35},
         "prob_no_hit_ci95": {"low": 0.1, "high": 0.2},
+        "history_bars_used": 2000,
+        "history_window": {
+            "start": "2026-04-30T06:00Z",
+            "end": "2026-08-25T14:00Z",
+            "bars_used": 2000,
+            "timezone": "UTC",
+            "input_bar_policy": "closed_bars_only",
+        },
         "intra_bar_hit_detection": "brownian_bridge",
         "bridge_correction": True,
         "bridge_dual_barrier_model": "independent_single_barrier_approximation",
@@ -4279,12 +4371,18 @@ def test_forecast_barrier_prob_compact_omits_confidence_diagnostics():
     assert out["seed"] == 42
     assert out["seed_source"] == "derived_from_request"
     assert "confidence" not in out
-    assert "prob_tp_first_ci95" not in out
-    assert "prob_sl_first_ci95" not in out
-    assert "prob_no_hit_ci95" not in out
-    assert "prob_tp_first_se" not in out
-    assert "prob_sl_first_se" not in out
-    assert "prob_no_hit_se" not in out
+    assert out["prob_tp_first_ci95"] == {"low": 0.5, "high": 0.6}
+    assert out["prob_sl_first_ci95"] == {"low": 0.25, "high": 0.35}
+    assert out["prob_no_hit_ci95"] == {"low": 0.1, "high": 0.2}
+    assert out["prob_tp_first_se"] == 0.0111
+    assert out["prob_sl_first_se"] == 0.0102
+    assert out["prob_no_hit_se"] == 0.008
+    assert out["history_bars_used"] == 2000
+    assert out["history_window"] == {
+        "start": "2026-04-30T06:00Z",
+        "end": "2026-08-25T14:00Z",
+        "bars_used": 2000,
+    }
     assert out["intra_bar_hit_detection"] == "brownian_bridge"
     assert out["bridge_correction"] is True
     assert out["bridge_dual_barrier_model"] == (
@@ -4533,7 +4631,7 @@ def test_forecast_barrier_prob_detail_rounds_display_values():
     assert out["probability_edge_definition"] == "prob_tp_first - prob_sl_first"
     assert "edge" not in out
     assert "confidence" not in out
-    assert "prob_tp_first_ci95" not in out
+    assert out["prob_tp_first_ci95"] == {"low": 0.5, "high": 0.6}
 
 
 def test_forecast_barrier_prob_marks_stale_reference_verdict_research_only():
@@ -4648,7 +4746,7 @@ def test_forecast_barrier_prob_verdict_is_neutral_when_edge_inside_se():
     assert out["verdict"] == "Neutral first-hit probabilities"
 
 
-def test_forecast_barrier_prob_compact_omits_cis_after_neutral_verdict():
+def test_forecast_barrier_prob_compact_keeps_cis_after_neutral_verdict():
     payload = {
         "success": True,
         "symbol": "EURUSD",
@@ -4676,10 +4774,10 @@ def test_forecast_barrier_prob_compact_omits_cis_after_neutral_verdict():
     )
 
     assert out["verdict"] == "Neutral first-hit probabilities"
-    assert "prob_tp_first_ci95" not in out
-    assert "prob_sl_first_ci95" not in out
-    assert "prob_tp_first_se" not in out
-    assert "prob_sl_first_se" not in out
+    assert out["prob_tp_first_ci95"] == {"low": 0.02, "high": 0.045}
+    assert out["prob_sl_first_ci95"] == {"low": 0.019, "high": 0.044}
+    assert out["prob_tp_first_se"] == 0.006
+    assert out["prob_sl_first_se"] == 0.006
 
 
 @pytest.mark.parametrize("detail", ["compact", "full"])

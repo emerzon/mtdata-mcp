@@ -938,12 +938,14 @@ def _history_freshness_context(
         out["history_policy_ok"] = False
         return out
     completed_bar_end = float(freshness["data_as_of_epoch"])
+    last_bar_open = _format_barrier_epoch(last_epoch)
     out.update(
         {
-            "history_last_bar_open": _format_barrier_epoch(last_epoch),
+            "history_last_bar_open": last_bar_open,
             "history_last_bar_open_epoch": float(last_epoch),
-            "data_as_of": _format_barrier_epoch(last_epoch),
-            "data_as_of_epoch": float(last_epoch),
+            "last_bar_open": last_bar_open,
+            "data_as_of": _format_barrier_epoch(completed_bar_end),
+            "data_as_of_epoch": float(completed_bar_end),
             "last_observation_close_time": _format_barrier_epoch(completed_bar_end),
             "last_observation_close_epoch": float(completed_bar_end),
             "data_freshness_seconds": freshness["data_age_seconds"],
@@ -951,6 +953,7 @@ def _history_freshness_context(
             "stale_after_seconds": freshness["stale_after_seconds"],
             "freshness_basis": freshness["freshness_basis"],
             "freshness_age_metric": freshness["freshness_age_metric"],
+            "bar_timestamp_basis": "mt5_bar_open",
             "input_bar_policy": "closed_bars_only",
             "timezone": "UTC",
         }
@@ -958,7 +961,7 @@ def _history_freshness_context(
     if first_epoch is not None:
         out["history_window"] = {
             "start": _format_barrier_epoch(first_epoch),
-            "end": _format_barrier_epoch(last_epoch),
+            "end": _format_barrier_epoch(completed_bar_end),
             "bars_used": int(len(df)),
             "timezone": "UTC",
             "input_bar_policy": "closed_bars_only",

@@ -59,8 +59,10 @@ def test_barrier_history_age_uses_completed_bar_end():
     )
 
     assert result["history_last_bar_open_epoch"] == bar_open
-    assert result["data_as_of_epoch"] == bar_open
-    assert result["data_as_of"] == result["history_last_bar_open"]
+    assert result["last_bar_open"] == result["history_last_bar_open"]
+    assert result["data_as_of_epoch"] == bar_open + 3600
+    assert result["data_as_of"] == result["last_observation_close_time"]
+    assert result["data_as_of"] != result["history_last_bar_open"]
     assert result["history_window"]["end"] == result["data_as_of"]
     assert result["last_observation_close_epoch"] == bar_open + 3600
     assert result["data_freshness_seconds"] == 25 * 60
@@ -180,6 +182,8 @@ class TestBarrierHitProbabilities(_BarrierTestBase):
         self.assertIn("prob_sl_first", result)
         self.assertIn("prob_same_bar", result)
         self.assertEqual(result["same_bar_policy"], "sl_first")
+        self.assertFalse(result["same_bar_policy_applied"])
+        self.assertEqual(result["same_bar_policy_reason"], "close_only_path")
         self.assertIn("prob_tp_first_ci95", result)
         self.assertIn("prob_sl_first_ci95", result)
         self.assertIn("prob_no_hit_ci95", result)
@@ -187,6 +191,22 @@ class TestBarrierHitProbabilities(_BarrierTestBase):
         self.assertIn("prob_sl_first_se", result)
         self.assertEqual(result["intra_bar_hit_detection"], "simulated_bar_close")
         self.assertTrue(any("intra-bar touches" in item for item in result["warnings"]))
+
+    def test_close_only_method_rejects_non_default_same_bar_policy(self):
+        result = forecast_barrier_hit_probabilities(
+            symbol="EURUSD",
+            timeframe="H1",
+            horizon=10,
+            method="mc_gbm",
+            direction="long",
+            same_bar_policy="neutral",
+            tp_pct=0.5,
+            sl_pct=0.5,
+        )
+        self.assertFalse(result.get("success", True))
+        self.assertEqual(result["error_code"], "same_bar_policy_not_applicable")
+        self.assertEqual(result["same_bar_policy_reason"], "close_only_path")
+        self.assertIn("mc_gbm_bb", result["error"])
 
     def test_historical_anchor_uses_candle_close_instead_of_live_tick(self):
         with patch(

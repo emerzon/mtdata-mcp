@@ -193,6 +193,8 @@ def test_eval_candidate_handles_method_selection_and_failures(monkeypatch):
     assert result["_sel_method"] == "theta"
     assert calls[-1]["detail"] == "full"
     assert calls[-1]["slippage_bps"] == 0.0
+    assert calls[-1]["spread_bps"] is None
+    assert calls[-1]["commission_bps_per_side"] is None
 
     score, _ = tune._eval_candidate(
         symbol="EURUSD",
@@ -261,6 +263,22 @@ def test_eval_candidate_handles_method_selection_and_failures(monkeypatch):
     )
     assert score == float("inf")
     assert result["error"] == "No method provided"
+
+    score, _ = tune._eval_candidate(
+        symbol="EURUSD",
+        timeframe="H1",
+        method="theta",
+        horizon=2,
+        steps=2,
+        spacing=1,
+        candidate_params={},
+        metric="avg_rmse",
+        mode="min",
+        spread_bps=1.5,
+        commission_bps_per_side=0.25,
+    )
+    assert calls[-1]["spread_bps"] == 1.5
+    assert calls[-1]["commission_bps_per_side"] == 0.25
 
 
 def test_auto_mode_uses_metric_direction_for_both_tuners(monkeypatch):

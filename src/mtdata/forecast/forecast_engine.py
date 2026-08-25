@@ -1702,7 +1702,7 @@ def _format_forecast_output(
         tf_secs,
         now_epoch=now_epoch,
     )
-    last_observation_time = fmt_time(float(last_epoch))
+    last_bar_open_time = fmt_time(float(last_epoch))
     calendar_timeframe = str(timeframe or "").upper() in CALENDAR_TIMEFRAMES
     if calendar_timeframe or session_projection:
         calendar_gaps, skipped_bars = [], 0
@@ -1745,19 +1745,22 @@ def _format_forecast_output(
         if timeframe
         else float(last_epoch) + float(tf_secs)
     )
+    last_observation_time = fmt_time(float(observation_close_epoch))
     result: Dict[str, Any] = {
         "success": True,
         "method": method,
         "horizon": horizon,
         "base_col": base_col,
         "last_observation_epoch": float(last_epoch),
+        "last_bar_open": last_bar_open_time,
         "last_observation_time": last_observation_time,
         "data_as_of": last_observation_time,
+        "bar_timestamp_basis": "mt5_bar_open",
         "last_bar_complete": observation_close_epoch <= current_epoch,
         "timezone": timezone_label,
         "forecast_from": {
             "time": last_observation_time,
-            "anchor": "last_observation",
+            "anchor": "last_completed_bar_close",
         },
         "forecast_start_epoch": forecast_start_epoch,
         "forecast_start_time": forecast_times[0] if forecast_times else None,

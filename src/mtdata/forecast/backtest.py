@@ -205,8 +205,14 @@ def _compact_strategy_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def _unavailable_performance_metrics(reason: str, slippage_bps: float) -> Dict[str, Any]:
-    return {
+def _unavailable_performance_metrics(
+    reason: str,
+    slippage_bps: float,
+    *,
+    spread_bps: Optional[float] = None,
+    commission_bps_per_side: Optional[float] = None,
+) -> Dict[str, Any]:
+    payload = {
         "avg_return": None,
         "avg_return_pct": None,
         "cumulative_return": None,
@@ -224,6 +230,72 @@ def _unavailable_performance_metrics(reason: str, slippage_bps: float) -> Dict[s
         "metrics_available": False,
         "metrics_reason": str(reason),
     }
+    if spread_bps is not None:
+        payload["spread_bps"] = float(spread_bps)
+    if commission_bps_per_side is not None:
+        payload["commission_bps_per_side"] = float(commission_bps_per_side)
+    return payload
+
+
+def _forecast_trade_cost_fraction(
+    *,
+    slippage_bps: float = 0.0,
+    spread_bps: float = 0.0,
+    commission_bps_per_side: float = 0.0,
+) -> float:
+    return (
+        (2.0 * abs(float(slippage_bps or 0.0)))
+        + abs(float(spread_bps or 0.0))
+        + (2.0 * abs(float(commission_bps_per_side or 0.0)))
+    ) / 10000.0
+
+
+def _net_forecast_trade_return(
+    gross_return: float,
+    *,
+    slippage_bps: float = 0.0,
+    spread_bps: float = 0.0,
+    commission_bps_per_side: float = 0.0,
+) -> float:
+    net = float(gross_return) - _forecast_trade_cost_fraction(
+        slippage_bps=slippage_bps,
+        spread_bps=spread_bps,
+        commission_bps_per_side=commission_bps_per_side,
+    )
+    if net <= -0.999:
+        return -0.999
+    return net
+
+
+def forecast_cost_assumptions(
+    *,
+    slippage_bps: float = 0.0,
+    spread_bps: Optional[float] = None,
+    commission_bps_per_side: Optional[float] = None,
+    trade_threshold: Optional[float] = None,
+) -> Dict[str, Any]:
+    spread_modeled = spread_bps is not None
+    commission_modeled = commission_bps_per_side is not None
+    complete = spread_modeled and commission_modeled
+    if complete:
+        score_basis = "net_of_configured_costs"
+    elif float(slippage_bps or 0.0) > 0.0:
+        score_basis = "net_of_configured_slippage"
+    else:
+        score_basis = "gross_before_execution_costs"
+    out: Dict[str, Any] = {
+        "score_basis": score_basis,
+        "slippage_bps_per_side": float(slippage_bps or 0.0),
+        "spread_bps_round_trip": float(spread_bps) if spread_modeled else None,
+        "commission_bps_per_side": (
+            float(commission_bps_per_side) if commission_modeled else None
+        ),
+        "spread_and_commission": "modeled" if complete else "not_modeled",
+        "complete": complete,
+    }
+    if trade_threshold is not None:
+        out["trade_threshold"] = float(trade_threshold)
+    return out
 
 
 def _attach_metrics_status(
@@ -232,6 +304,8 @@ def _attach_metrics_status(
     metrics: Dict[str, Any],
     slippage_bps: float,
     unavailable_reason: str,
+    spread_bps: Optional[float] = None,
+    commission_bps_per_side: Optional[float] = None,
 ) -> None:
     if metrics:
         payload["metrics"] = metrics
@@ -244,17 +318,27 @@ def _attach_metrics_status(
         if reliability_reason not in (None, ""):
             payload["metrics_reliability_reason"] = reliability_reason
         payload["slippage_bps"] = float(slippage_bps)
+        if spread_bps is not None:
+            payload["spread_bps"] = float(spread_bps)
+        if commission_bps_per_side is not None:
+            payload["commission_bps_per_side"] = float(commission_bps_per_side)
         return
 
     payload["metrics"] = _unavailable_performance_metrics(
         unavailable_reason,
         slippage_bps,
+        spread_bps=spread_bps,
+        commission_bps_per_side=commission_bps_per_side,
     )
     payload["metrics_available"] = False
     payload["metrics_reason"] = str(unavailable_reason)
     if unavailable_reason == "no_non_flat_trades":
         payload["trade_status"] = "flat"
     payload["slippage_bps"] = float(slippage_bps)
+    if spread_bps is not None:
+        payload["spread_bps"] = float(spread_bps)
+    if commission_bps_per_side is not None:
+        payload["commission_bps_per_side"] = float(commission_bps_per_side)
 
 
 _MIN_ANNUALIZATION_TRADES = 30
@@ -298,6 +382,9 @@ _TRADE_BACKTEST_UNITS = {
     "path_directional_calls_made": "count",
     "path_directional_opportunities": "count",
     "slippage_bps": "basis_points",
+    "spread_bps": "basis_points",
+    "spread_bps_round_trip": "basis_points",
+    "commission_bps_per_side": "basis_points",
     "successful_tests": "count",
     "num_tests": "count",
     "trades_observed": "count",
@@ -412,6 +499,8 @@ def _compute_performance_metrics(
     symbol: Optional[str] = None,
     observed_times: Any = None,
     evaluation_bars: Optional[int] = None,
+    spread_bps: Optional[float] = None,
+    commission_bps_per_side: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Compute portfolio-level performance statistics from per-trade returns."""
 
@@ -477,6 +566,16 @@ def _compute_performance_metrics(
             "losing_trades": 0,
             "breakeven_trades": 0,
             "slippage_bps": float(slippage_bps),
+            **(
+                {"spread_bps": float(spread_bps)}
+                if spread_bps is not None
+                else {}
+            ),
+            **(
+                {"commission_bps_per_side": float(commission_bps_per_side)}
+                if commission_bps_per_side is not None
+                else {}
+            ),
             "metrics_reliability": "empty",
             "metrics_reliability_reason": "no_valid_trades",
             "sample_notice": {
@@ -633,6 +732,10 @@ def _compute_performance_metrics(
         "breakeven_trades": breakeven_trades,
         "slippage_bps": float(slippage_bps),
     })
+    if spread_bps is not None:
+        metrics["spread_bps"] = float(spread_bps)
+    if commission_bps_per_side is not None:
+        metrics["commission_bps_per_side"] = float(commission_bps_per_side)
     for source_key in (
         "cumulative_return",
         "avg_return_per_trade",
@@ -2269,6 +2372,8 @@ def forecast_backtest(  # noqa: C901
     dimred_method: Optional[str] = None,
     dimred_params: Optional[Dict[str, Any]] = None,
     slippage_bps: float = 0.0,
+    spread_bps: Optional[float] = None,
+    commission_bps_per_side: Optional[float] = None,
     trade_threshold: float = 0.0,
     detail: DetailLiteral = "compact",
 ) -> Dict[str, Any]:
@@ -2297,6 +2402,32 @@ def forecast_backtest(  # noqa: C901
             return {"error": "trade_threshold must be a finite number."}
         if trade_threshold_value < 0.0:
             return {"error": "trade_threshold must be greater than or equal to 0."}
+        try:
+            spread_bps_value = (
+                float(spread_bps) if spread_bps is not None else None
+            )
+        except Exception:
+            return {"error": "spread_bps must be a finite number."}
+        if spread_bps_value is not None and (
+            not math.isfinite(spread_bps_value) or spread_bps_value < 0.0
+        ):
+            return {"error": "spread_bps must be greater than or equal to 0."}
+        try:
+            commission_bps_value = (
+                float(commission_bps_per_side)
+                if commission_bps_per_side is not None
+                else None
+            )
+        except Exception:
+            return {"error": "commission_bps_per_side must be a finite number."}
+        if commission_bps_value is not None and (
+            not math.isfinite(commission_bps_value) or commission_bps_value < 0.0
+        ):
+            return {
+                "error": "commission_bps_per_side must be greater than or equal to 0."
+            }
+        spread_cost = float(spread_bps_value or 0.0)
+        commission_cost = float(commission_bps_value or 0.0)
         if (
             not anchors
             and int(steps) > 1
@@ -2445,6 +2576,8 @@ def forecast_backtest(  # noqa: C901
             spacing=int(spacing),
             anchors=list(anchors) if isinstance(anchors, (list, tuple)) else None,
             slippage_bps=float(slippage_bps),
+            spread_bps=spread_bps_value,
+            commission_bps_per_side=commission_bps_value,
             detail=detail_mode,
         )
         strategy_contract = (
@@ -2706,10 +2839,12 @@ def forecast_backtest(  # noqa: C901
                                     )
                             except Exception:
                                 gross_return = float('nan')
-                            slip = float(abs(slippage_bps) or 0.0) / 10000.0
-                            net_return = gross_return - 2.0 * slip
-                            if net_return <= -0.999:
-                                net_return = -0.999
+                            net_return = _net_forecast_trade_return(
+                                gross_return,
+                                slippage_bps=float(slippage_bps),
+                                spread_bps=spread_cost,
+                                commission_bps_per_side=commission_cost,
+                            )
                         elif math.isfinite(entry_price) and entry_price != 0.0:
                             try:
                                 forecast_target_price = float(fcv[m - 1])
@@ -2726,10 +2861,12 @@ def forecast_backtest(  # noqa: C901
                                 exit_price = float('nan')
                             if math.isfinite(exit_price):
                                 gross_return = direction * ((exit_price - entry_price) / entry_price)
-                                slip = float(abs(slippage_bps) or 0.0) / 10000.0
-                                net_return = gross_return - 2.0 * slip
-                                if net_return <= -0.999:
-                                    net_return = -0.999
+                                net_return = _net_forecast_trade_return(
+                                    gross_return,
+                                    slippage_bps=float(slippage_bps),
+                                    spread_bps=spread_cost,
+                                    commission_bps_per_side=commission_cost,
+                                )
                     elif direction == 0:
                         gross_return = 0.0
                         net_return = 0.0
@@ -2857,6 +2994,8 @@ def forecast_backtest(  # noqa: C901
                         trade_spacing_bars=_spacing,
                         symbol=symbol,
                         observed_times=times,
+                        spread_bps=spread_bps_value,
+                        commission_bps_per_side=commission_bps_value,
                     ) if trade_returns else {}
                     if metrics:
                         if detail_mode == "compact":
@@ -2865,6 +3004,8 @@ def forecast_backtest(  # noqa: C901
                         agg,
                         metrics=metrics,
                         slippage_bps=float(slippage_bps),
+                        spread_bps=spread_bps_value,
+                        commission_bps_per_side=commission_bps_value,
                         unavailable_reason="no_non_flat_trades",
                     )
                 else:
@@ -2872,6 +3013,8 @@ def forecast_backtest(  # noqa: C901
                         agg,
                         metrics={},
                         slippage_bps=float(slippage_bps),
+                        spread_bps=spread_bps_value,
+                        commission_bps_per_side=commission_bps_value,
                         unavailable_reason="not_applicable_for_volatility",
                     )
                 if _dn_used:
@@ -2923,6 +3066,8 @@ def forecast_backtest(  # noqa: C901
                     "metrics": _unavailable_performance_metrics(
                         "no_successful_tests",
                         float(slippage_bps),
+                        spread_bps=spread_bps_value,
+                        commission_bps_per_side=commission_bps_value,
                     ),
                     "metrics_available": False,
                     "metrics_reason": "no_successful_tests",
@@ -3002,6 +3147,14 @@ def forecast_backtest(  # noqa: C901
             "backtest_plan": backtest_plan,
             "analysis_time_window": analysis_time_window,
             "slippage_bps": float(slippage_bps),
+            "spread_bps": spread_bps_value,
+            "commission_bps_per_side": commission_bps_value,
+            "cost_assumptions": forecast_cost_assumptions(
+                slippage_bps=float(slippage_bps),
+                spread_bps=spread_bps_value,
+                commission_bps_per_side=commission_bps_value,
+                trade_threshold=trade_threshold_value,
+            ),
             "trade_threshold": trade_threshold_value,
             "signal_timing": "completed_bar_close",
             "execution_timing": "next_bar_open",

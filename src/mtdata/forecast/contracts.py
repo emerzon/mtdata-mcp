@@ -67,6 +67,8 @@ _FIELD_OWNERSHIP: Dict[RequestSurface, Dict[str, ContractOwner]] = {
         "features": "data_preparation",
         "dimred": "data_preparation",
         "slippage_bps": "evaluation",
+        "spread_bps": "evaluation",
+        "commission_bps_per_side": "evaluation",
         "trade_threshold": "strategy",
         "detail": "evaluation",
     },
@@ -107,6 +109,8 @@ _FIELD_OWNERSHIP: Dict[RequestSurface, Dict[str, ContractOwner]] = {
         "fitness_metric": "evaluation",
         "fitness_weights": "evaluation",
         "slippage_bps": "evaluation",
+        "spread_bps": "evaluation",
+        "commission_bps_per_side": "evaluation",
         "trade_threshold": "strategy",
         "seed": "evaluation",
         "max_search_time_seconds": "evaluation",
@@ -287,6 +291,8 @@ class BacktestEvaluationContract(BaseModel):
     spacing: int = Field(12, ge=1)
     anchors: Optional[List[str]] = None
     slippage_bps: float = 0.0
+    spread_bps: Optional[float] = None
+    commission_bps_per_side: Optional[float] = None
     detail: DetailLiteral = "compact"
     fitness_metric: Optional[str] = None
     fitness_weights: Optional[Dict[str, float]] = None

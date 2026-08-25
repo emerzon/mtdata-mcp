@@ -40,6 +40,8 @@ For price and return forecasts, `last_price_source=candle_close` identifies the
 forecast anchor and `price_basis` identifies the broker chart series
 (`bid`, `last_trade`, or `broker_chart_price`), matching `data_fetch_candles`.
 This is a historical candle close, not a live executable bid or ask.
+`data_as_of` and `last_observation_time` are that completed bar's close;
+`last_bar_open` keeps the MT5 row timestamp.
 
 For `analog` forecasts, compact output retains concise `component_status` and
 `ensemble_metrics` summaries. Raw analog paths, per-timeframe diagnostics, and

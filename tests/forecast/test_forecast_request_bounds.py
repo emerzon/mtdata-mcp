@@ -104,6 +104,27 @@ def test_backtest_requests_reject_invalid_slippage(value) -> None:
         StrategyBacktestRequest(symbol="EURUSD", slippage_bps=value)
 
 
+def test_forecast_backtest_and_tune_accept_explicit_spread_and_commission() -> None:
+    backtest = ForecastBacktestRequest(
+        symbol="EURUSD",
+        spread_bps=1.0,
+        commission_bps_per_side=0.0,
+    )
+    assert backtest.spread_bps == 1.0
+    assert backtest.commission_bps_per_side == 0.0
+
+    tune = ForecastTuneOptunaRequest(
+        symbol="EURUSD",
+        spread_bps=0.0,
+        commission_bps_per_side=0.0,
+        metric="win_rate",
+        steps=30,
+        spacing=12,
+    )
+    assert tune.spread_bps == 0.0
+    assert tune.commission_bps_per_side == 0.0
+
+
 def test_tune_requests_accept_positive_lookback() -> None:
     for factory in (
         ForecastTuneGeneticRequest,
