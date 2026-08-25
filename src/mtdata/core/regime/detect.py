@@ -3130,6 +3130,8 @@ def _detect_all(  # noqa: C901
             "methods_run": comparison.get("methods_run"),
             "methods_failed": comparison.get("methods_failed"),
         }
+        if comparison.get("method_windows"):
+            compact_comparison["method_windows"] = comparison.get("method_windows")
         if detail_value == "compact":
             compact_comparison["agreement"] = comparison.get("agreement")
         comparison = compact_comparison

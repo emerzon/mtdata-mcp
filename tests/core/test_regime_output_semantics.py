@@ -831,6 +831,73 @@ def test_rule_based_warns_for_inapplicable_parameters() -> None:
     assert "max_regimes has no effect for rule_based" in warnings
 
 
+def test_regime_detect_all_uses_same_rule_based_window_as_standalone() -> None:
+    real = _unwrap(regime_detect)
+    history = _choppy_bearish_df(120)
+
+    with (
+        patch("mtdata.core.regime.api._fetch_history", return_value=history),
+        patch("mtdata.core.regime.api.resolve_denoise_base_col", return_value="close"),
+        patch("mtdata.core.regime.api._format_time_minimal", side_effect=lambda x: f"T{x}"),
+        patch("mtdata.core.regime.detect._format_time_minimal", side_effect=lambda x: f"T{x}"),
+    ):
+        standalone = real(
+            symbol="TEST",
+            timeframe="H1",
+            fetch_limit=120,
+            method="rule_based",
+            lookback=50,
+        )
+
+    captured: dict[str, object] = {}
+
+    def fake_recursive(*args, **kwargs):
+        method_name = str(kwargs.get("method") or "")
+        result = {
+            "success": True,
+            "symbol": kwargs.get("symbol"),
+            "timeframe": kwargs.get("timeframe"),
+            "method": method_name,
+            "target": kwargs.get("target"),
+            "current_regime": {"label": "neutral"},
+        }
+        if method_name == "rule_based":
+            config = kwargs.get("rule_based_config") or {}
+            captured["rule_based_config"] = dict(config)
+            window_bars = int(config.get("window_bars") or 160)
+            result["params_used"] = {"window_bars": window_bars}
+            result["classification_window"] = {"bars": window_bars}
+            result["current_regime"] = {
+                "label": "ranging",
+                "window_bars": window_bars,
+            }
+        if method_name in regime_api._ENSEMBLE_STATE_METHODS:
+            result["series"] = {
+                "state": [0] * 119,
+                "state_probabilities": [[1.0, 0.0]] * 119,
+            }
+        return result
+
+    with (
+        patch("mtdata.core.regime.api._fetch_history", return_value=history),
+        patch("mtdata.core.regime.api._regime_connection_error", return_value=None),
+        patch("mtdata.core.regime.detect._run_regime_method", side_effect=fake_recursive),
+    ):
+        all_out = real(
+            symbol="TEST",
+            timeframe="H1",
+            method="all",
+            lookback=50,
+            fetch_limit=120,
+            detail="compact",
+        )
+
+    assert standalone["classification_window"]["bars"] == 50
+    assert captured["rule_based_config"]["window_bars"] == 50
+    assert all_out["comparison"]["method_windows"]["rule_based"] == 50
+    assert captured["rule_based_config"]["window_bars"] == standalone["classification_window"]["bars"]
+
+
 def test_rule_based_lookback_controls_window_when_window_bars_omitted() -> None:
     raw = _unwrap(regime_detect)
 

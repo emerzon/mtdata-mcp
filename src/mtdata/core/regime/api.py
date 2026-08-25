@@ -487,7 +487,8 @@ def regime_detect(  # noqa: C901
         )
         lookback_mapped_to_window = False
         fetch_limit_mapped_to_window = False
-        if method == "rule_based" and "window_bars" not in p:
+        needs_rule_based_config = method in {"rule_based", "all"}
+        if needs_rule_based_config and "window_bars" not in p:
             if lookback is not None:
                 p["window_bars"] = int(effective_lookback)
                 lookback_mapped_to_window = True
@@ -524,7 +525,7 @@ def regime_detect(  # noqa: C901
         rule_based_config: Optional[Dict[str, Any]] = None
         effective_fetch_limit = _history_fetch_limit(fetch_limit, lookback)
         full_explicit_range = bool(start or end) and fetch_limit is None and requested_lookback < 0
-        if method == "rule_based":
+        if needs_rule_based_config:
             efficiency_threshold, efficiency_error = _coerce_param(
                 p,
                 "efficiency_threshold",

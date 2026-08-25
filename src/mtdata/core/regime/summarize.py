@@ -355,19 +355,53 @@ def _build_semantic_agreement(current_regimes: Dict[str, Any]) -> Dict[str, Any]
     return agreement
 
 
+def _method_window_bars(method: str, result: Any) -> Optional[int]:
+    if not isinstance(result, dict):
+        return None
+    candidates: List[Any] = []
+    params_used = result.get("params_used")
+    if isinstance(params_used, dict):
+        candidates.append(params_used.get("window_bars"))
+    classification_window = result.get("classification_window")
+    if isinstance(classification_window, dict):
+        candidates.append(classification_window.get("bars"))
+    if method == "rule_based":
+        current_regime = result.get("current_regime")
+        if isinstance(current_regime, dict):
+            candidates.append(current_regime.get("window_bars"))
+        regime = result.get("regime")
+        if isinstance(regime, dict):
+            candidates.append(regime.get("window_bars"))
+    for value in candidates:
+        if value is None:
+            continue
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
 def _build_all_method_comparison(results_by_method: Dict[str, Any]) -> Dict[str, Any]:
     current_regimes: Dict[str, Any] = {}
+    method_windows: Dict[str, int] = {}
     for method, result in results_by_method.items():
         current_regimes[method] = _summarize_current_regime_for_comparison(
             method,
             result,
         )
+        window_bars = _method_window_bars(method, result)
+        if window_bars is not None:
+            method_windows[str(method)] = window_bars
 
-    return {
+    comparison: Dict[str, Any] = {
         "methods_run": list(results_by_method.keys()),
         "current_regimes": current_regimes,
         "agreement": _build_semantic_agreement(current_regimes),
     }
+    if method_windows:
+        comparison["method_windows"] = method_windows
+    return comparison
 
 
 def _apply_bocpd_output_mode(
