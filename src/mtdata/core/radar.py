@@ -100,7 +100,10 @@ class MarketRadarRequest(BaseModel):
         default=RADAR_MAX_SYMBOLS,
         ge=1,
         le=RADAR_MAX_SYMBOLS,
-        description=f"Maximum symbols to return (cap {RADAR_MAX_SYMBOLS}).",
+        description=(
+            f"Maximum symbols to return after ranking (cap {RADAR_MAX_SYMBOLS}). "
+            "The full requested watchlist is scanned first, up to that candidate cap."
+        ),
     )
     detail: DetailLiteral = Field(default="compact")
 
@@ -307,11 +310,11 @@ def run_market_radar(
 ) -> Dict[str, Any]:
     caller = call_section or _default_call_section
     limit = min(int(request.limit), RADAR_MAX_SYMBOLS)
-    requested = parse_radar_symbols(request.symbols, limit=limit)
+    requested = parse_radar_symbols(request.symbols, limit=RADAR_MAX_SYMBOLS)
     seeded = False
     if not requested:
         seeded = True
-        requested = list(_DEFAULT_SEED[:limit])
+        requested = list(_DEFAULT_SEED)
 
     scan_rank = "abs_price_change_pct" if request.rank_by == "watchlist" else request.rank_by
     live_rank = scan_rank in {
@@ -321,7 +324,7 @@ def run_market_radar(
     scan_kwargs = {
         "symbols": ",".join(requested),
         "timeframe": request.timeframe,
-        "limit": limit,
+        "limit": max(len(requested), 1),
         "rank_by": scan_rank,
         "quote_usable_only": live_rank,
         "detail": request.detail,
@@ -340,12 +343,12 @@ def run_market_radar(
             "top_markets",
             {
                 "rank_by": "abs_price_change_pct",
-                "limit": limit,
+                "limit": RADAR_MAX_SYMBOLS,
                 "timeframe": request.timeframe,
                 "detail": request.detail,
             },
         )
-        seeded_symbols = _extract_ranked_symbols(top, limit=limit)
+        seeded_symbols = _extract_ranked_symbols(top, limit=RADAR_MAX_SYMBOLS)
         if not seeded_symbols:
             return build_error_payload(
                 "No broker symbols were available to seed the radar.",
@@ -357,7 +360,7 @@ def run_market_radar(
             {
                 "symbols": ",".join(seeded_symbols),
                 "timeframe": request.timeframe,
-                "limit": limit,
+                "limit": max(len(seeded_symbols), 1),
                 "rank_by": scan_rank,
                 "quote_usable_only": live_rank,
                 "detail": "compact",
@@ -371,6 +374,10 @@ def run_market_radar(
             seeded=True,
         )
 
+    rows = payload.get("rows")
+    if isinstance(rows, list) and len(rows) > limit:
+        payload["rows"] = rows[:limit]
+        payload["count"] = limit
     payload = attach_mt5_source(payload)
     payload = attach_success_guidance(payload, tool_name="market_radar")
     return payload

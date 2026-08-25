@@ -44,6 +44,41 @@ def _scan_rows(*symbols: str) -> Dict[str, Any]:
     }
 
 
+def test_market_radar_ranks_full_watchlist_before_limit() -> None:
+    spreads = {"GBPUSD": 0.0001, "USDJPY": 0.0002, "EURUSD": 0.0003}
+
+    def caller(name: str, kwargs: Dict[str, Any]) -> Any:
+        assert name == "scan"
+        requested = [
+            str(part).strip().upper()
+            for part in str(kwargs.get("symbols") or "").split(",")
+            if str(part).strip()
+        ]
+        assert set(requested) == set(spreads)
+        ranked = sorted(requested, key=lambda symbol: spreads[symbol])
+        return {
+            "success": True,
+            "data": [
+                {
+                    "symbol": symbol,
+                    "spread_pct": spreads[symbol],
+                    "bid": 1.1,
+                    "ask": 1.2,
+                    "quote_usable_for_live_trading": True,
+                }
+                for symbol in ranked
+            ],
+        }
+
+    for symbols in ("EURUSD,GBPUSD,USDJPY", "USDJPY,EURUSD,GBPUSD"):
+        result = run_market_radar(
+            MarketRadarRequest(symbols=symbols, limit=2, rank_by="spread_pct"),
+            call_section=caller,
+        )
+        assert [row["symbol"] for row in result["rows"]] == ["GBPUSD", "USDJPY"]
+        assert result["count"] == 2
+
+
 def test_market_radar_keeps_watchlist_order() -> None:
     def caller(name: str, kwargs: Dict[str, Any]) -> Any:
         assert name == "scan"
