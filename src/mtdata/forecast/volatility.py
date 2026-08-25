@@ -1384,7 +1384,20 @@ def forecast_volatility(  # noqa: C901
             # Fetch recent closes and build returns
             # Reuse unified forecast branch for fetching by delegating to data_fetch_candles/forecast_generate where possible is heavy; implement lightweight here
             # Determine lookback bars
+            requested_lookback = None
+            if lookback is not None:
+                try:
+                    requested_lookback = int(lookback)
+                except (TypeError, ValueError):
+                    requested_lookback = None
+            if requested_lookback is None and isinstance(p, dict) and p.get("lookback") is not None:
+                try:
+                    requested_lookback = int(p.get("lookback"))
+                except (TypeError, ValueError):
+                    requested_lookback = None
             need = max(300, int(horizon) + 50)
+            if requested_lookback is not None:
+                need = max(int(requested_lookback) + 1, int(horizon) + 2, 5)
             rates, fetch_error = _fetch_mt5_rates_guarded(
                 symbol,
                 mt5_tf,
@@ -1410,6 +1423,8 @@ def forecast_volatility(  # noqa: C901
                     data_timeframe=timeframe,
                 )
             df = pd.DataFrame(rates)
+            if requested_lookback is not None and len(df) > requested_lookback:
+                df = df.iloc[-int(requested_lookback):].copy()
             if len(df) < 5:
                 return {"error": "Not enough closed bars"}
             bpy, _ = _annualization_context(
@@ -1452,7 +1467,9 @@ def forecast_volatility(  # noqa: C901
             except Exception as exc:
                 return {"error": f"{method_l.upper()} proxy forecast error: {exc}"}
             # Back-transform to per-step sigma and aggregate horizon
+            clipped_forecast_steps = 0
             if back == 'sqrt':
+                clipped_forecast_steps = int(np.sum(np.asarray(yhat, dtype=float) < 0.0))
                 sig = np.sqrt(np.clip(yhat, 0.0, None))
             elif back == 'abs':
                 sig = np.maximum(0.0, yhat) * math.sqrt(math.pi/2.0)
@@ -1467,19 +1484,35 @@ def forecast_volatility(  # noqa: C901
             hsig = float(math.sqrt(np.sum(sig[:fh]**2)))
             # Root-mean-square forecast sigma per modeled horizon step.
             sbar = float(hsig / math.sqrt(max(1, int(fh))))
-            return _finalize_volatility_with_context(
-                {"success": True, "symbol": symbol, "timeframe": timeframe, "method": method_l, "proxy": proxy_l,
+            zero_path = not math.isfinite(hsig) or hsig <= 0.0 or not np.any(sig[:fh] > 0.0)
+            proxy_payload = {
+                "success": True, "symbol": symbol, "timeframe": timeframe, "method": method_l, "proxy": proxy_l,
                  "horizon": int(horizon), "volatility_per_bar": sbar, "volatility_annualized": float(sbar*math.sqrt(bpy)),
                  "volatility_horizon": hsig, "volatility_horizon_annualized": _annualize_horizon_sigma(hsig, bpy, int(horizon)),
                  "params_used": {
                      **model_params_used,
                      "per_bar_volatility_basis": "forecast_horizon_rms",
+                     "lookback": int(len(df)),
                      **(
                          {"log_r2_smearing_factor": log_r2_smearing_factor}
                          if back == "exp_sqrt"
                          else {}
                      ),
-                 }},
+                 },
+            }
+            if clipped_forecast_steps:
+                proxy_payload["clipped_forecast_steps"] = int(clipped_forecast_steps)
+                proxy_payload["warnings"] = [
+                    f"{clipped_forecast_steps} proxy forecast step(s) were negative and clipped to zero before converting to volatility."
+                ]
+            if zero_path:
+                proxy_payload["trust_level"] = "unusable"
+                proxy_payload["history_policy_ok"] = False
+                proxy_payload.setdefault("warnings", []).append(
+                    "Volatility proxy forecast collapsed to zero; do not use this estimate for sizing."
+                )
+            return _finalize_volatility_with_context(
+                proxy_payload,
                 df=df,
                 symbol=symbol,
                 timeframe=timeframe,

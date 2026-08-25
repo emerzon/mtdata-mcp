@@ -702,17 +702,33 @@ def _append_forecast_warning(payload: Dict[str, Any], warning: str) -> None:
 def _annotate_forecast_generate_quality(payload: Dict[str, Any]) -> Dict[str, Any]:
     out = dict(payload)
     ci_status = str(out.get("ci_status") or "").strip().lower()
+    requested_ci = out.get("requested_ci_alpha", out.get("ci_alpha"))
     if not ci_status:
-        out["ci_status"] = "not_requested"
-        out.setdefault(
-            "uncertainty",
-            {
-                "status": "not_requested",
-                "mode": "point_only",
-                "reason": "ci_alpha was not requested; direction is based on the point estimate only.",
-                "recommended_tool": "forecast_conformal_intervals",
-            },
-        )
+        if requested_ci not in (None, ""):
+            out["ci_status"] = "requested_but_unavailable"
+            out.setdefault(
+                "uncertainty",
+                {
+                    "status": "requested_but_unavailable",
+                    "mode": "point_only",
+                    "requested_ci_alpha": requested_ci,
+                    "reason": (
+                        "ci_alpha was requested, but intervals were not produced."
+                    ),
+                    "recommended_tool": "forecast_conformal_intervals",
+                },
+            )
+        else:
+            out["ci_status"] = "not_requested"
+            out.setdefault(
+                "uncertainty",
+                {
+                    "status": "not_requested",
+                    "mode": "point_only",
+                    "reason": "ci_alpha was not requested; direction is based on the point estimate only.",
+                    "recommended_tool": "forecast_conformal_intervals",
+                },
+            )
     if str(out.get("ci_status") or "").strip().lower() in {
         "not_requested",
         "unavailable",

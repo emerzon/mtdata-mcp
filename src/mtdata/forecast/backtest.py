@@ -2620,9 +2620,11 @@ def forecast_backtest(  # noqa: C901
                 anchor_training_bars = int(len(anchor_history))
                 try:
                     if quantity == 'volatility':
-                        # Volatility forecast: allow proxy in params map (params_map[method].get('proxy'))
-                        pm_raw = params_map.get(method) or {}
-                        pm = dict(pm_raw) if isinstance(pm_raw, dict) else {}
+                        # Volatility forecast: global params, then per-method overrides
+                        pm = dict(params) if isinstance(params, dict) else {}
+                        nested = params_map.get(method)
+                        if isinstance(nested, dict):
+                            pm.update(nested)
                         if model_lookback is not None:
                             nested_lookback = pm.get("lookback")
                             if (

@@ -72,15 +72,33 @@ def execute_forecast(
                 method=method,
                 proxy=proxy_value,
                 params=params_for_volatility,
+                lookback=lookback,
                 as_of=as_of,
                 start=start,
                 end=end,
                 denoise=denoise,
             )
+            if isinstance(result, dict) and ci_alpha is not None and not result.get("error"):
+                if result.get("ci_status") not in {"ok", "native", "available"}:
+                    result["ci_status"] = "requested_but_unavailable"
+                    result["requested_ci_alpha"] = ci_alpha
+                    result["uncertainty"] = {
+                        "status": "requested_but_unavailable",
+                        "mode": "point_only",
+                        "requested_ci_alpha": ci_alpha,
+                        "reason": (
+                            "ci_alpha was requested, but this volatility path does "
+                            "not emit intervals yet."
+                        ),
+                        "recommended_tool": "forecast_conformal_intervals",
+                    }
             if lookback is not None and isinstance(result, dict):
+                data_window = result.get("data_window") if isinstance(result.get("data_window"), dict) else {}
                 result["requested_lookback"] = int(lookback)
                 result["effective_lookback"] = int(
-                    (result.get("params_used") or {}).get("lookback", lookback)
+                    data_window.get("bars_used")
+                    or (result.get("params_used") or {}).get("lookback")
+                    or lookback
                 )
                 result["lookback_source"] = "forecast_generate.lookback"
                 data_window = result.get("data_window")
