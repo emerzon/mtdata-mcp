@@ -549,6 +549,37 @@ def test_outliers_detect_flags_price_and_volume_spike(monkeypatch):
     assert any(row.get("volume") == 5000.0 for row in result["items"])
 
 
+def test_outliers_detect_rounds_full_prices_to_symbol_precision(monkeypatch):
+    close = np.linspace(1.1, 1.2, 120)
+    close[80] = 1.1673499999999999
+    frame = _bars(close)
+
+    class PriceGateway(_Gateway):
+        def symbol_info(self, _symbol):
+            return type("Info", (), {"digits": 5})()
+
+    monkeypatch.setattr(
+        diagnostics,
+        "create_mt5_gateway",
+        lambda **kwargs: PriceGateway(),
+    )
+    monkeypatch.setattr(
+        diagnostics,
+        "_fetch_diagnostic_bars",
+        lambda *args, **kwargs: (frame, None),
+    )
+
+    result = _raw(diagnostics.outliers_detect)(
+        symbol="EURUSD",
+        score_fields="return",
+        threshold=1.0,
+        detail="full",
+    )
+
+    assert result["price_precision"] == 5
+    assert all(row["close"] == round(row["close"], 5) for row in result["items"])
+
+
 def test_outliers_detect_compact_default_returns_top_ten(monkeypatch):
     close = np.linspace(100.0, 101.0, 120)
     volume = np.arange(1.0, 121.0) ** 3

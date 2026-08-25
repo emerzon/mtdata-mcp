@@ -23,6 +23,7 @@ from ..utils.mt5 import (
     _mt5_copy_rates_from,
     ensure_mt5_connection_or_raise,
     mt5,
+    symbol_price_digits_optional,
 )
 from ..utils.time import bar_close_epoch, format_datetime_utc
 from ..utils.utils import _parse_end_datetime
@@ -737,6 +738,12 @@ def outliers_detect(
             }
         gateway = create_mt5_gateway(adapter=mt5, ensure_connection_impl=ensure_mt5_connection_or_raise)
         gateway.ensure_connection()
+        try:
+            price_precision = symbol_price_digits_optional(
+                gateway.symbol_info(symbol)
+            )
+        except Exception:
+            price_precision = None
         frame, fetch_error = _fetch_diagnostic_bars(
             symbol,
             timeframe,
@@ -771,6 +778,15 @@ def outliers_detect(
         flagged = flagged.sort_values("_score", ascending=False).head(int(limit))
         rows: List[Dict[str, Any]] = []
         full = normalize_output_verbosity_detail(detail, default="compact") == "full"
+
+        def _price(value: Any) -> float:
+            number = float(value)
+            return (
+                round(number, price_precision)
+                if price_precision is not None
+                else number
+            )
+
         for index, bar in flagged.iterrows():
             raw_field_scores = {
                 field: float(score_frame.at[index, field])
@@ -798,10 +814,10 @@ def outliers_detect(
                 item.update(
                     {
                         "field_scores": field_scores,
-                        "open": float(bar.get("open")),
-                        "high": float(bar.get("high")),
-                        "low": float(bar.get("low")),
-                        "close": float(bar.get("close")),
+                        "open": _price(bar.get("open")),
+                        "high": _price(bar.get("high")),
+                        "low": _price(bar.get("low")),
+                        "close": _price(bar.get("close")),
                     }
                 )
                 if volume_col is not None:
@@ -844,6 +860,8 @@ def outliers_detect(
             ),
         }
         result["units"] = {"score": score_units, "field_scores": score_units}
+        if price_precision is not None:
+            result["price_precision"] = price_precision
         if volume_col is not None:
             result["volume_source"] = volume_col
             result["volume_type"] = (
