@@ -239,7 +239,10 @@ def test_unknown_command_json_uses_standard_error_envelope(capsys):
     assert payload["operation"] == "cli"
     assert payload["request_id"]
     assert payload["remediation"]
-    assert payload["documentation"] == "docs/CLI.md"
+    assert payload["documentation"].startswith(
+        "https://github.com/emerzon/mtdata-mcp/blob/"
+    )
+    assert payload["documentation"].endswith("/docs/CLI.md")
     assert rendered.startswith("{\n  \"success\": false")
 
 
@@ -318,31 +321,50 @@ def test_unknown_command_json_skips_leading_global_options(argv, capsys):
     payload = json.loads(capsys.readouterr().out)
     assert status == 2
     assert payload["error_code"] == "cli_unknown_command"
-    assert payload["documentation"] == "docs/CLI.md"
+    assert payload["documentation"].startswith(
+        "https://github.com/emerzon/mtdata-mcp/blob/"
+    )
+    assert payload["documentation"].endswith("/docs/CLI.md")
 
 
-def test_json_without_command_returns_compact_error_envelope(monkeypatch, capsys):
-    from mtdata.core.cli import api
+def test_json_without_command_returns_compact_error_envelope(capsys):
     from mtdata.core.cli import main as entry_main
 
-    def sample() -> dict:
-        return {"success": True}
-
-    monkeypatch.setattr(api, "load_environment", lambda: None)
-    monkeypatch.setattr(
-        api,
-        "discover_tools",
-        lambda *_args: {
-            "sample": {"func": sample, "meta": {"description": "Sample tool"}}
-        },
-    )
-
-    status = entry_main(["--json"])
+    with patch.dict("sys.modules", {"mtdata.core.cli.api": None}):
+        status = entry_main(["--json"])
 
     payload = json.loads(capsys.readouterr().out)
     assert status == 1
     assert payload["error_code"] == "cli_missing_command"
     assert payload["operation"] == "cli"
+    assert payload["documentation"].endswith("/docs/CLI.md")
+
+
+def test_json_help_stays_on_static_catalog(capsys):
+    from mtdata.core.cli import main as entry_main
+
+    with patch.dict("sys.modules", {"mtdata.core.cli.api": None}):
+        status = entry_main(["--json", "--help"])
+
+    output = capsys.readouterr().out
+    assert status == 0
+    assert "Catalog categories" in output
+    assert "Dynamic CLI for MetaTrader5 MCP tools" not in output
+    assert len(output) < 20_000
+
+
+def test_json_version_returns_small_object(capsys):
+    from mtdata.core.cli import main as entry_main
+
+    with (
+        patch("mtdata.core.cli.cli_version", return_value="9.8.7"),
+        patch.dict("sys.modules", {"mtdata.core.cli.api": None}),
+    ):
+        status = entry_main(["--json", "--version"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert status == 0
+    assert payload == {"name": "mtdata-cli", "version": "9.8.7"}
 
 
 def test_shell_reuses_process_and_runs_entered_commands(monkeypatch):

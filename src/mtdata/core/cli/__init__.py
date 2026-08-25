@@ -26,6 +26,8 @@ _GLOBAL_OPTIONS_WITH_VALUES = frozenset(
     {"--output-fields", "--precision", "--timeframe"}
 )
 _GLOBAL_FLAG_OPTIONS = frozenset({"--json"})
+_HELP_TOKENS = frozenset({"--help", "-h"})
+_VERSION_TOKENS = frozenset({"--version", "-V"})
 
 
 def _json_output_requested(argv: Sequence[str]) -> bool:
@@ -33,6 +35,50 @@ def _json_output_requested(argv: Sequence[str]) -> bool:
     if "--json" in argv:
         return True
     return resolve_cli_output_format_env() == CLI_FORMAT_JSON
+
+
+def _non_global_tokens(argv: Sequence[str]) -> list[str]:
+    """Return argv with known global options removed for cheap classification."""
+    tokens: list[str] = []
+    index = 0
+    while index < len(argv):
+        token = str(argv[index])
+        option = token.split("=", 1)[0]
+        if option in _GLOBAL_FLAG_OPTIONS:
+            index += 1
+            continue
+        if option in _GLOBAL_OPTIONS_WITH_VALUES:
+            index += 1 if "=" in token else 2
+            continue
+        tokens.append(token)
+        index += 1
+    return tokens
+
+
+def _print_cli_version(*, as_json: bool) -> int:
+    version = cli_version()
+    if as_json:
+        print(json.dumps({"name": "mtdata-cli", "version": version}, ensure_ascii=False))
+    else:
+        print(f"mtdata-cli {version}")
+    return 0
+
+
+def _print_missing_command_error(program: str, *, as_json: bool) -> int:
+    payload = build_error_payload(
+        "A command is required.",
+        code="cli_missing_command",
+        operation="cli",
+        remediation=f"Run '{program} --help' to list commands.",
+        documentation="docs/CLI.md",
+    )
+    rendered = (
+        json.dumps(payload, ensure_ascii=False, indent=2)
+        if as_json
+        else format_root_help(program)
+    )
+    print(rendered)
+    return 1
 
 
 def _invalid_output_format_status(argv: Sequence[str]) -> Optional[int]:
@@ -62,11 +108,10 @@ def _leading_command_token(argv: Sequence[str]) -> Optional[str]:
 def main(argv: Optional[Sequence[str]] = None) -> int:
     """Handle cheap entry-point modes before importing the full tool graph."""
     effective_argv = list(sys.argv[1:] if argv is None else argv)
-    if effective_argv in (["--version"], ["-V"]):
-        print(f"mtdata-cli {cli_version()}")
-        return 0
-
     program = display_program_name(sys.argv[0])
+
+    if effective_argv in (["--version"], ["-V"]):
+        return _print_cli_version(as_json=False)
     if effective_argv in (["--help"], ["-h"]):
         print(format_root_help(program))
         return 0
@@ -78,21 +123,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     if invalid_format_status is not None:
         return invalid_format_status
 
+    json_requested = _json_output_requested(effective_argv)
+    remainder = _non_global_tokens(effective_argv)
+    if not remainder:
+        return _print_missing_command_error(program, as_json=json_requested)
+    if remainder[0] in _VERSION_TOKENS and not _non_global_tokens(remainder[1:]):
+        return _print_cli_version(as_json=json_requested)
+    if remainder[0] in _HELP_TOKENS and not _non_global_tokens(remainder[1:]):
+        print(format_root_help(program))
+        return 0
+
     raw_command = _leading_command_token(effective_argv)
     if raw_command is None:
-        if _json_output_requested(effective_argv):
-            from . import api
-
-            if argv is None:
-                return api.main()
-            original_argv = list(sys.argv)
-            try:
-                sys.argv = [original_argv[0], *effective_argv]
-                return api.main()
-            finally:
-                sys.argv = original_argv
-        print(format_root_help(program))
-        return 1
+        return _print_missing_command_error(program, as_json=json_requested)
     normalized_command = raw_command.replace("-", "_")
     known_commands = {*known_command_names(), "shell"}
     if not raw_command.startswith("-") and normalized_command not in known_commands:
