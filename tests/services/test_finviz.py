@@ -1201,7 +1201,7 @@ class TestFinvizTools:
                 "perf_day_pct": 0.2,
                 "perf_week_pct": -0.3,
                 "perf_month_pct": 0.4,
-                "perf_quart_pct": 0.5,
+                "perf_quarter_pct": 0.5,
                 "perf_year_pct": 1.6,
             }
         ]
@@ -1874,14 +1874,16 @@ class TestFinvizTools:
         assert result["fundamentals"]["high_52w_price"] == 288.62
         assert result["fundamentals"]["high_52w_distance_pct"] == -2.94
         assert "high_52w" not in result["fundamentals"]
-        assert result["fundamentals"]["rsi_14"] == 62.1
+        assert "rsi_14" not in result["fundamentals"]
         assert "insider_own" not in result["fundamentals"]
 
         all_compact = raw("AAPL", category="all", detail="compact")
         assert all_compact["category"] == "all"
         assert all_compact["detail"] == "compact"
         assert all_compact["fundamentals"]["insider_own"] == 0.1
-        assert all_compact["fundamentals"]["rsi_14"] == 62.1
+        assert "rsi_14" not in all_compact["fundamentals"]
+        all_full = raw("AAPL", category="all", detail="full")
+        assert all_full["fundamentals"]["rsi_14"] == 62.1
         assert "high_52w_distance_pct_recomputed" not in all_compact["fundamentals"]
 
         overview = raw("AAPL", category="overview")
@@ -2056,11 +2058,12 @@ class TestFinvizTools:
         assert "missing_fields" not in custom_normalized
         assert technical["category"] == "technical"
         assert technical["fundamentals"] == {
-            "rsi_14": 62.1,
             "sma20_distance_pct": 4.54,
             "sma50_distance_pct": 12.98,
             "sma200_distance_pct": 18.15,
         }
+        technical_full = raw("AAPL", category="technical", detail="full")
+        assert technical_full["fundamentals"]["rsi_14"] == 62.1
         assert financial["success"] is False
         assert financial["error_code"] == "finviz_fundamentals_invalid_category"
 

@@ -217,15 +217,16 @@ mtdata-cli asset_performance --universe insider --option "top week buys" --json
 | `--universe` | `forex` | `forex`, `crypto`, `futures`, or `insider`. |
 | `--symbol` | (none) | Optional forex, crypto, or futures filter such as `EURUSD`, `BTCUSD`/`BTC`, or the provider ticker/name. |
 | `--option` | `latest` | Insider slice: `latest`, `latest buys`, `latest sales`, `top week`, `top week buys`, `top week sales`, `top owner trade`, `top owner buys`, `top owner sales`. |
-| `--rank-by` | (none) | Forex/crypto/futures: rank the fetched snapshot before paging (`5min`, `hour`, `day`, `week`, `month`, `quarter`, `half`, `year`, `ytd`). Omit to keep `selection_order=provider_table_order`. |
+| `--rank-by` | (none) | Forex/crypto/futures: rank the fetched snapshot before paging (`5min`, `hour`, `day`, `week`, `month`, `quarter`, `half`, `year`, `ytd`). Rank keys `quarter` and `half` map to output fields `perf_quarter_pct` and `perf_half_year_pct`. Omit to keep `selection_order=provider_table_order`. |
 | `--order` | `desc` with `--rank-by` | Rank direction: `desc` or `asc`. Requires `--rank-by`. |
 | `--limit` / `--offset` | `20` / `0` | Forex, crypto, and futures paging. Applied after `--rank-by`. |
 | `--page` | `1` | Insider paging. |
 
 Forex, crypto, and futures rows share one schema: delayed `price` when the
-provider has one, and `perf_*_pct` as percent (`1.0 = 1%`). Check `units`
-and `performance_format`. Futures performance from this source does not
-include a live price or volume — `data_limitations.price` says so.
+provider has one, and `perf_*_pct` as percent (`1.0 = 1%`). Quarter and
+half-year horizons are `perf_quarter_pct` and `perf_half_year_pct`. Check
+`units` and `performance_format`. Futures performance from this source does
+not include a live price or volume — `data_limitations.price` says so.
 
 ---
 
@@ -276,7 +277,11 @@ return `error_code=finviz_rate_limited` with `retryable=true` and numeric
 Economic rows use provider fields `date`, `event`, `ticker`, `importance`
 (`1` low, `2` medium, `3` high), `actual`, `forecast`, `previous`,
 `category`, `reference`, and `referenceDate` when present. The tool exposes
-`symbol` for `ticker` and `reference_date` for `referenceDate`. Events are
+`symbol` for `ticker` and `reference_date` for `referenceDate`. Raw
+`actual` / `previous` / `forecast` strings are kept; parseable prints also
+expose `actual_value`, `previous_value`, `forecast_value`, plus shared
+`unit` / `scale` when those fields agree (`percent` with `1.0 = 1%`, or
+`count` with a K/M/B/T multiplier). Events are
 unique by `calendar_id` before pagination. Rows without an ID use a composite
 of scheduled time, event, symbol, category, reference, country, and currency.
 If duplicate variants disagree on a non-empty field, the merged field is

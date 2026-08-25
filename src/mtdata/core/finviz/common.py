@@ -170,11 +170,18 @@ def _run_logged_tool(
     )
 
 
+_FINVIZ_MARKET_KEY_ALIASES = {
+    "perf_quart": "perf_quarter",
+    "perf_half": "perf_half_year",
+}
+
+
 def _snake_finviz_market_key(value: Any) -> str:
     key = str(value).strip().lower()
     for old, new in (("%", "pct"), ("/", "_"), ("&", "and"), ("-", "_")):
         key = key.replace(old, new)
-    return "_".join(part for part in key.replace(".", "").split() if part)
+    normalized = "_".join(part for part in key.replace(".", "").split() if part)
+    return _FINVIZ_MARKET_KEY_ALIASES.get(normalized, normalized)
 
 
 _FOREX_CURRENCY_NAMES = {
@@ -204,8 +211,8 @@ _FINVIZ_MARKET_COMPACT_FIELDS = (
     "perf_day_pct",
     "perf_week_pct",
     "perf_month_pct",
-    "perf_quart_pct",
-    "perf_half_pct",
+    "perf_quarter_pct",
+    "perf_half_year_pct",
     "perf_year_pct",
     "perf_ytd_pct",
 )
@@ -215,8 +222,8 @@ _FINVIZ_MARKET_PERFORMANCE_PERIOD_FIELDS = (
     ("day", "perf_day_pct"),
     ("week", "perf_week_pct"),
     ("month", "perf_month_pct"),
-    ("quarter", "perf_quart_pct"),
-    ("half_year", "perf_half_pct"),
+    ("quarter", "perf_quarter_pct"),
+    ("half_year", "perf_half_year_pct"),
     ("year", "perf_year_pct"),
     ("year_to_date", "perf_ytd_pct"),
 )
@@ -328,11 +335,11 @@ _FINVIZ_SCREEN_PERCENT_FIELDS = _FINVIZ_SCREEN_FRACTION_PERCENT_FIELDS | frozens
         "perf_day_pct",
         "perf_week_pct",
         "perf_month_pct",
-        "perf_quart_pct",
+        "perf_quarter_pct",
         "perf_year_pct",
         "perf_5min_pct",
         "perf_hour_pct",
-        "perf_half_pct",
+        "perf_half_year_pct",
         "perf_ytd_pct",
     }
 )
@@ -350,8 +357,8 @@ _FINVIZ_PERFORMANCE_RANK_BY = {
     "day": "perf_day_pct",
     "week": "perf_week_pct",
     "month": "perf_month_pct",
-    "quarter": "perf_quart_pct",
-    "half": "perf_half_pct",
+    "quarter": "perf_quarter_pct",
+    "half": "perf_half_year_pct",
     "year": "perf_year_pct",
     "ytd": "perf_ytd_pct",
 }

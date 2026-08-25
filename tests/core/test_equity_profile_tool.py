@@ -41,7 +41,6 @@ def test_equity_profile_sections_all_compact_keeps_all_category(monkeypatch) -> 
             "fundamentals": {
                 "pe_ratio": 34.29,
                 "insider_own": 0.1,
-                "rsi_14": 62.1,
             },
         }
 
@@ -53,7 +52,7 @@ def test_equity_profile_sections_all_compact_keeps_all_category(monkeypatch) -> 
     assert result["sections"] == ["all"]
     assert result["category"] == "all"
     assert result["fundamentals"]["insider_own"] == 0.1
-    assert result["fundamentals"]["rsi_14"] == 62.1
+    assert "rsi_14" not in result["fundamentals"]
 
 
 def test_equity_profile_mt5_pin_is_unsupported() -> None:

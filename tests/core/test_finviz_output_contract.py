@@ -256,7 +256,7 @@ def test_market_rows_keep_canonical_price_and_performance_fields_in_full_detail(
     assert compact["items"][0]["perf_week_pct"] == full["items"][0]["perf_week_pct"] == 0.73
     assert full["items"][0]["perf_5min_pct"] == 0.02
     assert full["items"][0]["perf_hour_pct"] == -0.04
-    assert full["items"][0]["perf_half_pct"] == 1.25
+    assert full["items"][0]["perf_half_year_pct"] == 1.25
     assert full["items"][0]["perf_ytd_pct"] == 0.0
     assert "delayed_price" not in compact["items"][0]
     assert "perf_day" not in full["items"][0]
@@ -264,7 +264,7 @@ def test_market_rows_keep_canonical_price_and_performance_fields_in_full_detail(
     assert full["units"]["perf_day_pct"] == "percent (1.0 = 1%)"
     assert full["units"]["perf_5min_pct"] == "percent (1.0 = 1%)"
     assert full["units"]["perf_hour_pct"] == "percent (1.0 = 1%)"
-    assert full["units"]["perf_half_pct"] == "percent (1.0 = 1%)"
+    assert full["units"]["perf_half_year_pct"] == "percent (1.0 = 1%)"
     assert full["units"]["perf_ytd_pct"] == "percent (1.0 = 1%)"
     assert full["data_limitations"]["performance_periods"] == [
         "5_minutes",

@@ -22,6 +22,7 @@ from mtdata.core.error_envelope import build_error_payload
 from mtdata.core.finviz.common import (
     _FINVIZ_CALENDAR_LOCAL_TIMEZONE,
     _FINVIZ_CALENDAR_LOCAL_TZ,
+    _FINVIZ_NUMERIC_SUFFIX_MULTIPLIERS,
     _append_finviz_warning,
     _apply_finviz_pagination_contract,
     _attach_finviz_delayed_root_metadata,
@@ -34,6 +35,7 @@ from mtdata.core.finviz.common import (
     _normalize_finviz_fundamental_value,
     _normalize_finviz_output_key,
     _normalize_finviz_output_rows,
+    _parse_finviz_numeric_value,
     _run_logged_tool,
     _validate_finviz_detail,
 )
@@ -139,8 +141,14 @@ _FINVIZ_CALENDAR_COMPACT_FIELDS = (
     "reference",
     "reference_date",
     "actual",
+    "actual_value",
     "previous",
+    "previous_value",
     "forecast",
+    "forecast_value",
+    "unit",
+    "scale",
+    "value_parse_status",
     "eps_estimate",
     "eps_actual",
     "eps_surprise",
@@ -353,6 +361,122 @@ def _add_finviz_calendar_impact_label(item: Dict[str, Any]) -> Dict[str, Any]:
         impact = _finviz_calendar_importance_label(normalized.get("importance"))
         if impact is not None:
             normalized["impact"] = impact
+    return normalized
+
+
+_ECONOMIC_RELEASE_SUFFIX_UNITS = {
+    suffix: ("count", multiplier)
+    for suffix, multiplier in _FINVIZ_NUMERIC_SUFFIX_MULTIPLIERS.items()
+}
+
+
+def parse_economic_release_value(value: Any) -> Dict[str, Any]:
+    """Parse a provider economic print into a numeric value plus unit/scale."""
+    if value in (None, ""):
+        return {
+            "value": None,
+            "unit": None,
+            "scale": None,
+            "parse_status": "missing",
+        }
+    text = str(value).strip().replace(",", "")
+    if not text or text in {"-", "N/A", "n/a", "None", "none", "null"}:
+        return {
+            "value": None,
+            "unit": None,
+            "scale": None,
+            "parse_status": "missing",
+        }
+    currency_stripped = text.lstrip("$€£¥ ")
+    if currency_stripped.endswith("%"):
+        parsed = _parse_finviz_numeric_value(currency_stripped)
+        if parsed is None:
+            return {
+                "value": None,
+                "unit": "percent",
+                "scale": 1.0,
+                "parse_status": "unparseable",
+            }
+        return {
+            "value": parsed,
+            "unit": "percent",
+            "scale": 1.0,
+            "parse_status": "ok",
+        }
+    suffix = currency_stripped[-1].upper() if currency_stripped else ""
+    if suffix in _ECONOMIC_RELEASE_SUFFIX_UNITS:
+        unit, scale = _ECONOMIC_RELEASE_SUFFIX_UNITS[suffix]
+        parsed = _parse_finviz_numeric_value(currency_stripped)
+        if parsed is None:
+            return {
+                "value": None,
+                "unit": unit,
+                "scale": scale,
+                "parse_status": "unparseable",
+            }
+        return {
+            "value": parsed,
+            "unit": unit,
+            "scale": scale,
+            "parse_status": "ok",
+        }
+    parsed = _parse_finviz_numeric_value(currency_stripped)
+    if parsed is None:
+        return {
+            "value": None,
+            "unit": None,
+            "scale": None,
+            "parse_status": "unparseable",
+        }
+    return {
+        "value": parsed,
+        "unit": None,
+        "scale": 1.0,
+        "parse_status": "ok",
+    }
+
+
+def _attach_economic_release_values(item: Dict[str, Any]) -> Dict[str, Any]:
+    """Keep raw actual/previous/forecast strings and add parsed numerics."""
+    normalized = dict(item)
+    if all(
+        normalized.get(field) in (None, "")
+        for field in ("actual", "previous", "forecast")
+    ):
+        return normalized
+    parsed_fields = {
+        "actual": parse_economic_release_value(normalized.get("actual")),
+        "previous": parse_economic_release_value(normalized.get("previous")),
+        "forecast": parse_economic_release_value(normalized.get("forecast")),
+    }
+    statuses: List[str] = []
+    units: List[str] = []
+    scales: List[float] = []
+    for field, parsed in parsed_fields.items():
+        normalized[f"{field}_value"] = parsed["value"]
+        status = str(parsed.get("parse_status") or "missing")
+        if status != "missing":
+            statuses.append(status)
+        unit = parsed.get("unit")
+        scale = parsed.get("scale")
+        if unit not in (None, ""):
+            units.append(str(unit))
+        if scale not in (None, ""):
+            scales.append(float(scale))
+    unique_units = list(dict.fromkeys(units))
+    unique_scales = list(dict.fromkeys(scales))
+    if len(unique_units) == 1:
+        normalized["unit"] = unique_units[0]
+    if len(unique_scales) == 1:
+        normalized["scale"] = unique_scales[0]
+    if not statuses:
+        normalized["value_parse_status"] = "missing"
+    elif all(status == "ok" for status in statuses):
+        normalized["value_parse_status"] = "ok"
+    elif all(status == "unparseable" for status in statuses):
+        normalized["value_parse_status"] = "unparseable"
+    else:
+        normalized["value_parse_status"] = "partial"
     return normalized
 
 
@@ -707,6 +831,12 @@ def _normalize_finviz_calendar_payload(
                 else item
                 for item in normalized_items
             ]
+            normalized_items = [
+                _attach_economic_release_values(item)
+                if isinstance(item, dict)
+                else item
+                for item in normalized_items
+            ]
         elif calendar_mode == "earnings":
             normalized_items = [
                 _normalize_finviz_earnings_calendar_time(item)
@@ -805,6 +935,20 @@ def _normalize_finviz_calendar_payload(
             "special_amount": "listing_currency_per_share",
             "yield_pct": "percent (1.0 = 1%)",
         }
+    if str(calendar_type or "economic").strip().lower() == "economic":
+        units = dict(out.get("units") or {})
+        units.update(
+            {
+                "actual": "provider_text",
+                "previous": "provider_text",
+                "forecast": "provider_text",
+                "actual_value": "parsed_numeric (percent: 1.0 = 1%)",
+                "previous_value": "parsed_numeric (percent: 1.0 = 1%)",
+                "forecast_value": "parsed_numeric (percent: 1.0 = 1%)",
+                "scale": "numeric_multiplier_applied_to_provider_suffix",
+            }
+        )
+        out["units"] = units
     if str(calendar_type or "economic").strip().lower() == "earnings":
         out["currency_basis"] = "listing_currency"
         out["amount_source_scale"] = "provider_millions_normalized_to_base_units"

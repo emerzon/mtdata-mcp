@@ -146,6 +146,77 @@ def test_calendar_period_hint_is_cli_runnable(monkeypatch) -> None:
     assert "--end" in hint
 
 
+def test_economic_release_value_parses_percent_and_millions() -> None:
+    from mtdata.core.finviz.calendar import parse_economic_release_value
+
+    percent = parse_economic_release_value("3.790%")
+    millions = parse_economic_release_value("1.374M")
+
+    assert percent == {
+        "value": 3.79,
+        "unit": "percent",
+        "scale": 1.0,
+        "parse_status": "ok",
+    }
+    assert millions == {
+        "value": 1_374_000.0,
+        "unit": "count",
+        "scale": 1_000_000.0,
+        "parse_status": "ok",
+    }
+
+
+def test_economic_calendar_keeps_raw_strings_and_adds_parsed_values() -> None:
+    from mtdata.core.finviz.calendar import _normalize_finviz_calendar_payload
+
+    result = _normalize_finviz_calendar_payload(
+        {
+            "success": True,
+            "items": [
+                {
+                    "event": "CPI YoY",
+                    "date": "2026-08-24T12:30:00Z",
+                    "actual": "3.790%",
+                    "previous": "3.780%",
+                    "forecast": "3.800%",
+                    "country": "United States",
+                    "country_code": "US",
+                },
+                {
+                    "event": "Crude Oil Inventories",
+                    "date": "2026-08-24T14:30:00Z",
+                    "previous": "1.374M",
+                    "forecast": "1.443M",
+                    "country": "United States",
+                    "country_code": "US",
+                },
+            ],
+            "total": 2,
+        },
+        calendar_type="economic",
+        upcoming_only=False,
+        source_is_unpaged=True,
+        limit=20,
+        page=1,
+    )
+
+    cpi = result["items"][0]
+    inventories = result["items"][1]
+    assert cpi["actual"] == "3.790%"
+    assert cpi["actual_value"] == 3.79
+    assert cpi["previous_value"] == 3.78
+    assert cpi["forecast_value"] == 3.8
+    assert cpi["unit"] == "percent"
+    assert cpi["scale"] == 1.0
+    assert cpi["value_parse_status"] == "ok"
+    assert inventories["previous"] == "1.374M"
+    assert inventories["previous_value"] == 1_374_000.0
+    assert inventories["forecast_value"] == 1_443_000.0
+    assert inventories["unit"] == "count"
+    assert inventories["scale"] == 1_000_000.0
+    assert "actual_value" not in inventories
+
+
 def test_calendar_rejects_reversed_date_range() -> None:
     from mtdata.core.finviz.calendar import run_finviz_calendar
 

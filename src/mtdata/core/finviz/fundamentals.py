@@ -340,11 +340,16 @@ def _finviz_fundamental_units(fundamentals: Dict[str, Any]) -> Dict[str, str]:
     return units
 
 
-def _compact_finviz_fundamentals(fundamentals: Dict[str, Any]) -> Dict[str, Any]:
+def _compact_finviz_fundamentals(
+    fundamentals: Dict[str, Any],
+    *,
+    keep_rsi: bool = False,
+) -> Dict[str, Any]:
     return {
         key: value
         for key, value in fundamentals.items()
         if not str(key).endswith("_recomputed")
+        and (keep_rsi or key != "rsi_14")
     }
 
 
@@ -562,7 +567,10 @@ def _filter_finviz_fundamentals_payload(
         filtered[output_key] = output_value
     _add_finviz_large_number_formats(filtered)
     if detail_mode == "compact":
-        filtered = _compact_finviz_fundamentals(filtered)
+        filtered = _compact_finviz_fundamentals(
+            filtered,
+            keep_rsi=category_out == "custom",
+        )
     out = dict(result)
     out["currency"] = "USD"
     _add_finviz_52w_quality_flags(
