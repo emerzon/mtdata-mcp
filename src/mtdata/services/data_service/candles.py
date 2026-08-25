@@ -713,6 +713,7 @@ def _fetch_rates_with_warmup(  # noqa: C901
                 freshness_cutoff_epoch=freshness_cutoff,
                 data_freshness_reference_epoch=freshness_reference_ts,
             )
+            freshness_meta["last_bar_open_epoch"] = last_completed_open
             if live_range:
                 if last_completed_epoch is not None:
                     freshness_meta["query_end_gap_seconds"] = round(

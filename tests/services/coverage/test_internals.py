@@ -28,6 +28,7 @@ from mtdata.services.data_service.ticks import (
     _fetch_recent_ticks_backwards,
     _fetch_ticks_forward,
 )
+from mtdata.utils.time import bar_close_epoch
 
 from ._helpers import (
     _DS,
@@ -944,7 +945,14 @@ class TestFetchRatesWithWarmup(unittest.TestCase):
         self.assertEqual(result, fresh_rates)
         self.assertEqual(mock_from.call_count, 2)
         freshness = diagnostics['freshness']
-        self.assertEqual(freshness['last_bar_epoch'], float(fresh_rates[-1]['time']))
+        self.assertEqual(
+            freshness['last_bar_epoch'],
+            bar_close_epoch(fresh_rates[-1]['time'], 'H1'),
+        )
+        self.assertEqual(
+            freshness['last_bar_open_epoch'],
+            float(fresh_rates[-1]['time']),
+        )
         self.assertAlmostEqual(freshness['expected_end_epoch'], end_of_day, places=3)
         self.assertEqual(freshness['data_freshness_seconds'], 0.0)
         self.assertTrue(freshness['last_bar_within_policy_window'])
