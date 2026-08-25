@@ -98,7 +98,7 @@ def test_confluence_compact_omits_verbose_source_narration():
     assert payload["units"]["distance_pct"] == "percent (1.0 = 1%)"
     assert payload["units"]["score"] == "unbounded_heuristic_points"
     assert "max_distance_pct" not in payload
-    assert "min_source_families" not in payload
+    assert payload["min_source_families"] == 2
     assert payload["level_coverage"] == {"above": 1, "below": 0, "at": 0}
     assert "No confluence levels below" in payload["coverage_note"]
 
@@ -123,6 +123,23 @@ def test_confluence_standard_keeps_units_and_filter_context():
     assert "fraction" not in payload["tolerance"]
     assert payload["max_distance_pct"] == 2.0
     assert payload["min_source_families"] == 1
+
+
+def test_confluence_default_requires_two_source_families():
+    payload = build_level_confluence_payload(
+        symbol="EURUSD",
+        pivot_timeframe="D1",
+        sr_timeframe="H1",
+        reference_price=1.08,
+        tolerance_pct=0.1,
+        pivot_methods=[{"method": "classic", "levels": {"PP": 1.0801}}],
+        support_resistance_payload={"levels": []},
+        detail="compact",
+    )
+
+    assert payload["min_source_families"] == 2
+    assert payload["levels"] == []
+    assert "min_source_families=1" in payload["level_scan_note"]
 
 
 def test_pivot_original_resistance_below_reference_is_role_below():
@@ -159,6 +176,7 @@ def test_single_family_clusters_are_returned_but_score_lower_than_multi_family()
         tolerance_pct=0.1,
         pivot_methods=[{"method": "classic", "levels": {"PP": 1.0801}}],
         support_resistance_payload={"levels": []},
+        min_source_families=1,
         detail="standard",
     )
     multi = build_level_confluence_payload(
@@ -214,6 +232,7 @@ def test_duplicate_pivot_prices_do_not_earn_method_agreement_bonus():
             {"method": "camarilla", "levels": {"PP": 1.1}},
         ],
         support_resistance_payload={"levels": []},
+        min_source_families=1,
         detail="standard",
     )
 

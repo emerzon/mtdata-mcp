@@ -108,7 +108,7 @@ mtdata-cli confluence_levels EURUSD --min-source-families 2 --max-levels 5 --jso
 | `min_touches` | `2` | Minimum touches for the S/R component. |
 | `max_levels` | `5` | Maximum confluence zones to return. |
 | `max_distance_pct` | `5.0` | Keep zones within this % of current price; pass `none`/`null` (CLI) or `None` (Python) for all. |
-| `min_source_families` | `1` | Require this many independent families per zone (use `2` for stricter confluence). |
+| `min_source_families` | `2` | Require this many independent families per zone (use `1` to include single-family clusters). |
 | `pivot_method` | — | Restrict pivots to one method (`classic`, `fibonacci`, …). |
 | `volume_weighting` | `off` | Set `auto` to volume-weight the S/R component. |
 | `volume_profile_source` | `off` | Optional volume-profile input. Use `auto`, `ticks`, or `m1_bars` to enable it. |
@@ -116,8 +116,8 @@ mtdata-cli confluence_levels EURUSD --min-source-families 2 --max-levels 5 --jso
 | `volume_profile_max_ticks` | `50000` | Cap the number of ticks pulled for volume profile. |
 | `volume_profile_max_m1_bars` | `20000` | Cap M1 approximation work when volume profile is enabled. |
 
-Single-family clusters are returned but score lower than multi-family confluence.
-Set `min_source_families=2` to require independent agreement.
+The default `min_source_families=2` requires independent agreement. Pass
+`min_source_families=1` to include single-family clusters.
 Volume-profile computation is opt-in because it can require a much larger M1
 history request than the other level families.
 

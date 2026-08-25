@@ -397,6 +397,7 @@ def test_confluence_volume_profile_tick_window_matches_standalone_default():
     ].default == 1
     assert signature(fn).parameters["volume_profile_source"].default == "off"
     assert signature(fn).parameters["volume_profile_max_m1_bars"].default == 20_000
+    assert signature(fn).parameters["min_source_families"].default == 2
 
 
 def test_confluence_default_skips_volume_profile_work():

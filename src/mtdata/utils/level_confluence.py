@@ -491,7 +491,7 @@ def build_level_confluence_payload(
     price_increment: Optional[float] = None,
     max_levels: int = 5,
     max_distance_pct: Optional[float] = 5.0,
-    min_source_families: int = 1,
+    min_source_families: int = 2,
     detail: str = "compact",
     volume_profile_payload: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
@@ -614,6 +614,7 @@ def build_level_confluence_payload(
             out["source_quality"] = {
                 "volume_profile": volume_profile_quality,
             }
+    out["min_source_families"] = min_families
     if detail_value == "compact":
         out["count"] = len(top_clusters)
     else:
@@ -624,7 +625,6 @@ def build_level_confluence_payload(
             "tolerance.points": "broker_points",
         })
         out["max_distance_pct"] = max_distance_pct
-        out["min_source_families"] = min_families
         out["level_counts"] = level_counts
     if not top_clusters:
         out["level_scan_note"] = (

@@ -1067,7 +1067,7 @@ A distribution of traded volume across price rather than time. The **Point of Co
 ### Confluence
 A price zone where several independent methods (pivots, support/resistance, Fibonacci, volume profile) agree, raising the odds of a reaction.
 
-**In mtdata:** Ranked by `confluence_levels`; use `min_source_families=2` to require independent agreement. See [LEVELS.md](LEVELS.md).
+**In mtdata:** Ranked by `confluence_levels`; default `min_source_families=2` requires independent agreement. See [LEVELS.md](LEVELS.md).
 
 ### Fundamental Analysis
 Evaluating a security by examining its intrinsic value through financial statements, earnings, revenue, P/E ratios, and other economic data — as opposed to technical analysis which focuses on price/volume patterns.

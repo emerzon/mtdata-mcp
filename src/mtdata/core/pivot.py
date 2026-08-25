@@ -796,7 +796,7 @@ def confluence_levels(  # noqa: C901
     min_touches: Annotated[int, Field(ge=1)] = 2,
     max_levels: Annotated[int, Field(ge=1)] = 5,
     max_distance_pct: Annotated[Optional[float], Field(ge=0.0)] = 5.0,
-    min_source_families: Annotated[int, Field(ge=1)] = 1,
+    min_source_families: Annotated[int, Field(ge=1)] = 2,
     pivot_method: Optional[PivotMethodLiteral] = None,
     volume_weighting: Literal["off", "auto"] = "off",
     reaction_bars: Annotated[int, Field(ge=1)] = 6,
@@ -811,9 +811,9 @@ def confluence_levels(  # noqa: C901
     """Find nearby high-probability price zones where pivots, support/resistance, and Fibonacci agree.
 
     Combines formula pivot levels, touch-derived support/resistance, and
-    Fibonacci swing levels. Defaults use daily pivots and auto-timeframe S/R.
-    Single-family clusters are returned but score lower than multi-family
-    confluence. Use `min_source_families=2` to require independent agreement.
+    Fibonacci swing levels. Defaults use daily pivots, auto-timeframe S/R, and
+    `min_source_families=2` so a zone needs independent agreement. Pass
+    `min_source_families=1` to include single-family clusters.
     Use `support_resistance_levels` for structural levels alone; this tool is
     multi-source consensus of those levels with pivots and Fibonacci.
     """

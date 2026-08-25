@@ -462,7 +462,7 @@ PARAM_HINTS = {
     "min_touches": "Minimum historical tests/touches required for a level.",
     "max_levels": "Maximum support/resistance levels to return per side or method.",
     "max_distance_pct": "Maximum distance from current price as percent; pass none/null where supported for all levels.",
-    "min_source_families": "Minimum independent level-source families required for confluence.",
+    "min_source_families": "Minimum independent level-source families required for confluence. Default 2 requires agreement from at least two families.",
     "pivot_timeframe": "MT5 timeframe used for formula pivot levels; D1 gives conventional daily pivots.",
     "sr_timeframe": "Support/resistance timeframe; auto merges M15, H1, H4, and D1 where supported.",
     "pivot_method": "Pivot formula to use: classic, fibonacci, camarilla, woodie, or demark.",
