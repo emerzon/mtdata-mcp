@@ -457,6 +457,34 @@ def test_regime_detect_explicit_fetch_limit_caps_history() -> None:
     assert captured == [100]
 
 
+def test_regime_detect_warns_when_fetch_limit_overrides_lookback() -> None:
+    raw = _unwrap(regime_detect)
+
+    with (
+        patch("mtdata.core.regime.api._fetch_history", return_value=_sample_df(80)),
+        patch("mtdata.core.regime.api.resolve_denoise_base_col", return_value="close"),
+        patch("mtdata.core.regime.api._format_time_minimal", side_effect=lambda x: f"T{x}"),
+        patch(
+            "mtdata.core.regime.api._run_regime_method",
+            return_value={"success": True, "method": "hmm"},
+        ),
+    ):
+        out = raw(
+            symbol="TEST",
+            timeframe="H1",
+            method="hmm",
+            lookback=20,
+            fetch_limit=80,
+            detail="compact",
+        )
+
+    assert out.get("success") is True
+    assert any(
+        warning == "fit_window=fetch_limit; lookback used only for summary."
+        for warning in out.get("warnings", [])
+    )
+
+
 def test_bocpd_zero_change_points_includes_tuning_hint() -> None:
     raw = _unwrap(regime_detect)
     cp = np.zeros(79, dtype=float)

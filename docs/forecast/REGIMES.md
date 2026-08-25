@@ -53,7 +53,7 @@ argmax can temporarily differ from the confirmed state during that delay;
 `params_used.state_probability_alignment` makes this explicit.
 Model parameters are still fitted on the requested analysis window, and canonical
 state IDs are ordered by full-window state means. Historical canonical IDs are
-therefore retrospective labels; use rolling `as_of` calls for point-in-time tests.
+therefore retrospective labels; use rolling `--end` cutoffs for point-in-time tests.
 Compact and full responses preserve this distinction in
 `historical_labels_are_retrospective`, `historical_label_scope`, and
 `point_in_time_guidance`.
@@ -206,7 +206,7 @@ records this contract. Fitted `intercept`, `ar_coefficients`, and
 
 The scaler, optional PCA, cluster model, and canonical state ordering are fitted
 on the full requested window. Clustering output is descriptive; reproduce live
-behavior with rolling `as_of` calls. `min_regime_bars` confirmation itself is
+behavior with rolling `--end` cutoffs. `min_regime_bars` confirmation itself is
 causal and reports a terminal candidate that is still awaiting confirmation.
 
 **Example:**
@@ -296,7 +296,7 @@ Canonical fields for successful compact/full JSON responses:
 | `regimes` | segmentation methods | Uses `start`, `end`, `bars`, and `regime_confidence` consistently where regime confidence applies. Omitted for rule-based classification. |
 | `regime_info` | state/rule methods | Describes regime labels and statistics. Clustering labels are derived from return/volatility when available instead of opaque `regime_N` names. |
 | `reliability` | all methods | Always includes `confidence`, `reliability_label`, and `source`; method-specific diagnostics may add more fields. |
-| `historical_label_scope` | full-window fitted methods | Marks historical labels as retrospective; use `point_in_time_guidance` for rolling `as_of` evaluation. |
+| `historical_label_scope` | full-window fitted methods | Marks historical labels as retrospective; use `point_in_time_guidance` for rolling `--end` evaluation. |
 | `warnings` | as needed | Explains accepted parameters that do not apply to the selected method. |
 
 `current_regime.regime_confidence` and `regimes[].regime_confidence` are the canonical regime-confidence keys. Reliability diagnostics keep their own `reliability.confidence` field.
@@ -382,7 +382,7 @@ bounded score.
 
 The scaler, PCA transform, and clusters are fitted over the full analysis
 window. Treat the resulting labels and reliability as retrospective. For
-live-style evaluation or backtests, roll the window and advance `as_of` rather
+live-style evaluation or backtests, roll the window and advance `--end` rather
 than fitting once on the complete history.
 
 #### Wavelet boundaries and causality
@@ -394,7 +394,7 @@ affect the first and last coefficients.
 
 Wavelet energy features use trailing windows, but the scaler and K-means model
 are fitted over the full analysis window (`model_fit_scope=full_window`). The
-reported labels are therefore retrospective. Roll `as_of` through history for
+reported labels are therefore retrospective. Roll `--end` through history for
 an honest live-style or backtest evaluation.
 
 #### GARCH volatility tiers

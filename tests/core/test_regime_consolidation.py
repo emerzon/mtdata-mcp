@@ -403,7 +403,7 @@ class TestConsolidatePayload:
 
         assert result["historical_labels_are_retrospective"] is True
         assert result["historical_label_scope"] == expected_scope
-        assert "rolling as_of" in result["point_in_time_guidance"]
+        assert "rolling --end" in result["point_in_time_guidance"]
 
     def test_compact_omits_retrospective_disclosure_for_online_labels(self):
         payload = {

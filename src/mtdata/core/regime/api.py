@@ -10,7 +10,7 @@ from pydantic import Field
 
 from ...forecast.common import fetch_history as _fetch_history
 from ...forecast.common import log_returns_from_prices as _log_returns_from_prices
-from ...shared.schema import DenoiseSpec, DetailLiteral, TimeframeLiteral
+from ...shared.schema import DenoiseSpecInput, DetailLiteral, TimeframeLiteral
 from ...shared.validators import unknown_mapping_keys_error
 from ...utils.denoise import resolve_denoise_base_col
 from ...utils.freshness import completed_bar_freshness_fields
@@ -40,7 +40,6 @@ from .detect import (
     _coerce_param,
     _detect_all,
     _detect_ensemble,
-    _run_regime_method,
     _feature_cluster_separation,
     _garch_tier_thresholds,
     _method_parameter_warnings,
@@ -51,6 +50,7 @@ from .detect import (
     _resolve_state_count_param,
     _rolling_band_energy,
     _rolling_prefix_std,
+    _run_regime_method,
     _suggest_faster_regime_methods,
     _wavelet_detail_bands,
 )
@@ -253,7 +253,7 @@ def regime_detect(  # noqa: C901
     ] = "rule_based",  # type: ignore
     target: Literal["return", "price"] = "return",  # type: ignore
     params: Optional[Dict[str, Any]] = None,
-    denoise: Optional[DenoiseSpec] = None,
+    denoise: DenoiseSpecInput = None,
     threshold: Optional[float] = None,
     detail: DetailLiteral = "compact",
     lookback: Annotated[Optional[int], Field(ge=1)] = None,
@@ -673,6 +673,12 @@ def regime_detect(  # noqa: C901
                 if fetch_limit is not None
                 else int(lookback)
             )
+            if fetch_limit is not None and requested_lookback >= 0:
+                warning = (
+                    "fit_window=fetch_limit; lookback used only for summary."
+                )
+                if warning not in global_warnings:
+                    global_warnings.append(warning)
             observations_available = int(x.size)
             if observations_available > analysis_limit:
                 x = x[-analysis_limit:]

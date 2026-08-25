@@ -1144,8 +1144,9 @@ def _consolidate_payload(  # noqa: C901
                 else "retrospective_full_window_model_fit"
             )
             new_payload["point_in_time_guidance"] = (
-                "Use rolling as_of calls when evaluating historical labels as "
-                "live strategy inputs."
+                "Use rolling --end cutoffs when evaluating historical labels as "
+                "live strategy inputs. Example: regime_detect EURUSD --timeframe H1 "
+                "--method hmm --end 2026-08-20T12:00:00Z."
             )
         for state_count_key in ("requested_n_states", "effective_n_states"):
             if state_count_key in payload:
