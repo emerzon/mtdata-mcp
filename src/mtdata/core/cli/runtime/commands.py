@@ -140,6 +140,95 @@ _SIMPLIFY_METHOD_DESCRIPTIONS = {
     "apca": "adaptive piecewise constant approximation",
 }
 
+_WAIT_EVENT_EXAMPLES = {
+    "candle_close": (
+        "--end-on '[{\"type\":\"candle_close\",\"timeframe\":\"M1\"}]'"
+    ),
+    "order_filled": (
+        "--watch-for '[{\"type\":\"order_filled\",\"symbol\":\"EURUSD\"}]'"
+    ),
+    "order_created": (
+        "--watch-for '[{\"type\":\"order_created\",\"symbol\":\"EURUSD\"}]'"
+    ),
+    "order_cancelled": (
+        "--watch-for '[{\"type\":\"order_cancelled\",\"symbol\":\"EURUSD\"}]'"
+    ),
+    "position_opened": (
+        "--watch-for '[{\"type\":\"position_opened\",\"symbol\":\"EURUSD\"}]'"
+    ),
+    "position_closed": (
+        "--watch-for '[{\"type\":\"position_closed\",\"symbol\":\"EURUSD\"}]'"
+    ),
+    "tp_hit": "--watch-for '[{\"type\":\"tp_hit\",\"symbol\":\"EURUSD\"}]'",
+    "sl_hit": "--watch-for '[{\"type\":\"sl_hit\",\"symbol\":\"EURUSD\"}]'",
+    "pending_near_fill": (
+        "--watch-for '[{\"type\":\"pending_near_fill\",\"symbol\":\"EURUSD\","
+        "\"distance\":0.0005}]'"
+    ),
+    "stop_threat": (
+        "--watch-for '[{\"type\":\"stop_threat\",\"symbol\":\"EURUSD\","
+        "\"distance\":0.0005}]'"
+    ),
+    "price_change": (
+        "--watch-for '[{\"type\":\"price_change\",\"direction\":\"up\","
+        "\"threshold_mode\":\"fixed_pct\",\"threshold_value\":0.1}]'"
+    ),
+    "volume_spike": (
+        "--watch-for '[{\"type\":\"volume_spike\","
+        "\"window\":{\"kind\":\"minutes\",\"value\":5},"
+        "\"threshold_mode\":\"ratio_to_baseline\",\"threshold_value\":2}]'"
+    ),
+    "tick_count_spike": (
+        "--watch-for '[{\"type\":\"tick_count_spike\","
+        "\"threshold_mode\":\"ratio_to_baseline\",\"threshold_value\":2}]'"
+    ),
+    "spread_spike": (
+        "--watch-for '[{\"type\":\"spread_spike\","
+        "\"threshold_mode\":\"ratio_to_baseline\",\"threshold_value\":2}]'"
+    ),
+    "tick_count_drought": (
+        "--watch-for '[{\"type\":\"tick_count_drought\","
+        "\"threshold_value\":0.5}]'"
+    ),
+    "range_expansion": (
+        "--watch-for '[{\"type\":\"range_expansion\","
+        "\"threshold_mode\":\"ratio_to_baseline\",\"threshold_value\":2}]'"
+    ),
+    "price_touch_level": (
+        "--watch-for '[{\"type\":\"price_touch_level\",\"symbol\":\"EURUSD\","
+        "\"level\":1.0850,\"tolerance\":0.0002}]'"
+    ),
+    "price_break_level": (
+        "--watch-for '[{\"type\":\"price_break_level\",\"symbol\":\"EURUSD\","
+        "\"level\":1.0850,\"direction\":\"up\",\"confirm_ticks\":2}]'"
+    ),
+    "price_enter_zone": (
+        "--watch-for '[{\"type\":\"price_enter_zone\",\"symbol\":\"EURUSD\","
+        "\"lower\":1.0800,\"upper\":1.0850}]'"
+    ),
+}
+_WAIT_EVENT_DEFAULT_EXAMPLE = (
+    "--watch-for '[{\"type\":\"price_change\",\"threshold_value\":0.1,"
+    "\"threshold_mode\":\"fixed_pct\"}]' "
+    "--end-on '[{\"type\":\"candle_close\",\"timeframe\":\"M1\"}]'"
+)
+
+
+def _wait_event_example_for_error(item: Dict[str, Any]) -> str:
+    loc = ".".join(str(part) for part in item.get("loc", ()))
+    family = loc.split(".", 1)[0]
+    raw_input = item.get("input")
+    event_type = ""
+    if isinstance(raw_input, dict):
+        event_type = str(raw_input.get("type") or "").strip().lower()
+    elif isinstance(raw_input, str):
+        event_type = raw_input.strip().lower()
+    if family == "end_on":
+        return _WAIT_EVENT_EXAMPLES["candle_close"]
+    if event_type in _WAIT_EVENT_EXAMPLES:
+        return _WAIT_EVENT_EXAMPLES[event_type]
+    return _WAIT_EVENT_DEFAULT_EXAMPLE
+
 
 def friendly_validation_error(exc: ValidationError, *, cmd_name: str) -> str:
     """Render Pydantic validation failures without framework internals."""
@@ -153,13 +242,18 @@ def friendly_validation_error(exc: ValidationError, *, cmd_name: str) -> str:
         msg = str(item.get("msg") or "Invalid value.")
         if cmd_name == "forecast_generate" and loc == "horizon":
             return "horizon must be between 1 and 500."
+        if cmd_name == "report_generate" and "in the future" in msg.lower():
+            if loc == "end" or "end must not be in the future" in msg.lower():
+                return (
+                    "end must not be in the future; no historical report data "
+                    "is available"
+                )
         if cmd_name == "wait_event" and loc.split(".", 1)[0] in {"watch_for", "end_on"}:
+            example = _wait_event_example_for_error(item)
             return (
                 "wait_event watch_for/end_on entries must be valid event objects; "
-                "CLI event names are also accepted. Example: --watch-for "
-                "'[{\"type\":\"price_change\","
-                "\"threshold_value\":0.1,\"threshold_mode\":\"fixed_pct\"}]' "
-                "--end-on '[{\"type\":\"candle_close\",\"timeframe\":\"M1\"}]'."
+                "CLI event names are also accepted. Example: "
+                f"{example}"
             )
         if cmd_name == "trade_stress_test" and loc.split(".", 1)[0] == "shocks":
             return (
@@ -238,8 +332,14 @@ def create_command_function(  # noqa: C901
         code: str = "cli_invalid_arguments",
         remediation: Optional[str] = None,
     ) -> Dict[str, Any]:
+        text = str(message).strip() or "Invalid command input."
+        if (
+            cmd_name == "report_generate"
+            and "end must not be in the future" in text.lower()
+        ):
+            code = "report_end_in_future"
         return build_error_payload(
-            str(message).strip() or "Invalid command input.",
+            text,
             code=code,
             operation=cmd_name,
             remediation=(
