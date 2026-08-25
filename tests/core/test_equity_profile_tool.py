@@ -112,3 +112,36 @@ def test_equity_profile_mt5_pin_is_unsupported() -> None:
 
     assert result["success"] is False
     assert result["error_code"] == "research_capability_unsupported"
+
+
+def test_equity_profile_non_price_sections_keep_observation_contract(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "mtdata.core.finviz.finviz_fundamentals",
+        lambda symbol, detail="compact", category="summary", fields=None: {
+            "success": True,
+            "symbol": symbol,
+            "category": category,
+            "detail": detail,
+            "data_fetched_at": "2026-08-25T16:18:57Z",
+            "fundamentals": {
+                "pe_ratio": 35.5,
+                "inst_own": 68.91,
+            },
+        },
+    )
+
+    result = _unwrap(equity_profile)(
+        "AAPL",
+        sections="valuation,ownership",
+        detail="full",
+    )
+
+    assert result["success"] is True
+    assert result["freshness"] == "finviz_delayed"
+    assert result["data_fetched_at"] == "2026-08-25T16:18:57Z"
+    assert result["observation_time_status"] == "provider_timestamp_unavailable"
+    assert result["nominal_provider_delay_minutes"] == {
+        "minimum": 15,
+        "maximum": 20,
+    }
+    assert "transport time" in result["observation_time_note"]

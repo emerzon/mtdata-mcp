@@ -108,6 +108,37 @@ def _parse_sections(value: Optional[str]) -> tuple[str, ...] | Dict[str, Any]:
     return tuple(parts or _DEFAULT_SECTIONS)
 
 
+def _stamp_equity_profile_observation(
+    payload: Dict[str, Any],
+    *,
+    provider: str,
+) -> Dict[str, Any]:
+    if not isinstance(payload, dict):
+        return payload
+    if payload.get("success") is False or payload.get("error"):
+        return payload
+    if str(provider or "").strip().lower() != "finviz":
+        return payload
+    from .finviz.common import (
+        _FINVIZ_DELAY_MINUTES_MAX,
+        _FINVIZ_DELAY_MINUTES_MIN,
+        _FINVIZ_DELAYED_FRESHNESS,
+        _attach_finviz_fetch_timestamp,
+    )
+
+    out = dict(payload)
+    out.setdefault("freshness", _FINVIZ_DELAYED_FRESHNESS)
+    out.setdefault("data_delayed", True)
+    out.setdefault(
+        "nominal_provider_delay_minutes",
+        {
+            "minimum": _FINVIZ_DELAY_MINUTES_MIN,
+            "maximum": _FINVIZ_DELAY_MINUTES_MAX,
+        },
+    )
+    return _attach_finviz_fetch_timestamp(out)
+
+
 def _first_error(payloads: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     for payload in payloads.values():
         if isinstance(payload, dict) and (
@@ -131,7 +162,7 @@ def _compose_profile(
         out = stamp_provider(only, provider=provider)
         if isinstance(out, dict):
             out["sections"] = list(sections)
-        return out
+        return _stamp_equity_profile_observation(out, provider=provider)
     out: Dict[str, Any] = {
         "success": True,
         "sections": list(sections),
@@ -148,7 +179,11 @@ def _compose_profile(
                 and payload.get("requested_symbol")
             ):
                 out["requested_symbol"] = payload["requested_symbol"]
-    return out
+            if out.get("data_fetched_at") in (None, "") and payload.get(
+                "data_fetched_at"
+            ):
+                out["data_fetched_at"] = payload["data_fetched_at"]
+    return _stamp_equity_profile_observation(out, provider=provider)
 
 
 @mcp.tool()
