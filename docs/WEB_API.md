@@ -387,12 +387,14 @@ needs confirm. See [TRADING_SAFETY.md](TRADING_SAFETY.md) and
 [WEBUI_TOOL_COVERAGE.md](WEBUI_TOOL_COVERAGE.md).
 
 A successful invoke returns HTTP 200 with `{success: true, tool, surface, result}`.
-If the tool itself returns a structured failure (`success=false` or an
-`error`), the HTTP status is 4xx/5xx and the error envelope has
-`success=false`. Invalid parameters are 422, not-found codes 404, MT5
-connection failures 503, internal faults 500, and other domain failures
-400. The wrapper never reports `success=true` around a failed domain
-result.
+Every failed invoke returns HTTP 4xx/5xx with FastAPI's `{detail: <error envelope>}`
+body. The envelope is `{success: false, error, error_code, operation, request_id}`
+and may include `details`. Confirmation blocks use `error_code=confirmation_required`
+and keep `requires_confirmation`, `safety`, and `hint` under `details`. Unknown
+tools use `error_code=tool_not_found`. Invalid parameters are 422, not-found codes
+404, omitted long-running tools 403, MT5 connection failures 503, internal faults
+500, and other domain failures 400. The wrapper never reports `success=true`
+around a failed domain result.
 
 #### `POST /api/backtest`
 Run a rolling-origin backtest.

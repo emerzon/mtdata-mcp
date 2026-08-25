@@ -295,12 +295,22 @@ def get_tool_for_webapi(
     ensure_tools_bootstrapped()
     name = str(tool_name or "").strip()
     if not name:
-        raise HTTPException(status_code=400, detail="tool_name is required")
+        raise _http_error(
+            400,
+            "tool_name is required",
+            code="tool_param_error",
+            operation="tools_get",
+        )
 
     detail_mode = _catalog_detail_mode(detail, default="compact")
     match = registered_tool_catalog_entry(name, detail=detail_mode)
     if match is None:
-        raise HTTPException(status_code=404, detail=f"Unknown tool: {name}")
+        raise _http_error(
+            404,
+            f"Unknown tool: {name}",
+            code="tool_not_found",
+            operation=name,
+        )
 
     enriched = _enrich_catalog_row(match, include_fields=include_fields)
     return {"success": True, "detail": detail_mode, "tool": enriched}
@@ -315,14 +325,22 @@ def invoke_tool_for_webapi(
     ensure_tools_bootstrapped()
     name = str(tool_name or "").strip()
     if not name:
-        raise HTTPException(status_code=400, detail="tool_name is required")
+        raise _http_error(
+            400,
+            "tool_name is required",
+            code="tool_param_error",
+            operation="tools_invoke",
+        )
 
     if name in INTENTIONAL_OMIT_TOOLS:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "error": f"Tool {name} is not available from the Web UI.",
+        raise _http_error(
+            403,
+            f"Tool {name} is not available from the Web UI.",
+            code="tool_not_available",
+            operation=name,
+            details={
                 "rationale": INTENTIONAL_OMIT_TOOLS[name],
+                "safety": tool_safety_meta(name),
             },
         )
 
@@ -330,12 +348,12 @@ def invoke_tool_for_webapi(
     fn = funcs.get(name)
     if fn is None:
         # market_depth_fetch may be registered only when env-enabled
-        raise HTTPException(
-            status_code=404,
-            detail={
-                "error": f"Tool {name} is not registered or is disabled.",
-                "safety": tool_safety_meta(name),
-            },
+        raise _http_error(
+            404,
+            f"Tool {name} is not registered or is disabled.",
+            code="tool_not_found",
+            operation=name,
+            details={"safety": tool_safety_meta(name)},
         )
 
     args = dict(arguments or {})
@@ -343,13 +361,12 @@ def invoke_tool_for_webapi(
     args.pop("confirm", None)
     args.pop("__confirm", None)
     if "extras" in args:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "extras was removed; use the tool's detail parameter.",
-                "parameter": "extras",
-                "replacement": "detail",
-            },
+        raise _http_error(
+            400,
+            "extras was removed; use the tool's detail parameter.",
+            code="tool_param_error",
+            operation=name,
+            details={"parameter": "extras", "replacement": "detail"},
         )
     # The HTTP surface is always structured JSON; consume presentation-only
     # parameters here instead of leaking them into the raw domain callable.
@@ -364,10 +381,12 @@ def invoke_tool_for_webapi(
             json_output=True,
         )
         if _invocation_requires_confirmation(name, args, target=target) and not confirm:
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": f"Tool {name} requires explicit confirmation.",
+            raise _http_error(
+                400,
+                f"Tool {name} requires explicit confirmation.",
+                code="confirmation_required",
+                operation=name,
+                details={
                     "requires_confirmation": True,
                     "safety": tool_safety_meta(name),
                     "hint": (

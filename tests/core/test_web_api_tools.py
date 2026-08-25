@@ -61,6 +61,20 @@ def _trade_place_functions():
     )
 
 
+def _assert_error_envelope(
+    payload: dict,
+    *,
+    error_code: str,
+    operation: str | None = None,
+) -> None:
+    assert payload["success"] is False
+    assert payload["error_code"] == error_code
+    assert isinstance(payload.get("error"), str) and payload["error"].strip()
+    assert isinstance(payload.get("request_id"), str) and payload["request_id"].strip()
+    if operation is not None:
+        assert payload["operation"] == operation
+
+
 def _documented_tool_inventory() -> tuple[str, list[dict[str, str]]]:
     path = REPO_ROOT / "docs" / "WEBUI_TOOL_COVERAGE.md"
     text = path.read_text(encoding="utf-8")
@@ -269,8 +283,11 @@ class TestListAndInvoke:
             )
 
         assert exc.value.status_code == 400
-        assert exc.value.detail["parameter"] == "extras"
-        assert exc.value.detail["replacement"] == "detail"
+        _assert_error_envelope(
+            exc.value.detail, error_code="tool_param_error", operation="demo"
+        )
+        assert exc.value.detail["details"]["parameter"] == "extras"
+        assert exc.value.detail["details"]["replacement"] == "detail"
 
     @pytest.mark.parametrize(
         ("tool_name", "arguments"),
@@ -283,7 +300,15 @@ class TestListAndInvoke:
         with pytest.raises(HTTPException) as exc:
             invoke_tool_for_webapi(tool_name, arguments=arguments, confirm=False)
         assert exc.value.status_code == 400
-        assert exc.value.detail.get("requires_confirmation") is True
+        _assert_error_envelope(
+            exc.value.detail,
+            error_code="confirmation_required",
+            operation=tool_name,
+        )
+        details = exc.value.detail["details"]
+        assert details["requires_confirmation"] is True
+        assert "safety" in details
+        assert "hint" in details
 
     @pytest.mark.parametrize("payload, status_code", _DOMAIN_FAILURES)
     def test_invoke_maps_domain_failure_to_http_error(self, payload, status_code):
@@ -298,8 +323,11 @@ class TestListAndInvoke:
             invoke_tool_for_webapi("demo")
 
         assert exc.value.status_code == status_code
-        assert exc.value.detail["success"] is False
-        assert exc.value.detail["error_code"] == payload["error_code"]
+        _assert_error_envelope(
+            exc.value.detail,
+            error_code=payload["error_code"],
+            operation="demo",
+        )
         assert exc.value.detail["error"] == payload["error"]
 
     @pytest.mark.parametrize("tool_name", ["forecast_tune_genetic", "forecast_tune_optuna"])
@@ -308,14 +336,26 @@ class TestListAndInvoke:
             invoke_tool_for_webapi(tool_name)
 
         assert exc.value.status_code == 403
-        assert exc.value.detail["rationale"].startswith("Long-running optimization")
+        _assert_error_envelope(
+            exc.value.detail,
+            error_code="tool_not_available",
+            operation=tool_name,
+        )
+        assert exc.value.detail["details"]["rationale"].startswith(
+            "Long-running optimization"
+        )
 
     def test_wait_event_is_omitted_from_sync_invoke(self):
         with pytest.raises(HTTPException) as exc:
             invoke_tool_for_webapi("wait_event")
 
         assert exc.value.status_code == 403
-        assert "wait_event" in exc.value.detail["rationale"]
+        _assert_error_envelope(
+            exc.value.detail,
+            error_code="tool_not_available",
+            operation="wait_event",
+        )
+        assert "wait_event" in exc.value.detail["details"]["rationale"]
 
     @pytest.mark.parametrize(
         ("error", "status_code", "error_code"),
@@ -350,7 +390,9 @@ class TestListAndInvoke:
             invoke_tool_for_webapi("demo")
 
         assert exc.value.status_code == status_code
-        assert exc.value.detail["error_code"] == error_code
+        _assert_error_envelope(
+            exc.value.detail, error_code=error_code, operation="demo"
+        )
         if status_code == 500:
             assert "secret internal detail" not in exc.value.detail["error"]
 
@@ -425,6 +467,17 @@ class TestWebApiRoutes:
         full_size = len(json.dumps(full.json(), sort_keys=True))
         assert compact_size < full_size
 
+    def test_get_unknown_tool_uses_error_envelope(self):
+        res = self.client.get("/api/v1/tools/not_a_real_tool")
+        assert res.status_code == 404
+        body = res.json()
+        assert body.get("success") is not True
+        envelope = body["detail"]
+        _assert_error_envelope(
+            envelope, error_code="tool_not_found", operation="not_a_real_tool"
+        )
+        assert res.headers.get("x-request-id") == envelope["request_id"]
+
     def test_invoke_route(self):
         res = self.client.post(
             "/api/v1/tools/tools_list/invoke",
@@ -444,9 +497,19 @@ class TestWebApiRoutes:
             },
         )
         assert res.status_code == 400
-        detail = res.json()["detail"]
-        assert detail["requires_confirmation"] is True
-        assert detail.get("success") is not True
+        body = res.json()
+        assert body.get("success") is not True
+        envelope = body["detail"]
+        _assert_error_envelope(
+            envelope,
+            error_code="confirmation_required",
+            operation="trade_place",
+        )
+        details = envelope["details"]
+        assert details["requires_confirmation"] is True
+        assert "safety" in details
+        assert "hint" in details
+        assert res.headers.get("x-request-id") == envelope["request_id"]
 
     @pytest.mark.parametrize("dry_run", [True, None])
     def test_invoke_trade_preview_without_confirm(self, dry_run):
@@ -491,5 +554,65 @@ class TestWebApiRoutes:
         assert res.status_code == status_code
         body = res.json()
         assert body.get("success") is not True
-        assert body["detail"]["success"] is False
-        assert body["detail"]["error_code"] == payload["error_code"]
+        envelope = body["detail"]
+        _assert_error_envelope(
+            envelope,
+            error_code=payload["error_code"],
+            operation="demo",
+        )
+        assert envelope["error"] == payload["error"]
+        assert res.headers.get("x-request-id") == envelope["request_id"]
+
+    def test_invoke_unknown_tool_uses_error_envelope(self):
+        res = self.client.post(
+            "/api/v1/tools/not_a_real_tool/invoke",
+            json={"arguments": {}, "confirm": False},
+        )
+        assert res.status_code == 404
+        body = res.json()
+        assert body.get("success") is not True
+        envelope = body["detail"]
+        _assert_error_envelope(
+            envelope,
+            error_code="tool_not_found",
+            operation="not_a_real_tool",
+        )
+        assert "safety" in envelope["details"]
+        assert res.headers.get("x-request-id") == envelope["request_id"]
+
+    def test_invoke_omitted_tool_uses_error_envelope(self):
+        res = self.client.post(
+            "/api/v1/tools/wait_event/invoke",
+            json={"arguments": {}, "confirm": False},
+        )
+        assert res.status_code == 403
+        body = res.json()
+        assert body.get("success") is not True
+        envelope = body["detail"]
+        _assert_error_envelope(
+            envelope,
+            error_code="tool_not_available",
+            operation="wait_event",
+        )
+        assert "wait_event" in envelope["details"]["rationale"]
+        assert res.headers.get("x-request-id") == envelope["request_id"]
+
+    def test_invoke_extras_uses_error_envelope(self):
+        with patch(
+            "mtdata.core.web_api_tools.get_tool_functions",
+            return_value={"demo": lambda: {"success": True}},
+        ):
+            res = self.client.post(
+                "/api/v1/tools/demo/invoke",
+                json={"arguments": {"extras": "not-a-real-extra"}, "confirm": False},
+            )
+        assert res.status_code == 400
+        body = res.json()
+        assert body.get("success") is not True
+        envelope = body["detail"]
+        _assert_error_envelope(
+            envelope, error_code="tool_param_error", operation="demo"
+        )
+        assert envelope["details"]["parameter"] == "extras"
+        assert envelope["details"]["replacement"] == "detail"
+        assert res.headers.get("x-request-id") == envelope["request_id"]
