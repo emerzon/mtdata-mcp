@@ -124,6 +124,25 @@ def _set_ref(
     params[param_name] = {"$ref": ref, **metadata}
 
 
+def _set_denoise_param(params: Dict[str, Any], required_params: set[str]) -> None:
+    if "denoise" not in params:
+        return
+    options = [
+        {"type": "string"},
+        {"$ref": "#/$defs/DenoiseSpec"},
+    ]
+    if "denoise" not in required_params:
+        options.append({"type": "null"})
+    params["denoise"] = {
+        "description": (
+            "Denoise preset name such as kalman, or a JSON spec such as "
+            '{"method":"kalman","params":{"lookback":100}}.'
+        ),
+        "anyOf": options,
+        "examples": ["kalman", {"method": "kalman"}],
+    }
+
+
 def _set_simplify_param(params: Dict[str, Any], required_params: set[str]) -> None:
     if "simplify" not in params:
         return
@@ -148,7 +167,7 @@ def _set_simplify_param(params: Dict[str, Any], required_params: set[str]) -> No
 def _patch_forecast_generate_schema(schema: Dict[str, Any]) -> None:
     params, required_params = _schema_params(schema)
     _set_ref(params, required_params, "quantity", "#/$defs/QuantitySpec")
-    _set_ref(params, required_params, "denoise", "#/$defs/DenoiseSpec", allow_null=True)
+    _set_denoise_param(params, required_params)
     if "params" in params:
         params["params"] = {
             "type": "object",
@@ -183,7 +202,7 @@ def _patch_data_fetch_candles_schema(schema: Dict[str, Any]) -> None:
         if "indicators" not in required_params:
             indicator_options.append({"type": "null"})
         params["indicators"] = {"anyOf": indicator_options}
-    _set_ref(params, required_params, "denoise", "#/$defs/DenoiseSpec", allow_null=True)
+    _set_denoise_param(params, required_params)
     _set_simplify_param(params, required_params)
 
 

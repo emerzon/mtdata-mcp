@@ -8,7 +8,7 @@ from pydantic import Field
 from ..forecast.common import fetch_history as _fetch_history
 from ..shared.schema import (
     BarrierPairSpec,
-    DenoiseSpec,
+    DenoiseSpecInput,
     DetailLiteral,
     TimeframeLiteral,
 )
@@ -386,7 +386,7 @@ def labels_triple_barrier(  # noqa: C901
     timeframe: TimeframeLiteral = "H1",
     limit: Annotated[int, Field(ge=1)] = _DEFAULT_LABEL_LIMIT,
     horizon: Annotated[int, Field(ge=1)] = _DEFAULT_LABEL_HORIZON,
-    denoise: Optional[DenoiseSpec] = None,
+    denoise: DenoiseSpecInput = None,
     allow_noncausal_denoise: bool = False,
     direction: Literal["long", "short"] = "long",  # type: ignore
     label_on: Literal["close", "high_low"] = "high_low",  # type: ignore

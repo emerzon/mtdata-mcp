@@ -131,7 +131,7 @@ def test_candle_and_tick_results_share_broker_source_context() -> None:
         ),
         (
             "start datetime 2099-01-01 is in the future; no historical data is available for future dates.",
-            "data_fetch_candles_future_date_range",
+            "future_date_range",
         ),
         (
             "Could not parse date 'tomorrowish'",
@@ -455,6 +455,12 @@ def test_run_data_fetch_candles_uses_compact_plain_default_limit():
     assert result["success"] is True
     assert request.limit == 20
     assert captured["kwargs"]["limit"] == 20
+
+
+def test_data_fetch_candles_accepts_denoise_preset_string():
+    request = DataFetchCandlesRequest(symbol="EURUSD", denoise="kalman")
+
+    assert request.denoise == {"method": "kalman"}
 
 
 def test_data_fetch_requests_accept_simplify_boolean_and_modes():
@@ -2458,6 +2464,58 @@ def test_run_data_fetch_ticks_cursor_continues_same_millisecond_events():
     assert second["pagination"]["total"] == 3
 
 
+def test_run_data_fetch_ticks_cursor_freezes_relative_bounds():
+    calls = []
+
+    def _fetch(**kwargs):
+        calls.append(kwargs)
+        return {
+            "success": True,
+            "count": 2,
+            "tick_count": 2,
+            "data": [{"time": "a"}, {"time": "b"}],
+            "_tick_page": {
+                "offset": kwargs["page_offset"],
+                "source_returned": 2,
+                "has_more": kwargs["page_offset"] == 0,
+            },
+            "query_applied": {"selection": "first_n"},
+        }
+
+    first = run_data_fetch_ticks(
+        DataFetchTicksRequest(
+            symbol="EURUSD",
+            start="30 seconds ago",
+            end="now",
+            limit=2,
+        ),
+        gateway=SimpleNamespace(ensure_connection=lambda: None),
+        fetch_ticks_impl=_fetch,
+    )
+    first_start = calls[0]["start"]
+    first_end = calls[0]["end"]
+    assert first_start != "30 seconds ago"
+    assert first_end != "now"
+    assert first_start.endswith("Z")
+    second = run_data_fetch_ticks(
+        DataFetchTicksRequest(
+            symbol="EURUSD",
+            start="30 seconds ago",
+            end="now",
+            limit=2,
+            cursor=first["pagination"]["next_cursor"],
+        ),
+        gateway=SimpleNamespace(ensure_connection=lambda: None),
+        fetch_ticks_impl=_fetch,
+    )
+
+    assert calls[1]["start"] == first_start
+    assert calls[1]["end"] == first_end
+    assert first["query_applied"]["resolved_start"] == first_start
+    assert second["query_applied"]["resolved_end"] == first_end
+    assert calls[1]["page_offset"] == 2
+
+
 def test_run_data_fetch_ticks_exact_bounded_page_has_no_next_cursor():
     result = run_data_fetch_ticks(
         DataFetchTicksRequest(
@@ -2696,7 +2754,7 @@ def test_run_data_fetch_ticks_compact_retains_clock_skew_safety_fields():
             "No tick data available",
             "2099-01-01T00:00:00Z",
             "2099-01-01T01:00:00Z",
-            "data_fetch_ticks_future_date_range",
+            "future_date_range",
         ),
     ],
 )
@@ -2817,7 +2875,7 @@ def test_run_data_fetch_ticks_names_future_window_in_error_message() -> None:
         fetch_ticks_impl=lambda **_kwargs: {"error": "No tick data available"},
     )
 
-    assert result["error_code"] == "data_fetch_ticks_future_date_range"
+    assert result["error_code"] == "future_date_range"
     assert "in the future" in result["error"]
 
 
@@ -2841,7 +2899,7 @@ def test_run_data_fetch_ticks_rejects_future_end_before_provider_call(start) -> 
     )
 
     assert result["success"] is False
-    assert result["error_code"] == "data_fetch_ticks_future_date_range"
+    assert result["error_code"] == "future_date_range"
     assert "end datetime" in result["error"]
     assert called is False
 

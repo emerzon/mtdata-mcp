@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from ...forecast.requests import MAX_FORECAST_HORIZON
 from ...shared.schema import (
-    DenoiseSpec,
+    DenoiseSpecInput,
     DetailLiteral,
     TimeframeLiteral,
     reject_removed_field,
@@ -108,7 +108,7 @@ class ReportGenerateRequest(BaseModel):
         False,
         description="Emit report sub-tool progress lines to stderr while the request runs.",
     )
-    denoise: Optional[DenoiseSpec] = None
+    denoise: DenoiseSpecInput = None
     params: Optional[Dict[str, Any]] = Field(
         None,
         description=(

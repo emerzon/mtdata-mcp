@@ -1509,7 +1509,7 @@ class TestResolveParamKwargs:
             ("cointegration_test", "limit", "compact/summary output uses 10"),
             ("outliers_detect", "limit", "anomalous bars"),
             ("temporal_analyze", "limit", "time buckets"),
-            ("temporal_analyze", "session_calendar", "auto, fx, or equity"),
+            ("temporal_analyze", "session_calendar", "auto, fx, equity, or continuous_24_7"),
             ("temporal_analyze", "time_range", "in --timezone"),
             ("temporal_analyze", "return_basis", "overnight/session gaps"),
             ("options_heston_calibrate", "valuation_date", "chain snapshot date"),
@@ -1738,6 +1738,34 @@ class TestResolveParamKwargs:
         assert "Report template" in kwargs["help"]
         assert "scalping" in kwargs["help"]
         assert "Typical warm runtimes" in kwargs["help"]
+
+    def test_forecast_train_quantity_help_does_not_advertise_volatility(self):
+        param = {
+            "name": "quantity",
+            "type": Literal["price", "return"],
+            "required": False,
+            "default": "price",
+        }
+        kwargs, _ = _resolve_param_kwargs(param, None, cmd_name="forecast_train")
+        assert kwargs["choices"] == ["price", "return"]
+        assert "forecast_volatility_estimate" in kwargs["help"]
+        assert "price/return/volatility" not in kwargs["help"]
+
+    def test_trade_idea_compose_template_help_describes_quick_and_standard(self):
+        param = {
+            "name": "template",
+            "type": Literal["quick", "standard"],
+            "required": False,
+            "default": "quick",
+        }
+        kwargs, _ = _resolve_param_kwargs(
+            param, None, cmd_name="trade_idea_compose"
+        )
+        assert kwargs["choices"] == ["quick", "standard"]
+        assert "quick" in kwargs["help"]
+        assert "standard" in kwargs["help"]
+        assert "minimal" not in kwargs["help"]
+        assert "scalping" not in kwargs["help"]
 
     def test_list_type(self):
         param = {"name": "items", "type": List[str], "required": False, "default": None}
@@ -2108,6 +2136,19 @@ class TestResolveParamKwargs:
 
         assert "timeframe-aware seasonal window" in kwargs["help"]
         assert "H1 session: 1440 bars" in kwargs["help"]
+
+    def test_temporal_limit_help_discloses_per_dimension_paging(self):
+        kwargs, _ = _resolve_param_kwargs(
+            {"name": "limit", "type": int, "required": False, "default": None},
+            None,
+            cmd_name="temporal_analyze",
+        )
+
+        assert "single group_by" in kwargs["help"]
+        assert "each of the four breakdowns" in kwargs["help"]
+        assert "dimension_pagination" in kwargs["help"]
+        assert "groups_analyzed" in kwargs["help"]
+        assert "unpaged total" in kwargs["help"]
 
     def test_trade_history_minutes_back_help_mentions_default_lookback(self):
         kwargs, _ = _resolve_param_kwargs(
@@ -2559,6 +2600,22 @@ class TestResolveParamKwargs:
             "ensemble",
         ]
         assert "Barrier simulation method" in kwargs["help"]
+
+    def test_forecast_barrier_optimize_params_help_names_grid_keys(self):
+        param = {
+            "name": "params",
+            "type": Optional[Dict[str, Any]],
+            "required": False,
+            "default": None,
+        }
+        kwargs, _ = _resolve_param_kwargs(
+            param, None, cmd_name="forecast_barrier_optimize"
+        )
+        help_text = kwargs["help"]
+        assert "tp_min" in help_text
+        assert "sl_min" in help_text
+        assert "ticks" in help_text
+        assert "--params" in help_text
 
 
 # ========================================================================

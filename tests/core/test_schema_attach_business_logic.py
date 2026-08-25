@@ -110,7 +110,8 @@ def test_attach_schemas_to_tools_patches_forecast_generate(monkeypatch) -> None:
     schema = tool_obj.schema
     params = schema["parameters"]["properties"]
     assert params["quantity"]["$ref"] == "#/$defs/QuantitySpec"
-    assert params["denoise"]["$ref"] == "#/$defs/DenoiseSpec"
+    assert {"type": "string"} in params["denoise"]["anyOf"]
+    assert {"$ref": "#/$defs/DenoiseSpec"} in params["denoise"]["anyOf"]
     assert params["params"]["type"] == "object"
     assert tool_func.schema == schema
     assert len(apply_calls) == 2
@@ -162,7 +163,8 @@ def test_attach_schemas_to_tools_patches_indicator_and_data_refs(monkeypatch) ->
     assert {"type": "array", "items": {"$ref": "#/$defs/IndicatorSpec"}} in indicator_any_of
     assert any(option.get("type") == "string" for option in indicator_any_of)
     assert {"type": "null"} not in indicator_any_of
-    assert params["denoise"]["$ref"] == "#/$defs/DenoiseSpec"
+    assert {"type": "string"} in params["denoise"]["anyOf"]
+    assert {"$ref": "#/$defs/DenoiseSpec"} in params["denoise"]["anyOf"]
     simplify_schema = params["simplify"]
     simplify_any_of = simplify_schema["anyOf"]
     assert {"$ref": "#/$defs/SimplifySpec"} in simplify_any_of

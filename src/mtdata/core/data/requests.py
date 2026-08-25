@@ -16,7 +16,7 @@ from pydantic import (
 )
 
 from ...shared.schema import (
-    DenoiseSpec,
+    DenoiseSpecInput,
     DetailLiteral,
     IndicatorSpec,
     SimplifySpec,
@@ -430,7 +430,7 @@ class DataFetchCandlesRequest(_DetailNormalizedRequest):
         ),
         examples=["rsi(14)", "rsi(14),ema(20)", "macd(12,26,9)"],
     )
-    denoise: Optional[DenoiseSpec] = None
+    denoise: DenoiseSpecInput = None
     simplify: SimplifySpecInput = None
     include_spread: bool = Field(
         False,
@@ -603,7 +603,7 @@ class _WaitMarketStatEventBase(BaseModel):
         default_factory=lambda: WaitEventWindow(kind="minutes", value=60.0)
     )
     threshold_mode: Literal["ratio_to_baseline", "zscore"] = "ratio_to_baseline"
-    threshold_value: float = Field(2.0, gt=0.0)
+    threshold_value: float = Field(gt=0.0)
 
     @field_validator("threshold_value")
     @classmethod

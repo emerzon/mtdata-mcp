@@ -7,6 +7,7 @@ to per-tool parameter schemas.
 import inspect
 import types
 from typing import (
+    Annotated,
     Any,
     Dict,
     List,
@@ -19,7 +20,7 @@ from typing import (
     is_typeddict,
 )
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 from typing_extensions import TypedDict
 
 from .annotations import get_runtime_annotations, get_runtime_signature
@@ -544,6 +545,25 @@ class DenoiseSpec(TypedDict, total=False):
     causality: Literal['causal', 'zero_phase']  # type: ignore
     keep_original: bool
     suffix: str
+
+
+def normalize_denoise_input(value: Any) -> Any:
+    """Accept a preset name or a DenoiseSpec object at public request boundaries."""
+    if value is None or isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip()
+        return {"method": normalized} if normalized else None
+    return value
+
+
+DenoiseSpecInput = Annotated[
+    Optional[DenoiseSpec],
+    BeforeValidator(
+        normalize_denoise_input,
+        json_schema_input_type=Optional[Union[str, DenoiseSpec]],
+    ),
+]
 
 # ---- Simplify (schema for MCP) ----
 _SIMPLIFY_MODES = (

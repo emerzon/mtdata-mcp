@@ -4,7 +4,7 @@ from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from ..shared.schema import DenoiseSpec, TimeframeLiteral
+from ..shared.schema import DenoiseSpecInput, TimeframeLiteral
 
 PatternsDetailLiteral = Literal["compact", "standard", "summary", "full"]
 PatternModeLiteral = Literal["candlestick", "classic", "harmonic", "fractal", "elliott", "all"]
@@ -64,7 +64,7 @@ class PatternsDetectRequest(BaseModel):
         ),
     )
     last_n_bars: Optional[int] = Field(None, ge=1)
-    denoise: Optional[DenoiseSpec] = None
+    denoise: DenoiseSpecInput = None
     config: Optional[Dict[str, Any]] = None
     engine: Optional[str] = Field(
         None,

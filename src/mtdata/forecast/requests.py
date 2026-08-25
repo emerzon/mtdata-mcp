@@ -14,7 +14,7 @@ from pydantic import (
 
 from ..shared.schema import (
     BarrierPairSpec,
-    DenoiseSpec,
+    DenoiseSpecInput,
     DetailLiteral,
     DimensionalityReductionSpec,
     ForecastLibraryLiteral,
@@ -165,7 +165,7 @@ class ForecastGenerateRequest(_PublicForecastRequest):
         description="Forecast target: price levels, returns, or volatility.",
     )
     proxy: Optional[Literal["squared_return", "abs_return", "log_r2"]] = None
-    denoise: Optional[DenoiseSpec] = None
+    denoise: DenoiseSpecInput = None
     features: Optional[Dict[str, Any]] = None
     dimred: Optional[DimensionalityReductionSpec] = None
     target_spec: Optional[Dict[str, Any]] = None
@@ -277,7 +277,7 @@ class ForecastBacktestRequest(_PublicForecastRequest):
     )
     params_per_method: Optional[Dict[str, Any]] = None
     quantity: Literal["price", "return", "volatility"] = "price"
-    denoise: Optional[DenoiseSpec] = None
+    denoise: DenoiseSpecInput = None
     params: Optional[Dict[str, Any]] = None
     features: Optional[Dict[str, Any]] = None
     dimred: Optional[DimensionalityReductionSpec] = None
@@ -399,7 +399,7 @@ class ForecastConformalIntervalsRequest(_PublicForecastRequest):
             "Values below 0.05 or above 0.20 are warned; values above 0.5 are rejected."
         ),
     )
-    denoise: Optional[DenoiseSpec] = None
+    denoise: DenoiseSpecInput = None
     params: Optional[Dict[str, Any]] = None
     detail: DetailLiteral = "compact"
 
@@ -459,7 +459,7 @@ class _ForecastTuneRequestBase(_PublicForecastRequest):
         description="Execution slippage in basis points per side, deducted from every simulated trade.",
     )
     trade_threshold: float = Field(0.0, ge=0.0)
-    denoise: Optional[DenoiseSpec] = None
+    denoise: DenoiseSpecInput = None
     features: Optional[Dict[str, Any]] = None
     dimred: Optional[DimensionalityReductionSpec] = None
     detail: DetailLiteral = "compact"
@@ -555,7 +555,7 @@ class ForecastBarrierProbRequest(_PublicForecastRequest):
     same_bar_policy: Literal["sl_first", "tp_first", "neutral"] = "sl_first"
     barrier: ForecastBarrierSpec
     params: Optional[Dict[str, Any]] = None
-    denoise: Optional[DenoiseSpec] = None
+    denoise: DenoiseSpecInput = None
     mu: Optional[FiniteFloat] = Field(
         None,
         description=(
@@ -705,7 +705,7 @@ class ForecastOptimizeHintsRequest(_PublicForecastRequest):
         gt=0.0,
         description="Optional wall-clock search limit in seconds.",
     )
-    denoise: Optional[DenoiseSpec] = None
+    denoise: DenoiseSpecInput = None
     features: Optional[Dict[str, Any]] = None
     top_n: int = Field(5, ge=1, le=20)
     dimred: Optional[DimensionalityReductionSpec] = None
@@ -749,8 +749,17 @@ class ForecastBarrierOptimizeRequest(_PublicForecastRequest):
     direction: Literal["long", "short"] = "long"
     same_bar_policy: Literal["sl_first", "tp_first", "neutral"] = "sl_first"
     mode: Literal["pct", "ticks"] = "pct"
-    params: Optional[Dict[str, Any]] = None
-    denoise: Optional[DenoiseSpec] = None
+    params: Optional[Dict[str, Any]] = Field(
+        None,
+        description=(
+            "Optimizer extras as JSON or k=v. Grid bounds: tp_min, tp_max, sl_min, "
+            "sl_max (percent points when mode=pct, ticks when mode=ticks), plus "
+            "tp_steps and sl_steps. Tick-mode fixed/ratio defaults convert the "
+            "implicit 0.25/1.5/0.25/2.5 percent (intraday) grid into ticks. "
+            "Example: tp_min=20 tp_max=80 sl_min=20 sl_max=80."
+        ),
+    )
+    denoise: DenoiseSpecInput = None
     objective: Literal[
         "edge", "prob_tp_first", "prob_resolve", "kelly", "kelly_cond", "ev",
         "ev_cond", "ev_per_bar", "profit_factor", "min_loss_prob", "utility"
@@ -814,7 +823,7 @@ class ForecastVolatilityEstimateRequest(_PublicForecastRequest):
     as_of: Optional[str] = None
     start: Optional[str] = None
     end: Optional[str] = None
-    denoise: Optional[DenoiseSpec] = None
+    denoise: DenoiseSpecInput = None
     detail: DetailLiteral = "compact"
 
     @model_validator(mode="after")
