@@ -35,3 +35,17 @@ def test_screener_default_order_is_descending_market_cap(monkeypatch) -> None:
 
     assert result["success"] is True
     assert captured["order"] == "-marketcap"
+
+
+def test_screener_rejects_offset_in_results_mode(monkeypatch) -> None:
+    def _fake_screen(**kwargs):
+        raise AssertionError("results mode must not fetch when offset is set")
+
+    monkeypatch.setattr("mtdata.core.finviz.finviz_screen", _fake_screen)
+
+    result = _unwrap(screener)(offset=20)
+
+    assert result["success"] is False
+    assert result["error_code"] == "incompatible_parameters"
+    assert result["details"]["invalid"] == ["offset"]
+    assert "Use --page" in result["error"]

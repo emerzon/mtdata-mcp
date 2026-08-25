@@ -12,6 +12,7 @@ from ..services.research.errors import finviz_only_source_error
 from ..services.research.payload import stamp_provider
 from ..shared.schema import DetailLiteral
 from ._mcp_instance import mcp
+from .error_envelope import build_error_payload
 from .execution_logging import run_logged_operation
 
 logger = logging.getLogger(__name__)
@@ -66,7 +67,13 @@ def screener(
     page: Annotated[int, Field(ge=1, description="One-based results page.")] = 1,
     offset: Annotated[
         int,
-        Field(ge=0, description="Zero-based offset for the filter catalog."),
+        Field(
+            ge=0,
+            description=(
+                "Zero-based offset for the filter catalog when list_filters is "
+                "true. Not valid in results mode; use page instead."
+            ),
+        ),
     ] = 0,
     detail: DetailLiteral = "compact",
     source: Annotated[
@@ -99,6 +106,34 @@ def screener(
                 limit=int(limit),
                 offset=int(offset),
                 detail=str(detail or "compact"),
+            )
+        elif int(offset) != 0:
+            return build_error_payload(
+                "offset is only valid with list_filters. Use --page for screener results.",
+                code="incompatible_parameters",
+                operation="screener",
+                details={"invalid": ["offset"]},
+                valid_values={
+                    "results": [
+                        "filters",
+                        "order",
+                        "view",
+                        "limit",
+                        "page",
+                        "detail",
+                    ],
+                    "list_filters": [
+                        "search",
+                        "filter_name",
+                        "limit",
+                        "offset",
+                        "detail",
+                    ],
+                },
+                remediation=(
+                    "Drop --offset, or pass --list-filters true to page the "
+                    "filter catalog. Use --page for result rows."
+                ),
             )
         else:
             payload = finviz_screen(
