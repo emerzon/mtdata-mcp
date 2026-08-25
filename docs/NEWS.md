@@ -59,10 +59,13 @@ publication time.
 
 Broad compact output returns a global page of at most 10 rows, reserves the
 next upcoming event (or a recent release when no future event remains), and
-includes `pagination` plus `bucket_truncation` metadata. Use `--limit` for a
-different global page size, `--limit-per-bucket` for independent bucket caps,
-or `--detail full` for the uncapped selected buckets and richer matching
-diagnostics. Compact symbol news keeps up to five rows per bucket by default.
+includes `pagination` plus `bucket_truncation` metadata. With a symbol, a
+related headline is reserved first so `--limit 1` cannot hide
+direct-symbol news; an event still occupies the next slot when capacity is
+at least 2 or no headlines exist. Use `--limit` for a different global page
+size, `--limit-per-bucket` for independent bucket caps, or `--detail full`
+for the uncapped selected buckets and richer matching diagnostics. Compact
+symbol news keeps up to five rows per bucket by default.
 The related-news selector reserves up to five of the newest direct-symbol
 headlines before filling the remaining internal selection by relevance. Full
 detail exposes `related_selection`, including whether that selection was

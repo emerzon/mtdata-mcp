@@ -184,7 +184,7 @@ def test_news_tool_symbol_limit_is_a_global_row_cap(monkeypatch) -> None:
 
     assert limited["related_news"] == [{"title": "r1"}]
     assert limited["upcoming_events"] == [{"title": "u1"}]
-    assert limited["row_keys"] == ["upcoming_events", "related_news"]
+    assert limited["row_keys"] == ["related_news", "upcoming_events"]
     assert "row_key" not in limited
     assert "general_news" not in limited
     assert "impact_news" not in limited
@@ -196,6 +196,33 @@ def test_news_tool_symbol_limit_is_a_global_row_cap(monkeypatch) -> None:
     assert limited["pagination"]["returned"] == 2
     assert limited["pagination"]["has_more"] is True
     assert limited["pagination"]["more_available"] == 6
+
+
+def test_news_symbol_limit_one_keeps_direct_headline(monkeypatch) -> None:
+    raw = _unwrap(news)
+
+    payload = {
+        "success": True,
+        "symbol": "AAPL",
+        "related_news": [{"title": "AAPL beats"}, {"title": "AAPL peers"}],
+        "upcoming_events": [{"title": "CPI"}],
+        "recent_events": [{"title": "NFP"}],
+    }
+    monkeypatch.setattr(
+        "mtdata.core.news.fetch_unified_news",
+        lambda symbol=None, source="auto": payload,
+    )
+
+    limited = raw(symbol="AAPL", limit=1)
+
+    assert limited["related_news"] == [{"title": "AAPL beats"}]
+    assert "upcoming_events" not in limited
+    assert "recent_events" not in limited
+    assert limited["pagination"]["returned"] == 1
+
+    two = raw(symbol="AAPL", limit=2)
+    assert two["related_news"] == [{"title": "AAPL beats"}]
+    assert two["upcoming_events"] == [{"title": "CPI"}]
 
 
 def test_compact_symbol_news_caps_each_bucket_by_default(monkeypatch) -> None:
@@ -351,8 +378,8 @@ def test_news_tool_fx_symbol_limit_keeps_useful_general_buckets(monkeypatch) -> 
     assert limited["general_news"] == [{"title": "g1"}]
     assert limited["upcoming_events"] == [{"title": "u1"}]
     assert limited["row_keys"] == [
-        "upcoming_events",
         "related_news",
+        "upcoming_events",
         "general_news",
     ]
     assert "row_key" not in limited

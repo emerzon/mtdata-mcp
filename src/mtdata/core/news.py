@@ -369,6 +369,7 @@ def _apply_news_global_page(
     *,
     limit: Optional[int],
     offset: int,
+    symbol_mode: bool = False,
 ) -> Dict[str, Any]:
     """Slice one stable reserved-event ordering for every global page."""
     out = dict(result)
@@ -377,18 +378,33 @@ def _apply_news_global_page(
         for key in _NEWS_BUCKET_KEYS
         if isinstance(out.get(key), list)
     }
-    reserved_key = None
+    reserved_event_key = None
     if original_buckets.get("upcoming_events"):
-        reserved_key = "upcoming_events"
+        reserved_event_key = "upcoming_events"
     elif original_buckets.get("recent_events"):
-        reserved_key = "recent_events"
+        reserved_event_key = "recent_events"
+    reserved_headline_key = None
+    if symbol_mode:
+        for key in ("related_news", "general_news", "impact_news"):
+            if original_buckets.get(key):
+                reserved_headline_key = key
+                break
 
+    first_taken: Dict[str, int] = {}
     logical_rows: list[tuple[str, Any]] = []
-    if reserved_key is not None:
-        logical_rows.append((reserved_key, original_buckets[reserved_key][0]))
+    if reserved_headline_key is not None:
+        logical_rows.append(
+            (reserved_headline_key, original_buckets[reserved_headline_key][0])
+        )
+        first_taken[reserved_headline_key] = 1
+    if reserved_event_key is not None:
+        logical_rows.append(
+            (reserved_event_key, original_buckets[reserved_event_key][0])
+        )
+        first_taken[reserved_event_key] = 1
     for key in _NEWS_BUCKET_KEYS:
         rows = original_buckets.get(key, [])
-        start_index = 1 if key == reserved_key else 0
+        start_index = first_taken.get(key, 0)
         logical_rows.extend((key, item) for item in rows[start_index:])
 
     offset_value = max(0, int(offset or 0))
@@ -443,7 +459,12 @@ def _apply_news_limit(  # noqa: C901
                 rows = globally_paged.get(key)
                 if isinstance(rows, list):
                     globally_paged[key] = rows[:per_bucket]
-        out = _apply_news_global_page(globally_paged, limit=limit, offset=offset)
+        out = _apply_news_global_page(
+            globally_paged,
+            limit=limit,
+            offset=offset,
+            symbol_mode=symbol_mode,
+        )
         if limit_per_bucket is not None:
             out["limit_per_bucket"] = int(limit_per_bucket)
             out["limit_scope"] = "global_and_per_bucket"
@@ -748,12 +769,14 @@ def news(
         `full` preserves the richer source, matching, and item metadata payloads.
     limit : int, optional
         Global maximum across buckets. Broad compact news defaults to 10 rows;
-        pass this value explicitly to request a different page size. When
-        available, one upcoming scheduled event is reserved first; if none
-        remain, one recent calendar release is reserved so a small cap cannot
-        hide every same-day print. Remaining capacity follows the established
-        symbol-related, general, impact, recent-event, and market-context
-        priority order.
+        pass this value explicitly to request a different page size. Broad
+        (no-symbol) pages reserve one upcoming scheduled event first; if none
+        remain, one recent calendar release is reserved. In symbol mode a
+        related headline is reserved first so ``limit=1`` cannot hide
+        direct-symbol news; an event is still reserved in the next slot when
+        capacity is at least 2 or no headlines exist. Remaining capacity
+        follows the established symbol-related, general, impact, recent-event,
+        and market-context priority order.
     limit_per_bucket : int, optional
         Maximum number of items to return per news bucket. Compact symbol news
         defaults to five items per bucket; pass this value to override it.
