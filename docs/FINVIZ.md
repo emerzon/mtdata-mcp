@@ -91,6 +91,7 @@ mtdata-cli equity_profile MSFT --sections peers --json
 mtdata-cli equity_profile GOOGL --sections ratings --json
 mtdata-cli equity_profile AAPL --sections insider --limit 10 --json
 mtdata-cli equity_profile AAPL --sections summary,description,ratings --json
+mtdata-cli equity_profile AAPL --sections valuation,ownership --json
 ```
 
 | Flag | Default | What it does |
@@ -104,9 +105,11 @@ mtdata-cli equity_profile AAPL --sections summary,description,ratings --json
 
 `--sections` and `--detail` are independent: `sections=all` still returns
 every selected metric in compact (numbers only). `detail=full` adds
-diagnostics inside the slices you asked for. One slice returns that payload
-plus `providers_used`. Several slices nest under `fundamentals`,
-`description`, `ratings`, `peers`, and `insider`.
+diagnostics inside the slices you asked for. Several fundamental slices
+(`valuation,ownership`) return the **union** of those field groups, not the
+full `category=all` dump. One slice returns that payload plus
+`providers_used`. Extra slices nest under `fundamentals`, `description`,
+`ratings`, `peers`, and `insider`.
 
 Percentage metrics are JSON numbers on the `1.0 = 1%` scale and carry
 `units`. Growth fields use names such as `eps_next_year_growth_pct`. A mixed
@@ -152,7 +155,7 @@ mtdata-cli screener --list-filters true --filter-name "Market Cap." --json
 | `--list-filters` | `false` | List valid filter names instead of screening. |
 | `--search` | (none) | Filter-catalog search when `--list-filters true`. Name matches rank ahead of option-value hits. Compact search returns `value_count` plus a small `matched_values` sample; pass `--filter-name` or `--detail full` for the full option list. |
 | `--filter-name` | (none) | One filter’s accepted values when `--list-filters true`. |
-| `--limit` / `--page` | `20` / `1` | Result page. Catalog listing uses `--limit` / `--offset`. |
+| `--limit` / `--page` | `20` / `1` | Result page. Catalog listing uses `--limit` / `--offset`. Nonzero `--offset` in results mode is rejected; use `--page`. |
 
 **Common JSON keys:** `Exchange`, `Index`, `Sector`, `Industry`, `Country`,
 `Market Cap.`, `P/E`, `Forward P/E`, `PEG`, `P/S`, `P/B`, `Dividend Yield`,
@@ -215,9 +218,9 @@ mtdata-cli asset_performance --universe insider --option "top week buys" --json
 | Flag | Default | What it does |
 |------|---------|----------------|
 | `--universe` | `forex` | `forex`, `crypto`, `futures`, or `insider`. |
-| `--symbol` | (none) | Optional forex, crypto, or futures filter such as `EURUSD`, `BTCUSD`/`BTC`, or the provider ticker/name. |
+| `--symbol` | (none) | Optional forex, crypto, or futures filter such as `EURUSD`, `BTC`/`BTCUSD`, or the provider ticker/name. Crypto is USD-quoted; `BTC/EUR` and other non-USD pairs are rejected. |
 | `--option` | `latest` | Insider slice: `latest`, `latest buys`, `latest sales`, `top week`, `top week buys`, `top week sales`, `top owner trade`, `top owner buys`, `top owner sales`. |
-| `--rank-by` | (none) | Forex/crypto/futures: rank the fetched snapshot before paging (`5min`, `hour`, `day`, `week`, `month`, `quarter`, `half`, `year`, `ytd`). Rank keys `quarter` and `half` map to output fields `perf_quarter_pct` and `perf_half_year_pct`. Omit to keep `selection_order=provider_table_order`. |
+| `--rank-by` | (none) | Forex/crypto: rank the fetched snapshot before paging (`5min`, `hour`, `day`, `week`, `month`, `quarter`, `half`, `year`, `ytd`). Futures currently only has `day`; other horizons fail before fetch with `valid_values.rank_by`. Rank keys `quarter` and `half` map to output fields `perf_quarter_pct` and `perf_half_year_pct`. Omit to keep `selection_order=provider_table_order`. |
 | `--order` | `desc` with `--rank-by` | Rank direction: `desc` or `asc`. Requires `--rank-by`. |
 | `--limit` / `--offset` | `20` / `0` | Forex, crypto, and futures paging. Applied after `--rank-by`. |
 | `--page` | `1` | Insider paging. |
@@ -280,8 +283,9 @@ Economic rows use provider fields `date`, `event`, `ticker`, `importance`
 `symbol` for `ticker` and `reference_date` for `referenceDate`. Raw
 `actual` / `previous` / `forecast` strings are kept; parseable prints also
 expose `actual_value`, `previous_value`, `forecast_value`, plus shared
-`unit` / `scale` when those fields agree (`percent` with `1.0 = 1%`, or
-`count` with a K/M/B/T multiplier). Events are
+`unit` / `scale` when those fields agree (`percent` with `1.0 = 1%`,
+`currency` with a `$`/`€`/`£`/`¥` marker and ISO code, or `count` with a
+K/M/B/T multiplier and no currency symbol). Events are
 unique by `calendar_id` before pagination. Rows without an ID use a composite
 of scheduled time, event, symbol, category, reference, country, and currency.
 If duplicate variants disagree on a non-empty field, the merged field is
@@ -297,6 +301,13 @@ and `16:30` New York markers become a calendar date with
 the date. Period view constrains every date to the requested window; a
 yearless token that cannot be reconciled is rejected with
 `period_rows_rejected`, `partial`, and a warning.
+
+Earnings EPS families stay unlabeled (`eps_basis=provider_unspecified` and
+`eps_reported_basis=provider_unspecified`) because Finviz does not name the
+accounting basis. Estimate/actual/surprise triples stay together in compact
+output. A warning is added when the two surprise signs disagree. Monetary
+earnings and dividend amounts do not invent a listing currency: the payload
+sets `currency_status=unavailable` instead of `currency_basis=listing_currency`.
 
 Dividends: if a requested range starts before the current New York date but
 extends into the future, mtdata retries the current-forward portion. The
@@ -317,7 +328,8 @@ completed sale, and is not added to executed-sales totals.
 
 Finviz may round very low token prices to zero. In that case the row uses
 `price_status: unavailable_provider_rounded_zero`, omits `price`, and adds a
-warning instead of presenting zero as tradable.
+warning instead of presenting zero as tradable. After a `--symbol` filter,
+warnings that only name coins not in the returned rows are dropped.
 
 ---
 

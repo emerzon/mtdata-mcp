@@ -468,6 +468,24 @@ def _available_finviz_fundamental_fields(
     )
 
 
+def _parse_finviz_fundamental_categories(
+    category: Any,
+) -> tuple[list[str], str]:
+    category_input = str(category or "summary").strip().lower()
+    parts: list[str] = []
+    for raw_part in category_input.replace(";", ",").split(","):
+        part = raw_part.strip().lower()
+        if not part:
+            continue
+        part = _FINVIZ_FUNDAMENTAL_CATEGORY_ALIASES.get(part, part)
+        if part not in parts:
+            parts.append(part)
+    if not parts:
+        parts = ["summary"]
+    mode = "all" if "all" in parts else ",".join(parts)
+    return parts, mode
+
+
 def _filter_finviz_fundamentals_payload(
     result: Dict[str, Any],
     *,
@@ -481,10 +499,7 @@ def _filter_finviz_fundamentals_payload(
 
     detail_mode = normalize_output_verbosity_detail(detail, default="compact")
     category_input = str(category or "summary").strip().lower()
-    category_mode = _FINVIZ_FUNDAMENTAL_CATEGORY_ALIASES.get(
-        category_input,
-        category_input,
-    )
+    category_parts, category_mode = _parse_finviz_fundamental_categories(category)
     if str(detail or "compact").strip().lower() not in {"compact", "standard", "summary", "full"}:
         return _finviz_error_payload(
             _FINVIZ_DETAIL_ERROR,
@@ -492,7 +507,12 @@ def _filter_finviz_fundamentals_payload(
             operation="finviz_fundamentals",
             details={"detail": detail},
         )
-    if category_mode != "all" and category_mode not in _FINVIZ_FUNDAMENTAL_CATEGORIES:
+    invalid_categories = [
+        part
+        for part in category_parts
+        if part != "all" and part not in _FINVIZ_FUNDAMENTAL_CATEGORIES
+    ]
+    if invalid_categories:
         return _finviz_error_payload(
             (
                 "category must be one of: all, "
@@ -501,7 +521,7 @@ def _filter_finviz_fundamentals_payload(
             ),
             code="finviz_fundamentals_invalid_category",
             operation="finviz_fundamentals",
-            details={"category": category},
+            details={"category": category, "invalid": invalid_categories},
         )
 
     requested_fields = _parse_finviz_fields(fields)
@@ -532,12 +552,19 @@ def _filter_finviz_fundamentals_payload(
             )
             return error
         category_out = "custom"
-    elif category_mode != "all":
-        selected_fields = list(_FINVIZ_FUNDAMENTAL_CATEGORIES[category_mode])
-        category_out = category_mode
-    else:
+    elif category_mode == "all":
         selected_fields = list(fundamentals.keys())
         category_out = "all"
+    else:
+        selected_fields = []
+        seen_fields: set[str] = set()
+        for part in category_parts:
+            for field in _FINVIZ_FUNDAMENTAL_CATEGORIES[part]:
+                if field in seen_fields:
+                    continue
+                seen_fields.add(field)
+                selected_fields.append(field)
+        category_out = category_mode
 
     filtered: Dict[str, Any] = {}
     for field in selected_fields:

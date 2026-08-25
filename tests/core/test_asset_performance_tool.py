@@ -88,6 +88,22 @@ def test_asset_performance_rank_by_is_applied_before_paging(monkeypatch) -> None
     assert result["selection_order"] == "perf_day_pct_descending"
 
 
+def test_asset_performance_rejects_non_day_futures_rank(monkeypatch) -> None:
+    def _boom():
+        raise AssertionError("unsupported futures rank must fail before fetch")
+
+    monkeypatch.setattr(
+        "mtdata.core.finviz.markets.get_futures_performance",
+        _boom,
+    )
+
+    result = _unwrap(asset_performance)(universe="futures", rank_by="week")
+
+    assert result["success"] is False
+    assert result["error_code"] == "finviz_futures_unsupported_rank_by"
+    assert result["valid_values"]["rank_by"] == ["day"]
+
+
 def test_asset_performance_rejects_rank_by_for_insider(monkeypatch) -> None:
     monkeypatch.setattr(
         "mtdata.core.finviz.finviz_insider_activity",

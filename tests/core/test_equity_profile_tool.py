@@ -55,6 +55,58 @@ def test_equity_profile_sections_all_compact_keeps_all_category(monkeypatch) -> 
     assert "rsi_14" not in result["fundamentals"]
 
 
+def test_equity_profile_multiple_sections_project_union(monkeypatch) -> None:
+    captured = {}
+
+    def _fake_fundamentals(symbol, detail="compact", category="summary", fields=None):
+        captured["category"] = category
+        return {
+            "success": True,
+            "symbol": symbol,
+            "category": category,
+            "fundamentals": {
+                "pe_ratio": 34.29,
+                "forward_pe": 28.1,
+                "insider_own": 0.1,
+                "rsi_14": 55.0,
+            },
+        }
+
+    monkeypatch.setattr("mtdata.core.finviz.finviz_fundamentals", _fake_fundamentals)
+
+    result = _unwrap(equity_profile)(
+        "AAPL",
+        sections="valuation,ownership",
+        detail="full",
+    )
+
+    assert captured["category"] == "valuation,ownership"
+    assert result["sections"] == ["valuation", "ownership"]
+    assert result["category"] == "valuation,ownership"
+
+    from mtdata.core.finviz.fundamentals import _filter_finviz_fundamentals_payload
+
+    projected = _filter_finviz_fundamentals_payload(
+        {
+            "success": True,
+            "fundamentals": {
+                "P/E": 34.29,
+                "Forward P/E": 28.1,
+                "Insider Own": 0.1,
+                "RSI (14)": 55.0,
+                "SMA20": 1.2,
+            },
+        },
+        detail="full",
+        category="valuation,ownership",
+        fields=None,
+    )
+    assert "pe_ratio" in projected["fundamentals"]
+    assert "insider_own" in projected["fundamentals"]
+    assert "rsi_14" not in projected["fundamentals"]
+    assert "sma20" not in projected["fundamentals"]
+
+
 def test_equity_profile_mt5_pin_is_unsupported() -> None:
     result = _unwrap(equity_profile)("AAPL", source="mt5")
 

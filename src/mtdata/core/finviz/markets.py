@@ -11,9 +11,12 @@ from typing import (
 from pydantic import Field
 
 from mtdata.core.finviz.common import (
+    _FINVIZ_PERFORMANCE_RANK_BY_SUPPORTED,
     _finviz_error_payload,
     _normalize_finviz_market_payload,
+    _resolve_finviz_performance_rank,
     _run_logged_tool,
+    _validate_finviz_crypto_symbol_filter,
     _validate_finviz_detail,
     _validate_positive_finviz_limit,
 )
@@ -92,6 +95,14 @@ def finviz_forex(
         detail_error = _validate_finviz_detail(detail, operation="finviz_forex")
         if detail_error is not None:
             return detail_error
+        *_, rank_error = _resolve_finviz_performance_rank(
+            rank_by,
+            order,
+            operation="finviz_forex",
+            supported=_FINVIZ_PERFORMANCE_RANK_BY_SUPPORTED["pairs"],
+        )
+        if rank_error is not None:
+            return rank_error
         return _normalize_finviz_market_payload(
             get_forex_performance(),
             rows_key="pairs",
@@ -140,6 +151,20 @@ def finviz_crypto(
         detail_error = _validate_finviz_detail(detail, operation="finviz_crypto")
         if detail_error is not None:
             return detail_error
+        quote_error = _validate_finviz_crypto_symbol_filter(
+            symbol,
+            operation="finviz_crypto",
+        )
+        if quote_error is not None:
+            return quote_error
+        *_, rank_error = _resolve_finviz_performance_rank(
+            rank_by,
+            order,
+            operation="finviz_crypto",
+            supported=_FINVIZ_PERFORMANCE_RANK_BY_SUPPORTED["coins"],
+        )
+        if rank_error is not None:
+            return rank_error
         return _normalize_finviz_market_payload(
             get_crypto_performance(),
             rows_key="coins",
@@ -189,6 +214,14 @@ def finviz_futures(
         detail_error = _validate_finviz_detail(detail, operation="finviz_futures")
         if detail_error is not None:
             return detail_error
+        *_, rank_error = _resolve_finviz_performance_rank(
+            rank_by,
+            order,
+            operation="finviz_futures",
+            supported=_FINVIZ_PERFORMANCE_RANK_BY_SUPPORTED["futures"],
+        )
+        if rank_error is not None:
+            return rank_error
         return _normalize_finviz_market_payload(
             get_futures_performance(),
             rows_key="futures",

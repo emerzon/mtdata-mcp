@@ -1529,6 +1529,66 @@ class TestFinvizTools:
         assert "provider_symbol" not in missing
         assert any("DOGE" in warning for warning in missing["warnings"])
 
+        for alias in ("BTC", "BTC/USD", "BTC-USD"):
+            aliased = raw(symbol=alias)
+            assert aliased["count"] == 1
+            assert aliased["items"][0]["symbol"] == "BTC"
+
+    @patch("mtdata.core.finviz.markets.get_crypto_performance")
+    def test_finviz_crypto_rejects_non_usd_quote_pairs(self, mock_get_crypto):
+        from mtdata.core.finviz import finviz_crypto
+
+        mock_get_crypto.return_value = {
+            "success": True,
+            "market": "crypto",
+            "coins": [
+                {"Ticker": "BTC", "Name": "Bitcoin", "Price": "90000", "Perf Day": "2.5%"},
+            ],
+        }
+        raw = getattr(finviz_crypto, "__wrapped__", finviz_crypto)
+
+        for symbol in ("BTC/EUR", "BTC-EUR", "BTCEUR"):
+            result = raw(symbol=symbol)
+            assert result["success"] is False
+            assert result["error_code"] == "finviz_crypto_unsupported_quote"
+            assert result["valid_values"]["symbol"] == ["BTC", "BTCUSD"]
+            assert mock_get_crypto.call_count == 0
+
+    @patch("mtdata.core.finviz.markets.get_crypto_performance")
+    def test_finviz_crypto_symbol_filter_drops_unrelated_price_warning(
+        self, mock_get_crypto
+    ):
+        from mtdata.core.finviz import finviz_crypto
+
+        mock_get_crypto.return_value = {
+            "success": True,
+            "market": "crypto",
+            "coins": [
+                {"Ticker": "BTC", "Name": "Bitcoin", "Price": "90000", "Perf Day": "2.5%"},
+                {
+                    "Ticker": "SHIBUSD",
+                    "Name": "Shiba Inu",
+                    "Price": None,
+                    "Price Status": "unavailable_provider_rounded_zero",
+                    "Perf Day": "1.1%",
+                },
+            ],
+            "warnings": [
+                "Finviz returned zero for crypto prices that its feed cannot "
+                "represent at sub-penny precision; omitted those prices for: "
+                "SHIBUSD."
+            ],
+        }
+        raw = getattr(finviz_crypto, "__wrapped__", finviz_crypto)
+        result = raw(symbol="BTC")
+
+        assert result["count"] == 1
+        assert result["items"][0]["symbol"] == "BTC"
+        assert all(
+            "SHIB" not in str(warning)
+            for warning in (result.get("warnings") or [])
+        )
+
     @patch("mtdata.core.finviz.markets.get_futures_performance")
     def test_finviz_futures_uses_items_with_snake_case_rows(self, mock_get_futures):
         from mtdata.core.finviz import finviz_futures
@@ -3357,7 +3417,8 @@ class TestFinvizTools:
         assert result["items"][0]["special_amount"] == 0.1
         assert result["items"][0]["yield_pct"] == 2.878
         assert "yield" not in result["items"][0]
-        assert result["currency_basis"] == "listing_currency"
+        assert result["currency_status"] == "unavailable"
+        assert "currency_basis" not in result
         assert result["units"]["yield_pct"] == "percent (1.0 = 1%)"
 
     def test_finviz_calendar_rejects_removed_date_aliases(self):

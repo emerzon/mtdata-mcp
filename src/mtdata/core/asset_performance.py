@@ -118,7 +118,9 @@ def asset_performance(
         Field(
             description=(
                 "Rank the fetched forex/crypto/futures snapshot by a performance "
-                "horizon before paging. Omit to keep provider table order."
+                "horizon before paging. Forex and crypto accept 5min, hour, day, "
+                "week, month, quarter, half, year, ytd. Futures currently only "
+                "has day. Omit to keep provider table order."
             )
         ),
     ] = None,

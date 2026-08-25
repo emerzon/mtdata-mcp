@@ -38,12 +38,16 @@ def _finviz_error_payload(
     code: str,
     operation: str,
     details: Optional[Dict[str, Any]] = None,
+    valid_values: Optional[Dict[str, Any]] = None,
+    remediation: Optional[str] = None,
 ) -> Dict[str, Any]:
     return build_error_payload(
         message,
         code=code,
         operation=operation,
         details=details,
+        valid_values=valid_values,
+        remediation=remediation,
     )
 
 
@@ -362,6 +366,39 @@ _FINVIZ_PERFORMANCE_RANK_BY = {
     "year": "perf_year_pct",
     "ytd": "perf_ytd_pct",
 }
+_FINVIZ_PERFORMANCE_RANK_BY_SUPPORTED = {
+    "pairs": tuple(_FINVIZ_PERFORMANCE_RANK_BY),
+    "coins": tuple(_FINVIZ_PERFORMANCE_RANK_BY),
+    "futures": ("day",),
+}
+_FINVIZ_CRYPTO_USD_QUOTES = ("USDT", "USDC", "USD")
+_FINVIZ_CRYPTO_OTHER_QUOTES = (
+    "EUR",
+    "GBP",
+    "JPY",
+    "AUD",
+    "CAD",
+    "CHF",
+    "NZD",
+    "KRW",
+    "CNY",
+    "HKD",
+    "SGD",
+    "INR",
+    "BRL",
+    "MXN",
+    "TRY",
+    "ZAR",
+    "SEK",
+    "NOK",
+    "DKK",
+    "PLN",
+    "RUB",
+    "BIDR",
+    "BUSD",
+    "TUSD",
+    "DAI",
+)
 _FINVIZ_FOREX_DELAYED_PRICE_WARNING = (
     "Finviz forex prices are delayed web quotes, not executable MT5 bid/ask; "
     "use market_ticker before order placement."
@@ -504,6 +541,82 @@ def _compact_finviz_market_symbol(value: Any) -> str:
     return re.sub(r"[^A-Z0-9]+", "", str(value or "").upper())
 
 
+def _split_finviz_crypto_symbol(value: Any) -> tuple[str, Optional[str]]:
+    text = str(value or "").strip().upper().replace(" ", "")
+    if not text:
+        return "", None
+    for separator in ("/", "-", "_"):
+        if separator in text:
+            left, right = text.split(separator, 1)
+            base = _compact_finviz_market_symbol(left)
+            quote = _compact_finviz_market_symbol(right) or None
+            return base, quote
+    compact = _compact_finviz_market_symbol(text)
+    for quote in _FINVIZ_CRYPTO_USD_QUOTES + _FINVIZ_CRYPTO_OTHER_QUOTES:
+        if compact.endswith(quote) and len(compact) > len(quote):
+            return compact[: -len(quote)], quote
+    return compact, None
+
+
+def _finviz_crypto_unsupported_quote_error(
+    requested: Any,
+    *,
+    base: str,
+    quote: str,
+    operation: str = "finviz_crypto",
+) -> Dict[str, Any]:
+    return _finviz_error_payload(
+        (
+            f"Finviz crypto performance is USD-quoted; {requested} is not a "
+            "supported pair."
+        ),
+        code="finviz_crypto_unsupported_quote",
+        operation=operation,
+        details={"symbol": requested, "base": base, "quote": quote},
+        valid_values={"symbol": [base, f"{base}USD"] if base else ["BTC", "BTCUSD"]},
+        remediation=(
+            "Use a Finviz USD alias such as BTC or BTCUSD, or omit --symbol."
+        ),
+    )
+
+
+def _validate_finviz_crypto_symbol_filter(
+    requested: Any,
+    *,
+    operation: str = "finviz_crypto",
+) -> Optional[Dict[str, Any]]:
+    if requested in (None, ""):
+        return None
+    base, quote = _split_finviz_crypto_symbol(requested)
+    if quote and quote not in _FINVIZ_CRYPTO_USD_QUOTES:
+        return _finviz_crypto_unsupported_quote_error(
+            requested,
+            base=base,
+            quote=quote,
+            operation=operation,
+        )
+    return None
+
+
+def _finviz_crypto_row_matches_symbol(row: Any, requested: Any) -> bool:
+    if not isinstance(row, dict):
+        return False
+    base, quote = _split_finviz_crypto_symbol(requested)
+    if not base:
+        return False
+    if quote and quote not in _FINVIZ_CRYPTO_USD_QUOTES:
+        return False
+    aliases = {base, f"{base}USD", f"{base}USDT", f"{base}USDC"}
+    needle = _compact_finviz_market_symbol(requested)
+    if needle:
+        aliases.add(needle)
+    for field in ("symbol", "ticker", "name"):
+        token = _compact_finviz_market_symbol(row.get(field))
+        if token and token in aliases:
+            return True
+    return False
+
+
 def _finviz_market_row_matches_symbol(row: Any, requested: Any) -> bool:
     if not isinstance(row, dict):
         return False
@@ -522,6 +635,46 @@ def _finviz_market_row_matches_symbol(row: Any, requested: Any) -> bool:
         if len(shorter) >= 3 and longer.startswith(shorter):
             return True
     return False
+
+
+def _scope_finviz_row_warnings(
+    warnings: Any,
+    rows: List[Any],
+) -> List[str]:
+    if not isinstance(warnings, list):
+        return []
+    present = {
+        _compact_finviz_market_symbol(row.get(field))
+        for row in rows
+        if isinstance(row, dict)
+        for field in ("symbol", "ticker", "name")
+    }
+    present.discard("")
+    scoped: List[str] = []
+    for warning in warnings:
+        text = str(warning)
+        listed = re.search(
+            r"omitted those prices for:\s*(.+?)\.?\s*$",
+            text,
+            flags=re.IGNORECASE,
+        )
+        if listed is None:
+            scoped.append(text)
+            continue
+        names = [
+            name.strip()
+            for name in listed.group(1).split(",")
+            if name.strip()
+        ]
+        kept_names = [
+            name
+            for name in names
+            if _compact_finviz_market_symbol(name) in present
+        ]
+        if not kept_names:
+            continue
+        scoped.append(text[: listed.start(1)] + ", ".join(kept_names) + ".")
+    return scoped
 
 
 def _finviz_market_performance_periods(rows: Any) -> List[str]:
@@ -633,6 +786,7 @@ def _resolve_finviz_performance_rank(
     order: Any,
     *,
     operation: str,
+    supported: Optional[tuple[str, ...]] = None,
 ) -> tuple[Optional[str], str, Optional[str], Optional[Dict[str, Any]]]:
     rank_key = None if rank_by in (None, "") else str(rank_by).strip().lower()
     order_key = None if order in (None, "") else str(order).strip().lower()
@@ -645,15 +799,25 @@ def _resolve_finviz_performance_rank(
                 details={"invalid": ["order"]},
             )
         return None, "desc", None, None
+    allowed = supported if supported is not None else tuple(_FINVIZ_PERFORMANCE_RANK_BY)
     field = _FINVIZ_PERFORMANCE_RANK_BY.get(rank_key)
-    if field is None:
+    if rank_key not in allowed or field is None:
+        known = rank_key in _FINVIZ_PERFORMANCE_RANK_BY
         return None, "desc", None, _finviz_error_payload(
-            "rank_by must be one of: "
-            + ", ".join(_FINVIZ_PERFORMANCE_RANK_BY)
-            + ".",
-            code=f"{operation}_invalid_rank_by",
+            (
+                f"rank_by={rank_by!r} is not supported for this universe."
+                if known
+                else "rank_by must be one of: " + ", ".join(allowed) + "."
+            ),
+            code=(
+                f"{operation}_unsupported_rank_by"
+                if known
+                else f"{operation}_invalid_rank_by"
+            ),
             operation=operation,
             details={"rank_by": rank_by},
+            valid_values={"rank_by": list(allowed)},
+            remediation="Choose a rank_by value from valid_values.rank_by.",
         )
     if order_key is None:
         order_key = "desc"
@@ -758,7 +922,21 @@ def _normalize_finviz_market_payload(  # noqa: C901
                     for row in normalized_rows
                     if str(row.get("symbol") or "").upper() == symbol_filter_norm
                 ]
-    elif rows_key in {"coins", "futures"} and symbol_filter not in (None, ""):
+    elif rows_key == "coins" and symbol_filter not in (None, ""):
+        quote_error = _validate_finviz_crypto_symbol_filter(
+            symbol_filter,
+            operation=tool,
+        )
+        if quote_error is not None:
+            return quote_error
+        symbol_filter_norm = str(symbol_filter).strip() or None
+        if symbol_filter_norm is not None:
+            normalized_rows = [
+                row
+                for row in normalized_rows
+                if _finviz_crypto_row_matches_symbol(row, symbol_filter_norm)
+            ]
+    elif rows_key == "futures" and symbol_filter not in (None, ""):
         symbol_filter_norm = str(symbol_filter).strip() or None
         if symbol_filter_norm is not None:
             normalized_rows = [
@@ -775,6 +953,7 @@ def _normalize_finviz_market_payload(  # noqa: C901
                 request.get("rank_by"),
                 request.get("order"),
                 operation=tool,
+                supported=_FINVIZ_PERFORMANCE_RANK_BY_SUPPORTED.get(rows_key),
             )
         )
         if rank_error is not None:
@@ -825,6 +1004,15 @@ def _normalize_finviz_market_payload(  # noqa: C901
     else:
         output_rows = limited_rows
     out = {key: value for key, value in result.items() if key != rows_key}
+    if rows_key == "coins" and symbol_filter_norm is not None:
+        scoped_warnings = _scope_finviz_row_warnings(
+            out.get("warnings"),
+            normalized_rows,
+        )
+        if scoped_warnings:
+            out["warnings"] = scoped_warnings
+        else:
+            out.pop("warnings", None)
     out["items"] = output_rows
     out["row_key"] = "items"
     out["count"] = len(output_rows)

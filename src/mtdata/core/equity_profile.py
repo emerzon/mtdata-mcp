@@ -48,7 +48,7 @@ def _fetch_finviz_profile(
     payloads: Dict[str, Any] = {}
     fund_sections = [item for item in sections if item in _FUNDAMENTAL_SECTIONS]
     if fund_sections:
-        category = fund_sections[0] if len(fund_sections) == 1 else "all"
+        category = "all" if "all" in fund_sections else ",".join(fund_sections)
         payloads["fundamentals"] = finviz_impl.finviz_fundamentals(
             symbol,
             detail=detail,  # type: ignore[arg-type]
