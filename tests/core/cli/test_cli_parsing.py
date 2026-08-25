@@ -2180,7 +2180,10 @@ class TestResolveParamKwargs:
         kwargs, _ = _resolve_param_kwargs(param, None, cmd_name="screener")
         assert (
             kwargs["help"]
-            == "Sort key. Use --order=-marketcap for descending or --order=price for ascending."
+            == (
+                "Sort key. Default -marketcap (largest first). Use --order=price for "
+                "ascending price. Pagination follows this provider order."
+            )
         )
 
     def test_screener_descending_order_uses_parser_safe_equals_form(self):

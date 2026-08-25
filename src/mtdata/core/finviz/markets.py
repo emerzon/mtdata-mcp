@@ -4,6 +4,7 @@ from typing import (
     Annotated,
     Any,
     Dict,
+    Literal,
     Optional,
 )
 
@@ -24,12 +25,27 @@ from mtdata.services.finviz import (
 from mtdata.shared.schema import DetailLiteral
 from mtdata.shared.symbols import finviz_forex_symbol_to_mt5
 
+PerformanceRankBy = Literal[
+    "5min",
+    "hour",
+    "day",
+    "week",
+    "month",
+    "quarter",
+    "half",
+    "year",
+    "ytd",
+]
+PerformanceRankOrder = Literal["desc", "asc"]
+
 
 def finviz_forex(
     symbol: Optional[str] = None,
     limit: Annotated[int, Field(ge=1)] = 20,
     offset: Annotated[int, Field(ge=0)] = 0,
     detail: DetailLiteral = "compact",  # type: ignore
+    rank_by: Optional[PerformanceRankBy] = None,
+    order: Optional[PerformanceRankOrder] = None,
 ) -> Dict[str, Any]:
     """
     Get forex currency pairs performance from Finviz.
@@ -49,6 +65,8 @@ def finviz_forex(
         "limit": limit,
         "offset": offset,
         "detail": detail,
+        "rank_by": rank_by,
+        "order": order,
     }
 
     def _run() -> Dict[str, Any]:
@@ -92,6 +110,8 @@ def finviz_crypto(
     limit: Annotated[int, Field(ge=1)] = 20,
     offset: Annotated[int, Field(ge=0)] = 0,
     detail: DetailLiteral = "compact",  # type: ignore
+    rank_by: Optional[PerformanceRankBy] = None,
+    order: Optional[PerformanceRankOrder] = None,
 ) -> Dict[str, Any]:
     """
     Get cryptocurrency performance from Finviz.
@@ -106,7 +126,13 @@ def finviz_crypto(
     dict
         Crypto performance data
     """
-    request = {"limit": limit, "offset": offset, "detail": detail}
+    request = {
+        "limit": limit,
+        "offset": offset,
+        "detail": detail,
+        "rank_by": rank_by,
+        "order": order,
+    }
 
     def _run() -> Dict[str, Any]:
         detail_error = _validate_finviz_detail(detail, operation="finviz_crypto")
@@ -129,6 +155,8 @@ def finviz_futures(
     limit: Annotated[int, Field(ge=1)] = 20,
     offset: Annotated[int, Field(ge=0)] = 0,
     detail: DetailLiteral = "compact",  # type: ignore
+    rank_by: Optional[PerformanceRankBy] = None,
+    order: Optional[PerformanceRankOrder] = None,
 ) -> Dict[str, Any]:
     """
     Get futures market performance from Finviz.
@@ -144,7 +172,13 @@ def finviz_futures(
     dict
         Futures performance data
     """
-    request = {"limit": limit, "offset": offset, "detail": detail}
+    request = {
+        "limit": limit,
+        "offset": offset,
+        "detail": detail,
+        "rank_by": rank_by,
+        "order": order,
+    }
 
     def _run() -> Dict[str, Any]:
         detail_error = _validate_finviz_detail(detail, operation="finviz_futures")

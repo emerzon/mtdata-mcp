@@ -437,9 +437,6 @@ def _filter_finviz_fundamentals_payload(
     elif category_mode != "all":
         selected_fields = list(_FINVIZ_FUNDAMENTAL_CATEGORIES[category_mode])
         category_out = category_mode
-    elif detail_mode == "compact":
-        selected_fields = list(_FINVIZ_FUNDAMENTAL_CATEGORIES["summary"])
-        category_out = "summary"
     else:
         selected_fields = list(fundamentals.keys())
         category_out = "all"
@@ -493,8 +490,8 @@ def _filter_finviz_fundamentals_payload(
         out["freshness"] = _FINVIZ_DELAYED_FRESHNESS
         filtered["price_source"] = _FINVIZ_DELAYED_FRESHNESS
         filtered["data_delayed"] = True
-        filtered["delay_minutes_min"] = _FINVIZ_DELAY_MINUTES_MIN
-        filtered["delay_minutes_max"] = _FINVIZ_DELAY_MINUTES_MAX
+        filtered["nominal_provider_delay_minutes_min"] = _FINVIZ_DELAY_MINUTES_MIN
+        filtered["nominal_provider_delay_minutes_max"] = _FINVIZ_DELAY_MINUTES_MAX
     if category_input != category_mode:
         out["category_requested"] = category_input
     if detail_mode == "full":
@@ -538,7 +535,8 @@ def finviz_fundamentals(
     -------
     dict
         Fundamental metrics for the stock. By default this returns a compact
-        summary; set `detail="full", category="all"` for the full Finviz field set.
+        summary. ``category="all"`` returns every available metric; compact
+        omits diagnostics, while ``detail="full"`` keeps them.
     
     Example
     -------

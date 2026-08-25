@@ -105,8 +105,8 @@ _FINVIZ_EARNINGS_COMPACT_FIELDS = (
     "volume",
     "price_source",
     "data_delayed",
-    "delay_minutes_min",
-    "delay_minutes_max",
+    "nominal_provider_delay_minutes_min",
+    "nominal_provider_delay_minutes_max",
 )
 _FINVIZ_EARNINGS_TIMING_SUFFIXES = {
     "/b": "before_market",
@@ -624,7 +624,8 @@ def _apply_finviz_calendar_empty_hint(
     if cal_type == "earnings":
         out["message"] = "No detailed earnings calendar rows matched the date range."
         out["hint"] = (
-            "Use finviz_earnings for the period-based earnings view with price/volume context."
+            "Use calendar --kind earnings --view period for the compact "
+            "earnings window with price/volume context."
         )
         return
     if cal_type == "dividends":
@@ -1235,8 +1236,12 @@ def finviz_earnings(
                 "prints, or --period next-week for the next window."
             )
         elif out["detail"] != "full":
+            start = result.get("period_start") or "<date>"
+            end = result.get("period_end") or "<date>"
             out["hint"] = (
-                "Period-based earnings view; use finviz_calendar(calendar='earnings') "
+                "Period-based earnings view; use "
+                "calendar --kind earnings --view range "
+                f"--start {start} --end {end} "
                 "for date-range EPS/sales actuals and surprises."
             )
         if out["detail"] == "full":

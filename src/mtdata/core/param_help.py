@@ -203,7 +203,18 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
     ("wait_event", "magic"): "MT5 magic number filter for account events from one strategy or EA. Omit for all magic numbers.",
     ("screener", "filters"): "Filter key=value pairs, operator aliases like beta_under=1, Finviz shorthand, or JSON object. Examples: 'country=USA,marketcap=mega', 'pe_under=15,beta_under=1', 'cap_largeover,exch_nyse', '{\"Exchange\":\"NASDAQ\",\"Sector\":\"Technology\"}'. Common keys include Exchange, Index, Sector, Industry, Country, Market Cap., P/E, Dividend Yield, RSI (14), Average Volume, and Price.",
     ("screener", "limit"): "Max screener results to return on this page.",
-    ("screener", "order"): "Sort key. Use --order=-marketcap for descending or --order=price for ascending.",
+    ("screener", "order"): (
+        "Sort key. Default -marketcap (largest first). Use --order=price for "
+        "ascending price. Pagination follows this provider order."
+    ),
+    ("asset_performance", "rank_by"): (
+        "Rank the fetched forex/crypto/futures snapshot by a performance horizon "
+        "before paging: 5min, hour, day, week, month, quarter, half, year, or ytd."
+    ),
+    ("asset_performance", "order"): (
+        "Rank direction when --rank-by is set: desc (default) or asc. Ignored "
+        "unless --rank-by is provided."
+    ),
     ("equity_profile", "limit"): "Max insider, ratings, or peer rows to return.",
     ("asset_performance", "option"): (
         "Insider activity view when universe=insider: latest, latest buys/sales, "

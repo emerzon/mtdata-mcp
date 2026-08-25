@@ -20,3 +20,18 @@ def test_screener_list_filters_uses_finviz_catalog(monkeypatch) -> None:
     assert result["success"] is True
     assert result["providers_used"] == ["finviz"]
     assert result["items"][0]["filter"] == "Exchange"
+
+
+def test_screener_default_order_is_descending_market_cap(monkeypatch) -> None:
+    captured = {}
+
+    def _fake_screen(**kwargs):
+        captured.update(kwargs)
+        return {"success": True, "items": []}
+
+    monkeypatch.setattr("mtdata.core.finviz.finviz_screen", _fake_screen)
+
+    result = _unwrap(screener)()
+
+    assert result["success"] is True
+    assert captured["order"] == "-marketcap"

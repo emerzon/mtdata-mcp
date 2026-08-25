@@ -292,6 +292,32 @@ def _resolve_finviz_screen_filters(filters: Any) -> tuple[Optional[Dict[str, Any
     return None, _invalid_finviz_screen_filters_error(filters)
 
 
+def _finviz_filter_search_rank(
+    *,
+    display_name: str,
+    prefix: str,
+    options: List[Dict[str, Any]],
+    query: str,
+) -> tuple[Optional[int], List[Dict[str, Any]]]:
+    name_l = display_name.strip().lower()
+    prefix_l = prefix.strip().lower()
+    matched = [
+        option
+        for option in options
+        if query in str(option.get("value") or "").lower()
+        or query in str(option.get("token") or "").lower()
+    ]
+    if name_l == query or (prefix_l and prefix_l == query):
+        return 0, matched
+    if name_l.startswith(query) or (prefix_l and prefix_l.startswith(query)):
+        return 1, matched
+    if query in name_l or (prefix_l and query in prefix_l):
+        return 2, matched
+    if matched:
+        return 3, matched
+    return None, []
+
+
 def finviz_filters_list(
     search: Optional[str] = None,
     filter_name: Optional[str] = None,
@@ -332,34 +358,42 @@ def finviz_filters_list(
                 "hint": "Use search to discover filters or omit filter_name to list them.",
             },
         )
-    rows: List[Dict[str, Any]] = []
-    for display_name, spec in filter_dict.items():
+    ranked_rows: List[tuple[int, int, Dict[str, Any]]] = []
+    for original_index, (display_name, spec) in enumerate(filter_dict.items()):
         prefix = str(spec.get("prefix") or "").strip()
         options = [
             {"value": str(option_name), "token": f"{prefix}_{option_code}"}
             for option_name, option_code in (spec.get("option") or {}).items()
             if str(option_name).strip()
         ]
-        haystack = " ".join(
-            [str(display_name), prefix]
-            + [str(option.get("value") or "") for option in options]
-            + [str(option.get("token") or "") for option in options]
-        ).lower()
-        if query and query not in haystack:
-            continue
         if filter_query and filter_query not in {
             str(display_name).strip().lower(),
             prefix.lower(),
         }:
             continue
+        matched_values: List[Dict[str, Any]] = []
+        rank: Optional[int] = None
+        if query:
+            rank, matched_values = _finviz_filter_search_rank(
+                display_name=str(display_name),
+                prefix=prefix,
+                options=options,
+                query=query,
+            )
+            if rank is None:
+                continue
         row: Dict[str, Any] = {
             "filter": str(display_name),
             "prefix": prefix,
             "value_count": len(options),
         }
-        if detail_mode == "full" or filter_query or query:
+        if detail_mode == "full" or filter_query:
             row["values"] = options
-        rows.append(row)
+        elif query and matched_values:
+            row["matched_values"] = matched_values[:5]
+        ranked_rows.append((rank if rank is not None else 0, original_index, row))
+    ranked_rows.sort(key=lambda item: (item[0], item[1]))
+    rows = [row for _rank, _index, row in ranked_rows]
 
     try:
         limit_value = max(1, int(limit or 20))
@@ -430,8 +464,9 @@ def finviz_screen(
         Average True Range, Average Volume, Relative Volume, Current Volume,
         Price, Target Price, IPO Date, Shares Outstanding, Float
         
-    order : str, optional
-        Sort order, e.g. "-marketcap" (descending), "price" (ascending)
+    order : str
+        Sort order. Default "-marketcap" (largest first). Use "price" for
+        ascending price. Pagination follows this provider order.
     limit : int
         Max results per page (default 20)
     page : int

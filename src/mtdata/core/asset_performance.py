@@ -18,6 +18,18 @@ from .execution_logging import run_logged_operation
 logger = logging.getLogger(__name__)
 
 PerformanceUniverse = Literal["forex", "crypto", "futures", "insider"]
+PerformanceRankBy = Literal[
+    "5min",
+    "hour",
+    "day",
+    "week",
+    "month",
+    "quarter",
+    "half",
+    "year",
+    "ytd",
+]
+PerformanceRankOrder = Literal["desc", "asc"]
 
 
 def _fetch_finviz_performance(
@@ -29,6 +41,8 @@ def _fetch_finviz_performance(
     offset: int,
     page: int,
     detail: str,
+    rank_by: Optional[str],
+    order: Optional[str],
 ) -> Dict[str, Any]:
     from . import finviz as finviz_impl
 
@@ -38,18 +52,24 @@ def _fetch_finviz_performance(
             limit=limit,
             offset=offset,
             detail=detail,  # type: ignore[arg-type]
+            rank_by=rank_by,  # type: ignore[arg-type]
+            order=order,  # type: ignore[arg-type]
         )
     if universe == "crypto":
         return finviz_impl.finviz_crypto(
             limit=limit,
             offset=offset,
             detail=detail,  # type: ignore[arg-type]
+            rank_by=rank_by,  # type: ignore[arg-type]
+            order=order,  # type: ignore[arg-type]
         )
     if universe == "futures":
         return finviz_impl.finviz_futures(
             limit=limit,
             offset=offset,
             detail=detail,  # type: ignore[arg-type]
+            rank_by=rank_by,  # type: ignore[arg-type]
+            order=order,  # type: ignore[arg-type]
         )
     return finviz_impl.finviz_insider_activity(
         option=option,  # type: ignore[arg-type]
@@ -86,6 +106,23 @@ def asset_performance(
     limit: Annotated[int, Field(ge=1, description="Max rows per page.")] = 20,
     offset: Annotated[int, Field(ge=0, description="Zero-based offset for forex/crypto/futures.")] = 0,
     page: Annotated[int, Field(ge=1, description="One-based page for insider activity.")] = 1,
+    rank_by: Annotated[
+        Optional[PerformanceRankBy],
+        Field(
+            description=(
+                "Rank the fetched forex/crypto/futures snapshot by a performance "
+                "horizon before paging. Omit to keep provider table order."
+            )
+        ),
+    ] = None,
+    order: Annotated[
+        Optional[PerformanceRankOrder],
+        Field(
+            description=(
+                "Rank direction when rank_by is set: desc (default) or asc."
+            )
+        ),
+    ] = None,
     detail: DetailLiteral = "compact",
     source: Annotated[
         ResearchSourcePin,
@@ -119,11 +156,18 @@ def asset_performance(
             invalid.append("page")
         if universe_key == "insider" and int(offset) != 0:
             invalid.append("offset")
+        if universe_key == "insider":
+            if rank_by is not None:
+                invalid.append("rank_by")
+            if order is not None:
+                invalid.append("order")
+        elif order is not None and rank_by is None:
+            invalid.append("order")
         if invalid:
             valid_by_universe = {
-                "forex": ["symbol", "offset", "limit", "detail"],
-                "crypto": ["offset", "limit", "detail"],
-                "futures": ["offset", "limit", "detail"],
+                "forex": ["symbol", "offset", "limit", "rank_by", "order", "detail"],
+                "crypto": ["offset", "limit", "rank_by", "order", "detail"],
+                "futures": ["offset", "limit", "rank_by", "order", "detail"],
                 "insider": ["option", "page", "limit", "detail"],
             }
             return build_error_payload(
@@ -152,6 +196,8 @@ def asset_performance(
             offset=int(offset),
             page=int(page),
             detail=str(detail or "compact"),
+            rank_by=rank_by,
+            order=order,
         )
         out = stamp_provider(payload, provider="finviz")
         if isinstance(out, dict):

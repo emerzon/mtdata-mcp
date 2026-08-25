@@ -80,10 +80,9 @@ def test_filters_list_defaults_to_index_and_supports_exact_lookup():
             ],
         }
     ]
-    assert searched["items"][0]["values"] == [
-        {"value": "NASDAQ", "token": "exch_nasd"},
-        {"value": "NYSE", "token": "exch_nyse"},
-    ]
+    assert searched["items"][0]["filter"] == "Exchange"
+    assert "values" not in searched["items"][0]
+    assert searched["items"][0]["value_count"] == 2
 
 
 def test_filters_list_rejects_unknown_exact_filter_with_suggestions():
@@ -117,6 +116,50 @@ def test_filters_list_rejects_unknown_exact_filter_with_suggestions():
     assert result["operation"] == "finviz_filters_list"
     assert result["details"]["suggestions"] == [
         {"filter": "Exchange", "prefix": "exch"}
+    ]
+
+
+def test_filters_list_search_ranks_name_matches_ahead_of_option_values():
+    import sys
+    from types import ModuleType
+
+    finvizfinance = ModuleType("finvizfinance")
+    screener = ModuleType("finvizfinance.screener")
+    base = ModuleType("finvizfinance.screener.base")
+    base.filter_dict = {
+        "Industry": {
+            "prefix": "ind",
+            "option": {
+                f"Industry {index}": f"i{index}"
+                for index in range(151)
+            } | {"RSI Widgets": "rsiwid"},
+        },
+        "RSI (14)": {
+            "prefix": "ta_rsi",
+            "option": {"Over 70": "os70", "Under 30": "os30"},
+        },
+    }
+    screener.base = base
+    finvizfinance.screener = screener
+
+    with patch.dict(
+        sys.modules,
+        {
+            "finvizfinance": finvizfinance,
+            "finvizfinance.screener": screener,
+            "finvizfinance.screener.base": base,
+        },
+    ):
+        result = _unwrap(finviz_filters_list)(search="rsi")
+
+    assert [row["filter"] for row in result["items"]] == ["RSI (14)", "Industry"]
+    rsi_row, industry_row = result["items"]
+    assert "values" not in rsi_row
+    assert "values" not in industry_row
+    assert rsi_row["value_count"] == 2
+    assert industry_row["value_count"] == 152
+    assert industry_row["matched_values"] == [
+        {"value": "RSI Widgets", "token": "ind_rsiwid"}
     ]
 
 
@@ -1345,6 +1388,33 @@ class TestFinvizProgressiveDisclosure:
             "limit": 1,
             "has_more": True,
             "more_available": 1,
+        }
+        assert result["selection_order"] == "provider_table_order"
+
+    @patch("mtdata.core.finviz.markets.get_forex_performance")
+    def test_forex_rank_by_applies_before_pagination(self, mock_get):
+        mock_get.return_value = {
+            "success": True,
+            "pairs": [
+                {"Ticker": "EURUSD", "Price": "1.10", "Perf Day": "0.1%"},
+                {"Ticker": "GBPUSD", "Price": "1.25", "Perf Day": "1.4%"},
+                {"Ticker": "USDJPY", "Price": "156.20", "Perf Day": "0.8%"},
+            ],
+        }
+
+        result = _unwrap(finviz_forex)(rank_by="day", limit=1)
+
+        assert result["rank_by"] == "day"
+        assert result["order"] == "desc"
+        assert result["selection_order"] == "perf_day_pct_descending"
+        assert result["items"][0]["symbol"] == "GBPUSD"
+        assert result["pagination"] == {
+            "total": 3,
+            "returned": 1,
+            "offset": 0,
+            "limit": 1,
+            "has_more": True,
+            "more_available": 2,
         }
 
 

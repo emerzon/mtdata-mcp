@@ -8,8 +8,9 @@ calendar** — without leaving mtdata.
 
 These commands currently use [Finviz](https://finviz.com) as the research
 adapter. They **complement** MetaTrader 5; they do not replace the terminal
-for live quotes. Data is typically delayed 15–20 minutes. Treat it as
-background, not a live tape.
+for live quotes. The provider states a nominal 15–20 minute delay; Finviz
+does not stamp an observation time, so that range is not a measured age.
+Treat it as background, not a live tape.
 
 Everyday headlines still start at [NEWS.md](NEWS.md) (`news`). This page is
 the table-and-dossier side: `equity_profile`, `screener`, `calendar`,
@@ -83,6 +84,7 @@ A US-issuer dossier. Default compact output is a **fundamentals summary**.
 ```bash
 mtdata-cli equity_profile AAPL --json
 mtdata-cli equity_profile AAPL --sections valuation --detail full --json
+mtdata-cli equity_profile AAPL --sections all --json
 mtdata-cli equity_profile AAPL --sections all --detail full --json
 mtdata-cli equity_profile TSLA --sections description --json
 mtdata-cli equity_profile MSFT --sections peers --json
@@ -100,10 +102,11 @@ mtdata-cli equity_profile AAPL --sections summary,description,ratings --json
 | `--page` | `1` | Insider page (one-based). |
 | `--source` | `auto` | Adapter pin. |
 
-`--sections` and `--detail` are independent: `detail=full` keeps diagnostics
-inside the slices you asked for. One slice returns that payload plus
-`providers_used`. Several slices nest under `fundamentals`, `description`,
-`ratings`, `peers`, and `insider`.
+`--sections` and `--detail` are independent: `sections=all` still returns
+every selected metric in compact (numbers only). `detail=full` adds
+diagnostics inside the slices you asked for. One slice returns that payload
+plus `providers_used`. Several slices nest under `fundamentals`,
+`description`, `ratings`, `peers`, and `insider`.
 
 Percentage metrics are JSON numbers on the `1.0 = 1%` scale and carry
 `units`. Growth fields use names such as `eps_next_year_growth_pct`. A mixed
@@ -132,8 +135,8 @@ mtdata-cli screener --filters "pe_under=15,beta_under=1" --json
 # Native Finviz URL tokens
 mtdata-cli screener --filters "exch_nasd,sec_technology" --json
 
-# Valuation columns, sort by market cap descending
-mtdata-cli screener --filters '{"Dividend Yield": "Over 5%"}' --view valuation --order=-marketcap --json
+# Valuation columns; default order is largest market cap first
+mtdata-cli screener --filters '{"Dividend Yield": "Over 5%"}' --view valuation --json
 
 # List filters, then inspect one
 mtdata-cli screener --list-filters true --json
@@ -144,10 +147,10 @@ mtdata-cli screener --list-filters true --filter-name "Market Cap." --json
 | Flag | Default | What it does |
 |------|---------|----------------|
 | `--filters` | (none) | JSON object, `key=value` pairs, or Finviz shorthand. Names are provider-defined. |
-| `--order` | (none) | Sort, for example `--order=-marketcap` or `--order=price`. |
+| `--order` | `-marketcap` | Sort. Default is largest market cap first so paging is stable. Use `--order=price` for ascending price. |
 | `--view` | `overview` | Column set: `overview`, `valuation`, `financial`, `ownership`, `performance`, `technical`. |
 | `--list-filters` | `false` | List valid filter names instead of screening. |
-| `--search` | (none) | Filter-catalog search when `--list-filters true`. |
+| `--search` | (none) | Filter-catalog search when `--list-filters true`. Name matches rank ahead of option-value hits. Compact search returns `value_count` plus a small `matched_values` sample; pass `--filter-name` or `--detail full` for the full option list. |
 | `--filter-name` | (none) | One filter’s accepted values when `--list-filters true`. |
 | `--limit` / `--page` | `20` / `1` | Result page. Catalog listing uses `--limit` / `--offset`. |
 
@@ -202,6 +205,7 @@ or `symbols_top_markets` for the broker price. Responses set
 
 ```bash
 mtdata-cli asset_performance --universe forex --json
+mtdata-cli asset_performance --universe forex --rank-by day --json
 mtdata-cli asset_performance --universe forex --symbol EURUSD --json
 mtdata-cli asset_performance --universe crypto --json
 mtdata-cli asset_performance --universe futures --json
@@ -213,7 +217,9 @@ mtdata-cli asset_performance --universe insider --option "top week buys" --json
 | `--universe` | `forex` | `forex`, `crypto`, `futures`, or `insider`. |
 | `--symbol` | (none) | Optional forex pair filter such as `EURUSD`. |
 | `--option` | `latest` | Insider slice: `latest`, `latest buys`, `latest sales`, `top week`, `top week buys`, `top week sales`, `top owner trade`, `top owner buys`, `top owner sales`. |
-| `--limit` / `--offset` | `20` / `0` | Forex, crypto, and futures paging. |
+| `--rank-by` | (none) | Forex/crypto/futures: rank the fetched snapshot before paging (`5min`, `hour`, `day`, `week`, `month`, `quarter`, `half`, `year`, `ytd`). Omit to keep `selection_order=provider_table_order`. |
+| `--order` | `desc` with `--rank-by` | Rank direction: `desc` or `asc`. Requires `--rank-by`. |
+| `--limit` / `--offset` | `20` / `0` | Forex, crypto, and futures paging. Applied after `--rank-by`. |
 | `--page` | `1` | Insider paging. |
 
 Forex, crypto, and futures rows share one schema: delayed `price` when the
@@ -243,8 +249,12 @@ market views. Full contract: [NEWS.md](NEWS.md).
 
 ### Delay and throttling
 
-Finviz US-equity data is delayed about 15–20 minutes. Rapid calls can return
-`error_code=finviz_rate_limited` with `retryable=true` and numeric
+Finviz states a nominal 15–20 minute delay. Rows expose
+`nominal_provider_delay_minutes_min` / `nominal_provider_delay_minutes_max`;
+the payload root uses `nominal_provider_delay_minutes` plus
+`observation_time_status=provider_timestamp_unavailable`. That range is the
+provider’s published window, not a measured observation age. Rapid calls can
+return `error_code=finviz_rate_limited` with `retryable=true` and numeric
 `retry_after_seconds`.
 
 ### Company percentages and fields

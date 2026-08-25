@@ -38,9 +38,14 @@ def screener(
         ),
     ] = None,
     order: Annotated[
-        Optional[str],
-        Field(description="Sort key, for example -marketcap or price."),
-    ] = None,
+        str,
+        Field(
+            description=(
+                "Sort key. Default -marketcap (largest first). Use price for "
+                "ascending price. Pagination follows this provider order."
+            )
+        ),
+    ] = "-marketcap",
     view: Annotated[
         ScreenerView,
         Field(description="Screener column set."),

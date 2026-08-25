@@ -1173,10 +1173,15 @@ class TestFinvizTools:
         assert result["price_currency_basis"] == "quote_currency"
         assert result["price_source"] == "finviz_delayed"
         assert result["freshness"] == "finviz_delayed"
-        assert result["data_quality"] == "delayed_15_to_20_min"
+        assert result["data_quality"] == "delayed"
         assert result["data_delayed"] is True
-        assert result["delay_minutes_min"] == 15
-        assert result["delay_minutes_max"] == 20
+        assert result["nominal_provider_delay_minutes"] == {
+            "minimum": 15,
+            "maximum": 20,
+        }
+        assert "delay_minutes_min" not in result
+        assert "delay_minutes_max" not in result
+        assert result["selection_order"] == "provider_table_order"
         assert result["warnings"] == [
             "Finviz forex prices are delayed web quotes, not executable MT5 bid/ask; "
             "use market_ticker before order placement."
@@ -1190,8 +1195,8 @@ class TestFinvizTools:
                 "price_currency": "USD",
                 "price_source": "finviz_delayed",
                 "data_delayed": True,
-                "delay_minutes_min": 15,
-                "delay_minutes_max": 20,
+                "nominal_provider_delay_minutes_min": 15,
+                "nominal_provider_delay_minutes_max": 20,
                 "perf_5min_pct": 0.1,
                 "perf_day_pct": 0.2,
                 "perf_week_pct": -0.3,
@@ -1281,8 +1286,8 @@ class TestFinvizTools:
                 "price_currency": "USD",
                 "price_source": "finviz_delayed",
                 "data_delayed": True,
-                "delay_minutes_min": 15,
-                "delay_minutes_max": 20,
+                "nominal_provider_delay_minutes_min": 15,
+                "nominal_provider_delay_minutes_max": 20,
             }
         ]
 
@@ -1380,10 +1385,14 @@ class TestFinvizTools:
         assert result["price_currency"] == "USD"
         assert result["price_source"] == "finviz_delayed"
         assert result["freshness"] == "finviz_delayed"
-        assert result["data_quality"] == "delayed_15_to_20_min"
+        assert result["data_quality"] == "delayed"
         assert result["data_delayed"] is True
-        assert result["delay_minutes_min"] == 15
-        assert result["delay_minutes_max"] == 20
+        assert result["nominal_provider_delay_minutes"] == {
+            "minimum": 15,
+            "maximum": 20,
+        }
+        assert "delay_minutes_min" not in result
+        assert result["selection_order"] == "provider_table_order"
         assert result["items"] == [
             {
                 "symbol": "BTC",
@@ -1391,8 +1400,8 @@ class TestFinvizTools:
                 "price": 90000,
                 "price_source": "finviz_delayed",
                 "data_delayed": True,
-                "delay_minutes_min": 15,
-                "delay_minutes_max": 20,
+                "nominal_provider_delay_minutes_min": 15,
+                "nominal_provider_delay_minutes_max": 20,
                 "perf_day_pct": 2.5,
             }
         ]
@@ -1483,8 +1492,8 @@ class TestFinvizTools:
                 "price": 90000.0,
                 "price_source": "finviz_delayed",
                 "data_delayed": True,
-                "delay_minutes_min": 15,
-                "delay_minutes_max": 20,
+                "nominal_provider_delay_minutes_min": 15,
+                "nominal_provider_delay_minutes_max": 20,
                 "perf_day_pct": 2.5,
                 "perf_week_pct": 2.5,
                 "perf_week_basis": "week_to_date",
@@ -1515,10 +1524,14 @@ class TestFinvizTools:
         }
         assert result["price_source"] == "finviz_delayed"
         assert result["freshness"] == "finviz_delayed"
-        assert result["data_quality"] == "delayed_15_to_20_min"
+        assert result["data_quality"] == "delayed"
         assert result["data_delayed"] is True
-        assert result["delay_minutes_min"] == 15
-        assert result["delay_minutes_max"] == 20
+        assert result["nominal_provider_delay_minutes"] == {
+            "minimum": 15,
+            "maximum": 20,
+        }
+        assert "delay_minutes_min" not in result
+        assert result["selection_order"] == "provider_table_order"
         assert "generic provider series" in result["warnings"][0]
         assert "symbols_list" in result["warnings"][0]
         assert result["items"] == [
@@ -1791,8 +1804,8 @@ class TestFinvizTools:
         assert "transport time" in result["observation_time_note"]
         assert result["fundamentals"]["price_source"] == "finviz_delayed"
         assert result["fundamentals"]["data_delayed"] is True
-        assert result["fundamentals"]["delay_minutes_min"] == 15
-        assert result["fundamentals"]["delay_minutes_max"] == 20
+        assert result["fundamentals"]["nominal_provider_delay_minutes_min"] == 15
+        assert result["fundamentals"]["nominal_provider_delay_minutes_max"] == 20
         assert result["fundamentals"]["pe_ratio"] == 34.29
         assert result["fundamentals"]["market_cap"] == 3_979_470_000_000
         assert result["fundamentals"]["market_cap_formatted"] == "3.98T"
@@ -1803,6 +1816,13 @@ class TestFinvizTools:
         assert "high_52w" not in result["fundamentals"]
         assert result["fundamentals"]["rsi_14"] == 62.1
         assert "insider_own" not in result["fundamentals"]
+
+        all_compact = raw("AAPL", category="all", detail="compact")
+        assert all_compact["category"] == "all"
+        assert all_compact["detail"] == "compact"
+        assert all_compact["fundamentals"]["insider_own"] == 0.1
+        assert all_compact["fundamentals"]["rsi_14"] == 62.1
+        assert "high_52w_distance_pct_recomputed" not in all_compact["fundamentals"]
 
         overview = raw("AAPL", category="overview")
         assert overview["category"] == "summary"
@@ -2032,8 +2052,8 @@ class TestFinvizTools:
             "change_pct": 1.2,
             "price_source": "finviz_delayed",
             "data_delayed": True,
-            "delay_minutes_min": 15,
-            "delay_minutes_max": 20,
+            "nominal_provider_delay_minutes_min": 15,
+            "nominal_provider_delay_minutes_max": 20,
         }
         assert result["available_field_count"] == 4
         assert result["omitted_field_count"] == 2
@@ -2468,13 +2488,17 @@ class TestFinvizTools:
                 "volume": "6593",
                 "price_source": "finviz_delayed",
                 "data_delayed": True,
-                "delay_minutes_min": 15,
-                "delay_minutes_max": 20,
+                "nominal_provider_delay_minutes_min": 15,
+                "nominal_provider_delay_minutes_max": 20,
             }
         ]
         assert result["data_delayed"] is True
         assert result["price_source"] == "finviz_delayed"
         assert result["units"]["price_change_pct"] == "percent (1.0 = 1%)"
+        assert "finviz_calendar" not in result["hint"]
+        assert "calendar --kind earnings --view range" in result["hint"]
+        assert "--start" in result["hint"]
+        assert "--end" in result["hint"]
 
     def test_finviz_earnings_yearless_dates_follow_period_across_new_year(self):
         from datetime import date
@@ -2685,8 +2709,8 @@ class TestFinvizTools:
                 "pe_ratio": 28.5,
                 "price_source": "finviz_delayed",
                 "data_delayed": True,
-                "delay_minutes_min": 15,
-                "delay_minutes_max": 20,
+                "nominal_provider_delay_minutes_min": 15,
+                "nominal_provider_delay_minutes_max": 20,
             }
         ]
 
@@ -2746,8 +2770,8 @@ class TestFinvizTools:
                 "beta": 1.2,
                 "price_source": "finviz_delayed",
                 "data_delayed": True,
-                "delay_minutes_min": 15,
-                "delay_minutes_max": 20,
+                "nominal_provider_delay_minutes_min": 15,
+                "nominal_provider_delay_minutes_max": 20,
             }
         ]
 
@@ -2856,8 +2880,8 @@ class TestFinvizTools:
                 "price_to_book": 36.2,
                 "price_source": "finviz_delayed",
                 "data_delayed": True,
-                "delay_minutes_min": 15,
-                "delay_minutes_max": 20,
+                "nominal_provider_delay_minutes_min": 15,
+                "nominal_provider_delay_minutes_max": 20,
             }
         ]
 

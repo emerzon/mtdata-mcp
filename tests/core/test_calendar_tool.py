@@ -107,3 +107,30 @@ def test_calendar_period_view_uses_earnings_alias(monkeypatch) -> None:
     assert result["success"] is True
     assert result["period"] == "this-week"
     assert result["providers_used"] == ["finviz"]
+
+
+def test_calendar_period_hint_is_cli_runnable(monkeypatch) -> None:
+    def _fake_earnings(**kwargs):
+        return {
+            "success": True,
+            "period": "this-week",
+            "detail": "compact",
+            "hint": (
+                "Period-based earnings view; use "
+                "calendar --kind earnings --view range "
+                "--start 2026-03-01 --end 2026-03-07 "
+                "for date-range EPS/sales actuals and surprises."
+            ),
+            "items": [{"ticker": "AAPL"}],
+            "count": 1,
+        }
+
+    monkeypatch.setattr("mtdata.core.finviz.finviz_earnings", _fake_earnings)
+
+    result = _unwrap(calendar)(kind="earnings", view="period")
+
+    hint = result["hint"]
+    assert "finviz_calendar" not in hint
+    assert "calendar --kind earnings --view range" in hint
+    assert "--start" in hint
+    assert "--end" in hint

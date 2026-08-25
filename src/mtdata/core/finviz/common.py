@@ -196,8 +196,8 @@ _FINVIZ_MARKET_COMPACT_FIELDS = (
     "price_currency",
     "price_source",
     "data_delayed",
-    "delay_minutes_min",
-    "delay_minutes_max",
+    "nominal_provider_delay_minutes_min",
+    "nominal_provider_delay_minutes_max",
     "group",
     "perf_5min_pct",
     "perf_hour_pct",
@@ -343,7 +343,18 @@ _FINVIZ_DETAIL_ERROR = (
 _FINVIZ_DELAYED_FRESHNESS = "finviz_delayed"
 _FINVIZ_DELAY_MINUTES_MIN = 15
 _FINVIZ_DELAY_MINUTES_MAX = 20
-_FINVIZ_DELAYED_DATA_QUALITY = "delayed_15_to_20_min"
+_FINVIZ_DELAYED_DATA_QUALITY = "delayed"
+_FINVIZ_PERFORMANCE_RANK_BY = {
+    "5min": "perf_5min_pct",
+    "hour": "perf_hour_pct",
+    "day": "perf_day_pct",
+    "week": "perf_week_pct",
+    "month": "perf_month_pct",
+    "quarter": "perf_quart_pct",
+    "half": "perf_half_pct",
+    "year": "perf_year_pct",
+    "ytd": "perf_ytd_pct",
+}
 _FINVIZ_FOREX_DELAYED_PRICE_WARNING = (
     "Finviz forex prices are delayed web quotes, not executable MT5 bid/ask; "
     "use market_ticker before order placement."
@@ -520,8 +531,8 @@ def _compact_finviz_screen_row(
     for field in (
         "price_source",
         "data_delayed",
-        "delay_minutes_min",
-        "delay_minutes_max",
+        "nominal_provider_delay_minutes_min",
+        "nominal_provider_delay_minutes_max",
     ):
         if row.get(field) not in (None, ""):
             out[field] = row[field]
@@ -536,8 +547,8 @@ def _mark_finviz_delayed_price(row: Dict[str, Any]) -> Dict[str, Any]:
     out["price"] = price
     out["price_source"] = _FINVIZ_DELAYED_FRESHNESS
     out["data_delayed"] = True
-    out["delay_minutes_min"] = _FINVIZ_DELAY_MINUTES_MIN
-    out["delay_minutes_max"] = _FINVIZ_DELAY_MINUTES_MAX
+    out["nominal_provider_delay_minutes_min"] = _FINVIZ_DELAY_MINUTES_MIN
+    out["nominal_provider_delay_minutes_max"] = _FINVIZ_DELAY_MINUTES_MAX
     return out
 
 
@@ -546,8 +557,13 @@ def _attach_finviz_delayed_root_metadata(out: Dict[str, Any]) -> None:
     out["freshness"] = _FINVIZ_DELAYED_FRESHNESS
     out["data_quality"] = _FINVIZ_DELAYED_DATA_QUALITY
     out["data_delayed"] = True
-    out["delay_minutes_min"] = _FINVIZ_DELAY_MINUTES_MIN
-    out["delay_minutes_max"] = _FINVIZ_DELAY_MINUTES_MAX
+    out.setdefault(
+        "nominal_provider_delay_minutes",
+        {
+            "minimum": _FINVIZ_DELAY_MINUTES_MIN,
+            "maximum": _FINVIZ_DELAY_MINUTES_MAX,
+        },
+    )
 
 
 def _finviz_screen_units_for_rows(rows: Any) -> Dict[str, str]:
@@ -568,6 +584,84 @@ def _finviz_screen_units_for_rows(rows: Any) -> Dict[str, str]:
     if "short_ratio" in seen_fields:
         units["short_ratio"] = "days_to_cover"
     return units
+
+
+def _resolve_finviz_performance_rank(
+    rank_by: Any,
+    order: Any,
+    *,
+    operation: str,
+) -> tuple[Optional[str], str, Optional[str], Optional[Dict[str, Any]]]:
+    rank_key = None if rank_by in (None, "") else str(rank_by).strip().lower()
+    order_key = None if order in (None, "") else str(order).strip().lower()
+    if rank_key is None:
+        if order_key is not None:
+            return None, "desc", None, _finviz_error_payload(
+                "order requires rank_by.",
+                code=f"{operation}_incompatible_parameters",
+                operation=operation,
+                details={"invalid": ["order"]},
+            )
+        return None, "desc", None, None
+    field = _FINVIZ_PERFORMANCE_RANK_BY.get(rank_key)
+    if field is None:
+        return None, "desc", None, _finviz_error_payload(
+            "rank_by must be one of: "
+            + ", ".join(_FINVIZ_PERFORMANCE_RANK_BY)
+            + ".",
+            code=f"{operation}_invalid_rank_by",
+            operation=operation,
+            details={"rank_by": rank_by},
+        )
+    if order_key is None:
+        order_key = "desc"
+    aliases = {
+        "desc": "desc",
+        "descending": "desc",
+        "asc": "asc",
+        "ascending": "asc",
+    }
+    resolved_order = aliases.get(order_key)
+    if resolved_order is None:
+        return None, "desc", None, _finviz_error_payload(
+            "order must be one of: desc, asc.",
+            code=f"{operation}_invalid_order",
+            operation=operation,
+            details={"order": order},
+        )
+    return rank_key, resolved_order, field, None
+
+
+def _available_finviz_rank_by(rows: List[Any]) -> List[str]:
+    available: List[str] = []
+    for key, field in _FINVIZ_PERFORMANCE_RANK_BY.items():
+        if any(
+            isinstance(row, dict) and row.get(field) not in (None, "")
+            for row in rows
+        ):
+            available.append(key)
+    return available
+
+
+def _sort_finviz_performance_rows(
+    rows: List[Any],
+    *,
+    field: str,
+    descending: bool,
+) -> List[Any]:
+    def _key(row: Any) -> tuple[int, float]:
+        if not isinstance(row, dict):
+            return (1, 0.0)
+        value = row.get(field)
+        if value in (None, ""):
+            return (1, 0.0)
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return (1, 0.0)
+        return (0, -numeric if descending else numeric)
+
+    return sorted(rows, key=_key)
 
 
 def _normalize_finviz_market_payload(  # noqa: C901
@@ -622,6 +716,39 @@ def _normalize_finviz_market_payload(  # noqa: C901
                     for row in normalized_rows
                     if str(row.get("symbol") or "").upper() == symbol_filter_norm
                 ]
+    rank_by_value: Optional[str] = None
+    rank_order_value = "desc"
+    rank_field: Optional[str] = None
+    if rows_key in {"pairs", "coins", "futures"}:
+        rank_by_value, rank_order_value, rank_field, rank_error = (
+            _resolve_finviz_performance_rank(
+                request.get("rank_by"),
+                request.get("order"),
+                operation=tool,
+            )
+        )
+        if rank_error is not None:
+            return rank_error
+        if rank_field is not None:
+            available_rank_by = _available_finviz_rank_by(normalized_rows)
+            if rank_by_value not in available_rank_by:
+                return _finviz_error_payload(
+                    (
+                        f"rank_by={rank_by_value!r} is not present in this "
+                        "provider snapshot."
+                    ),
+                    code=f"{tool}_rank_by_unavailable",
+                    operation=tool,
+                    details={
+                        "rank_by": rank_by_value,
+                        "available": available_rank_by,
+                    },
+                )
+            normalized_rows = _sort_finviz_performance_rows(
+                normalized_rows,
+                field=rank_field,
+                descending=rank_order_value == "desc",
+            )
     requested_limit = _coerce_finviz_limit(limit, default=len(normalized_rows))
     effective_limit = _coerce_finviz_limit(
         result.get("limit"),
@@ -710,6 +837,16 @@ def _normalize_finviz_market_payload(  # noqa: C901
         _append_finviz_warning(out, _FINVIZ_FUTURES_DELAYED_WARNING)
     if rows_key in {"pairs", "coins", "futures"}:
         out["performance_format"] = "percent"
+        if rank_field is not None:
+            out["rank_by"] = rank_by_value
+            out["order"] = rank_order_value
+            out["selection_order"] = (
+                f"{rank_field}_descending"
+                if rank_order_value == "desc"
+                else f"{rank_field}_ascending"
+            )
+        else:
+            out["selection_order"] = "provider_table_order"
     units = _finviz_screen_units_for_rows(output_rows)
     if units:
         out["units"] = units
