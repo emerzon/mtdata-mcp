@@ -133,7 +133,14 @@ ForecastBarrierSpec = Annotated[
 class ForecastGenerateRequest(_PublicForecastRequest):
     symbol: str
     timeframe: TimeframeLiteral = "H1"
-    library: ForecastLibraryLiteral = "native"
+    library: Optional[ForecastLibraryLiteral] = Field(
+        None,
+        description=(
+            "Method library. Omit to resolve aliases such as sf_theta across "
+            "libraries; an explicit library rejects methods that do not belong "
+            "to it."
+        ),
+    )
     method: str = "theta"
     horizon: int = Field(
         12,
@@ -824,6 +831,33 @@ class ForecastBarrierOptimizeRequest(_PublicForecastRequest):
     grid_style: Literal["fixed", "volatility", "ratio", "preset"] = "fixed"
     preset: Optional[str] = None
     search_profile: Literal["fast", "medium", "long"] = "medium"
+    spread_bps: Optional[float] = Field(
+        None,
+        ge=0.0,
+        description=(
+            "Round-trip spread in basis points deducted from every simulated "
+            "barrier trade. Prefer this over params.spread_bps. Omit to leave "
+            "spread unmodeled unless a live bid/ask quote is available."
+        ),
+    )
+    slippage_bps: Optional[float] = Field(
+        None,
+        ge=0.0,
+        description=(
+            "Execution slippage in basis points per side, deducted from every "
+            "simulated barrier trade. Prefer this over params.slippage_bps. "
+            "Pass 0 to model zero slippage."
+        ),
+    )
+    commission_bps_per_side: Optional[float] = Field(
+        None,
+        ge=0.0,
+        description=(
+            "Commission in basis points per side, deducted twice per simulated "
+            "round-trip. Prefer this over params.commission_bps. Pass 0 to "
+            "model zero commission."
+        ),
+    )
     detail: DetailLiteral = "compact"
 
     @property

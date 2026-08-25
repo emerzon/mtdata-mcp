@@ -3,7 +3,10 @@ from __future__ import annotations
 import sys
 from types import ModuleType
 
+import pytest
+
 import mtdata.forecast.capabilities as caps
+from mtdata.forecast.exceptions import ForecastError
 
 
 def test_registered_capabilities_expose_standardized_adapter_metadata():
@@ -88,3 +91,22 @@ def test_pretrained_capabilities_include_registry_backed_read_surface_metadata()
     assert "amazon/chronos-bolt-base" in by_method["chronos_bolt"]["notes"]
     assert by_method["timesfm"]["requires"] == ["timesfm", "torch"]
     assert "PyPI" in by_method["timesfm"]["notes"]
+
+
+def test_explicit_library_rejects_foreign_method_aliases():
+    with pytest.raises(ForecastError, match="belongs to library 'statsforecast'"):
+        caps.resolve_capability_request(library="native", method="sf_theta")
+
+    with pytest.raises(ForecastError, match="belongs to library 'statsforecast'"):
+        caps.resolve_capability_request(
+            library="native",
+            method="statsforecast:autoarima",
+        )
+
+    library, method, params = caps.resolve_capability_request(
+        library=None,
+        method="sf_theta",
+    )
+    assert library == "statsforecast"
+    assert method == "statsforecast"
+    assert params.get("model_name") == "Theta"
