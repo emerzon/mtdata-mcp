@@ -1524,6 +1524,32 @@ def resolve_broker_symbol_name(symbol: str, *, gateway: Any = None) -> str:
     return query
 
 
+def resolve_public_symbol(
+    symbol: str,
+    *,
+    gateway: Any = None,
+) -> Tuple[str, Optional[str]]:
+    """Map public aliases such as EUR/USD to the canonical broker name.
+
+    Returns ``(canonical, symbol_input_or_none)``. ``symbol_input`` is the
+    trimmed caller input when it differed from the canonical broker name.
+    """
+    requested = str(symbol or "").strip()
+    if not requested:
+        return requested, None
+    try:
+        canonical = str(
+            resolve_broker_symbol_name(requested, gateway=gateway) or ""
+        ).strip()
+    except Exception:
+        canonical = ""
+    if not canonical:
+        canonical = requested
+    if canonical == requested:
+        return canonical, None
+    return canonical, requested
+
+
 def _symbol_suggestion_suffix(symbol: str) -> str:
     suggestions = symbol_suggestions_from_gateway(mt5, symbol)
     names = [str(item.get("symbol") or "").strip() for item in suggestions]

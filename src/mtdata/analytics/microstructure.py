@@ -16,6 +16,7 @@ from ..utils.freshness import (
     closed_session_context,
     standard_weekend_window,
 )
+from ..utils.mt5 import resolve_public_symbol
 from ..utils.quote import (
     compute_spread_metrics,
     resolve_quote_tick,
@@ -117,25 +118,29 @@ def analyze_microstructure(  # noqa: C901
     range_error = validate_historical_range(request.start, request.end)
     if range_error is not None:
         return range_error
+    symbol, symbol_input = resolve_public_symbol(request.symbol, gateway=gateway)
     try:
-        symbol_info = gateway.symbol_info(request.symbol)
+        symbol_info = gateway.symbol_info(symbol)
     except Exception:
         symbol_info = None
     if symbol_info is None:
-        return {
-            "error": f"Symbol '{request.symbol}' was not found by MT5.",
+        payload = {
+            "error": f"Symbol '{symbol}' was not found by MT5.",
             "error_code": "symbol_not_found",
-            "symbol": request.symbol,
+            "symbol": symbol,
             "remediation": (
                 "Use symbols_list to find the broker's exact symbol name and suffix."
             ),
             "related_tools": ["symbols_list"],
         }
+        if symbol_input:
+            payload["symbol_input"] = symbol_input
+        return payload
     start, end = _window(request.start, request.end, request.minutes_back)
-    df, truncated = _tick_frame(gateway, request.symbol, start, end, request.max_ticks)
+    df, truncated = _tick_frame(gateway, symbol, start, end, request.max_ticks)
     completed_session_context = None
     session = closed_session_context(
-        request.symbol,
+        symbol,
         now_epoch=end.timestamp(),
         item="tick stream",
     )
@@ -151,7 +156,7 @@ def analyze_microstructure(  # noqa: C901
             completed_start = completed_end - timedelta(minutes=request.minutes_back)
             completed_df, completed_truncated = _tick_frame(
                 gateway,
-                request.symbol,
+                symbol,
                 completed_start,
                 completed_end,
                 request.max_ticks,
@@ -161,7 +166,7 @@ def analyze_microstructure(  # noqa: C901
                 df, truncated = completed_df, completed_truncated
                 last_epoch = float(df["epoch"].iloc[-1])
                 completed_session_context = closed_session_context(
-                    request.symbol,
+                    symbol,
                     now_epoch=datetime.now(timezone.utc).timestamp(),
                     item="tick stream",
                     data_age_seconds=max(
@@ -198,7 +203,7 @@ def analyze_microstructure(  # noqa: C901
             ),
         }
         error_session = closed_session_context(
-            request.symbol,
+            symbol,
             now_epoch=datetime.now(timezone.utc).timestamp(),
             item="tick stream",
             data_age_seconds=(
@@ -208,9 +213,10 @@ def analyze_microstructure(  # noqa: C901
             ),
         )
         if error_session and error_session.get("market_status") == "closed":
-            return {
+            payload = {
                 "error": "Market is closed and fewer than 20 recent usable ticks are available.",
                 "error_code": "market_closed",
+                "symbol": symbol,
                 "remediation": (
                     "Select or widen an active or latest completed trading-session "
                     "window with --start and --end."
@@ -227,9 +233,13 @@ def analyze_microstructure(  # noqa: C901
                     "latest completed-session analysis window."
                 ),
             }
-        return {
+            if symbol_input:
+                payload["symbol_input"] = symbol_input
+            return payload
+        payload = {
             "error": "At least 20 usable ticks are required in the requested window.",
             "error_code": "insufficient_data",
+            "symbol": symbol,
             "remediation": (
                 "Widen or move the tick window with --start and --end to include "
                 "a period when the instrument traded."
@@ -240,6 +250,9 @@ def analyze_microstructure(  # noqa: C901
             **window_details,
             "related_tools": ["market_status"],
         }
+        if symbol_input:
+            payload["symbol_input"] = symbol_input
+        return payload
     quote_mask = np.isfinite(df["mid"])
     flag_values = df["flags"].astype(np.int64)
     trade_mask = (flag_values & mt5_trade_event_mask(gateway)) != 0
@@ -257,7 +270,7 @@ def analyze_microstructure(  # noqa: C901
     point = float(getattr(symbol_info, "point", 0.0) or 0.0)
     digits = int(getattr(symbol_info, "digits", 0) or 0)
     points_per_pip = forex_points_per_pip(
-        request.symbol,
+        symbol,
         path=str(getattr(symbol_info, "path", "") or ""),
         point=point,
         digits=digits,
@@ -432,7 +445,7 @@ def analyze_microstructure(  # noqa: C901
         raw_update_epoch = float(latest_tick["epoch"])
         latest_quote = _microstructure_latest_quote(
             gateway,
-            request.symbol,
+            symbol,
             latest_tick,
             reconcile_live_quote=(
                 request.start is None
@@ -514,7 +527,7 @@ def analyze_microstructure(  # noqa: C901
             )
         compact_result = {
             "success": True,
-            "symbol": request.symbol,
+            "symbol": symbol,
             "window": window_metadata,
             "summary": {
                 "feed_tier": tier,
@@ -574,10 +587,12 @@ def analyze_microstructure(  # noqa: C901
         }
         if completed_session_context is not None:
             compact_result.update(completed_session_context)
+        if symbol_input:
+            compact_result["symbol_input"] = symbol_input
         return compact_result
     result = {
         "success": True,
-        "symbol": request.symbol,
+        "symbol": symbol,
         "timezone": "UTC",
         "window": window_metadata,
         "summary": summary,
@@ -628,4 +643,6 @@ def analyze_microstructure(  # noqa: C901
     }
     if completed_session_context is not None:
         result.update(completed_session_context)
+    if symbol_input:
+        result["symbol_input"] = symbol_input
     return result

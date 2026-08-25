@@ -62,6 +62,7 @@ from mtdata.utils.mt5 import (
     get_symbol_info_cached,
     inspect_mt5_time_alignment,
     resolve_broker_symbol_name,
+    resolve_public_symbol,
 )
 
 
@@ -703,6 +704,13 @@ class TestResolveBrokerSymbolName:
         ]
 
         assert resolve_broker_symbol_name("brkb") == "brkb"
+
+    def test_public_symbol_contract_for_fx_aliases(self):
+        _mt5_mock.symbols_get.return_value = [types.SimpleNamespace(name="EURUSD")]
+
+        assert resolve_public_symbol("EURUSD") == ("EURUSD", None)
+        assert resolve_public_symbol("eurusd") == ("EURUSD", "eurusd")
+        assert resolve_public_symbol("EUR/USD") == ("EURUSD", "EUR/USD")
 
 
 class TestCachedMt5TimeAlignment:

@@ -312,6 +312,27 @@ class FakeGateway:
         return volume * 1000.0
 
 
+def test_microstructure_resolves_public_symbol_aliases() -> None:
+    gateway = FakeGateway()
+    original_info = gateway.symbol_info
+
+    def symbol_info(name):
+        if name != "EURUSD":
+            return None
+        return original_info(name)
+
+    gateway.symbol_info = symbol_info
+
+    result = analyze_microstructure(
+        MarketMicrostructureRequest(symbol="EUR/USD", minutes_back=60, detail="compact"),
+        gateway,
+    )
+
+    assert result["success"] is True
+    assert result["symbol"] == "EURUSD"
+    assert result["symbol_input"] == "EUR/USD"
+
+
 def test_microstructure_distinguishes_trade_volume_from_quote_proxy() -> None:
     gateway = FakeGateway()
     gateway.tick_rows = _ticks(real_volume=True)

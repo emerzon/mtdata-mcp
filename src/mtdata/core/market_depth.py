@@ -156,6 +156,7 @@ def _compact_market_ticker_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     for key in (
         "success",
         "symbol",
+        "symbol_input",
         "type",
         "price_precision",
         "point",
@@ -1125,6 +1126,8 @@ def market_ticker(  # noqa: C901
                     if out.get(key) is not None:
                         simple[key] = out.get(key)
                 return _finalize(simple)
+            if resolved_symbol != str(symbol or "").strip():
+                out["symbol_input"] = symbol
             if detail_mode == "compact":
                 out = _compact_market_ticker_payload(out)
             return _finalize(out)

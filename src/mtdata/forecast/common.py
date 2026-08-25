@@ -1099,20 +1099,9 @@ def resolve_forecast_symbol(symbol: str) -> Tuple[str, Optional[str]]:
     switch to the canonical name before those reads. Returns
     ``(canonical, requested_alias_or_none)``.
     """
-    requested = str(symbol or "").strip()
-    if not requested:
-        return requested, None
-    try:
-        from ..utils.mt5 import resolve_broker_symbol_name
+    from ..utils.mt5 import resolve_public_symbol
 
-        canonical = str(resolve_broker_symbol_name(requested) or "").strip()
-    except Exception:
-        canonical = ""
-    if not canonical:
-        canonical = requested
-    if canonical == requested:
-        return canonical, None
-    return canonical, requested
+    return resolve_public_symbol(symbol)
 
 
 def fetch_history(

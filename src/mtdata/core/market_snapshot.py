@@ -12,7 +12,7 @@ from ..forecast.requests import MAX_FORECAST_HORIZON
 from ..shared.schema import DetailLiteral, TimeframeLiteral, normalize_required_symbol
 from ..utils.coercion import coerce_finite_float as _coerce_float
 from ..utils.market_metadata import build_tick_freshness_context
-from ..utils.mt5 import resolve_broker_symbol_name
+from ..utils.mt5 import resolve_public_symbol
 from ..utils.quote import enforce_quote_execution_readiness
 from ..utils.symbol import symbol_suggestions_from_gateway
 from ..utils.time import format_datetime_utc
@@ -68,14 +68,18 @@ def _preflight_snapshot_symbol(
     symbol: str,
     *,
     gateway: Any = None,
-) -> Optional[Dict[str, Any]]:
+) -> tuple[str, Optional[Dict[str, Any]]]:
     symbol_name = str(symbol or "").strip()
     try:
         mt5_gateway = gateway or create_mt5_gateway()
         mt5_gateway.ensure_connection()
-        symbol_info = mt5_gateway.symbol_info(symbol_name)
+        resolved_symbol, _symbol_input = resolve_public_symbol(
+            symbol_name,
+            gateway=mt5_gateway,
+        )
+        symbol_info = mt5_gateway.symbol_info(resolved_symbol)
     except Exception as exc:
-        return build_error_payload(
+        return symbol_name, build_error_payload(
             str(exc),
             code="mt5_connection_error",
             operation="market_snapshot",
@@ -83,15 +87,15 @@ def _preflight_snapshot_symbol(
     if symbol_info is not None:
         from ..utils.mt5 import _ensure_symbol_ready
 
-        _ensure_symbol_ready(symbol_name)
-        return None
+        _ensure_symbol_ready(resolved_symbol)
+        return resolved_symbol, None
     suggestions = symbol_suggestions_from_gateway(mt5_gateway, symbol_name)
-    return build_error_payload(
-        f"Symbol '{symbol_name}' not found in MT5 terminal.",
+    return resolved_symbol, build_error_payload(
+        f"Symbol '{resolved_symbol}' not found in MT5 terminal.",
         code="symbol_not_found",
         operation="market_snapshot",
         details={
-            "symbol": symbol_name,
+            "symbol": resolved_symbol,
             "did_you_mean": suggestions,
             "search_hint": (
                 f"Use symbols_list(search_term='{symbol_name}') to browse matching "
@@ -1000,8 +1004,9 @@ def market_snapshot(
                 code="invalid_symbol",
                 operation="market_snapshot",
             )
-        resolved_symbol = resolve_broker_symbol_name(normalized_symbol)
-        preflight_error = _preflight_snapshot_symbol(resolved_symbol)
+        resolved_symbol, preflight_error = _preflight_snapshot_symbol(
+            normalized_symbol
+        )
         if preflight_error is not None:
             return {
                 **preflight_error,

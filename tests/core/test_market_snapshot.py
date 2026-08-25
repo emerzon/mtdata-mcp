@@ -10,7 +10,14 @@ import mtdata.core.market_snapshot as snapshot_mod
 
 
 def _raw_market_snapshot(**kwargs):
-    with patch.object(snapshot_mod, "_preflight_snapshot_symbol", return_value=None):
+    def _preflight(symbol, *, gateway=None):
+        return str(symbol), None
+
+    with patch.object(
+        snapshot_mod,
+        "_preflight_snapshot_symbol",
+        side_effect=_preflight,
+    ):
         return snapshot_mod.market_snapshot.__wrapped__(**kwargs)
 
 
@@ -314,13 +321,8 @@ def test_market_snapshot_normalizes_and_resolves_symbol_once(monkeypatch) -> Non
     section_symbols: list[str] = []
     monkeypatch.setattr(
         snapshot_mod,
-        "resolve_broker_symbol_name",
-        lambda symbol: "EURUSD" if symbol == "EURUSD" else symbol,
-    )
-    monkeypatch.setattr(
-        snapshot_mod,
         "_preflight_snapshot_symbol",
-        lambda symbol: None,
+        lambda symbol, **_kwargs: ("EURUSD", None),
     )
 
     def fake_call_section(name, symbol, timeframe, horizon, detail):
@@ -339,6 +341,38 @@ def test_market_snapshot_normalizes_and_resolves_symbol_once(monkeypatch) -> Non
     assert result["symbol_input"] == " eurusd "
     assert section_symbols == ["EURUSD"]
     assert result["source"]["provider"] == "mt5"
+
+
+def test_market_snapshot_resolves_slash_alias_with_gateway(monkeypatch) -> None:
+    section_symbols: list[str] = []
+    gateway = SimpleNamespace(
+        ensure_connection=lambda: None,
+        symbols_get=lambda: [SimpleNamespace(name="EURUSD")],
+        symbol_info=lambda name: (
+            SimpleNamespace(name="EURUSD", visible=True) if name == "EURUSD" else None
+        ),
+    )
+    monkeypatch.setattr(snapshot_mod, "create_mt5_gateway", lambda **_kwargs: gateway)
+    monkeypatch.setattr(
+        "mtdata.utils.mt5._ensure_symbol_ready",
+        lambda _symbol: None,
+    )
+
+    def fake_call_section(name, symbol, timeframe, horizon, detail):
+        section_symbols.append(symbol)
+        return {"success": True, "symbol": symbol, "mid": 1.1}
+
+    monkeypatch.setattr(snapshot_mod, "_call_section", fake_call_section)
+
+    result = snapshot_mod.market_snapshot.__wrapped__(
+        symbol="EUR/USD",
+        sections="quote",
+    )
+
+    assert result["success"] is True
+    assert result["symbol"] == "EURUSD"
+    assert result["symbol_input"] == "EUR/USD"
+    assert section_symbols == ["EURUSD"]
 
 
 def test_market_snapshot_full_quote_preserves_ticker_diagnostics(monkeypatch):
@@ -405,7 +439,7 @@ def test_market_snapshot_rejects_invalid_symbol_before_sections(monkeypatch):
     monkeypatch.setattr(
         snapshot_mod,
         "_preflight_snapshot_symbol",
-        lambda symbol: preflight_error,
+        lambda symbol, **_kwargs: (symbol, preflight_error),
     )
     monkeypatch.setattr(snapshot_mod, "_call_section", section_call)
 
@@ -428,8 +462,12 @@ def test_snapshot_symbol_preflight_classifies_missing_symbol() -> None:
     gateway.symbol_info.return_value = None
     gateway.symbols_get.return_value = []
 
-    result = snapshot_mod._preflight_snapshot_symbol("NOTREAL", gateway=gateway)
+    resolved, result = snapshot_mod._preflight_snapshot_symbol(
+        "NOTREAL",
+        gateway=gateway,
+    )
 
+    assert resolved == "NOTREAL"
     assert result is not None
     assert result["error_code"] == "symbol_not_found"
     assert result["details"]["symbol"] == "NOTREAL"
@@ -448,8 +486,12 @@ def test_snapshot_symbol_preflight_includes_canonical_suffix_suggestions() -> No
         )
     ]
 
-    result = snapshot_mod._preflight_snapshot_symbol("AAPL", gateway=gateway)
+    resolved, result = snapshot_mod._preflight_snapshot_symbol(
+        "AAPL",
+        gateway=gateway,
+    )
 
+    assert resolved == "AAPL"
     assert result is not None
     assert result["details"]["did_you_mean"] == [
         {
