@@ -2271,6 +2271,16 @@ def test_execution_quality_rejects_future_only_history_window() -> None:
     assert "at or before" in result["remediation"]
 
 
+def test_execution_quality_request_accepts_one_sided_explicit_window() -> None:
+    start_only = TradeExecutionQualityRequest(start="2026-08-24T10:00:00Z")
+    end_only = TradeExecutionQualityRequest(end="2026-08-24T11:00:00Z")
+
+    assert start_only.start == "2026-08-24T10:00:00Z"
+    assert start_only.end is None
+    assert end_only.start is None
+    assert end_only.end == "2026-08-24T11:00:00Z"
+
+
 def test_strategy_validation_historical_model_rejects_explicit_spread() -> None:
     with pytest.raises(ValueError, match="--spread-bps is only valid"):
         StrategyValidateRequest(

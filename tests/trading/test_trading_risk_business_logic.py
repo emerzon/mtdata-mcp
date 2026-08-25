@@ -266,6 +266,11 @@ def test_trade_risk_analyze_compact_position_sizing_keeps_decision_fields() -> N
     assert "scoped_risk" not in out
     assert "portfolio_risk" not in out
     assert "positions" not in out
+    assert out["sizing_risk_policy"]["mode"] == "incremental_candidate_risk"
+    assert out["sizing_risk_policy"]["other_positions_without_sl"] == 0
+    assert out["sizing_risk_policy"]["aggregate_portfolio_risk_status"] == (
+        "not_evaluated"
+    )
 
 
 def test_trade_risk_analyze_kelly_sizes_from_nested_sizing() -> None:
@@ -876,7 +881,7 @@ def test_trade_risk_analyze_reports_symbol_scope_when_other_positions_exist() ->
             type=0,
             volume=1.0,
             price_open=100.0,
-            sl=90.0,
+            sl=0.0,
             tp=110.0,
         ),
     ]
@@ -924,6 +929,8 @@ def test_trade_risk_analyze_reports_symbol_scope_when_other_positions_exist() ->
         "existing_portfolio_stop_risk_included": False,
         "portfolio_positions": 2,
         "other_positions": 2,
+        "other_positions_without_sl": 1,
+        "aggregate_portfolio_risk_status": "unlimited",
         "note": (
             "Suggested volume limits this candidate trade's stop risk; it does not "
             "cap aggregate portfolio stop risk."

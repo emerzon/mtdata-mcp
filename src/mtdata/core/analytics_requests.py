@@ -19,8 +19,11 @@ from ..utils.utils import _parse_end_datetime, _parse_start_datetime
 _MT5_UINT64_MAX = (1 << 64) - 1
 
 
-def _validate_ordered_utc_window(start: Optional[str], end: Optional[str]) -> None:
-    validate_complete_time_window(start, end)
+def _validate_ordered_utc_window(
+    start: Optional[str], end: Optional[str], *, allow_open: bool = False
+) -> None:
+    if not allow_open:
+        validate_complete_time_window(start, end)
     if not start or not end:
         return
     parsed_start = _parse_start_datetime(start)
@@ -120,7 +123,7 @@ class TradeExecutionQualityRequest(BaseModel):
 
     @model_validator(mode="after")
     def _window(self) -> "TradeExecutionQualityRequest":
-        _validate_ordered_utc_window(self.start, self.end)
+        _validate_ordered_utc_window(self.start, self.end, allow_open=True)
         _reject_conflicting_time_controls(self)
         return self
 

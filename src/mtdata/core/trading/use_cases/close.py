@@ -202,16 +202,14 @@ def _run_trade_close_once(  # noqa: C901
     ) -> Dict[str, Any]:
         position_error = str(position_result.get("error") or "").strip()
         pending_error = str(pending_result.get("error") or "").strip()
-        closed_count = _leg_count(
-            position_result,
-            "matched_count" if request.dry_run else "closed_count",
-            "closed_count",
+        matched_positions_count = _leg_count(
+            position_result, "matched_count", "closed_count"
         )
-        cancelled_count = _leg_count(
-            pending_result,
-            "matched_pending_count" if request.dry_run else "cancelled_count",
-            "cancelled_count",
+        matched_pending_count = _leg_count(
+            pending_result, "matched_pending_count", "cancelled_count"
         )
+        closed_count = 0 if request.dry_run else matched_positions_count
+        cancelled_count = 0 if request.dry_run else matched_pending_count
         failed_legs = [
             name
             for name, error in (
@@ -236,9 +234,11 @@ def _run_trade_close_once(  # noqa: C901
             "failed_legs": failed_legs,
         }
         if request.dry_run:
-            out["would_send_orders"] = closed_count
-            out["would_cancel_pending_orders"] = cancelled_count
-            out["would_cancel_pending_order"] = cancelled_count > 0
+            out["matched_positions_count"] = matched_positions_count
+            out["matched_pending_count"] = matched_pending_count
+            out["would_send_orders"] = matched_positions_count
+            out["would_cancel_pending_orders"] = matched_pending_count
+            out["would_cancel_pending_order"] = matched_pending_count > 0
             out["actionability"] = "preview_only"
             child_preview_ok = True
             for child in (position_result, pending_result):
@@ -253,7 +253,12 @@ def _run_trade_close_once(  # noqa: C901
                     "error",
                     "One or more exposure legs are not live-ready.",
                 )
-        if not failed_legs and closed_count == 0 and cancelled_count == 0:
+        affected_count = (
+            matched_positions_count + matched_pending_count
+            if request.dry_run
+            else closed_count + cancelled_count
+        )
+        if not failed_legs and affected_count == 0:
             out["no_action"] = True
             out["message"] = "No matching open positions or pending orders."
         elif failed_legs:

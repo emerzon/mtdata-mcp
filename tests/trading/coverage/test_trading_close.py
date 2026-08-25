@@ -825,6 +825,10 @@ class TestTradeClose:
         assert out["preview_ok"] is True
         assert out["would_send_orders"] == 2
         assert out["would_cancel_pending_orders"] == 1
+        assert out["closed_count"] == 0
+        assert out["cancelled_count"] == 0
+        assert out["matched_positions_count"] == 2
+        assert out["matched_pending_count"] == 1
         assert out["closed_positions"]["matched_count"] == 2
         assert out["cancelled_pending_orders"]["matched_pending_count"] == 1
         mock_close.assert_called_once()

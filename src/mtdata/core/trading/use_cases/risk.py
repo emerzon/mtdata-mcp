@@ -1069,6 +1069,7 @@ def run_trade_risk_analyze(  # noqa: C901
                     context="analyze open-position risk",
                 )
             portfolio_positions_total: Optional[int] = None
+            other_positions_without_sl: Optional[int] = None
             portfolio_snapshot_available = True
             if request.symbol:
                 try:
@@ -1078,7 +1079,18 @@ def run_trade_risk_analyze(  # noqa: C901
                 if portfolio_positions is None:
                     portfolio_snapshot_available = False
                 else:
-                    portfolio_positions_total = len(list(portfolio_positions))
+                    portfolio_positions_list = list(portfolio_positions)
+                    portfolio_positions_total = len(portfolio_positions_list)
+                    requested_symbol = str(request.symbol).strip().casefold()
+                    other_positions_without_sl = sum(
+                        1
+                        for position in portfolio_positions_list
+                        if str(getattr(position, "symbol", "") or "")
+                        .strip()
+                        .casefold()
+                        != requested_symbol
+                        and validation._safe_float_attr(position, "sl", 0.0) <= 0.0
+                    )
 
             position_risks: List[Dict[str, Any]] = []
             pending_order_risks: List[Dict[str, Any]] = []
@@ -1707,6 +1719,13 @@ def run_trade_risk_analyze(  # noqa: C901
                 if other_positions_count is not None:
                     result["sizing_risk_policy"]["other_positions"] = int(
                         other_positions_count
+                    )
+                if other_positions_without_sl is not None:
+                    result["sizing_risk_policy"]["other_positions_without_sl"] = int(
+                        other_positions_without_sl
+                    )
+                    result["sizing_risk_policy"]["aggregate_portfolio_risk_status"] = (
+                        "unlimited" if other_positions_without_sl else "not_evaluated"
                     )
             else:
                 result["risk_visibility"] = "portfolio"

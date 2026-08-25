@@ -1832,7 +1832,7 @@ def _close_positions_dry_run_preview(
     if close_priority not in (None, ""):
         filters["close_priority"] = close_priority
     preview = {
-        "success": True,
+        "success": live_ready,
         "dry_run": True,
         "actionability": "preview_only",
         "preview_ok": live_ready,
@@ -1851,6 +1851,14 @@ def _close_positions_dry_run_preview(
         "filters_applied": filters,
         "would_send_orders": len(rows),
     }
+    if not live_ready:
+        preview.update(
+            {
+                "error_code": "preview_blocked",
+                "error": "One or more position quotes are not live-ready.",
+                "blockers": ["market_not_live_ready"],
+            }
+        )
     return comments._attach_comment_preview_metadata(
         preview,
         comment,

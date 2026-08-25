@@ -24,6 +24,7 @@ from ...utils.mt5 import (
     MT5ConnectionError,
     _ensure_symbol_ready,
     _symbol_visibility_snapshot_guard,
+    account_currency_from_gateway,
     ensure_mt5_connection_or_raise,
     mt5,
     resolve_broker_symbol_name,
@@ -1380,6 +1381,15 @@ def symbols_describe(  # noqa: C901
                 symbol_data = _summary_symbol_describe_payload(symbol_data)
             elif contract.shape_detail == "compact":
                 symbol_data = _compact_symbol_describe_payload(symbol_data)
+
+            if symbol_data.get("trade_tick_value") is not None:
+                tick_value_currency = account_currency_from_gateway(mt5_gateway)
+                symbol_data["trade_tick_value_currency"] = tick_value_currency
+                units = symbol_data.setdefault("units", {})
+                if isinstance(units, dict):
+                    units["trade_tick_value"] = (
+                        "account_currency_per_tick_per_broker_lot"
+                    )
 
             symbol_name = _nonempty_symbol_string(symbol_data.pop("name", None))
             payload = {

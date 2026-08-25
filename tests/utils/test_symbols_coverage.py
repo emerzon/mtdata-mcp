@@ -1624,6 +1624,10 @@ class TestSymbolsDescribe:
         assert "Market" in sd["order_mode_labels"]
         assert "Limit" in sd["order_mode_labels"]
         assert sd["trade_tick_value"] == 1.25
+        assert "trade_tick_value_currency" in sd
+        assert sd["units"]["trade_tick_value"] == (
+            "account_currency_per_tick_per_broker_lot"
+        )
         assert "trade_tick_value_profit" not in sd
         assert "time_epoch" not in sd
 

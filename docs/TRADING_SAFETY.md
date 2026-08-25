@@ -124,7 +124,7 @@ Requires `symbol`, `volume`, and `order_type`.
 | `--stop-loss` | — | Stop-loss price |
 | `--take-profit` | — | Take-profit price |
 | `--deviation` | `20` | Max slippage in points (market orders) |
-| `--require-sl-tp` | `true` | Require both SL and TP on market orders |
+| `--require-sl-tp` | `true` | Require both SL and TP on market and pending orders |
 | `--expiration` | — | Future pending-order expiry (`dateparser` or positive UTC epoch seconds); literal `GTC` means no expiry |
 | `--magic` | `MTDATA_ORDER_MAGIC` | Strategy identifier stamped on the order |
 | `--comment` | — | Free-text order comment |
@@ -164,7 +164,7 @@ or below its trigger; a sell stop-limit's limit price must be at or above it.
 
 ```bash
 # Trigger above the ask, then activate a buy limit at or below that trigger
-mtdata-cli trade_place EURUSD --volume 0.10 --order-type BUY_STOP_LIMIT --price 1.1050 --stop-limit-price 1.1045 --dry-run true
+mtdata-cli trade_place EURUSD --volume 0.10 --order-type BUY_STOP_LIMIT --price 1.1050 --stop-limit-price 1.1045 --stop-loss 1.1000 --take-profit 1.1150 --dry-run true
 ```
 
 ---

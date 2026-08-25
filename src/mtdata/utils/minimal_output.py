@@ -1676,6 +1676,9 @@ def _normalize_trade_risk_payload(
         value = payload.get(key)
         if not _is_empty_value(value):
             out[key] = value
+    sizing_policy = payload.get("sizing_risk_policy")
+    if isinstance(sizing_policy, dict):
+        out["sizing_risk_policy"] = dict(sizing_policy)
 
     def _compact_risk_rows(rows: Any, *, pending: bool = False) -> List[Dict[str, Any]]:
         if not isinstance(rows, list):

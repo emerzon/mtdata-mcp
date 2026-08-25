@@ -764,7 +764,7 @@ mtdata-cli trade_place BTCUSD --volume 0.03 --order-type BUY_LIMIT --price 68750
 mtdata-cli trade_place BTCUSD --volume 0.03 --order-type buy-stop --price 70200 --stop-loss 69000 --take-profit 73000 --dry-run true
 
 # Preview a stop-limit order with separate trigger and limit prices
-mtdata-cli trade_place BTCUSD --volume 0.03 --order-type BUY_STOP_LIMIT --price 70200 --stop-limit-price 70000 --dry-run true
+mtdata-cli trade_place BTCUSD --volume 0.03 --order-type BUY_STOP_LIMIT --price 70200 --stop-limit-price 70000 --stop-loss 68000 --take-profit 74000 --dry-run true
 
 # Preview a market order after fetching the live quote.
 # BUY: stop-loss below bid, take-profit above ask.
@@ -782,7 +782,7 @@ mtdata-cli trade_place BTCUSD --volume 0.01 --order-type BUY --stop-loss SL_BELO
 | `--detail` | `trade_place` | Preview detail level; use `full` for execution diagnostics. |
 | `--stop-limit-price` | `trade_place`, `trade_modify` | Limit leg activated by a stop-limit trigger. |
 | `--magic` | `trade_place`, `trade_get_open`, `trade_get_pending`, `trade_close`, `trade_history`, `trade_journal_analyze` | MT5 unsigned 64-bit magic number (`0..18446744073709551615`); zero is a valid exact filter. History and journal filtering happens before pagination and aggregation. |
-| `--require-sl-tp` | `trade_place` | Require both stop-loss and take-profit on market orders. |
+| `--require-sl-tp` | `trade_place` | Require both stop-loss and take-profit on market and pending orders. |
 | `--expiration` | `trade_place`, `trade_modify` | Future expiration for pending orders (`dateparser` or positive UTC epoch seconds); use literal `GTC` for no expiration. Invalid or past values are rejected locally. |
 | `--idempotency-key` | `trade_place`, `trade_modify` | Durable dedupe key shared by CLI and server processes within the configured retention window. |
 | `--target` | `trade_close` | Select `positions` (default), `pending`, or `all_exposure`. |

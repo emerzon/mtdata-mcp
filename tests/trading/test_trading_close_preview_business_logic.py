@@ -34,7 +34,9 @@ def test_close_preview_discloses_stale_market_readiness() -> None:
         mt5=gateway,
     )
 
-    assert result["success"] is True
+    assert result["success"] is False
+    assert result["error_code"] == "preview_blocked"
+    assert "live-ready" in result["error"].lower()
     assert result["preview_ok"] is False
     assert result["market_readiness"] == {
         "symbols_checked": 1,
@@ -92,5 +94,6 @@ def test_close_preview_uses_reconciled_stream_quote() -> None:
         )
 
     context = result["matched_positions"][0]["quote_context"]
+    assert result["success"] is True
     assert result["preview_ok"] is True
     assert context["quote_source"] == "mt5.copy_ticks_range"

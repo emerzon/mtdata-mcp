@@ -1565,6 +1565,10 @@ def test_compact_open_position_projection_keeps_mark_context() -> None:
                 "comment": "audit-cli",
                 "quote_source": "mt5.copy_ticks_range",
                 "stream_tick_time_epoch": 1_700_000_000.0,
+                "contract_size": 100_000.0,
+                "contract_units": 10_000.0,
+                "notional_account": 11_000.0,
+                "notional_account_currency": "USD",
                 "lot_definition": "1 broker lot = 100000 contract units",
             }
         ]
@@ -1596,10 +1600,16 @@ def test_compact_open_position_projection_keeps_mark_context() -> None:
         "usable_for_live_trading",
         "magic",
         "comment",
+        "contract_size",
+        "contract_units",
+        "notional_account",
+        "notional_account_currency",
     }
     assert row["magic"] == 42
     assert row["comment"] == "audit-cli"
     assert row["quote_source"] == "mt5.copy_ticks_range"
+    assert row["contract_units"] == 10_000.0
+    assert row["notional_account_currency"] == "USD"
 
 
 def test_full_open_position_projection_preserves_quote_diagnostics() -> None:

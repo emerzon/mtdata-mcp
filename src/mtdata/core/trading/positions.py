@@ -224,6 +224,10 @@ def _project_open_position_rows(payload: Dict[str, Any], *, request: Any) -> Non
         "time",
         "side",
         "volume",
+        "contract_size",
+        "contract_units",
+        "notional_account",
+        "notional_account_currency",
         "entry_price",
         "sl",
         "tp",
@@ -1645,18 +1649,19 @@ def trade_get_open(
     """
     def _run() -> Dict[str, Any]:
         gateway = create_trading_gateway()
+        raw = run_trade_get_open(
+            request,
+            gateway=gateway,
+            use_client_tz=lambda: False,
+            format_time_minimal=format_epoch_utc,
+            format_time_minimal_local=format_epoch_utc,
+            mt5_epoch_to_utc=float,
+            normalize_limit=_normalize_limit,
+            comment_row_metadata=comments._comment_row_metadata,
+        )
         account_currency = account_currency_from_gateway(gateway)
         out = _normalize_trade_read_output(
-            run_trade_get_open(
-                request,
-                gateway=gateway,
-                use_client_tz=lambda: False,
-                format_time_minimal=format_epoch_utc,
-                format_time_minimal_local=format_epoch_utc,
-                mt5_epoch_to_utc=float,
-                normalize_limit=_normalize_limit,
-                comment_row_metadata=comments._comment_row_metadata,
-            ),
+            raw,
             request=request,
             kind="open_positions",
             account_currency=account_currency,
