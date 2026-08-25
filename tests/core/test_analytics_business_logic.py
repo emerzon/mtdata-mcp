@@ -904,6 +904,13 @@ def test_execution_quality_matches_order_and_computes_markout() -> None:
     assert "window" in compact
     assert "pending_time_to_fill_ms" not in compact["summary"]
     assert "pending_time_to_fill_ms" in compact.get("omitted_metrics", [])
+    assert "eligible_symbols" not in compact["data_quality"]
+    assert "analyzed_symbols" not in compact["data_quality"]
+    assert "quote_reads" not in compact["data_quality"]
+    assert compact["data_quality"]["eligible_symbol_count"] == 1
+    assert compact["data_quality"]["analyzed_symbol_count"] == 1
+    if compact["summary"].get("price_improvement_pct") is not None:
+        assert 0.0 <= compact["summary"]["price_improvement_pct"] <= 100.0
 
 
 def test_execution_quality_does_not_average_unlike_lot_fees() -> None:
@@ -1585,7 +1592,7 @@ def test_execution_quality_aggregates_partial_fills_by_order() -> None:
     assert result["summary"]["fills"] == 2
     assert result["summary"]["orders"] == 1
     assert result["summary"]["partial_orders"] == 0
-    assert result["summary"]["partial_fill_rate"] == 0.0
+    assert result["summary"]["partial_fill_pct"] == 0.0
     assert result["summary"]["partial_fill_rate_basis"] == (
         "orders_aggregated_from_deals"
     )

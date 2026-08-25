@@ -713,11 +713,11 @@ def analyze_execution_quality(  # noqa: C901
         "mean_slippage_ci_95": _execution_bootstrap_mean_ci(
             headline_slippages, 500
         ),
-        "price_improvement_rate": _round_execution_stat(
-            np.mean([item["price_improved"] for item in headline_fills])
+        "price_improvement_pct": _round_execution_stat(
+            100.0 * np.mean([item["price_improved"] for item in headline_fills])
         ) if headline_fills else None,
-        "partial_fill_rate": _round_execution_stat(
-            partial_orders / len(order_fill_totals)
+        "partial_fill_pct": _round_execution_stat(
+            100.0 * (partial_orders / len(order_fill_totals))
         ) if order_fill_totals else None,
         "partial_orders": int(partial_orders),
         "orders_evaluated_for_partial_fills": len(order_fill_totals),
@@ -879,7 +879,7 @@ def analyze_execution_quality(  # noqa: C901
             )
     if market_order_fills and non_market_order_fills and request.benchmark == "arrival_quote":
         warnings.append(
-            "Headline slippage_bps and price_improvement_rate use market-order fills "
+            "Headline slippage_bps and price_improvement_pct use market-order fills "
             "only; pending fill quality is reported separately."
         )
     if skipped["future_timestamp"]:
@@ -1025,8 +1025,8 @@ def analyze_execution_quality(  # noqa: C901
             "non_market_order_fills",
             "slippage_basis",
             "slippage_bps",
-            "price_improvement_rate",
-            "partial_fill_rate",
+            "price_improvement_pct",
+            "partial_fill_pct",
             "market_fill_latency_ms",
             "pending_time_to_fill_ms",
             "commission_fee_per_lot",
@@ -1043,8 +1043,8 @@ def analyze_execution_quality(  # noqa: C901
             "market_order_fills",
             "non_market_order_fills",
             "slippage_basis",
-            "price_improvement_rate",
-            "partial_fill_rate",
+            "price_improvement_pct",
+            "partial_fill_pct",
         }
         for key in compact_summary_keys:
             if key not in summary:
@@ -1059,14 +1059,19 @@ def analyze_execution_quality(  # noqa: C901
             "summary": compact_summary,
             "fill_sample_quality": fill_sample_quality,
             "data_quality": {
-                "eligible_symbols": eligible_symbols,
-                "analyzed_symbols": analyzed_symbols,
+                "eligible_symbol_count": len(eligible_symbols),
+                "analyzed_symbol_count": len(analyzed_symbols),
                 "eligible_trade_deals": len(eligible_deals),
                 "processed_candidates": processed_candidates,
                 "matched_fills": len(fills),
                 "skipped": skipped,
-                "benchmark": benchmark_quality,
-                "quote_reads": tick_cache.metadata(),
+                "benchmark": {
+                    "requested": benchmark_quality.get("requested"),
+                    "fallback_count": benchmark_quality.get("fallback_count"),
+                    "arrival_quote_coverage": benchmark_quality.get(
+                        "arrival_quote_coverage"
+                    ),
+                },
             },
             "sample": {
                 "selection_order": sample["selection_order"],
@@ -1137,6 +1142,8 @@ def analyze_execution_quality(  # noqa: C901
             "commission_fee": "account_currency",
             "total_commission_fee": "account_currency",
             "commission_fee_per_lot": "account_currency_per_broker_lot",
+            "price_improvement_pct": "percent_0_to_100",
+            "partial_fill_pct": "percent_0_to_100",
             "commission_fee_bps": "basis_points_of_notional",
             "notional": "account_currency",
             "contract_size": "contract_units_per_broker_lot",

@@ -70,11 +70,12 @@ the default arrival-quote policy, the headline slippage distribution contains
 market-order fills only. Pending fills are compared with their submitted order
 price, while setup-to-fill price movement is reported separately as arrival
 implementation shortfall. Unmatched or unbenchmarked fills are counted rather
-than silently discarded. `data_quality.eligible_symbols` lists symbols that
-passed the history filters; `data_quality.analyzed_symbols` lists only symbols
-with fills that reached the reported statistics. Nearby fills share cached
-quote chunks, and full-detail diagnostics report the resulting broker query
-count under `quote_reads`.
+than silently discarded. Compact `data_quality` reports
+`eligible_symbol_count` and `analyzed_symbol_count`. Full detail still lists
+`eligible_symbols` (history-filter survivors) and `analyzed_symbols` (fills that
+reached the reported statistics), plus `quote_reads` cache diagnostics.
+`price_improvement_pct` and `partial_fill_pct` are 0–100 percentages, same
+scale as `coverage_pct`.
 Commission and fee percentiles are non-negative cost magnitudes per broker lot;
 signed commission and fee fields remain available on full-detail fill rows.
 Each `summary.markout_bps.<seconds>` entry reports `observations`, `missing`,
