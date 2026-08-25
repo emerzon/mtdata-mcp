@@ -1082,6 +1082,33 @@ class TestTemporalAnalyze:
         assert all("group_label" in row for row in r["best"])
 
     @_apply_analyze_patches
+    def test_group_by_all_compact_keeps_hour_sample_warnings(self, mock_fetch, *_):
+        hour = self._call(
+            mock_fetch,
+            n=48,
+            lookback=48,
+            group_by="hour",
+            detail="compact",
+        )
+        grouped = self._call(
+            mock_fetch,
+            n=48,
+            lookback=48,
+            group_by="all",
+            detail="compact",
+        )
+
+        assert hour.get("success") is True
+        assert grouped.get("success") is True
+        assert hour.get("sample_warnings")
+        assert grouped.get("sample_warnings")
+        assert grouped["sample_warning_count"] >= hour["sample_warning_count"]
+        assert any(
+            row.get("dimension") == "hour"
+            for row in grouped["sample_warnings"]
+        )
+
+    @_apply_analyze_patches
     def test_filter_day_of_week(self, mock_fetch, *_):
         r = self._call(mock_fetch, day_of_week="monday")
         assert r.get("success") is True

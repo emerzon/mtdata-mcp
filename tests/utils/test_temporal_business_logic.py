@@ -90,3 +90,45 @@ def test_compact_temporal_payload_omits_best_when_winner_is_undersampled() -> No
     )
 
     assert "best" not in result
+
+
+def test_compact_temporal_payload_group_by_all_keeps_sample_warnings() -> None:
+    result = _compact_temporal_payload(
+        {
+            "success": True,
+            "symbol": "EURUSD",
+            "timeframe": "H1",
+            "group_by": "all",
+            "groups": [
+                {
+                    "dimension": "hour",
+                    "breakdown": [
+                        {
+                            "group": 8,
+                            "group_label": "08:00",
+                            "bars": 4,
+                            "avg_return_pct": 0.1,
+                        }
+                    ],
+                }
+            ],
+            "sample_warnings": [
+                {
+                    "group_label": "08:00",
+                    "bars": 4,
+                    "dimension": "hour",
+                    "recommended_min_bars": 30,
+                }
+            ],
+            "sample_warning_count": 1,
+            "sample_notice": (
+                "Some temporal groups have small samples; increase lookback or set "
+                "min_bars for stricter filtering."
+            ),
+        }
+    )
+
+    assert result["sample_warning_count"] == 1
+    assert result["sample_warnings"][0]["group_label"] == "08:00"
+    assert result["sample_warnings"][0]["dimension"] == "hour"
+    assert "sample_notice" in result

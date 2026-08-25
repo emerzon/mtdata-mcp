@@ -630,25 +630,25 @@ def _compact_temporal_payload(
                 out["best"] = best_rows
             if pagination:
                 out["dimension_pagination"] = pagination
-            return out
-        compact_groups = [
-            _compact_temporal_stats(row)
-            for row in groups
-            if isinstance(row, dict)
-        ]
-        out["groups"] = compact_groups
-        best_source = summary_groups if isinstance(summary_groups, list) else groups
-        best = _reliable_best(
-            _compact_temporal_stats(row)
-            for row in best_source
-            if isinstance(row, dict)
-        )
-        if best:
-            out["best"] = {
-                key: best[key]
-                for key in ("group", "group_label", "avg_return_pct", "win_rate", "win_rate_pct")
-                if key in best
-            }
+        else:
+            compact_groups = [
+                _compact_temporal_stats(row)
+                for row in groups
+                if isinstance(row, dict)
+            ]
+            out["groups"] = compact_groups
+            best_source = summary_groups if isinstance(summary_groups, list) else groups
+            best = _reliable_best(
+                _compact_temporal_stats(row)
+                for row in best_source
+                if isinstance(row, dict)
+            )
+            if best:
+                out["best"] = {
+                    key: best[key]
+                    for key in ("group", "group_label", "avg_return_pct", "win_rate", "win_rate_pct")
+                    if key in best
+                }
     elif isinstance(payload.get("overall"), dict):
         out["overall"] = _compact_temporal_stats(payload["overall"])
     for key in (
