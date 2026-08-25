@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import date, timedelta
 from functools import lru_cache
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -60,11 +60,13 @@ MARKET_SESSIONS: Dict[str, Dict[str, Any]] = {
     "EURONEXT": {
         "name": "Euronext Paris",
         "country": "FR",
+        "exchange_calendar": "EURONEXT",
         "timezone": "Europe/Paris",
         "open": (9, 0),
         "close": (17, 30),
-        "early_close": None,
+        "early_close": (14, 0),
         "early_close_holidays": [],
+        "early_close_eves": ["Christmas Day", "New Year's Day"],
     },
     "TSE": {
         "name": "Tokyo Stock Exchange",
@@ -118,10 +120,51 @@ MARKET_SESSIONS: Dict[str, Dict[str, Any]] = {
 
 HolidayResolver = Callable[[str, Any, Optional[str]], Tuple[bool, Optional[str]]]
 
+# Official Euronext Paris closed days: New Year's Day, Good Friday, Easter
+# Monday, Labour Day (1 May), and Christmas Day. Bastille Day (14 July) is a
+# French national holiday but the cash market remains open. Christmas Eve and
+# New Year's Eve are half days when they fall on a weekday.
+_EURONEXT_CALENDAR_KEYS = frozenset({"EURONEXT", "XPAR"})
+
+
+def _gregorian_easter(year: int) -> date:
+    """Return Easter Sunday for *year* using the Anonymous Gregorian algorithm."""
+    year_value = int(year)
+    a = year_value % 19
+    b = year_value // 100
+    c = year_value % 100
+    d = b // 4
+    e = b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i = c // 4
+    k = c % 4
+    l = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * l) // 451
+    month = (h + l - 7 * m + 114) // 31
+    day = ((h + l - 7 * m + 114) % 31) + 1
+    return date(year_value, month, day)
+
+
+def euronext_paris_holidays(year: int) -> Dict[date, str]:
+    """Return Euronext Paris full-day closures for *year*."""
+    easter = _gregorian_easter(year)
+    return {
+        date(int(year), 1, 1): "New Year's Day",
+        easter - timedelta(days=2): "Good Friday",
+        easter + timedelta(days=1): "Easter Monday",
+        date(int(year), 5, 1): "Labour Day",
+        date(int(year), 12, 25): "Christmas Day",
+    }
+
 
 @lru_cache(maxsize=128)
 def exchange_holidays(exchange: str, year: int) -> holidays.HolidayBase:
-    """Return the venue trading calendar supplied by python-holidays."""
+    """Return the venue trading calendar for *exchange* and *year*."""
+    key = str(exchange or "").strip().upper()
+    if key in _EURONEXT_CALENDAR_KEYS:
+        return euronext_paris_holidays(int(year))  # type: ignore[return-value]
     return holidays.financial_holidays(exchange, years=[int(year)])
 
 

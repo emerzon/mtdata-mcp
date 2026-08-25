@@ -145,6 +145,35 @@ class TestLseProductionEarlyCloseCalendar:
         assert shortened["early_close_time"] == "12:30"
 
 
+class TestEuronextProductionCalendar:
+    def test_bastille_day_2026_remains_open(self):
+        now = datetime(2026, 7, 14, 10, 0, tzinfo=ZoneInfo("Europe/Paris"))
+
+        result = ms_mod._check_market_status("EURONEXT", now)
+
+        assert result["status"] == "open"
+        assert result.get("reason") != "holiday"
+        assert "early_close" not in result
+
+    def test_christmas_eve_2026_closes_early(self):
+        now = datetime(2026, 12, 24, 12, 0, tzinfo=ZoneInfo("Europe/Paris"))
+
+        result = ms_mod._check_market_status("EURONEXT", now)
+
+        assert result["status"] == "open"
+        assert result["early_close"] is True
+        assert result["early_close_time"] == "14:00"
+        assert result["minutes_until_close"] == 120
+
+    def test_christmas_day_2026_is_closed(self):
+        now = datetime(2026, 12, 25, 10, 0, tzinfo=ZoneInfo("Europe/Paris"))
+
+        result = ms_mod._check_market_status("EURONEXT", now)
+
+        assert result["status"] == "closed"
+        assert result["reason"] == "holiday"
+
+
 # ---- _check_market_status: day-after early close ----
 
 class TestDayAfterEarlyClose:

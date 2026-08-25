@@ -1590,11 +1590,34 @@ def market_status(  # noqa: C901
             for market in results
             if market.get("exchange_day_of_week")
         }
+        uses_country_fallback = any(
+            not (MARKET_SESSIONS.get(market_id) or {}).get("exchange_calendar")
+            for market_id in markets_to_check
+        )
+        euronext_only = bool(markets_to_check) and all(
+            str((MARKET_SESSIONS.get(market_id) or {}).get("exchange_calendar") or "")
+            .strip()
+            .upper()
+            in {"EURONEXT", "XPAR"}
+            for market_id in markets_to_check
+        )
         payload = {
             "success": True,
             "source": {
-                "provider": "mtdata_exchange_calendar",
-                "holiday_provider": "python_holidays",
+                "provider": (
+                    "mtdata_market_sessions"
+                    if uses_country_fallback
+                    else "mtdata_exchange_calendar"
+                ),
+                "holiday_provider": (
+                    "mtdata_euronext_paris"
+                    if euronext_only
+                    else (
+                        "python_holidays.country_fallback"
+                        if uses_country_fallback
+                        else "python_holidays"
+                    )
+                ),
                 "context_available": True,
             },
             "mode": "equity_venue" if venue_mode else "equity_exchanges",
