@@ -48,6 +48,7 @@ from ..utils.mt5 import (
     _mt5_copy_rates_range,
     ensure_mt5_connection_or_raise,
     mt5,
+    resolve_public_symbol,
 )
 from ..utils.ohlcv import validate_and_clean_ohlcv_frame
 from ..utils.time import _format_time_minimal, format_epoch_utc
@@ -82,7 +83,6 @@ from .patterns_support import (
     _parse_engine_list,
     _parse_native_scale_factors,
     _resolve_engine_weights,
-    validate_ensemble_weights,
     _round_value,
     _summarize_engine_findings,
     _summarize_pattern_bias,
@@ -1912,20 +1912,31 @@ def patterns_detect(
     patterns_detect(symbol="BTCUSD", mode="elliott", timeframe="H4", detail="full")
     """
     def _run() -> Dict[str, Any]:
-        connection_error = _patterns_connection_error()
+        gateway = create_mt5_gateway(
+            ensure_connection_impl=ensure_mt5_connection_or_raise,
+        )
+        connection_error = mt5_connection_error(gateway)
         if connection_error is not None:
             return connection_error
+        resolved_symbol, symbol_input = resolve_public_symbol(
+            request.symbol,
+            gateway=gateway,
+        )
+        effective_request = request.model_copy(update={"symbol": resolved_symbol})
         freshness_by_timeframe: Dict[str, Dict[str, Any]] = {}
         deps = _track_pattern_data_deps(
-            request,
+            effective_request,
             _patterns_detect_deps(),
             freshness_by_timeframe,
         )
-        result = run_patterns_detect(request, deps)
+        result = run_patterns_detect(effective_request, deps)
         if isinstance(result, dict) and "error" not in result:
+            result["symbol"] = resolved_symbol
+            if symbol_input is not None:
+                result["symbol_input"] = symbol_input
             _attach_pattern_freshness_contract(result, freshness_by_timeframe)
             _attach_pattern_observation_window(
-                result, request, freshness_by_timeframe
+                result, effective_request, freshness_by_timeframe
             )
             result.setdefault("timezone", "UTC")
             if request.denoise is not None:
