@@ -1693,7 +1693,7 @@ class TestFormatResultMinimal:
         assert "label_key:" in lines
         assert "  1: tp_first" in lines
         assert "  -1: sl_first" in lines
-        assert "  0: hold" in lines
+        assert "  0: timeout" in lines
         assert not any(line.startswith("entry_bar_open_times[") for line in lines)
         assert not any(line.startswith("holding_bars[") for line in lines)
         assert not any(line.startswith("tp_hit_bar_open_times[") for line in lines)
