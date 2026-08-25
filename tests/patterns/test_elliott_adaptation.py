@@ -211,8 +211,8 @@ def test_response_exposes_adaptation_even_without_patterns() -> None:
     assert response["n_patterns"] == 0
 
 
-@pytest.mark.parametrize("detail", ["summary", "compact", "standard"])
-def test_non_full_responses_hide_candidate_metrics(detail: str) -> None:
+@pytest.mark.parametrize("detail", ["summary", "compact"])
+def test_compact_and_summary_omit_elliott_adaptation(detail: str) -> None:
     df = _market_frame().iloc[:100].copy()
     df.attrs["elliott_adaptation"] = {
         "adaptive": True,
@@ -231,6 +231,30 @@ def test_non_full_responses_hide_candidate_metrics(detail: str) -> None:
         "string",
         df,
         detail=detail,
+    )
+
+    assert "adaptation" not in response
+
+
+def test_standard_hides_candidate_metrics() -> None:
+    df = _market_frame().iloc[:100].copy()
+    df.attrs["elliott_adaptation"] = {
+        "adaptive": True,
+        "selected_filter": {"method": "none", "params": {}},
+        "candidate_metrics": [{"candidate": "none", "score": 0.8}],
+    }
+
+    response = _build_pattern_response(
+        "TEST",
+        "H1",
+        100,
+        "elliott",
+        [],
+        False,
+        False,
+        "string",
+        df,
+        detail="standard",
     )
 
     assert "candidate_metrics" not in response["adaptation"]

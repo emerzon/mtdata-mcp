@@ -785,7 +785,6 @@ def _compact_patterns_payload(  # noqa: C901
         "top_k_contract": payload.get("top_k_contract"),
         "effective_window": payload.get("effective_window"),
         "completion_filter": payload.get("completion_filter"),
-        "adaptation": _compact_elliott_adaptation(payload.get("adaptation")),
     }
     compact = {key: value for key, value in compact.items() if value is not None}
     compact["patterns_shown"] = len(top_patterns)
@@ -881,7 +880,6 @@ def _compact_patterns_payload(  # noqa: C901
         "diagnostic",
         "completed_patterns_hidden",
         "broken_levels_hidden",
-        "completed_patterns_preview",
     ):
         value = payload.get(key)
         if value not in (None, "", [], {}):
@@ -889,43 +887,29 @@ def _compact_patterns_payload(  # noqa: C901
 
     findings = payload.get("findings")
     if isinstance(findings, list):
-        compact_findings: List[Dict[str, Any]] = []
         tf_summary: List[Dict[str, Any]] = []
+        hidden_total = 0
         for item in findings:
             if not isinstance(item, dict):
                 continue
-            compact_item = {
-                key: value
-                for key, value in item.items()
-                if key
-                in {
-                    "timeframe",
-                    "n_patterns",
-                    "completed_patterns_hidden",
-                    "completed_patterns_preview",
-                    "diagnostic",
-                    "note",
-                    "warnings",
-                    "adaptation",
-                }
-                and value not in (None, "", [], {})
+            tf_row: Dict[str, Any] = {
+                "timeframe": item.get("timeframe"),
+                "n_patterns": item.get("n_patterns"),
             }
-            if isinstance(compact_item.get("adaptation"), dict):
-                compact_item["adaptation"] = _compact_elliott_adaptation(
-                    compact_item["adaptation"]
-                )
-            if compact_item:
-                compact_findings.append(compact_item)
-            tf_summary.append(
-                {
-                    "timeframe": item.get("timeframe"),
-                    "n_patterns": item.get("n_patterns"),
-                }
-            )
-        if compact_findings:
-            compact["findings"] = compact_findings
+            hidden = item.get("completed_patterns_hidden")
+            if hidden not in (None, "", 0):
+                try:
+                    hidden_i = int(hidden)
+                except Exception:
+                    hidden_i = 0
+                if hidden_i:
+                    tf_row["completed_patterns_hidden"] = hidden_i
+                    hidden_total += hidden_i
+            tf_summary.append(tf_row)
         if tf_summary:
             compact["timeframe_findings"] = tf_summary
+        if hidden_total and compact.get("completed_patterns_hidden") in (None, "", 0):
+            compact["completed_patterns_hidden"] = int(hidden_total)
 
     if isinstance(payload.get("failed_timeframes"), dict) and payload.get(
         "failed_timeframes"

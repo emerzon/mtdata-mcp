@@ -774,6 +774,19 @@ def test_build_pattern_response_elliott_hidden_completed_preview_is_truthful():
         include_series=False,
         series_time="string",
         df=df,
+        detail="standard",
+    )
+    compact = _build_pattern_response(
+        "EURUSD",
+        "H4",
+        100,
+        "elliott",
+        patterns,
+        include_completed=False,
+        include_series=False,
+        series_time="string",
+        df=df,
+        detail="compact",
     )
 
     assert res["n_patterns"] == 0
@@ -784,9 +797,12 @@ def test_build_pattern_response_elliott_hidden_completed_preview_is_truthful():
     assert res["completed_patterns_preview"][0]["timeframe"] == "H4"
     assert "strongest hidden count" in res["note"]
     assert "include_completed=true" in res["note"]
+    assert compact["completed_patterns_hidden"] == 2
+    assert "completed_patterns_preview" not in compact
+    assert "strongest hidden count" in compact["note"]
 
 
-def test_build_pattern_response_elliott_compact_keeps_hidden_completed_preview():
+def test_build_pattern_response_elliott_compact_keeps_hidden_count_not_preview():
     df = pd.DataFrame({"time": [1, 2, 3, 4], "close": [10.0, 11.0, 12.0, 13.0]})
     patterns = [
         {
@@ -823,11 +839,82 @@ def test_build_pattern_response_elliott_compact_keeps_hidden_completed_preview()
         df=df,
         detail="compact",
     )
+    standard = _build_pattern_response(
+        "EURUSD",
+        "H4",
+        100,
+        "elliott",
+        patterns,
+        include_completed=False,
+        include_series=False,
+        series_time="string",
+        df=df,
+        detail="standard",
+    )
 
     assert compact["n_patterns"] == 1
     assert compact["completed_patterns_hidden"] == 1
-    assert compact["completed_patterns_preview"][0]["pattern"] == "Correction"
-    assert compact["completed_patterns_preview"][0]["timeframe"] == "H4"
+    assert "completed_patterns_preview" not in compact
+    assert "adaptation" not in compact
+    assert standard["completed_patterns_preview"][0]["pattern"] == "Correction"
+    assert standard["completed_patterns_preview"][0]["timeframe"] == "H4"
+
+
+def test_compact_elliott_scan_omits_heavy_findings_once_timeframe_counts_exist():
+    compact = patterns_support_mod._compact_patterns_payload(
+        {
+            "success": True,
+            "symbol": "EURUSD",
+            "timeframe": "ALL",
+            "lookback": 150,
+            "mode": "elliott",
+            "n_patterns": 1,
+            "patterns": [
+                {
+                    "wave_type": "Impulse",
+                    "status": "forming",
+                    "confidence": 0.62,
+                    "timeframe": "H1",
+                }
+            ],
+            "completed_patterns_hidden": 2,
+            "completed_patterns_preview": [
+                {"pattern": "Correction", "timeframe": "H4", "confidence": 0.8}
+            ],
+            "adaptation": {
+                "adaptive": True,
+                "candidate_metrics": [{"candidate": "none", "score": 0.8}],
+            },
+            "findings": [
+                {
+                    "timeframe": "H1",
+                    "n_patterns": 1,
+                    "adaptation": {"adaptive": True, "mode": "zigzag"},
+                    "note": "verbose per-timeframe note",
+                    "completed_patterns_preview": [{"pattern": "Impulse"}],
+                    "diagnostic": "No developing Elliott Wave structures detected in H4.",
+                },
+                {
+                    "timeframe": "H4",
+                    "n_patterns": 0,
+                    "completed_patterns_hidden": 2,
+                    "completed_patterns_preview": [{"pattern": "Correction"}],
+                    "note": "2 confirmed structure(s) hidden",
+                },
+            ],
+        },
+        preview_limit=8,
+    )
+
+    assert "findings" not in compact
+    assert "completed_patterns_preview" not in compact
+    assert "adaptation" not in compact
+    assert compact["completed_patterns_hidden"] == 2
+    assert compact["timeframe_findings"] == [
+        {"timeframe": "H1", "n_patterns": 1},
+        {"timeframe": "H4", "n_patterns": 0, "completed_patterns_hidden": 2},
+    ]
+    assert compact["top_patterns"][0]["name"] == "Impulse"
 
 
 def test_build_pattern_response_compact_detail_returns_summary():
