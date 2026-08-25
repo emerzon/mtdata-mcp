@@ -657,7 +657,13 @@ def get_tool(tool_name: str) -> Dict[str, Any]:
 
 @api_router.post("/tools/{tool_name}/invoke")
 def invoke_tool(tool_name: str, body: ToolInvokeBody) -> Dict[str, Any]:
-    """Invoke a registered MCP tool. Mutating tools require body.confirm=true."""
+    """Invoke a registered MCP tool.
+
+    Confirm is required only when the prepared call can mutate state
+    (`dry_run=false` for live trade and destructive store tools; always for
+    mutating tools that have no dry-run preview). Domain failures return
+    HTTP 4xx/5xx with `success=false`.
+    """
     return _invoke_tool_for_webapi(
         tool_name,
         arguments=body.arguments,

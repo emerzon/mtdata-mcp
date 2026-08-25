@@ -7,10 +7,11 @@ If you only skim one trading doc, make it this one. The `trade_*` tools send **r
 > **These tools default to preview mode.** `dry_run` defaults to **`true`**. A
 > request reaches MT5 only when you explicitly pass `--dry-run false` in the
 > CLI or `dry_run=false` through Python/MCP. The Web API Tools path additionally
-> requires `"confirm": true` around an invocation whose `arguments` contain
-> `"dry_run": false`. Use a **demo account** until you trust your setup — mtdata
-> has no separate paper-trading mode. `trade_idea_compose` is stricter: it is
-> preview-only and has no live-send flag.
+> requires `"confirm": true` only when `arguments` set `"dry_run": false` (an
+> omitted `dry_run` is still a preview and does not need confirm). Use a
+> **demo account** until you trust your setup — mtdata has no separate
+> paper-trading mode. `trade_idea_compose` is stricter: it is preview-only
+> and has no live-send flag.
 
 **Dense terms:** [Dry-run](GLOSSARY.md#dry-run) · [Trade guardrails](GLOSSARY.md#trade-guardrails) · [Slippage](GLOSSARY.md#slippage) · [Lot size](GLOSSARY.md#lot-size) · [TP/SL](GLOSSARY.md#tpsl-take-profit--stop-loss)
 

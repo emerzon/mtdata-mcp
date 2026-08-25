@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import inspect
 import logging
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from ..forecast.exceptions import ForecastError
+from ..utils.coercion import UNPARSED_BOOL, parse_bool_like
 from ..utils.denoise import DenoiseCausalityError
 from ..utils.mt5 import MT5ConnectionError
 from ._mcp_tools import (
@@ -19,9 +21,10 @@ from ._mcp_tools import (
     registered_tool_catalog,
 )
 from .cli.runtime.commands import LIVE_TRADE_MUTATION_TOOLS, LIVE_TRADE_MUTATION_WARNING
+from .execution_logging import infer_result_success
 from .schema_attach import get_public_tool_schema
 from .tool_calling import resolve_sync_tool_result, unwrap_tool_callable
-from .web_api_handlers import _http_error
+from .web_api_handlers import _http_error, _http_status_for_error
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +96,114 @@ def classify_tool_surface(name: str) -> str:
 
 
 def tool_requires_confirmation(name: str) -> bool:
+    """Catalog flag: this tool can mutate and may require confirm=true."""
     return str(name or "").strip() in MUTATING_TOOLS
+
+
+def _coerce_dry_run_flag(value: Any) -> Optional[bool]:
+    parsed = parse_bool_like(value, allow_none=True)
+    if parsed is UNPARSED_BOOL or parsed is None:
+        return None
+    return bool(parsed)
+
+
+def _dry_run_from_value(value: Any) -> Optional[bool]:
+    if isinstance(value, BaseModel):
+        fields = getattr(type(value), "model_fields", {})
+        if "dry_run" in fields:
+            return bool(value.dry_run)
+        return None
+    if isinstance(value, dict) and "dry_run" in value:
+        return _coerce_dry_run_flag(value.get("dry_run"))
+    return None
+
+
+def _effective_dry_run(
+    prepared_args: Dict[str, Any],
+    *,
+    target: Any = None,
+) -> Optional[bool]:
+    """Return the prepared dry_run flag, or None if the call has no preview mode."""
+    if "dry_run" in prepared_args:
+        flag = _coerce_dry_run_flag(prepared_args.get("dry_run"))
+        if flag is not None:
+            return flag
+    for value in prepared_args.values():
+        flag = _dry_run_from_value(value)
+        if flag is not None:
+            return flag
+    if target is None:
+        return None
+    try:
+        bound = inspect.signature(target).bind_partial(**prepared_args)
+        bound.apply_defaults()
+    except (TypeError, ValueError):
+        return None
+    if "dry_run" in bound.arguments:
+        flag = _coerce_dry_run_flag(bound.arguments.get("dry_run"))
+        if flag is not None:
+            return flag
+    for value in bound.arguments.values():
+        flag = _dry_run_from_value(value)
+        if flag is not None:
+            return flag
+    return None
+
+
+def _invocation_requires_confirmation(
+    name: str,
+    prepared_args: Dict[str, Any],
+    *,
+    target: Any = None,
+) -> bool:
+    """Confirm only when the prepared call can mutate state."""
+    if not tool_requires_confirmation(name):
+        return False
+    return _effective_dry_run(prepared_args, target=target) is not True
+
+
+def _http_status_for_tool_result(result: Any) -> int:
+    """Map a structured tool failure onto HTTP 4xx/5xx."""
+    if not isinstance(result, dict):
+        return 400
+    code = str(result.get("error_code") or "").strip().lower()
+    if (
+        "param" in code
+        or "validation" in code
+        or code in {"invalid_params", "invalid_argument", "tool_param_error"}
+    ):
+        return 422
+    if "not_found" in code:
+        return 404
+    if "internal" in code:
+        return 500
+    return _http_status_for_error(result, default=400)
+
+
+def _raise_failed_tool_result(result: Any, *, operation: str) -> None:
+    """Raise an HTTP error whose success flag matches the domain outcome."""
+    status = _http_status_for_tool_result(result)
+    if isinstance(result, dict):
+        error_text = result.get("error")
+        code = str(result.get("error_code") or "tool_error")
+        if isinstance(error_text, str) and error_text.strip():
+            raise _http_error(
+                status, result, code=code, operation=operation
+            )
+        raise _http_error(
+            status,
+            "Tool invocation failed.",
+            code=code,
+            operation=operation,
+            details={"result": result},
+        )
+    raise _http_error(
+        status,
+        "Tool invocation failed.",
+        code="tool_error",
+        operation=operation,
+        details={"result": result} if result is not None else None,
+    )
 
 
 def tool_safety_meta(name: str) -> Dict[str, Any]:
@@ -209,17 +319,6 @@ def invoke_tool_for_webapi(
             },
         )
 
-    if tool_requires_confirmation(name) and not confirm:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": f"Tool {name} requires explicit confirmation.",
-                "requires_confirmation": True,
-                "safety": tool_safety_meta(name),
-                "hint": "Re-submit with confirm=true after reviewing parameters.",
-            },
-        )
-
     funcs = get_tool_functions()
     fn = funcs.get(name)
     if fn is None:
@@ -257,6 +356,19 @@ def invoke_tool_for_webapi(
             args,
             json_output=True,
         )
+        if _invocation_requires_confirmation(name, args, target=target) and not confirm:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": f"Tool {name} requires explicit confirmation.",
+                    "requires_confirmation": True,
+                    "safety": tool_safety_meta(name),
+                    "hint": (
+                        "Re-submit with confirm=true after reviewing parameters. "
+                        "Preview calls with dry_run=true do not need confirm."
+                    ),
+                },
+            )
         result = resolve_sync_tool_result(target(**args))
         result = _shape_public_tool_output(
             result,
@@ -264,6 +376,8 @@ def invoke_tool_for_webapi(
             contract_state=contract_state,
             output_fields=output_fields,
         )
+    except HTTPException:
+        raise
     except DenoiseCausalityError as exc:
         raise _http_error(
             400, str(exc), code="tool_domain_error", operation=name
@@ -291,6 +405,9 @@ def invoke_tool_for_webapi(
             code="tool_invoke_internal_error",
             operation=name,
         ) from exc
+
+    if not infer_result_success(result):
+        _raise_failed_tool_result(result, operation=name)
 
     return {
         "success": True,

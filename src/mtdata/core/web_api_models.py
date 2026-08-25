@@ -13,5 +13,9 @@ class ToolInvokeBody(BaseModel):
     arguments: Dict[str, Any] = Field(default_factory=dict)
     confirm: bool = Field(
         False,
-        description="Required true for live trade mutations and destructive model/task tools.",
+        description=(
+            "Required true when the invocation can mutate state: dry_run=false "
+            "for live trade and destructive store tools, or any mutating tool "
+            "that has no dry-run preview."
+        ),
     )

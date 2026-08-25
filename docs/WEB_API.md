@@ -374,12 +374,22 @@ as `intentional_omit`: they can run longer than an HTTP request and the generic
 runner has no progress or cancellation contract. Run those tools through CLI or
 MCP instead.
 
-Live trade mutations (`trade_place`, `trade_modify`, `trade_close`) and
-destructive model/task tools require `"confirm": true`. Trade tools still
-default to preview mode; live submission additionally requires
-`"dry_run": false` inside `arguments` and remains subject to account
-guardrails. See [TRADING_SAFETY.md](TRADING_SAFETY.md) and
+`"confirm": true` is required only when the invocation can mutate state.
+Trade tools and destructive model/task tools that expose `dry_run` default
+to preview (`dry_run=true`, including when the flag is omitted) and do
+not need confirm. Live submission needs both `"dry_run": false` inside
+`arguments` and `"confirm": true`, and remains subject to account
+guardrails. `forecast_task_cancel` has no dry-run flag, so it always
+needs confirm. See [TRADING_SAFETY.md](TRADING_SAFETY.md) and
 [WEBUI_TOOL_COVERAGE.md](WEBUI_TOOL_COVERAGE.md).
+
+A successful invoke returns HTTP 200 with `{success: true, tool, surface, result}`.
+If the tool itself returns a structured failure (`success=false` or an
+`error`), the HTTP status is 4xx/5xx and the error envelope has
+`success=false`. Invalid parameters are 422, not-found codes 404, MT5
+connection failures 503, internal faults 500, and other domain failures
+400. The wrapper never reports `success=true` around a failed domain
+result.
 
 #### `POST /api/backtest`
 Run a rolling-origin backtest.

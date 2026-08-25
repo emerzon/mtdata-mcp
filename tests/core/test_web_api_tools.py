@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 
 from mtdata.core import web_api
 from mtdata.core.report.requests import ReportGenerateRequest
+from mtdata.core.trading.requests import TradePlaceRequest
 from mtdata.core.web_api_tools import (
     DEDICATED_UI_TOOLS,
     MUTATING_TOOLS,
@@ -28,6 +29,36 @@ from mtdata.utils.denoise import DenoiseCausalityError
 from mtdata.utils.mt5 import MT5ConnectionError
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+_TRADE_PLACE_ARGS = {
+    "symbol": "EURUSD",
+    "volume": 0.01,
+    "order_type": "BUY",
+    "stop_loss": 1.05,
+    "take_profit": 1.15,
+}
+_DOMAIN_FAILURES = [
+    ({"success": False, "error": "Unknown symbol EURX", "error_code": "symbol_not_found"}, 404),
+    ({"success": False, "error": "volume must be positive", "error_code": "tool_param_error"}, 422),
+    ({"success": False, "error": "terminal unavailable", "error_code": "mt5_connection_error"}, 503),
+    ({"success": False, "error": "internal boom", "error_code": "tool_invoke_internal_error"}, 500),
+    ({"success": False, "error": "preview blocked", "error_code": "preview_blocked"}, 400),
+]
+
+
+def _fake_trade_place(request: TradePlaceRequest):
+    return {
+        "success": True,
+        "dry_run": request.dry_run,
+        "preview_ok": bool(request.dry_run),
+        "would_send_order": not request.dry_run,
+    }
+
+
+def _trade_place_functions():
+    return patch(
+        "mtdata.core.web_api_tools.get_tool_functions",
+        return_value={"trade_place": _fake_trade_place},
+    )
 
 
 def _documented_tool_inventory() -> tuple[str, list[dict[str, str]]]:
@@ -241,13 +272,35 @@ class TestListAndInvoke:
         assert exc.value.detail["parameter"] == "extras"
         assert exc.value.detail["replacement"] == "detail"
 
-    def test_mutation_requires_confirm(self):
+    @pytest.mark.parametrize(
+        ("tool_name", "arguments"),
+        [
+            ("trade_place", {**_TRADE_PLACE_ARGS, "dry_run": False}),
+            ("forecast_task_cancel", {"task_id": "task-1"}),
+        ],
+    )
+    def test_live_mutation_requires_confirm(self, tool_name, arguments):
         with pytest.raises(HTTPException) as exc:
-            invoke_tool_for_webapi("trade_place", arguments={"symbol": "EURUSD"}, confirm=False)
+            invoke_tool_for_webapi(tool_name, arguments=arguments, confirm=False)
         assert exc.value.status_code == 400
-        detail = exc.value.detail
-        assert isinstance(detail, dict)
-        assert detail.get("requires_confirmation") is True
+        assert exc.value.detail.get("requires_confirmation") is True
+
+    @pytest.mark.parametrize("payload, status_code", _DOMAIN_FAILURES)
+    def test_invoke_maps_domain_failure_to_http_error(self, payload, status_code):
+        with (
+            patch("mtdata.core.web_api_tools.ensure_tools_bootstrapped"),
+            patch(
+                "mtdata.core.web_api_tools.get_tool_functions",
+                return_value={"demo": lambda: payload},
+            ),
+            pytest.raises(HTTPException) as exc,
+        ):
+            invoke_tool_for_webapi("demo")
+
+        assert exc.value.status_code == status_code
+        assert exc.value.detail["success"] is False
+        assert exc.value.detail["error_code"] == payload["error_code"]
+        assert exc.value.detail["error"] == payload["error"]
 
     @pytest.mark.parametrize("tool_name", ["forecast_tune_genetic", "forecast_tune_optuna"])
     def test_long_running_tuning_is_omitted_from_sync_invoke(self, tool_name):
@@ -333,11 +386,61 @@ class TestWebApiRoutes:
         assert body["success"] is True
         assert body["result"]["count"] == 1
 
-    def test_invoke_trade_without_confirm_blocked(self):
+    def test_invoke_trade_live_without_confirm_blocked(self):
         res = self.client.post(
             "/api/v1/tools/trade_place/invoke",
-            json={"arguments": {"symbol": "EURUSD"}, "confirm": False},
+            json={
+                "arguments": {**_TRADE_PLACE_ARGS, "dry_run": False},
+                "confirm": False,
+            },
         )
         assert res.status_code == 400
         detail = res.json()["detail"]
         assert detail["requires_confirmation"] is True
+        assert detail.get("success") is not True
+
+    @pytest.mark.parametrize("dry_run", [True, None])
+    def test_invoke_trade_preview_without_confirm(self, dry_run):
+        arguments = dict(_TRADE_PLACE_ARGS)
+        if dry_run is not None:
+            arguments["dry_run"] = dry_run
+        with _trade_place_functions():
+            res = self.client.post(
+                "/api/v1/tools/trade_place/invoke",
+                json={"arguments": arguments, "confirm": False},
+            )
+        assert res.status_code == 200
+        body = res.json()
+        assert body["success"] is True
+        assert body["result"]["dry_run"] is True
+        assert body["result"]["would_send_order"] is False
+
+    def test_invoke_trade_live_with_confirm(self):
+        with _trade_place_functions():
+            res = self.client.post(
+                "/api/v1/tools/trade_place/invoke",
+                json={
+                    "arguments": {**_TRADE_PLACE_ARGS, "dry_run": False},
+                    "confirm": True,
+                },
+            )
+        assert res.status_code == 200
+        body = res.json()
+        assert body["success"] is True
+        assert body["result"]["dry_run"] is False
+
+    def test_invoke_route_domain_failure_is_not_wrapped_as_success(self):
+        payload, status_code = _DOMAIN_FAILURES[0]
+        with patch(
+            "mtdata.core.web_api_tools.get_tool_functions",
+            return_value={"demo": lambda: payload},
+        ):
+            res = self.client.post(
+                "/api/v1/tools/demo/invoke",
+                json={"arguments": {}, "confirm": False},
+            )
+        assert res.status_code == status_code
+        body = res.json()
+        assert body.get("success") is not True
+        assert body["detail"]["success"] is False
+        assert body["detail"]["error_code"] == payload["error_code"]
