@@ -24,9 +24,19 @@ def _markdown_paths() -> list[Path]:
     return [REPO_ROOT / "README.md", *sorted((REPO_ROOT / "docs").rglob("*.md"))]
 
 
-def _logical_shell_lines(body: str):
+def _continuation_marker(language: str) -> tuple[str, ...]:
+    normalized = str(language or "").strip().lower()
+    if normalized in {"powershell", "ps1"}:
+        return ("`",)
+    if normalized in {"bash", "console", "sh", "shell"}:
+        return ("\\",)
+    return ("\\", "`")
+
+
+def _logical_shell_lines(body: str, language: str = ""):
     pending = ""
     start_offset = 0
+    markers = _continuation_marker(language)
     for offset, raw_line in enumerate(body.splitlines()):
         if pending:
             pending += " " + raw_line.strip()
@@ -35,7 +45,7 @@ def _logical_shell_lines(body: str):
             start_offset = offset
 
         stripped = pending.rstrip()
-        if stripped.endswith(("\\", "`")):
+        if stripped.endswith(markers):
             pending = stripped[:-1]
             continue
 
@@ -62,7 +72,7 @@ def _documented_cli_commands():
                 continue
             body = fence.group("body")
             body_start_line = text.count("\n", 0, fence.start("body")) + 1
-            for offset, logical_line in _logical_shell_lines(body):
+            for offset, logical_line in _logical_shell_lines(body, language):
                 match = CLI_COMMAND_RE.search(logical_line)
                 if match is None:
                     continue

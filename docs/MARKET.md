@@ -60,12 +60,10 @@ drop it unless you pass `--quote-usable-only false` to inspect it on purpose.
 mtdata-cli symbols_top_markets --rank-by all --limit 5 --timeframe H1 --json
 
 # Exact global stock top-N; this can take many minutes on a large broker catalog
-mtdata-cli symbols_top_markets --rank-by spread --universe all --category stocks \
-  --limit 5 --scan-budget-seconds 0 --json
+mtdata-cli symbols_top_markets --rank-by spread --universe all --category stocks --limit 5 --scan-budget-seconds 0 --json
 
 # Scan visible majors: strong RSI and price above its average
-mtdata-cli market_scan --group "Forex\\Majors" --rsi-above 60 --price-vs-sma above \
-  --sma-period 20 --timeframe H1 --lookback 120 --json
+mtdata-cli market_scan --group "Forex\\Majors" --rsi-above 60 --price-vs-sma above --sma-period 20 --timeframe H1 --lookback 120 --json
 
 # Compact watchlist (max 20 names; unusable quotes stay visible)
 mtdata-cli market_radar --symbols EURUSD,GBPUSD,XAUUSD --timeframe H1 --json

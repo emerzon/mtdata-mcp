@@ -29,14 +29,12 @@ Prices are a mix of **structure** and **noise** (microstructure bounce, spreads,
 
 **Smooth closing prices:**
 ```bash
-mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 200 \
-  --denoise ema --denoise-params "alpha=0.2"
+mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 200 --denoise ema --denoise-params "alpha=0.2"
 ```
 
 **Remove spikes:**
 ```bash
-mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 200 \
-  --denoise median --denoise-params "window=5"
+mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 200 --denoise median --denoise-params "window=5"
 ```
 
 ## Dependencies
@@ -61,9 +59,7 @@ they cannot be mistaken for indicators calculated from the raw `close` column.
 **Use when:** You want smoother inputs for trend estimation.
 
 ```bash
-mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 200 \
-  --indicators "rsi(14)" \
-  --denoise ema --denoise-params "columns=close,when=pre_ti,alpha=0.2"
+mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 200 --indicators "rsi(14)" --denoise ema --denoise-params "columns=close,when=pre_ti,alpha=0.2"
 ```
 
 ### Post-Indicator (`when=post_ti`)
@@ -72,9 +68,7 @@ Calculate indicators on raw data, then smooth the indicator output.
 **Use when:** You want to keep raw price intact but reduce indicator noise.
 
 ```bash
-mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 200 \
-  --indicators "rsi(14)" \
-  --denoise ema --denoise-params "columns=RSI_14,when=post_ti,alpha=0.3"
+mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 200 --indicators "rsi(14)" --denoise ema --denoise-params "columns=rsi_14,when=post_ti,alpha=0.3"
 ```
 
 ---
@@ -251,27 +245,22 @@ retrospective analysis, not backtesting or live trading.
 
 ### Smooth Closing Prices
 ```bash
-mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 500 \
-  --denoise ema --denoise-params "alpha=0.2"
+mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 500 --denoise ema --denoise-params "alpha=0.2"
 ```
 
 ### Remove Price Spikes
 ```bash
-mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 500 \
-  --denoise hampel --denoise-params "window=7,n_sigmas=3"
+mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 500 --denoise hampel --denoise-params "window=7,n_sigmas=3"
 ```
 
 ### Smooth RSI Output
 ```bash
-mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 500 \
-  --indicators "rsi(14)" \
-  --denoise ema --denoise-params "columns=RSI_14,when=post_ti,alpha=0.3"
+mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 500 --indicators "rsi(14)" --denoise ema --denoise-params "columns=rsi_14,when=post_ti,alpha=0.3"
 ```
 
 ### Kalman Filter (Adaptive)
 ```bash
-mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 500 \
-  --denoise kalman --denoise-params "process_var=0.01"
+mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 500 --denoise kalman --denoise-params "process_var=0.01"
 ```
 
 ---

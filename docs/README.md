@@ -149,8 +149,7 @@ mtdata-cli market_radar --symbols EURUSD,GBPUSD,XAUUSD --timeframe H1
 ### 2) Take-profit / stop-loss odds for a trade idea
 
 ```bash
-mtdata-cli forecast_barrier_prob EURUSD --timeframe H1 --horizon 12 \
-  --method mc_gbm --direction long --barrier '{"kind":"tp_sl","unit":"pct","take_profit":0.4,"stop_loss":0.6}' --json
+mtdata-cli forecast_barrier_prob EURUSD --timeframe H1 --horizon 12 --method mc_gbm --direction long --barrier '{"kind":"tp_sl","unit":"pct","take_profit":0.4,"stop_loss":0.6}' --json
 ```
 
 ### 3) Scan a small watchlist (PowerShell)

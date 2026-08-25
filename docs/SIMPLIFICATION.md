@@ -20,12 +20,10 @@ Return **fewer points** so a chart or export stays light. This drops rows (or sk
 mtdata-cli data_fetch_candles EURUSD --timeframe M1 --limit 5000 --simplify
 
 # Candles: choose an algorithm + target points
-mtdata-cli data_fetch_candles EURUSD --timeframe M1 --limit 5000 \
-  --simplify lttb --simplify-params "points=500"
+mtdata-cli data_fetch_candles EURUSD --timeframe M1 --limit 5000 --simplify lttb --simplify-params "points=500"
 
 # Ticks: simplify only applies when returning raw rows
-mtdata-cli data_fetch_ticks EURUSD --limit 20000 \
-  --simplify rdp --simplify-params "points=2000"
+mtdata-cli data_fetch_ticks EURUSD --limit 20000 --simplify rdp --simplify-params "points=2000"
 ```
 
 ---
@@ -80,8 +78,7 @@ Recommended parameters:
 
 Example:
 ```bash
-mtdata-cli data_fetch_candles EURUSD --limit 10000 --simplify lttb \
-  --simplify-params "points=800"
+mtdata-cli data_fetch_candles EURUSD --limit 10000 --simplify lttb --simplify-params "points=800"
 ```
 
 ### RDP (`method=rdp`)
@@ -92,12 +89,10 @@ mtdata-cli data_fetch_candles EURUSD --limit 10000 --simplify lttb \
 Examples:
 ```bash
 # Direct tolerance
-mtdata-cli data_fetch_candles EURUSD --limit 5000 --simplify rdp \
-  --simplify-params "epsilon=0.0005"
+mtdata-cli data_fetch_candles EURUSD --limit 5000 --simplify rdp --simplify-params "epsilon=0.0005"
 
 # Auto-tune epsilon to target points
-mtdata-cli data_fetch_candles EURUSD --limit 5000 --simplify rdp \
-  --simplify-params "points=500"
+mtdata-cli data_fetch_candles EURUSD --limit 5000 --simplify rdp --simplify-params "points=500"
 ```
 
 ### PLA (`method=pla`)
@@ -112,8 +107,7 @@ auto-tuned.
 
 Example:
 ```bash
-mtdata-cli data_fetch_candles EURUSD --limit 5000 --simplify pla \
-  --simplify-params "segments=200"
+mtdata-cli data_fetch_candles EURUSD --limit 5000 --simplify pla --simplify-params "segments=200"
 ```
 
 ### APCA (`method=apca`)
@@ -124,8 +118,7 @@ mtdata-cli data_fetch_candles EURUSD --limit 5000 --simplify pla \
 
 Example:
 ```bash
-mtdata-cli data_fetch_candles EURUSD --limit 5000 --simplify apca \
-  --simplify-params "points=600"
+mtdata-cli data_fetch_candles EURUSD --limit 5000 --simplify apca --simplify-params "points=600"
 ```
 
 ---

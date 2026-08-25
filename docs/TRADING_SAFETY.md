@@ -139,12 +139,10 @@ the unresolved database row; never clear it merely to make a retry proceed.
 
 ```bash
 # Preview a market buy with protective levels
-mtdata-cli trade_place EURUSD --volume 0.10 --order-type BUY \
-  --stop-loss 1.0850 --take-profit 1.0950 --dry-run true
+mtdata-cli trade_place EURUSD --volume 0.10 --order-type BUY --stop-loss 1.0850 --take-profit 1.0950 --dry-run true
 
 # Go live (only on the intended account)
-mtdata-cli trade_place EURUSD --volume 0.10 --order-type BUY \
-  --stop-loss 1.0850 --take-profit 1.0950 --dry-run false
+mtdata-cli trade_place EURUSD --volume 0.10 --order-type BUY --stop-loss 1.0850 --take-profit 1.0950 --dry-run false
 ```
 
 ### Order types
@@ -163,8 +161,7 @@ or below its trigger; a sell stop-limit's limit price must be at or above it.
 
 ```bash
 # Trigger above the ask, then activate a buy limit at or below that trigger
-mtdata-cli trade_place EURUSD --volume 0.10 --order-type BUY_STOP_LIMIT \
-  --price 1.1050 --stop-limit-price 1.1045 --dry-run true
+mtdata-cli trade_place EURUSD --volume 0.10 --order-type BUY_STOP_LIMIT --price 1.1050 --stop-limit-price 1.1045 --dry-run true
 ```
 
 ---
@@ -235,8 +232,7 @@ mtdata-cli trade_close --ticket 987654321 --target pending --dry-run false
 mtdata-cli trade_close --close-all --confirm-close-all true --dry-run false
 
 # Close positions and cancel pending orders for one strategy
-mtdata-cli trade_close --magic 3001 --target all_exposure \
-  --confirm-close-all true --dry-run false
+mtdata-cli trade_close --magic 3001 --target all_exposure --confirm-close-all true --dry-run false
 ```
 
 For `all_exposure`, the response keeps `closed_positions` and

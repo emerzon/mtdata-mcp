@@ -130,12 +130,10 @@ Area Low (VAL) from bounded raw ticks or an M1-bar approximation.
 
 ```bash
 # Window by calendar range
-mtdata-cli volume_profile_levels EURUSD --start "1 day ago" --end "now" \
-  --source auto --price-source mid --bucket-points 10 --json
+mtdata-cli volume_profile_levels EURUSD --start "1 day ago" --end "now" --source auto --price-source mid --bucket-points 10 --json
 
 # Window by lookback on a timeframe
-mtdata-cli volume_profile_levels EURUSD --timeframe H1 --lookback 168 \
-  --source auto --bucket-points 10 --json
+mtdata-cli volume_profile_levels EURUSD --timeframe H1 --lookback 168 --source auto --bucket-points 10 --json
 ```
 
 Choose one window mode. A calendar `start` cannot be combined with

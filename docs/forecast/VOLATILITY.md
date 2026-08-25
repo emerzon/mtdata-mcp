@@ -17,8 +17,7 @@ How much does price usually move? Volatility answers that — and it drives **re
 mtdata-cli forecast_volatility_estimate EURUSD --timeframe H1 --horizon 12 --method ewma
 
 # With custom smoothing
-mtdata-cli forecast_volatility_estimate EURUSD --timeframe H1 --horizon 12 \
-  --method ewma --params "lambda_=0.94"
+mtdata-cli forecast_volatility_estimate EURUSD --timeframe H1 --horizon 12 --method ewma --params "lambda_=0.94"
 ```
 
 ---
@@ -67,14 +66,12 @@ Use recent data to estimate current volatility. Best for quick calculations.
 
 **EWMA Example:**
 ```bash
-mtdata-cli forecast_volatility_estimate EURUSD --timeframe H1 --horizon 12 \
-  --method ewma --params "lambda_=0.94"
+mtdata-cli forecast_volatility_estimate EURUSD --timeframe H1 --horizon 12 --method ewma --params "lambda_=0.94"
 ```
 
 **Parkinson Example:**
 ```bash
-mtdata-cli forecast_volatility_estimate EURUSD --timeframe H1 --horizon 12 \
-  --method parkinson
+mtdata-cli forecast_volatility_estimate EURUSD --timeframe H1 --horizon 12 --method parkinson
 ```
 
 ---
@@ -118,8 +115,7 @@ Uses high-frequency data to compute more accurate volatility estimates.
 
 **HAR-RV Example:**
 ```bash
-mtdata-cli forecast_volatility_estimate EURUSD --timeframe H1 --horizon 12 \
-  --method har_rv --params "rv_timeframe=M5,days=150"
+mtdata-cli forecast_volatility_estimate EURUSD --timeframe H1 --horizon 12 --method har_rv --params "rv_timeframe=M5,days=150"
 ```
 
 **Parameters:**
@@ -154,8 +150,7 @@ Forecast a volatility proxy (like squared returns) using any forecasting method.
 
 **Example:**
 ```bash
-mtdata-cli forecast_volatility_estimate EURUSD --timeframe H1 --horizon 12 \
-  --method theta --proxy squared_return
+mtdata-cli forecast_volatility_estimate EURUSD --timeframe H1 --horizon 12 --method theta --proxy squared_return
 ```
 
 **Proxies available:**
@@ -201,8 +196,7 @@ Use volatility-scaled barriers instead of fixed percentages:
 
 ```bash
 # Let the optimizer scale barriers to current volatility
-mtdata-cli forecast_barrier_optimize EURUSD --timeframe H1 --horizon 12 \
-  --grid-style volatility --params "vol_window=250"
+mtdata-cli forecast_barrier_optimize EURUSD --timeframe H1 --horizon 12 --grid-style volatility --params "vol_window=250"
 ```
 
 ---

@@ -19,28 +19,22 @@ Explore **who might lead whom** across symbols with pairwise Granger-style tests
 
 ```bash
 # Compare symbols by correlation strength
-mtdata-cli correlation_matrix "EURUSD,GBPUSD,USDJPY" --timeframe H1 \
-  --window-bars 500 --method pearson --transform log_return --json
+mtdata-cli correlation_matrix "EURUSD,GBPUSD,USDJPY" --timeframe H1 --window-bars 500 --method pearson --transform log_return --json
 
 # Use an explicit MT5 group path for easier basket selection
-mtdata-cli correlation_matrix --group "Forex\\Majors" --timeframe H1 \
-  --window-bars 500 --limit 120 --method pearson --transform log_return --json
+mtdata-cli correlation_matrix --group "Forex\\Majors" --timeframe H1 --window-bars 500 --limit 120 --method pearson --transform log_return --json
 
 # Test an MT5 group for candidate cointegrated pairs
-mtdata-cli cointegration_test --group "Forex\\Majors" --timeframe H1 \
-  --window-bars 400 --transform log_level --significance 0.05 --json
+mtdata-cli cointegration_test --group "Forex\\Majors" --timeframe H1 --window-bars 400 --transform log_level --significance 0.05 --json
 
 # Estimate whether the first symbol leads the second
-mtdata-cli cross_correlation "EURUSD,GBPUSD" --timeframe H1 \
-  --max-lag 20 --transform log_return --json
+mtdata-cli cross_correlation "EURUSD,GBPUSD" --timeframe H1 --max-lag 20 --transform log_return --json
 
 # Test a multivariate basket with Johansen trace and maximum-eigenvalue tests
-mtdata-cli cointegration_test "EURUSD,GBPUSD,EURGBP" --timeframe H1 \
-  --method johansen --k-ar-diff 1 --transform log_level --json
+mtdata-cli cointegration_test "EURUSD,GBPUSD,EURGBP" --timeframe H1 --method johansen --k-ar-diff 1 --transform log_level --json
 
 # Provide an explicit list of symbols
-mtdata-cli causal_discover_signals "EURUSD,GBPUSD,USDJPY" --timeframe H1 \
-  --window-bars 800 --max-lag 5 --transform log_return --significance 0.05
+mtdata-cli causal_discover_signals "EURUSD,GBPUSD,USDJPY" --timeframe H1 --window-bars 800 --max-lag 5 --transform log_return --significance 0.05
 
 # Provide a single symbol to auto-expand its visible MT5 group (e.g., Forex\Majors)
 mtdata-cli causal_discover_signals EURUSD --timeframe H1 --window-bars 800

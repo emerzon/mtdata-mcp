@@ -106,8 +106,7 @@ mtdata-cli patterns_detect EURUSD --timeframe H1 --mode harmonic --lookback 500
 
 **Useful harmonic config:**
 ```bash
-mtdata-cli patterns_detect EURUSD --timeframe H1 --mode harmonic \
-  --config "pattern_types=gartley,bat,crab ratio_tolerance=0.06 min_confidence=0.45"
+mtdata-cli patterns_detect EURUSD --timeframe H1 --mode harmonic --config "pattern_types=gartley,bat,crab ratio_tolerance=0.06 min_confidence=0.45"
 ```
 
 **Common output fields:**
@@ -129,8 +128,7 @@ mtdata-cli patterns_detect EURUSD --timeframe H1 --mode fractal --lookback 300
 
 **Useful fractal config:**
 ```bash
-mtdata-cli patterns_detect EURUSD --timeframe H1 --mode fractal \
-  --config "left_bars=2 right_bars=2 breakout_basis=high_low"
+mtdata-cli patterns_detect EURUSD --timeframe H1 --mode fractal --config "left_bars=2 right_bars=2 breakout_basis=high_low"
 ```
 
 **Common output fields:**
@@ -199,8 +197,7 @@ scan.
 
 **By name:**
 ```bash
-mtdata-cli patterns_detect EURUSD --mode candlestick \
-  --whitelist "ENGULFING,HAMMER,DOJI"
+mtdata-cli patterns_detect EURUSD --mode candlestick --whitelist "ENGULFING,HAMMER,DOJI"
 ```
 
 **By confidence:**
@@ -226,8 +223,7 @@ Finds historical windows that "look like" the current market and uses them to pr
 ### Basic Usage
 
 ```bash
-mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 \
-  --method analog --params "window_size=64 top_k=20"
+mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 --method analog --params "window_size=64 top_k=20"
 ```
 
 ### Parameters
@@ -269,8 +265,7 @@ The `refine_metric` parameter re-ranks candidates using a slower, more precise m
 
 **Example with refinement:**
 ```bash
-mtdata-cli forecast_generate EURUSD --horizon 12 \
-  --method analog --params "window_size=64 metric=euclidean refine_metric=dtw"
+mtdata-cli forecast_generate EURUSD --horizon 12 --method analog --params "window_size=64 metric=euclidean refine_metric=dtw"
 ```
 
 This first finds candidates with fast Euclidean distance, then refines ranking using DTW.
@@ -305,8 +300,7 @@ Use analog forecasts to set price targets:
 
 ```bash
 # Find similar historical patterns
-mtdata-cli forecast_generate EURUSD --method analog \
-  --params "window_size=64 top_k=20" --json
+mtdata-cli forecast_generate EURUSD --method analog --params "window_size=64 top_k=20" --json
 
 # Use forecast percentiles for TP levels
 ```
@@ -315,8 +309,7 @@ mtdata-cli forecast_generate EURUSD --method analog \
 
 ```bash
 # Get patterns and indicators together
-mtdata-cli data_fetch_candles EURUSD --limit 200 \
-  --indicators "ema(20),rsi(14)"
+mtdata-cli data_fetch_candles EURUSD --limit 200 --indicators "ema(20),rsi(14)"
 
 # Then check patterns
 mtdata-cli patterns_detect EURUSD --mode candlestick --robust-only true

@@ -15,8 +15,7 @@ Plain idea: is this series stable enough to model, does it repeat on a clock, an
 `stationarity_test` runs [ADF and KPSS](GLOSSARY.md#stationarity-tests-adf-kpss-phillipsperron) from `statsmodels`; Phillips–Perron is also available when the `arch` extra is installed.
 
 ```bash
-mtdata-cli stationarity_test EURUSD --timeframe H1 --lookback 500 \
-  --target log_return --tests adf,kpss,pp --json
+mtdata-cli stationarity_test EURUSD --timeframe H1 --lookback 500 --target log_return --tests adf,kpss,pp --json
 ```
 
 ADF and PP use a unit-root null hypothesis, while KPSS uses a stationarity null. The combined `conclusion` is `stationary`, `non_stationary`, `mixed`, or `inconclusive`.
@@ -28,8 +27,7 @@ difference targets therefore require at least 21 input bars.
 `seasonality_detect` combines autocorrelation peaks with a periodogram and ranks candidate periods in bars.
 
 ```bash
-mtdata-cli seasonality_detect EURUSD --timeframe H1 --lookback 1000 \
-  --target log_return --min-period 2 --max-period 168 --json
+mtdata-cli seasonality_detect EURUSD --timeframe H1 --lookback 1000 --target log_return --min-period 2 --max-period 168 --json
 ```
 
 The dominant period is exploratory evidence, not proof of a stable calendar effect. Confirm it on separate history.
@@ -41,8 +39,7 @@ Seasonality requires at least 31 input bars so its default preprocessing leaves
 `outliers_detect` scores returns, volume, and high-low range with MAD, IQR, or z-scores.
 
 ```bash
-mtdata-cli outliers_detect EURUSD --timeframe H1 --lookback 500 \
-  --score-fields return,volume,range --method mad --threshold 3.5 --json
+mtdata-cli outliers_detect EURUSD --timeframe H1 --lookback 500 --score-fields return,volume,range --method mad --threshold 3.5 --json
 ```
 
 Use `--detail full` to include field-level scores and OHLC values for each flagged bar.
@@ -52,8 +49,7 @@ Use `--detail full` to include field-level scores and OHLC values for each flagg
 `volatility_term_structure` compares current realized volatility with its historical distribution across multiple rolling horizons.
 
 ```bash
-mtdata-cli volatility_term_structure EURUSD --timeframe H1 --lookback 1000 \
-  --horizons 1,5,10,20,60 --percentiles 10,25,50,75,90 --json
+mtdata-cli volatility_term_structure EURUSD --timeframe H1 --lookback 1000 --horizons 1,5,10,20,60 --percentiles 10,25,50,75,90 --json
 ```
 
 By default values are annualized decimal volatility. Set `--annualize false` for per-bar decimal volatility.

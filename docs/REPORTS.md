@@ -70,16 +70,13 @@ mtdata-cli report_generate EURUSD --template minimal --timeframe H1
 mtdata-cli report_generate EURUSD --template swing --timeframe H4 --horizon 12
 
 # Keep only selected computed sections
-mtdata-cli report_generate EURUSD --template basic \
-  --include-sections context,forecast,barriers --max-sections 3 --json
+mtdata-cli report_generate EURUSD --template basic --include-sections context,forecast,barriers --max-sections 3 --json
 
 # Run until the actual 10-second deadline and show progress
-mtdata-cli report_generate EURUSD --template basic \
-  --max-runtime 10 --progress true --json
+mtdata-cli report_generate EURUSD --template basic --max-runtime 10 --progress true --json
 
 # Restrict candidate forecast methods and apply denoising
-mtdata-cli report_generate EURUSD --template basic \
-  --methods theta,arima --denoise kalman --json
+mtdata-cli report_generate EURUSD --template basic --methods theta,arima --denoise kalman --json
 ```
 
 For an after-hours review, explicitly allow completed context from the latest

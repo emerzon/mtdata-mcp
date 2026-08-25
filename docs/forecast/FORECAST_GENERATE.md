@@ -166,9 +166,7 @@ Supported dimred methods in the forecasting pipeline:
 
 Examples:
 ```bash
-mtdata-cli forecast_generate EURUSD --horizon 12 --method mlf_lightgbm \
-  --features '{"include":["close","volume"]}' \
-  --dimred '{"method":"pca","params":{"n_components":5}}'
+mtdata-cli forecast_generate EURUSD --horizon 12 --method mlf_lightgbm --features '{"include":["close","volume"]}' --dimred '{"method":"pca","params":{"n_components":5}}'
 ```
 
 Tip: the Web UI exposes a broader method list via `GET /api/dimred/methods` (for example: `svd` (TruncatedSVD), `umap`, `isomap`), depending on what is installed (see [../WEB_API.md](../WEB_API.md)).
@@ -237,8 +235,7 @@ Scikit-learn style time series forecasters.
 
 ```bash
 mtdata-cli forecast_generate EURUSD --library sktime --method ThetaForecaster
-mtdata-cli forecast_generate EURUSD --library sktime --method NaiveForecaster \
-  --params "strategy=last sp=24"
+mtdata-cli forecast_generate EURUSD --library sktime --method NaiveForecaster --params "strategy=last sp=24"
 ```
 
 **Requires:** `pip install sktime`
@@ -301,32 +298,27 @@ mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 --method theta
 
 ### With Confidence Intervals
 ```bash
-mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 \
-  --method arima --ci-alpha 0.1 --json
+mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 --method arima --ci-alpha 0.1 --json
 ```
 
 ### Monte Carlo Simulation
 ```bash
-mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 \
-  --method mc_gbm --params "n_sims=3000 seed=7"
+mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 --method mc_gbm --params "n_sims=3000 seed=7"
 ```
 
 ### Foundation Model
 ```bash
-mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 24 \
-  --library pretrained --method chronos2 --params "context_length=512"
+mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 24 --library pretrained --method chronos2 --params "context_length=512"
 ```
 
 ### Analog Forecasting
 ```bash
-mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 \
-  --method analog --params "window_size=64 search_depth=5000 top_k=20"
+mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 --method analog --params "window_size=64 search_depth=5000 top_k=20"
 ```
 
 ### With Denoising
 ```bash
-mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 \
-  --method theta --denoise ema
+mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 --method theta --denoise ema
 ```
 
 ### Ensemble
@@ -340,12 +332,10 @@ mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 \
 - `expose_components` (bool): include component forecasts in the JSON output
 
 ```bash
-mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 \
-  --method ensemble --params '{"methods":["theta","naive","arima"],"mode":"average"}'
+mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 --method ensemble --params '{"methods":["theta","naive","arima"],"mode":"average"}'
 
 # RMSE-weighted blend (weights inferred from walk-forward CV)
-mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 \
-  --method ensemble --params '{"methods":["theta","naive","fourier_ols"],"mode":"rmse_weighted","cv_points":12}'
+mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 --method ensemble --params '{"methods":["theta","naive","fourier_ols"],"mode":"rmse_weighted","cv_points":12}'
 ```
 
 ---

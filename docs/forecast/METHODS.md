@@ -136,8 +136,7 @@ Gradient-boosted / tree models over lagged features. All MLForecast methods defa
 | `mlf_lightgbm` | `n_estimators=200`, `learning_rate=0.05`, `num_leaves=31`, `max_depth=-1`, `lags=auto` | LightGBM regressor |
 
 ```bash
-mtdata-cli forecast_generate EURUSD --method mlf_lightgbm \
-  --params "n_estimators=400,learning_rate=0.03"
+mtdata-cli forecast_generate EURUSD --method mlf_lightgbm --params "n_estimators=400,learning_rate=0.03"
 ```
 
 ---

@@ -111,9 +111,7 @@ Defaults vary by method and can change over time. For any result you want to com
 Example:
 
 ```bash
-mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 \
-  --library native --method arima --lookback 500 \
-  --params "p=2 d=1 q=2" --json
+mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 --library native --method arima --lookback 500 --params "p=2 d=1 q=2" --json
 ```
 
 ---
@@ -127,14 +125,12 @@ mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 --method theta
 
 **ARIMA** — Models autocorrelation in the data.
 ```bash
-mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 --method arima \
-  --params "p=2 d=1 q=2"
+mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 --method arima --params "p=2 d=1 q=2"
 ```
 
 **ETS** — Exponential smoothing with optional trend/seasonality.
 ```bash
-mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 24 --method ets \
-  --params "seasonality=24"
+mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 24 --method ets --params "seasonality=24"
 ```
 
 ### Foundation Models
@@ -143,22 +139,19 @@ Pre-trained deep learning models that work without tuning.
 
 **Chronos 2** — Amazon's foundation model for time series.
 ```bash
-mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 24 \
-  --library pretrained --method chronos2
+mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 24 --library pretrained --method chronos2
 ```
 
 *Requires: `pip install chronos-forecasting torch`*
 
 **Chronos-Bolt** — Faster Chronos variant.
 ```bash
-mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 24 \
-  --library pretrained --method chronos_bolt
+mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 24 --library pretrained --method chronos_bolt
 ```
 
 **TimesFM** — Google's foundation model (TimesFM 2.x adapter).
 ```bash
-mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 24 \
-  --library pretrained --method timesfm
+mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 24 --library pretrained --method timesfm
 ```
 
 *Requires: `pip install -e .[forecast-timesfm]`.*
@@ -174,8 +167,7 @@ every forecast tool call, or `off` to keep the previous in-process behavior.
 Generates thousands of possible future paths instead of a single forecast.
 
 ```bash
-mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 \
-  --method mc_gbm --params "n_sims=2000 seed=42" --ci-alpha 0.05
+mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 --method mc_gbm --params "n_sims=2000 seed=42" --ci-alpha 0.05
 ```
 
 **Output includes:**
@@ -188,8 +180,7 @@ mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 \
 Finds historical windows similar to the current pattern and averages what happened next.
 
 ```bash
-mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 \
-  --method analog --params "window_size=64 top_k=20"
+mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 --method analog --params "window_size=64 top_k=20"
 ```
 
 **Parameters:**
@@ -233,8 +224,7 @@ resolve directly.
 Validate forecast accuracy with rolling-origin backtests.
 
 ```bash
-mtdata-cli forecast_backtest_run EURUSD --timeframe H1 --horizon 12 \
-  --methods "theta sf_autoarima analog" --steps 20 --spacing 12
+mtdata-cli forecast_backtest_run EURUSD --timeframe H1 --horizon 12 --methods "theta sf_autoarima analog" --steps 20 --spacing 12
 ```
 
 **Parameters:**
@@ -263,16 +253,14 @@ their reference and report `analysis_time_window`; they never mix in a live tick
 
 Add indicators as input features:
 ```bash
-mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 --method theta \
-  --features "include=close,volume"
+mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 --method theta --features "include=close,volume"
 ```
 
 ### Denoising
 
 Smooth data before forecasting:
 ```bash
-mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 --method theta \
-  --denoise '{"method":"ema","params":{"alpha":0.2}}'
+mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 --method theta --denoise '{"method":"ema","params":{"alpha":0.2}}'
 ```
 
 See [DENOISING.md](DENOISING.md) for available filters.
@@ -301,9 +289,7 @@ expanding roughly 400-bar default.
 Evolutionary search through parameter space. Good for discrete/mixed search spaces.
 
 ```bash
-mtdata-cli forecast_tune_genetic EURUSD --methods fourier_ols --horizon 12 \
-  --metric avg_rmse --mode auto --population 20 --generations 10 \
-  --max-search-time-seconds 300
+mtdata-cli forecast_tune_genetic EURUSD --methods fourier_ols --horizon 12 --metric avg_rmse --mode auto --population 20 --generations 10 --max-search-time-seconds 300
 ```
 
 Population and generations are each capped at 100. When the optional wall-clock
@@ -318,8 +304,7 @@ See [BACKTESTING.md](forecast/BACKTESTING.md) for full parameters and examples.
 Bayesian optimization with TPE, CMA-ES, or random sampling. Supports parallel trials and persistent study storage. Each trial is an atomic rolling backtest, so trial pruning is not exposed.
 
 ```bash
-mtdata-cli forecast_tune_optuna EURUSD --methods fourier_ols --horizon 12 \
-  --metric avg_rmse --mode auto --n-trials 40 --sampler tpe --json
+mtdata-cli forecast_tune_optuna EURUSD --methods fourier_ols --horizon 12 --metric avg_rmse --mode auto --n-trials 40 --sampler tpe --json
 ```
 
 | Parameter | Default | Description |
@@ -341,8 +326,7 @@ mtdata-cli forecast_tune_optuna EURUSD --methods fourier_ols --horizon 12 \
 Broader than single-method tuning: `forecast_optimize_hints` runs a genetic search across **timeframes, methods, and method-specific parameters at once**, returning the top-N configurations ranked by a composite trading-fitness score. Composite fitness needs at least 30 rolling-origin anchors (`--steps 30`) so each candidate can produce a comparable trade sample. The default `--steps 5` is rejected for `composite`; raise `--steps` or pass `--fitness-metric avg_rmse` for a cheaper accuracy search. Pass `--lookback` to tune a fixed rolling window that matches `forecast_generate`. Use it to answer *"which timeframe/method/params should I even start from?"* before drilling in with `forecast_tune_genetic` / `forecast_tune_optuna`.
 
 ```bash
-mtdata-cli forecast_optimize_hints EURUSD --timeframes H1 H4 D1 \
-  --methods theta ets arima --horizon 12 --steps 30 --top-n 5 --json
+mtdata-cli forecast_optimize_hints EURUSD --timeframes H1 H4 D1 --methods theta ets arima --horizon 12 --steps 30 --top-n 5 --json
 ```
 
 | Parameter | Default | Description |
@@ -372,8 +356,7 @@ mtdata-cli shell
 # Then submit and observe the task from that shell.
 forecast_train EURUSD --timeframe H1 --method nhits --horizon 24
 # Pin a reproducible historical anchor (or use --start/--end for a range).
-forecast_train EURUSD --timeframe H1 --method nhits --horizon 24 \
-  --as-of "2026-01-15T12:00:00Z" --lookback 500
+forecast_train EURUSD --timeframe H1 --method nhits --horizon 24 --as-of "2026-01-15T12:00:00Z" --lookback 500
 forecast_task_status <task_id> --json
 forecast_task_wait <task_id> --timeout-seconds 120 --json
 forecast_task_list --json
@@ -430,8 +413,7 @@ formats remain responsible for their own compatibility checks.
 mtdata-cli forecast_models_list --json
 mtdata-cli forecast_models_list --limit 50 --json  # Larger explicit page
 mtdata-cli forecast_models_delete "nhits/EURUSD_H1/abc123"  # preview only
-mtdata-cli forecast_models_delete "nhits/EURUSD_H1/abc123" \
-  --dry-run false --confirm-model-id "nhits/EURUSD_H1/abc123"
+mtdata-cli forecast_models_delete "nhits/EURUSD_H1/abc123" --dry-run false --confirm-model-id "nhits/EURUSD_H1/abc123"
 mtdata-cli forecast_models_cleanup --json          # preview stale/expired
 ```
 

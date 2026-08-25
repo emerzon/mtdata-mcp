@@ -85,8 +85,7 @@ would a random-looking path hit the win first, the loss first, or neither?*
 | **Result** | JSON with `prob_tp_first`, `prob_sl_first`, and `prob_no_hit`. | **Interpretation** <br>- High `prob_no_hit` means the levels may be too far (or the horizon too short) for this window. <br>- This is a sketch of *path odds*, not a promise. Searching a full TP/SL grid (HMM paths, refine, Kelly / EV objectives) is in [SAMPLE-TRADE-ADVANCED.md](SAMPLE-TRADE-ADVANCED.md). |
 
 ```bash
-mtdata-cli forecast_barrier_prob EURUSD --timeframe H1 --horizon 12 \
-  --direction long --barrier '{"kind":"tp_sl","unit":"pct","take_profit":0.40,"stop_loss":0.60}' --json
+mtdata-cli forecast_barrier_prob EURUSD --timeframe H1 --horizon 12 --direction long --barrier '{"kind":"tp_sl","unit":"pct","take_profit":0.40,"stop_loss":0.60}' --json
 ```
 
 ---

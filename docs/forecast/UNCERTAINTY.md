@@ -29,8 +29,7 @@ Bands calibrated from **historical forecast errors** — empirical residual-quan
 Request intervals with `--ci-alpha`:
 
 ```bash
-mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 \
-  --method analog --ci-alpha 0.1 --json
+mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 --method analog --ci-alpha 0.1 --json
 ```
 
 **Parameters:**
@@ -80,8 +79,7 @@ Residual-quantile calibration builds intervals from rolling backtest residuals, 
 ### Usage
 
 ```bash
-mtdata-cli forecast_conformal_intervals EURUSD --timeframe H1 \
-  --method theta --horizon 12 --steps 50 --spacing 20 --json
+mtdata-cli forecast_conformal_intervals EURUSD --timeframe H1 --method theta --horizon 12 --steps 50 --spacing 20 --json
 ```
 
 **Parameters:**
@@ -180,8 +178,7 @@ bar boundaries, including configured daylight-saving changes.
 ### Usage
 
 ```bash
-mtdata-cli labels_triple_barrier EURUSD --timeframe H1 --horizon 12 \
-  --barriers '{"unit":"pct","take_profit":0.5,"stop_loss":0.3}' --json
+mtdata-cli labels_triple_barrier EURUSD --timeframe H1 --horizon 12 --barriers '{"unit":"pct","take_profit":0.5,"stop_loss":0.3}' --json
 ```
 
 **Parameters:**

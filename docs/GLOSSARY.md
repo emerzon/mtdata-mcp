@@ -164,8 +164,7 @@ Generates thousands of possible future price paths by randomly sampling from a m
 
 **Example:**
 ```bash
-mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 \
-  --method mc_gbm --params "n_sims=2000"
+mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 --method mc_gbm --params "n_sims=2000"
 ```
 
 **Interpretation:** Percentile bands and hit rates across paths — not a guaranteed path.
@@ -197,8 +196,7 @@ Defaults and when-to-use details: [BARRIER_FUNCTIONS.md](BARRIER_FUNCTIONS.md).
 
 **Example:**
 ```bash
-mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 24 \
-  --library pretrained --method chronos2
+mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 24 --library pretrained --method chronos2
 ```
 
 **In mtdata:** `forecast_list_methods --json` shows what your install can run. See [FORECAST.md](FORECAST.md) and [forecast/METHODS.md](forecast/METHODS.md).
@@ -229,8 +227,7 @@ A distribution-free method to create prediction intervals. Instead of assuming a
 
 **Example:**
 ```bash
-mtdata-cli forecast_conformal_intervals EURUSD --timeframe H1 \
-  --method theta --horizon 12 --steps 25 --ci-alpha 0.1
+mtdata-cli forecast_conformal_intervals EURUSD --timeframe H1 --method theta --horizon 12 --steps 25 --ci-alpha 0.1
 ```
 
 ---
@@ -295,8 +292,7 @@ Omit `--threshold` when you want automatic asset/timeframe calibration; a fixed 
 
 **Example:**
 ```bash
-mtdata-cli regime_detect EURUSD --timeframe H1 --method pelt \
-  --params "model=rbf penalty=auto min_size=5"
+mtdata-cli regime_detect EURUSD --timeframe H1 --method pelt --params "model=rbf penalty=auto min_size=5"
 ```
 
 **In mtdata:** `regime_detect --method pelt`. See [forecast/REGIMES.md](forecast/REGIMES.md).
@@ -354,8 +350,7 @@ A volatility estimator that gives more weight to recent observations — a fast 
 
 **Example:**
 ```bash
-mtdata-cli forecast_volatility_estimate EURUSD --timeframe H1 \
-  --horizon 12 --method ewma --params "lambda_=0.94"
+mtdata-cli forecast_volatility_estimate EURUSD --timeframe H1 --horizon 12 --method ewma --params "lambda_=0.94"
 ```
 
 **Interpretation:** If output is `volatility_per_bar: 0.0006`, expect hourly returns to have ~0.06% standard deviation.
@@ -735,8 +730,7 @@ Removing random fluctuations ("noise") to reveal the underlying trend ("signal")
 
 **Example:**
 ```bash
-mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 500 \
-  --denoise ema --denoise-params "alpha=0.2"
+mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 500 --denoise ema --denoise-params "alpha=0.2"
 ```
 
 ### Stationarity

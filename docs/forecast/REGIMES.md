@@ -159,8 +159,7 @@ transition_summary:
 **What it does:** Segments the return series at structural breaks using the Pruned Exact Linear Time algorithm from `ruptures`.
 
 ```bash
-mtdata-cli regime_detect EURUSD --timeframe H1 --method pelt \
-  --params "model=rbf penalty=auto min_size=5 jump=1"
+mtdata-cli regime_detect EURUSD --timeframe H1 --method pelt --params "model=rbf penalty=auto min_size=5 jump=1"
 ```
 
 Supported cost models are `l1`, `l2`, `rbf`, `normal`, and `ar`. Set a numeric `penalty` for explicit sensitivity or keep `penalty=auto` for a variance-scaled default.
@@ -250,8 +249,7 @@ Monitor for regime transitions and reduce exposure when detected:
 
 ```bash
 # Check for recent change points
-mtdata-cli regime_detect EURUSD --timeframe H1 --method bocpd \
-  --threshold 0.6 --lookback 24
+mtdata-cli regime_detect EURUSD --timeframe H1 --method bocpd --threshold 0.6 --lookback 24
 
 # If transition_summary.max_transition_probability >= 0.6:
 #   → Tighten stops
@@ -265,12 +263,10 @@ Run barrier optimization separately for each regime:
 
 ```bash
 # In low-volatility regime: tighter barriers
-mtdata-cli forecast_barrier_optimize EURUSD --timeframe H1 --horizon 12 \
-  --params "tp_min=0.15,tp_max=0.5,sl_min=0.1,sl_max=0.4"
+mtdata-cli forecast_barrier_optimize EURUSD --timeframe H1 --horizon 12 --params "tp_min=0.15,tp_max=0.5,sl_min=0.1,sl_max=0.4"
 
 # In high-volatility regime: wider barriers
-mtdata-cli forecast_barrier_optimize EURUSD --timeframe H1 --horizon 12 \
-  --params "tp_min=0.5,tp_max=2.0,sl_min=0.3,sl_max=1.5"
+mtdata-cli forecast_barrier_optimize EURUSD --timeframe H1 --horizon 12 --params "tp_min=0.5,tp_max=2.0,sl_min=0.3,sl_max=1.5"
 ```
 
 ---

@@ -62,8 +62,7 @@ provided, the command analyzes the latest seven days; use an explicit longer
 window for monthly reviews.
 
 ```bash
-mtdata-cli trade_execution_quality --symbol EURUSD --minutes-back 43200 \
-  --markout-seconds 1,5,30 --detail full --json
+mtdata-cli trade_execution_quality --symbol EURUSD --minutes-back 43200 --markout-seconds 1,5,30 --detail full --json
 ```
 
 Positive slippage is worse for the trader; positive markout is favorable. With
@@ -105,9 +104,7 @@ Holm correction and reports `positive`, `negative`, or `inconclusive`.
 ```bash
 mtdata-cli strategy_validate EURUSD --strategy ema_cross --json
 
-mtdata-cli strategy_validate EURUSD --timeframe H1 --lookback 3000 \
-  --candidates '[{"id":"fast-cross","type":"builtin_strategy","strategy":"ema_cross","params":{"fast_period":10,"slow_period":30}}]' \
-  --barrier '{"horizon":12,"tp_pct":0.5,"sl_pct":0.5}' --json
+mtdata-cli strategy_validate EURUSD --timeframe H1 --lookback 3000 --candidates '[{"id":"fast-cross","type":"builtin_strategy","strategy":"ema_cross","params":{"fast_period":10,"slow_period":30}}]' --barrier '{"horizon":12,"tp_pct":0.5,"sl_pct":0.5}' --json
 ```
 
 Use `--strategy` for a single built-in strategy with default parameters. Use
@@ -121,9 +118,7 @@ A forecast-threshold candidate compares each forecast's expected simple return
 objects in the same request use different numeric conventions.
 
 ```bash
-mtdata-cli strategy_validate EURUSD --timeframe H1 --lookback 200 \
-  --candidates '[{"id":"drift-half","type":"forecast_threshold","method":"drift","params":{"lookback":30},"horizon":1,"long_above":0.005,"short_below":-0.005}]' \
-  --barrier '{"horizon":1,"tp_pct":0.5,"sl_pct":0.5}' --json
+mtdata-cli strategy_validate EURUSD --timeframe H1 --lookback 200 --candidates '[{"id":"drift-half","type":"forecast_threshold","method":"drift","params":{"lookback":30},"horizon":1,"long_above":0.005,"short_below":-0.005}]' --barrier '{"horizon":1,"tp_pct":0.5,"sl_pct":0.5}' --json
 ```
 
 If every candidate reports `evaluation_status=insufficient_data`, the command
@@ -182,8 +177,7 @@ lot step before any scenarios run. Invalid requests return the constraints and
 the nearest valid volume instead of modeling a trade the broker would reject.
 
 ```bash
-mtdata-cli portfolio_risk_decompose --timeframe H1 --lookback 1000 \
-  --horizon-bars 1,5 --confidence 0.95,0.99 --json
+mtdata-cli portfolio_risk_decompose --timeframe H1 --lookback 1000 --horizon-bars 1,5 --confidence 0.95,0.99 --json
 ```
 
 The default fails closed if a material position cannot be priced safely. Use
@@ -214,8 +208,7 @@ Breadth paths are fractions from 0 to 1, except
 `breadth.dispersion`, which is a composite-score standard deviation.
 
 ```bash
-mtdata-cli market_relative_strength --group "Forex\\Majors" --timeframe H1 \
-  --horizons 5,20,60 --weights 0.2,0.3,0.5 --limit 10 --json
+mtdata-cli market_relative_strength --group "Forex\\Majors" --timeframe H1 --horizons 5,20,60 --weights 0.2,0.3,0.5 --limit 10 --json
 
 # Pairwise comparison (no cross-sectional breadth is implied)
 mtdata-cli market_relative_strength GBPUSD --benchmark EURUSD --timeframe H1 --json

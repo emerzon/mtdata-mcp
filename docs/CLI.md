@@ -274,12 +274,10 @@ Use `--simplify` to downsample returned rows for charting or large exports.
 mtdata-cli data_fetch_candles EURUSD --timeframe M1 --limit 5000 --simplify
 
 # Choose an algorithm + target points
-mtdata-cli data_fetch_candles EURUSD --timeframe M1 --limit 5000 \
-  --simplify lttb --simplify-params "points=500"
+mtdata-cli data_fetch_candles EURUSD --timeframe M1 --limit 5000 --simplify lttb --simplify-params "points=500"
 
 # Raw ticks can also be simplified
-mtdata-cli data_fetch_ticks EURUSD --limit 20000 \
-  --simplify rdp --simplify-params "points=2000"
+mtdata-cli data_fetch_ticks EURUSD --limit 20000 --simplify rdp --simplify-params "points=2000"
 ```
 
 Full-detail tick rows preserve MT5 snapshot fields: `bid`, `ask`, `last`,
@@ -448,15 +446,13 @@ precedence. `--sr-timeframe` remains independent and defaults to `auto`.
 Volume profile example:
 
 ```bash
-mtdata-cli volume_profile_levels EURUSD --start "1 day ago" --end "now" \
-  --source auto --price-source mid --bucket-points 10 --json
+mtdata-cli volume_profile_levels EURUSD --start "1 day ago" --end "now" --source auto --price-source mid --bucket-points 10 --json
 ```
 
 You can also derive the window from a lookback:
 
 ```bash
-mtdata-cli volume_profile_levels EURUSD --timeframe H1 --lookback 168 \
-  --source auto --bucket-points 10 --json
+mtdata-cli volume_profile_levels EURUSD --timeframe H1 --lookback 168 --source auto --bucket-points 10 --json
 ```
 
 The default tick window is one day and 50,000 ticks. Natural one-day relative
@@ -468,8 +464,7 @@ method; `source` retains structured MT5 broker provenance.
 For fractal + volume-structure confluence, opt in through pattern config:
 
 ```bash
-mtdata-cli patterns_detect EURUSD --timeframe H1 --mode fractal \
-  --config '{"volume_profile":true,"volume_profile_tolerance_points":25}' --json
+mtdata-cli patterns_detect EURUSD --timeframe H1 --mode fractal --config '{"volume_profile":true,"volume_profile_tolerance_points":25}' --json
 ```
 
 See [LEVELS.md](LEVELS.md) for the full pivots, support/resistance, confluence, and volume-profile reference.
@@ -573,16 +568,13 @@ mtdata-cli symbols_describe EURUSD --json
 mtdata-cli symbols_top_markets --rank-by all --limit 5 --timeframe H1 --json
 
 # Include hidden symbols within a bounded comparable category
-mtdata-cli symbols_top_markets --rank-by spread --limit 10 --universe all \
-  --category forex --json
+mtdata-cli symbols_top_markets --rank-by spread --limit 10 --universe all --category forex --json
 
 # Wait for one exact global stock leaderboard (large broker catalogs may take minutes)
-mtdata-cli symbols_top_markets --rank-by spread --limit 10 --universe all \
-  --category stocks --scan-budget-seconds 0 --json
+mtdata-cli symbols_top_markets --rank-by spread --limit 10 --universe all --category stocks --scan-budget-seconds 0 --json
 
 # Scan visible majors for strong RSI and price above SMA
-mtdata-cli market_scan --group "Forex\\Majors" --rsi-above 60 --price-vs-sma above \
-  --sma-period 20 --timeframe H1 --lookback 120 --json
+mtdata-cli market_scan --group "Forex\\Majors" --rsi-above 60 --price-vs-sma above --sma-period 20 --timeframe H1 --lookback 120 --json
 
 # Scan an explicit symbol basket for oversold names with tight spreads
 mtdata-cli market_scan EURUSD,GBPUSD,USDJPY --rsi-below 35 --max-spread-pct 0.03 --json
@@ -641,12 +633,10 @@ current symbol sample to finish.
 mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 100
 
 # With indicators
-mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 100 \
-  --indicators "ema(20),rsi(14),macd(12,26,9)"
+mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 100 --indicators "ema(20),rsi(14),macd(12,26,9)"
 
 # With denoising
-mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 100 \
-  --denoise ema --denoise-params "alpha=0.2"
+mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 100 --denoise ema --denoise-params "alpha=0.2"
 ```
 
 ### Generate Forecasts
@@ -661,19 +651,14 @@ mtdata-cli forecast_generate EURUSD --library pretrained --method chronos2 --hor
 mtdata-cli forecast_generate EURUSD --method mc_gbm --params "n_sims=2000" --ci-alpha 0.05
 
 # Search timeframes + methods + params for the best starting configuration
-mtdata-cli forecast_optimize_hints EURUSD --timeframes H1 H4 D1 \
-  --methods theta ets --horizon 12 --steps 30 --top-n 5 --json
+mtdata-cli forecast_optimize_hints EURUSD --timeframes H1 H4 D1 --methods theta ets --horizon 12 --steps 30 --top-n 5 --json
 ```
 
 ### Backtest Trading Rules
 ```bash
-mtdata-cli strategy_backtest EURUSD --timeframe H1 --strategy sma_cross \
-  --fast-period 10 --slow-period 30 --lookback 300 \
-  --cost-model fixed --spread-bps 1.2 --json
+mtdata-cli strategy_backtest EURUSD --timeframe H1 --strategy sma_cross --fast-period 10 --slow-period 30 --lookback 300 --cost-model fixed --spread-bps 1.2 --json
 
-mtdata-cli strategy_backtest EURUSD --timeframe H1 --strategy rsi_reversion \
-  --rsi-length 14 --oversold 30 --overbought 70 --position-mode long_only \
-  --cost-model fixed --spread-bps 1.2 --json
+mtdata-cli strategy_backtest EURUSD --timeframe H1 --strategy rsi_reversion --rsi-length 14 --oversold 30 --overbought 70 --position-mode long_only --cost-model fixed --spread-bps 1.2 --json
 
 # For a controlled constant instead of historical bar spreads:
 mtdata-cli strategy_backtest EURUSD --cost-model fixed --spread-bps 1.2 --json
@@ -701,12 +686,10 @@ row per underwater observation.
 mtdata-cli forecast_volatility_estimate EURUSD --horizon 12 --method ewma
 
 # Barrier probability
-mtdata-cli forecast_barrier_prob EURUSD --horizon 12 \
-  --method hmm_mc --barrier '{"kind":"tp_sl","unit":"pct","take_profit":0.5,"stop_loss":0.3}'
+mtdata-cli forecast_barrier_prob EURUSD --horizon 12 --method hmm_mc --barrier '{"kind":"tp_sl","unit":"pct","take_profit":0.5,"stop_loss":0.3}'
 
 # Optimize TP/SL
-mtdata-cli forecast_barrier_optimize EURUSD --horizon 12 \
-  --grid-style volatility --objective edge
+mtdata-cli forecast_barrier_optimize EURUSD --horizon 12 --grid-style volatility --objective edge
 ```
 
 ### Pre-Trade Snapshot & Session Context
@@ -745,10 +728,8 @@ broker-symbol names.
 Do not run long waits from the Web UI. See [WAIT_EVENT.md](WAIT_EVENT.md).
 
 ```bash
-mtdata-cli wait_event EURUSD --timeframe H1 --watch-for '[]' \
-  --max-wait-seconds 3700 --json
-mtdata-cli wait_event EURUSD --timeframe H1 --watch-for '[]' \
-  --max-wait-seconds 300 --json
+mtdata-cli wait_event EURUSD --timeframe H1 --watch-for '[]' --max-wait-seconds 3700 --json
+mtdata-cli wait_event EURUSD --timeframe H1 --watch-for '[]' --max-wait-seconds 300 --json
 mtdata-cli wait_event --max-wait-seconds 30 --json
 ```
 
@@ -774,20 +755,16 @@ orders/positions. For stop-limit orders, `--price` is the stop trigger and
 
 ```bash
 # Preview a pending order with canonical order_type
-mtdata-cli trade_place BTCUSD --volume 0.03 --order-type BUY_LIMIT --price 68750 \
-  --stop-loss 67500 --take-profit 72000 --dry-run true
+mtdata-cli trade_place BTCUSD --volume 0.03 --order-type BUY_LIMIT --price 68750 --stop-loss 67500 --take-profit 72000 --dry-run true
 
 # Case and separators are normalized (buy-stop -> BUY_STOP)
-mtdata-cli trade_place BTCUSD --volume 0.03 --order-type buy-stop --price 70200 \
-  --stop-loss 69000 --take-profit 73000 --dry-run true
+mtdata-cli trade_place BTCUSD --volume 0.03 --order-type buy-stop --price 70200 --stop-loss 69000 --take-profit 73000 --dry-run true
 
 # Preview a stop-limit order with separate trigger and limit prices
-mtdata-cli trade_place BTCUSD --volume 0.03 --order-type BUY_STOP_LIMIT \
-  --price 70200 --stop-limit-price 70000 --dry-run true
+mtdata-cli trade_place BTCUSD --volume 0.03 --order-type BUY_STOP_LIMIT --price 70200 --stop-limit-price 70000 --dry-run true
 
 # Preview a market order with explicit protective levels
-mtdata-cli trade_place BTCUSD --volume 0.01 --order-type BUY \
-  --stop-loss 64500 --take-profit 67200 --dry-run true
+mtdata-cli trade_place BTCUSD --volume 0.01 --order-type BUY --stop-loss 64500 --take-profit 67200 --dry-run true
 ```
 
 ### Trade Execution Controls
@@ -899,20 +876,16 @@ mtdata-cli regime_detect EURUSD --method bocpd --threshold 0.5
 ### Compare Cross-Symbol Relationships (Exploratory)
 ```bash
 # Rank co-moving symbols with transformed-return correlations
-mtdata-cli correlation_matrix "EURUSD,GBPUSD,USDJPY" --timeframe H1 \
-  --window-bars 500 --method pearson --transform log_return --json
+mtdata-cli correlation_matrix "EURUSD,GBPUSD,USDJPY" --timeframe H1 --window-bars 500 --method pearson --transform log_return --json
 
 # Use an explicit MT5 group path instead of naming symbols one-by-one
-mtdata-cli correlation_matrix --group "Forex\\Majors" --timeframe H1 \
-  --window-bars 500 --limit 120 --method pearson --transform log_return --detail full --json
+mtdata-cli correlation_matrix --group "Forex\\Majors" --timeframe H1 --window-bars 500 --limit 120 --method pearson --transform log_return --detail full --json
 
 # Find candidate mean-reverting pairs inside an MT5 group
-mtdata-cli cointegration_test --group "Forex\\Majors" --timeframe H1 \
-  --window-bars 400 --transform log_level --significance 0.05 --json
+mtdata-cli cointegration_test --group "Forex\\Majors" --timeframe H1 --window-bars 400 --transform log_level --significance 0.05 --json
 
 # Compare a few symbols directly
-mtdata-cli causal_discover_signals "EURUSD,GBPUSD,USDJPY" --timeframe H1 \
-  --window-bars 800 --max-lag 5 --transform log_return --significance 0.05
+mtdata-cli causal_discover_signals "EURUSD,GBPUSD,USDJPY" --timeframe H1 --window-bars 800 --max-lag 5 --transform log_return --significance 0.05
 
 # Pass a single symbol to auto-expand its visible MT5 group (e.g., Forex\\Majors)
 mtdata-cli causal_discover_signals EURUSD --timeframe H1 --window-bars 800

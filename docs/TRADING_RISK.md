@@ -26,8 +26,7 @@ new trade. Supports two sizing methods: fixed-fraction and Kelly.
 mtdata-cli trade_risk_analyze --json
 
 # Size a new long: risk-based volume from entry + stop
-mtdata-cli trade_risk_analyze EURUSD --direction long \
-  --entry 1.0850 --stop-loss 1.0800 --sizing '{"method":"fixed_fraction","risk_pct":1.0}' --json
+mtdata-cli trade_risk_analyze EURUSD --direction long --entry 1.0850 --stop-loss 1.0800 --sizing '{"method":"fixed_fraction","risk_pct":1.0}' --json
 ```
 
 | Parameter | Default | Description |
@@ -67,9 +66,7 @@ status. Suggested volume is clamped to the same symbol volume guardrails that
 Set `sizing.method=kelly` and supply edge statistics in the same JSON object:
 
 ```bash
-mtdata-cli trade_risk_analyze EURUSD --direction long \
-  --entry 1.0850 --stop-loss 1.0800 \
-  --sizing '{"method":"kelly","win_rate":0.55,"avg_win":0.012,"avg_loss":0.010,"fraction_multiplier":0.5,"max_risk_pct":2.0}' --json
+mtdata-cli trade_risk_analyze EURUSD --direction long --entry 1.0850 --stop-loss 1.0800 --sizing '{"method":"kelly","win_rate":0.55,"avg_win":0.012,"avg_loss":0.010,"fraction_multiplier":0.5,"max_risk_pct":2.0}' --json
 ```
 
 | Parameter | Default | Description |
@@ -140,8 +137,7 @@ symbol.
 mtdata-cli trade_var_cvar_calculate --timeframe H1 --lookback 500 --confidence 0.95 --json
 
 # Symbol-scoped, parametric/Gaussian, percentage returns
-mtdata-cli trade_var_cvar_calculate EURUSD --method parametric \
-  --transform pct --lookback 300 --json
+mtdata-cli trade_var_cvar_calculate EURUSD --method parametric --transform pct --lookback 300 --json
 ```
 
 | Parameter | Default | Description |

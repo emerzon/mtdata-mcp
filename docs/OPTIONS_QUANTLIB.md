@@ -154,14 +154,10 @@ UTC.
 
 ```bash
 # Down-and-out call (knock-out if price falls to barrier)
-mtdata-cli options_barrier_price \
-  150 --strike 155 --barrier 140 --maturity-days 30 \
-  --option-type call --barrier-type down_out --volatility 0.25 --json
+mtdata-cli options_barrier_price 150 --strike 155 --barrier 140 --maturity-days 30 --option-type call --barrier-type down_out --volatility 0.25 --json
 
 # Up-and-in put (activates if price rises to barrier)
-mtdata-cli options_barrier_price \
-  150 --strike 145 --barrier 160 --maturity-days 60 \
-  --option-type put --barrier-type up_in --volatility 0.3 --json
+mtdata-cli options_barrier_price 150 --strike 145 --barrier 160 --maturity-days 60 --option-type put --barrier-type up_in --volatility 0.3 --json
 ```
 
 | Parameter | Default | Description |
@@ -206,9 +202,7 @@ Calibrate the Heston stochastic volatility model from live options data. The Hes
 mtdata-cli options_heston_calibrate AAPL --option-type call --json
 
 # Calibrate from the nearest eligible expiration with liquidity filters
-mtdata-cli options_heston_calibrate TSLA \
-  --option-type both \
-  --min-open-interest 50 --min-volume 10 --max-contracts 30 --json
+mtdata-cli options_heston_calibrate TSLA --option-type both --min-open-interest 50 --min-volume 10 --max-contracts 30 --json
 ```
 
 | Parameter | Default | Description |

@@ -46,22 +46,19 @@ Timeline: [----history----][forecast horizon]
 ### Compare Forecasting Methods
 
 ```bash
-mtdata-cli forecast_backtest_run EURUSD --timeframe H1 --horizon 12 \
-  --methods "theta sf_autoarima analog" --steps 20 --spacing 12
+mtdata-cli forecast_backtest_run EURUSD --timeframe H1 --horizon 12 --methods "theta sf_autoarima analog" --steps 20 --spacing 12
 ```
 
 ### Single Method with Custom Parameters
 
 ```bash
-mtdata-cli forecast_backtest_run EURUSD --timeframe H1 --horizon 12 \
-  --methods theta --params "alpha=0.3" --steps 30
+mtdata-cli forecast_backtest_run EURUSD --timeframe H1 --horizon 12 --methods theta --params "alpha=0.3" --steps 30
 ```
 
 ### Volatility Backtest
 
 ```bash
-mtdata-cli forecast_backtest_run EURUSD --timeframe H1 --horizon 12 \
-  --quantity volatility --methods "ewma parkinson garch" --steps 20
+mtdata-cli forecast_backtest_run EURUSD --timeframe H1 --horizon 12 --quantity volatility --methods "ewma parkinson garch" --steps 20
 ```
 
 ---
@@ -92,9 +89,7 @@ mtdata-cli forecast_backtest_run <SYMBOL> [OPTIONS]
 
 **Example with per-method params:**
 ```bash
-mtdata-cli forecast_backtest_run EURUSD --horizon 12 \
-  --methods "fourier_ols arima" \
-  --params-per-method '{"fourier_ols": {"seasonality": 24, "terms": 3}, "arima": {"p": 2, "d": 1, "q": 2}}'
+mtdata-cli forecast_backtest_run EURUSD --horizon 12 --methods "fourier_ols arima" --params-per-method '{"fourier_ols": {"seasonality": 24, "terms": 3}, "arima": {"p": 2, "d": 1, "q": 2}}'
 ```
 
 ### Quantity
@@ -160,8 +155,7 @@ timestamp-free generic fallback.
 **Example with trading costs:**
 ```bash
 # Simulate 2 bps slippage per side (4 bps round-trip)
-mtdata-cli forecast_backtest_run EURUSD --horizon 12 --methods theta \
-  --slippage-bps 2 --trade-threshold 0.0005
+mtdata-cli forecast_backtest_run EURUSD --horizon 12 --methods theta --slippage-bps 2 --trade-threshold 0.0005
 ```
 
 ### Preprocessing Options
@@ -177,15 +171,12 @@ Dimred methods supported by the forecasting pipeline: `pca`, `tsne`, `selectkbes
 
 Tip: for `forecast_backtest_run`, pass dimred params as JSON:
 ```bash
-mtdata-cli forecast_backtest_run EURUSD --horizon 12 --methods mlf_lightgbm \
-  --features '{"include":["close","volume"]}' \
-  --dimred '{"method":"pca","params":{"n_components":5}}'
+mtdata-cli forecast_backtest_run EURUSD --horizon 12 --methods mlf_lightgbm --features '{"include":["close","volume"]}' --dimred '{"method":"pca","params":{"n_components":5}}'
 ```
 
 **Example with denoising:**
 ```bash
-mtdata-cli forecast_backtest_run EURUSD --horizon 12 --methods theta \
-  --denoise ema --denoise-params "alpha=0.2"
+mtdata-cli forecast_backtest_run EURUSD --horizon 12 --methods theta --denoise ema --denoise-params "alpha=0.2"
 ```
 
 ---
@@ -303,26 +294,22 @@ If `--methods` is not specified, the backtest uses available classical methods:
 
 **Fast baselines:**
 ```bash
-mtdata-cli forecast_backtest_run EURUSD --horizon 12 \
-  --methods "naive drift theta seasonal_naive" --steps 30
+mtdata-cli forecast_backtest_run EURUSD --horizon 12 --methods "naive drift theta seasonal_naive" --steps 30
 ```
 
 **Statistical models:**
 ```bash
-mtdata-cli forecast_backtest_run EURUSD --horizon 12 \
-  --methods "sf_autoarima sf_autoets sf_theta" --steps 30
+mtdata-cli forecast_backtest_run EURUSD --horizon 12 --methods "sf_autoarima sf_autoets sf_theta" --steps 30
 ```
 
 **ML models:**
 ```bash
-mtdata-cli forecast_backtest_run EURUSD --horizon 12 \
-  --methods "mlf_lightgbm mlf_rf" --steps 20
+mtdata-cli forecast_backtest_run EURUSD --horizon 12 --methods "mlf_lightgbm mlf_rf" --steps 20
 ```
 
 **Foundation models:**
 ```bash
-mtdata-cli forecast_backtest_run EURUSD --horizon 24 \
-  --methods "chronos2 chronos_bolt" --steps 15
+mtdata-cli forecast_backtest_run EURUSD --horizon 24 --methods "chronos2 chronos_bolt" --steps 15
 ```
 
 ---
@@ -334,10 +321,7 @@ mtdata-cli forecast_backtest_run EURUSD --horizon 24 \
 Automatically find optimal parameters for a forecasting method:
 
 ```bash
-mtdata-cli forecast_tune_genetic EURUSD --timeframe H1 --methods fourier_ols \
-  --horizon 12 --steps 20 --spacing 12 \
-  --metric avg_rmse --mode auto \
-  --population 20 --generations 10
+mtdata-cli forecast_tune_genetic EURUSD --timeframe H1 --methods fourier_ols --horizon 12 --steps 20 --spacing 12 --metric avg_rmse --mode auto --population 20 --generations 10
 ```
 
 ### Genetic Parameters
@@ -385,8 +369,7 @@ instead of producing an annualized score from an undersized sample.
 Define which parameters to search:
 
 ```bash
-mtdata-cli forecast_tune_genetic EURUSD --methods fourier_ols \
-  --search-space '{"seasonality": {"type": "int", "min": 12, "max": 48}}'
+mtdata-cli forecast_tune_genetic EURUSD --methods fourier_ols --search-space '{"seasonality": {"type": "int", "min": 12, "max": 48}}'
 ```
 
 **Search space format:**
@@ -422,10 +405,7 @@ Each method has sensible defaults. Examples:
 
 ```bash
 # Short horizon, tight spacing
-mtdata-cli forecast_backtest_run EURUSD --timeframe M5 --horizon 6 \
-  --methods "naive theta fourier_ols sf_autoarima" \
-  --steps 50 --spacing 12 \
-  --slippage-bps 1 --trade-threshold 0.0003
+mtdata-cli forecast_backtest_run EURUSD --timeframe M5 --horizon 6 --methods "naive theta fourier_ols sf_autoarima" --steps 50 --spacing 12 --slippage-bps 1 --trade-threshold 0.0003
 ```
 
 **What to look for:**
@@ -437,24 +417,16 @@ mtdata-cli forecast_backtest_run EURUSD --timeframe M5 --horizon 6 \
 
 ```bash
 # Step 1: Find an optimal Fourier period
-mtdata-cli forecast_tune_genetic EURUSD --timeframe H4 --methods fourier_ols \
-  --horizon 48 --steps 30 --spacing 48 \
-  --metric sharpe_ratio --mode auto --slippage-bps 2 \
-  --population 20 --generations 15
+mtdata-cli forecast_tune_genetic EURUSD --timeframe H4 --methods fourier_ols --horizon 48 --steps 30 --spacing 48 --metric sharpe_ratio --mode auto --slippage-bps 2 --population 20 --generations 15
 
 # Step 2: Backtest with optimal params
-mtdata-cli forecast_backtest_run EURUSD --timeframe H4 --horizon 48 \
-  --methods fourier_ols --params "seasonality=48 terms=3" \
-  --steps 50 --spacing 48 --slippage-bps 2
+mtdata-cli forecast_backtest_run EURUSD --timeframe H4 --horizon 48 --methods fourier_ols --params "seasonality=48 terms=3" --steps 50 --spacing 48 --slippage-bps 2
 ```
 
 ### Example 3: Compare Volatility Methods
 
 ```bash
-mtdata-cli forecast_backtest_run EURUSD --timeframe H1 --horizon 12 \
-  --quantity volatility \
-  --methods "ewma parkinson garch har_rv" \
-  --steps 30 --spacing 24
+mtdata-cli forecast_backtest_run EURUSD --timeframe H1 --horizon 12 --quantity volatility --methods "ewma parkinson garch har_rv" --steps 30 --spacing 24
 ```
 
 **Output interpretation:**
@@ -466,12 +438,10 @@ mtdata-cli forecast_backtest_run EURUSD --timeframe H1 --horizon 12 \
 
 ```bash
 # Test if denoising improves accuracy
-mtdata-cli forecast_backtest_run EURUSD --horizon 12 --methods theta \
-  --steps 30 --denoise ema --denoise-params "alpha=0.3"
+mtdata-cli forecast_backtest_run EURUSD --horizon 12 --methods theta --steps 30 --denoise ema --denoise-params "alpha=0.3"
 
 # Compare to non-denoised
-mtdata-cli forecast_backtest_run EURUSD --horizon 12 --methods theta \
-  --steps 30
+mtdata-cli forecast_backtest_run EURUSD --horizon 12 --methods theta --steps 30
 ```
 
 ### Example 5: Walk-Forward Optimization
@@ -480,12 +450,10 @@ Simulate real-world model updates:
 
 ```bash
 # Period 1: Optimize on first 6 months
-mtdata-cli forecast_tune_genetic EURUSD --methods fourier_ols --horizon 12 \
-  --steps 50 --spacing 24 --metric avg_rmse
+mtdata-cli forecast_tune_genetic EURUSD --methods fourier_ols --horizon 12 --steps 50 --spacing 24 --metric avg_rmse
 
 # Record best params, then test on next 3 months with those params
-mtdata-cli forecast_backtest_run EURUSD --horizon 12 --methods fourier_ols \
-  --params "seasonality=24 terms=3" --steps 30 --spacing 24
+mtdata-cli forecast_backtest_run EURUSD --horizon 12 --methods fourier_ols --params "seasonality=24 terms=3" --steps 30 --spacing 24
 
 # Repeat: re-optimize, test out-of-sample
 ```
