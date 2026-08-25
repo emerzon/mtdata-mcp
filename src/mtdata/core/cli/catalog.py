@@ -53,6 +53,7 @@ CLI_COMMAND_NAMES = (
     "market_snapshot",
     "market_status",
     "market_ticker",
+    "market_depth_fetch",
     "news",
     "options_barrier_price",
     "options_chain",
@@ -110,7 +111,7 @@ def available_command_names() -> tuple[str, ...]:
         for command, env_name in _OPTIONAL_COMMAND_ENV.items()
         if _env_enabled(env_name)
     )
-    return tuple(sorted((*CLI_COMMAND_NAMES, *optional)))
+    return tuple(sorted({*CLI_COMMAND_NAMES, *optional}))
 
 
 def known_command_names() -> tuple[str, ...]:

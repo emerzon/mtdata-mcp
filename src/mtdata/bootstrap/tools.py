@@ -61,6 +61,7 @@ def cli_tool_module_names(command: str) -> Optional[tuple[str, ...]]:
         "strategy_backtest": "mtdata.core.forecast",
         "volatility_term_structure": "mtdata.core.diagnostics",
         "market_ticker": "mtdata.core.market_depth",
+        "market_depth_fetch": "mtdata.core.market_depth",
         "market_snapshot": "mtdata.core.market_snapshot",
         "market_status": "mtdata.core.market_status",
         "market_scan": "mtdata.core.symbols",

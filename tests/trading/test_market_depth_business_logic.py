@@ -1330,11 +1330,14 @@ def test_tools_catalog_marks_market_depth_enabled(monkeypatch) -> None:
     assert "status" not in row
 
 
-def test_market_depth_tool_not_registered_when_env_disabled(monkeypatch) -> None:
+def test_market_depth_tool_stays_registered_when_env_disabled(monkeypatch) -> None:
     monkeypatch.delenv("MTDATA_ENABLE_MARKET_DEPTH_FETCH", raising=False)
     reloaded = importlib.reload(market_depth_mod)
     try:
-        assert "market_depth_fetch" not in get_tool_functions()
+        assert "market_depth_fetch" in get_tool_functions()
+        raw = getattr(reloaded.market_depth_fetch, "__wrapped__", reloaded.market_depth_fetch)
+        payload = raw("BTCUSD")
+        assert payload["error_code"] == "feature_disabled"
     finally:
         monkeypatch.setenv("MTDATA_ENABLE_MARKET_DEPTH_FETCH", "1")
         importlib.reload(reloaded)

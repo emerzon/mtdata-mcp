@@ -9,6 +9,7 @@ from mtdata.bootstrap.tools import cli_tool_module_names
     ("command", "module"),
     [
         ("market_ticker", "mtdata.core.market_depth"),
+        ("market_depth_fetch", "mtdata.core.market_depth"),
         ("data-fetch-candles", "mtdata.core.data"),
         ("forecast_generate", "mtdata.core.forecast"),
         ("forecast_task_status", "mtdata.core.forecast_tasks"),
