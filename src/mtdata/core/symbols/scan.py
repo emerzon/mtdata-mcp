@@ -871,7 +871,21 @@ def _market_scan_freshness_summary(
         if str(row.get("quote_as_of") or "").strip()
     ]
     if quote_times:
-        out["quote_as_of"] = max(quote_times)
+        quote_times = sorted(quote_times)
+        aligned_quotes = len(set(quote_times)) == 1
+        out["quote_as_of"] = quote_times[-1]
+        out["quote_as_of_range"] = {
+            "oldest": quote_times[0],
+            "newest": quote_times[-1],
+        }
+        out["quote_time_alignment"] = {
+            "status": "aligned" if aligned_quotes else "mixed",
+            "comparable": aligned_quotes,
+            "atomic": len(rows) <= 1,
+            "sampling": "sequential_per_symbol",
+            "distinct_timestamps": len(set(quote_times)),
+        }
+        out["quote_rank_comparable"] = aligned_quotes
 
     now_epoch = time.time()
     closed_count = sum(

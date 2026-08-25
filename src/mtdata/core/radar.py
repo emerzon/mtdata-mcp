@@ -279,6 +279,9 @@ def assemble_radar_payload(
             "bar_as_of_range",
             "comparison_warning",
             "quote_as_of",
+            "quote_as_of_range",
+            "quote_time_alignment",
+            "quote_rank_comparable",
             "session_status",
         ):
             if scan.get(key) is not None:

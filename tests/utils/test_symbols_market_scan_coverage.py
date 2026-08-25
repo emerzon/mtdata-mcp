@@ -523,6 +523,31 @@ def test_market_scan_freshness_separates_bar_and_quote_clocks():
     assert result["bar_time_alignment"]["status"] == "aligned"
 
 
+def test_market_scan_freshness_discloses_non_atomic_quote_range():
+    from mtdata.core.symbols import _market_scan_freshness_summary
+
+    result = _market_scan_freshness_summary(
+        [
+            {"symbol": "EURUSD", "quote_as_of": "2026-08-13T20:03:40Z"},
+            {"symbol": "GBPUSD", "quote_as_of": "2026-08-13T20:03:42Z"},
+        ]
+    )
+
+    assert result["quote_as_of"] == "2026-08-13T20:03:42Z"
+    assert result["quote_as_of_range"] == {
+        "oldest": "2026-08-13T20:03:40Z",
+        "newest": "2026-08-13T20:03:42Z",
+    }
+    assert result["quote_time_alignment"] == {
+        "status": "mixed",
+        "comparable": False,
+        "atomic": False,
+        "sampling": "sequential_per_symbol",
+        "distinct_timestamps": 2,
+    }
+    assert result["quote_rank_comparable"] is False
+
+
 def test_market_scan_freshness_refuses_single_as_of_for_mixed_bar_times():
     from mtdata.core.symbols import _market_scan_freshness_summary
 
