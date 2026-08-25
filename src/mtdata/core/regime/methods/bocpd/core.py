@@ -372,7 +372,8 @@ def _bocpd_reliability_score(
         "recent_cp_density": float(density),
         "edge_cp_share": float(edge_share),
         "raw_candidates_count": int(raw_candidates_count),
-        "filtered_candidates_count": int(
+        "accepted_candidates_count": int(len(cps_recent)),
+        "rejected_candidates_count": int(
             max(0, raw_candidates_count - len(cps_recent))
         ),
         "decision": decision,

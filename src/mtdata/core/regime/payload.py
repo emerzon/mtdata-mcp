@@ -1086,7 +1086,8 @@ def _consolidate_payload(  # noqa: C901
                         )
                 for source_key in (
                     "raw_change_points_count",
-                    "filtered_change_points_count",
+                    "accepted_change_points_count",
+                    "rejected_change_points_count",
                 ):
                     count_value = summary.get(source_key)
                     if count_value is not None:

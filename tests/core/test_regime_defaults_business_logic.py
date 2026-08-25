@@ -528,7 +528,13 @@ def test_bocpd_filters_last_bar_spike_with_strict_confirmation() -> None:
     summary = out.get("summary", {})
     assert int(summary.get("raw_change_points_count", 0)) >= 1
     assert int(summary.get("change_points_count", 0)) == 0
-    assert int(summary.get("filtered_change_points_count", 0)) >= 1
+    assert int(summary.get("accepted_change_points_count", 0)) == 0
+    assert int(summary.get("rejected_change_points_count", 0)) >= 1
+    assert int(summary["raw_change_points_count"]) == (
+        int(summary["accepted_change_points_count"])
+        + int(summary["rejected_change_points_count"])
+    )
+    assert "filtered_change_points_count" not in summary
     params_used = out.get("params_used", {})
     cp_filter = params_used.get("cp_filter", {})
     assert int(cp_filter.get("confirm_bars", 0)) == 2
@@ -569,6 +575,12 @@ def test_bocpd_reliability_distinguishes_stability_from_filtered_peak() -> None:
     assert stable_score["decision"] == "stable"
     assert filtered_score["confidence"] < 0.55
     assert filtered_score["decision"] == "all_candidates_filtered"
+    assert int(filtered_score["raw_candidates_count"]) == (
+        int(filtered_score["accepted_candidates_count"])
+        + int(filtered_score["rejected_candidates_count"])
+    )
+    assert int(filtered_score["rejected_candidates_count"]) >= 1
+    assert "filtered_candidates_count" not in filtered_score
 
 
 def test_bocpd_confirmation_uses_only_candidate_and_prior_bars() -> None:

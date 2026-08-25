@@ -463,7 +463,8 @@ def test_bocpd_consolidation_uses_segment_language() -> None:
                 "mean_cp_prob": 0.2825,
                 "change_points_count": 1,
                 "raw_change_points_count": 2,
-                "filtered_change_points_count": 1,
+                "accepted_change_points_count": 1,
+                "rejected_change_points_count": 1,
             },
         },
         "bocpd",
@@ -476,7 +477,14 @@ def test_bocpd_consolidation_uses_segment_language() -> None:
     assert out["transition_summary"]["max_transition_probability"] == 0.9
     assert out["transition_summary"]["mean_transition_probability"] == 0.2825
     assert out["transition_summary"]["raw_change_points_count"] == 2
-    assert out["transition_summary"]["filtered_change_points_count"] == 1
+    assert out["transition_summary"]["accepted_change_points_count"] == 1
+    assert out["transition_summary"]["rejected_change_points_count"] == 1
+    assert (
+        out["transition_summary"]["raw_change_points_count"]
+        == out["transition_summary"]["accepted_change_points_count"]
+        + out["transition_summary"]["rejected_change_points_count"]
+    )
+    assert "filtered_change_points_count" not in out["transition_summary"]
     assert out["transition_summary"]["calibration_status"] == "calibrated"
     assert out["regime_context"]["source"] == "derived_from_return_series"
     assert out["regimes"][1]["transition_prob_at_start"] == 0.9

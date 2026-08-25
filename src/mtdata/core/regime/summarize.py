@@ -431,10 +431,11 @@ def _apply_bocpd_output_mode(
         "max_cp_prob": float(np.nanmax(tail)) if tail.size else float("nan"),
         "mean_cp_prob": float(np.nanmean(tail)) if tail.size else float("nan"),
         "change_points_count": int(len(recent_cps)),
+        "accepted_change_points_count": int(len(recent_cps)),
         "raw_change_points_count": int(
             sum(1 for idx in raw_cp_idx if int(idx) >= recent_floor)
         ),
-        "filtered_change_points_count": int(
+        "rejected_change_points_count": int(
             max(
                 0,
                 sum(1 for idx in raw_cp_idx if int(idx) >= recent_floor)

@@ -130,7 +130,8 @@ transition_summary:
   max_transition_probability: 0.471
   recent_change_points_count: 0
   raw_change_points_count: 0
-  filtered_change_points_count: 0
+  accepted_change_points_count: 0
+  rejected_change_points_count: 0
 ```
 
 **Interpretation:**
@@ -138,6 +139,7 @@ transition_summary:
 - `max_transition_probability` is the maximum probability inside `lookback`
 - Below threshold (0.5), so not flagged as a change point
 - Higher probabilities indicate likely structural breaks
+- Invariant: `raw_change_points_count = accepted_change_points_count + rejected_change_points_count`. `rejected_change_points_count` is the number of raw candidates filtered out, not the accepted remainder.
 
 **Parameters:**
 | Parameter | Default | Description |
