@@ -1298,12 +1298,59 @@ def test_execution_quality_compact_omits_expanded_breakdowns() -> None:
     )
 
     assert result["summary"]["fills"] == 1
+    assert result["summary_scope"] == "requested_window"
+    assert result["sample"]["selection_order"] == "latest_first"
+    assert result["sample"]["truncated"] is False
     assert "breakdowns" not in result
     assert "session_calendars" not in result["data_quality"]
     assert "session_definition" not in result["data_quality"]
     assert "timing_definition" not in result
     assert "price_quality_definition" not in result
     assert "units" not in result
+
+
+def test_execution_quality_labels_truncated_latest_fill_sample() -> None:
+    gateway = FakeGateway()
+    start = _now() - 400
+    gateway.tick_rows = _ticks(400, start=start)
+    gateway.orders = []
+    gateway.deals = []
+    for index in range(3):
+        fill_epoch = start + 100 + (index * 80)
+        gateway.orders.append(
+            {
+                "ticket": 10 + index,
+                "type": 0,
+                "price_open": 1.10005,
+                "volume_initial": 1.0,
+                "time_setup_msc": (fill_epoch - 1) * 1000,
+            }
+        )
+        gateway.deals.append(
+            {
+                "ticket": 20 + index,
+                "order": 10 + index,
+                "symbol": "EURUSD",
+                "type": 0,
+                "volume": 1.0,
+                "price": 1.10008,
+                "time_msc": fill_epoch * 1000,
+            }
+        )
+
+    result = analyze_execution_quality(
+        TradeExecutionQualityRequest(minutes_back=60, limit=2, markout_seconds=[1]),
+        gateway,
+    )
+
+    assert result["summary"]["fills"] == 2
+    assert result["data_quality"]["eligible_trade_deals"] == 3
+    assert result["summary_scope"] == "latest_2_of_3"
+    assert result["sample"]["selection_order"] == "latest_first"
+    assert result["sample"]["truncated"] is True
+    assert result["effective_analysis_window"]["scope"] == "latest_2_of_3"
+    assert result["window"]["minutes_back_requested"] == 60
+    assert any("latest 2 matched fill" in warning for warning in result["warnings"])
 
 
 def test_execution_quality_reuses_symbol_time_quote_chunks() -> None:

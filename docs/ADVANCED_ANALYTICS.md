@@ -84,7 +84,12 @@ Markout cohorts may differ by horizon because a future tick can be available for
 one horizon but not another. Root `fill_sample_quality` applies only to
 fill-level metrics, not to these horizon-specific distributions.
 
-Compact detail returns the headline distributions, sample counts, window
+`--limit` caps matched fills used for headline metrics and returned rows
+(latest fills first). Compact output labels that sample with `summary_scope`
+(for example `latest_200_of_491`), keeps `sample.selection_order`, and adds
+`effective_analysis_window` beside the requested `window`. A warning is
+emitted whenever the sample does not cover the full requested period. Compact
+detail also returns the headline distributions, sample counts, window
 provenance, data-quality counts, and warnings. Standard detail adds breakdowns,
 metric definitions, units, session definitions, and full history diagnostics;
 full detail also includes individual fill rows.

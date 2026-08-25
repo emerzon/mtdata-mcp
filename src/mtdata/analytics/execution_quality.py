@@ -818,13 +818,35 @@ def analyze_execution_quality(  # noqa: C901
         "observed": len(fills),
         "scope": "matched_fills_for_fill_level_metrics",
     }
+    truncated = processed_candidates < len(eligible_deals)
+    if truncated:
+        warnings.append(
+            "Headline execution metrics use the latest "
+            f"{len(fills)} matched fill(s) of {len(eligible_deals)} eligible "
+            "trade deals in the requested window; they are not full-window "
+            "aggregates. Raise --limit to analyze more fills."
+        )
     sample = {
         "selection_order": "latest_first",
         "display_order": "chronological",
         "total_eligible": len(eligible_deals),
+        "matched_fills": len(fills),
         "sample_start": sample_start,
         "sample_end": sample_end,
-        "truncated": processed_candidates < len(eligible_deals),
+        "truncated": truncated,
+        "limit": request.limit,
+    }
+    summary_scope = (
+        f"latest_{len(fills)}_of_{len(eligible_deals)}"
+        if truncated
+        else "requested_window"
+    )
+    effective_analysis_window = {
+        "start": sample_start,
+        "end": sample_end,
+        "timezone": "UTC",
+        "scope": summary_scope,
+        "selection_order": "latest_first",
     }
     benchmark_quality = {
         "requested": request.benchmark,
@@ -854,6 +876,9 @@ def analyze_execution_quality(  # noqa: C901
         ),
         **({"currency": account_currency} if account_currency else {}),
         "window": analysis_window,
+        "requested_window": analysis_window,
+        "effective_analysis_window": effective_analysis_window,
+        "summary_scope": summary_scope,
         "filters_applied": filters_applied,
     }
     if request.detail == "compact":
@@ -890,8 +915,11 @@ def analyze_execution_quality(  # noqa: C901
                 "quote_reads": tick_cache.metadata(),
             },
             "sample": {
+                "selection_order": sample["selection_order"],
                 "total_eligible": sample["total_eligible"],
+                "matched_fills": sample["matched_fills"],
                 "truncated": sample["truncated"],
+                "limit": sample["limit"],
                 "sample_start": sample["sample_start"],
                 "sample_end": sample["sample_end"],
             },

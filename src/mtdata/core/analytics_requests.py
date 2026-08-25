@@ -92,7 +92,11 @@ class TradeExecutionQualityRequest(BaseModel):
         200,
         ge=1,
         le=1_000,
-        description="Maximum eligible fills to analyze (default 200).",
+        description=(
+            "Maximum matched fills to include in headline metrics and returned "
+            "rows (default 200). Latest fills are selected first; raise this to "
+            "cover more of the requested window."
+        ),
     )
     benchmark: Literal["arrival_quote", "order_price"] = "arrival_quote"
     benchmark_fallback: Literal["skip", "order_price"] = "skip"
