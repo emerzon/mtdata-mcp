@@ -98,8 +98,8 @@ def test_strategy_backtest_explicit_historical_bar_spread(monkeypatch):
     assert historical["cost_model"]["type"] == "historical_bar_spread"
     assert historical["cost_model"]["requested_type"] == "historical_bar_spread"
     assert historical["cost_model"]["spread_source"] == "mt5_historical_bar_spread"
-    assert historical["cost_model"]["historical_spread_coverage_pct"] == 100.0
-    assert historical["cost_model"]["spread_observations"] == 1
+    assert historical["cost_model"]["observed_cost_coverage_pct"] == 100.0
+    assert historical["cost_model"]["observed_cost_trade_count"] == 1
     assert historical["cost_model"]["spread_bps_round_trip"] == pytest.approx(
         historical["trades"][0]["spread_cost_bps"]
     )
@@ -364,10 +364,13 @@ def test_strategy_backtest_compact_mode_excludes_trades(monkeypatch):
         "requested_type": "fixed",
         "spread_bps_round_trip": 0.0,
         "spread_source": "explicit",
-        "spread_observations": 1,
-        "historical_priced_trades": 0,
-        "unpriced_trades": 0,
-        "priced_trade_coverage_pct": 100.0,
+        "cost_applied_trade_count": 1,
+        "observed_cost_trade_count": 0,
+        "imputed_cost_trade_count": 1,
+        "unpriced_trade_count": 0,
+        "cost_applied_coverage_pct": 100.0,
+        "observed_cost_coverage_pct": 0.0,
+        "imputed_cost_coverage_pct": 100.0,
         "slippage_bps_per_side": 1.0,
         "round_trip_cost_bps": 2.0,
         "complete": True,
@@ -380,7 +383,7 @@ def test_strategy_backtest_compact_mode_excludes_trades(monkeypatch):
     assert out["last_historical_signal"]["direction"] == "long"
     assert "signal" not in out["last_historical_signal"]
     assert out["summary"]["costs_complete"] is True
-    assert out["summary"]["cost_coverage_pct"] == 100.0
+    assert out["summary"]["cost_applied_coverage_pct"] == 100.0
     assert "net_return" in out["summary"]
     assert out["metrics"]["trades_observed"] == 1
     assert out["units"]["returns"] == "return_fraction"
@@ -635,7 +638,7 @@ def test_max_hold_waits_for_fresh_signal_before_same_direction_reentry(monkeypat
     assert out["trades"][0]["bars_held"] == 3
     assert out["summary"]["max_hold_reentry_policy"] == "fresh_signal_required"
     assert out["summary"]["longest_continuous_exposure_bars"] == 3
-    assert out["cost_model"]["spread_observations"] == 1
+    assert out["cost_model"]["cost_applied_trade_count"] == 1
 
 
 def test_max_hold_allows_opposite_signal_at_boundary(monkeypatch):

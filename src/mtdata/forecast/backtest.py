@@ -1957,23 +1957,30 @@ def strategy_backtest(  # noqa: C901
             if pricing_cost_model == "fixed"
             else mean_spread_cost_bps
         )
-        priced_trade_count = len(observed_spread_costs)
-        costed_trade_count = priced_trade_count + int(missing_spread_costs)
-        priced_trade_coverage_pct = (
-            round(priced_trade_count / costed_trade_count * 100.0, 2)
+        cost_applied_trade_count = len(observed_spread_costs)
+        costed_trade_count = cost_applied_trade_count + int(missing_spread_costs)
+        observed_cost_trade_count = int(historical_spread_trade_count)
+        imputed_cost_trade_count = max(
+            0,
+            cost_applied_trade_count - observed_cost_trade_count,
+        )
+        cost_applied_coverage_pct = (
+            round(cost_applied_trade_count / costed_trade_count * 100.0, 2)
             if costed_trade_count
             else None
         )
-        historical_spread_trade_coverage_pct = (
-            round(
-                historical_spread_trade_count / costed_trade_count * 100.0,
-                2,
-            )
+        observed_cost_coverage_pct = (
+            round(observed_cost_trade_count / costed_trade_count * 100.0, 2)
+            if costed_trade_count
+            else None
+        )
+        imputed_cost_coverage_pct = (
+            round(imputed_cost_trade_count / costed_trade_count * 100.0, 2)
             if costed_trade_count
             else None
         )
         known_cost_return_available = bool(
-            cost_model_complete or priced_trade_count > 0
+            cost_model_complete or cost_applied_trade_count > 0
         )
         summary_returns = (
             {
@@ -2037,10 +2044,13 @@ def strategy_backtest(  # noqa: C901
                 "requested_type": cost_model_value,
                 "spread_bps_round_trip": reported_spread_cost_bps,
                 "spread_source": spread_source,
-                "spread_observations": priced_trade_count,
-                "historical_priced_trades": historical_spread_trade_count,
-                "unpriced_trades": int(missing_spread_costs),
-                "priced_trade_coverage_pct": priced_trade_coverage_pct,
+                "cost_applied_trade_count": cost_applied_trade_count,
+                "observed_cost_trade_count": observed_cost_trade_count,
+                "imputed_cost_trade_count": imputed_cost_trade_count,
+                "unpriced_trade_count": int(missing_spread_costs),
+                "cost_applied_coverage_pct": cost_applied_coverage_pct,
+                "observed_cost_coverage_pct": observed_cost_coverage_pct,
+                "imputed_cost_coverage_pct": imputed_cost_coverage_pct,
                 "slippage_bps_per_side": float(slippage_bps),
                 "round_trip_cost_bps": (
                     reported_spread_cost_bps + float(slippage_bps) * 2.0
@@ -2088,7 +2098,7 @@ def strategy_backtest(  # noqa: C901
                     }
                 ),
                 "costs_complete": bool(cost_model_complete),
-                "cost_coverage_pct": priced_trade_coverage_pct,
+                "cost_applied_coverage_pct": cost_applied_coverage_pct,
                 **summary_returns,
             },
             "metrics": reported_metrics,
@@ -2103,9 +2113,6 @@ def strategy_backtest(  # noqa: C901
             },
         }
         if cost_model_value in {"historical_bar_spread", "auto"}:
-            result["cost_model"]["historical_spread_coverage_pct"] = (
-                historical_spread_trade_coverage_pct
-            )
             result["cost_model"]["historical_bar_spread_coverage_pct"] = round(
                 historical_spread_coverage * 100.0, 2
             )
