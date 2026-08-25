@@ -350,8 +350,8 @@ def _default_watch_specs(request: WaitEventRequest) -> List[Any]:
                 PositionClosedEventSpec(symbol=symbol),
                 TpHitEventSpec(symbol=symbol),
                 SlHitEventSpec(symbol=symbol),
-                PriceChangeEventSpec(symbol=symbol),
-                VolumeSpikeEventSpec(symbol=symbol),
+                PriceChangeEventSpec(symbol=symbol, threshold_value=2.0),
+                VolumeSpikeEventSpec(symbol=symbol, threshold_value=2.0),
             ]
         )
     return specs

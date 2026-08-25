@@ -30,30 +30,38 @@ class FakeClock:
 
 
 @pytest.mark.parametrize(
-    ("event_type", "expected_threshold"),
+    "event_type",
     [
-        ("price_change", 2.0),
-        ("volume_spike", 2.0),
-        ("tick_count_spike", 2.0),
-        ("spread_spike", 2.0),
-        ("tick_count_drought", 0.5),
-        ("range_expansion", 2.0),
+        "price_change",
+        "volume_spike",
+        "tick_count_spike",
+        "spread_spike",
+        "range_expansion",
     ],
 )
-def test_market_stat_event_specs_share_defaults_and_validation(
-    event_type: str, expected_threshold: float
-) -> None:
+def test_market_stat_event_specs_require_threshold_value(event_type: str) -> None:
+    with pytest.raises(ValidationError, match="threshold_value"):
+        WaitEventRequest(
+            max_wait_seconds=5,
+            watch_for=[{"type": event_type, "symbol": "EURUSD"}],
+        )
+
     request = WaitEventRequest(
         max_wait_seconds=5,
-        watch_for=[{"type": event_type, "symbol": "EURUSD"}]
+        watch_for=[
+            {
+                "type": event_type,
+                "symbol": "EURUSD",
+                "threshold_value": 2.0,
+            }
+        ],
     )
-
     spec = request.watch_for[0]
     assert spec.window.kind == "minutes"
     assert spec.baseline_window.kind == "minutes"
     assert spec.baseline_window.value == 60.0
     assert spec.threshold_mode == "ratio_to_baseline"
-    assert spec.threshold_value == expected_threshold
+    assert spec.threshold_value == 2.0
 
     with pytest.raises(ValidationError, match="Input should be greater than 0"):
         WaitEventRequest(
@@ -61,6 +69,29 @@ def test_market_stat_event_specs_share_defaults_and_validation(
             watch_for=[
                 {
                     "type": event_type,
+                    "symbol": "EURUSD",
+                    "threshold_value": 0,
+                }
+            ]
+        )
+
+
+def test_tick_count_drought_keeps_documented_threshold_default() -> None:
+    request = WaitEventRequest(
+        max_wait_seconds=5,
+        watch_for=[{"type": "tick_count_drought", "symbol": "EURUSD"}],
+    )
+
+    spec = request.watch_for[0]
+    assert spec.threshold_mode == "ratio_to_baseline"
+    assert spec.threshold_value == 0.5
+
+    with pytest.raises(ValidationError, match="Input should be greater than 0"):
+        WaitEventRequest(
+            max_wait_seconds=5,
+            watch_for=[
+                {
+                    "type": "tick_count_drought",
                     "symbol": "EURUSD",
                     "threshold_value": 0,
                 }
@@ -76,6 +107,7 @@ def test_only_price_change_accepts_fixed_pct_threshold_mode() -> None:
                 "type": "price_change",
                 "symbol": "EURUSD",
                 "threshold_mode": "fixed_pct",
+                "threshold_value": 0.1,
             }
         ]
     )
