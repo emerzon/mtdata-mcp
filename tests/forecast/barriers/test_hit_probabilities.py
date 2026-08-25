@@ -666,6 +666,7 @@ class TestBarrierHitProbabilities(_BarrierTestBase):
             horizon=10,
             direction="long",
             barrier=last_price,
+            as_of="2023-01-20T00:00:00Z",
         )
         self.assertTrue(at_spot["success"])
         self.assertEqual(at_spot["method"], "closed_form")
@@ -679,6 +680,7 @@ class TestBarrierHitProbabilities(_BarrierTestBase):
             horizon=10,
             direction="short",
             barrier=last_price * 1.05,
+            as_of="2023-01-20T00:00:00Z",
         )
         self.assertTrue(upper["success"])
         self.assertEqual(upper["direction"], "short")
@@ -691,6 +693,7 @@ class TestBarrierHitProbabilities(_BarrierTestBase):
             horizon=10,
             direction="long",
             barrier=last_price * 0.95,
+            as_of="2023-01-20T00:00:00Z",
         )
         self.assertTrue(lower["success"])
         self.assertEqual(lower["direction"], "long")

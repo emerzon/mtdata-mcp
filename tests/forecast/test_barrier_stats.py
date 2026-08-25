@@ -780,6 +780,7 @@ class TestBarrierSanityCheckFixes(unittest.TestCase):
             result = forecast_barrier_closed_form(
                 symbol="EURUSD", timeframe="H1", horizon=10,
                 direction="long", barrier=last_price,
+                as_of="2023-01-20T00:00:00Z",
             )
         self.assertTrue(result.get("success"))
         self.assertEqual(result.get("method"), "closed_form")
