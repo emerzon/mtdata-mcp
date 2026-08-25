@@ -41,6 +41,11 @@ def _mock_patterns_mt5_connection(monkeypatch):
     monkeypatch.setattr(core_patterns, "ensure_mt5_connection_or_raise", lambda: None)
 
 
+def test_patterns_request_rejects_future_end():
+    with pytest.raises(ValidationError, match="end datetime.*is in the future"):
+        PatternsDetectRequest(symbol="EURUSD", end="2030-01-01")
+
+
 def test_bounded_pattern_fetch_drops_forming_tail(monkeypatch):
     rates = [
         {

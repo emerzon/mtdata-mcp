@@ -558,6 +558,10 @@ def test_rule_based_uses_price_window_metrics_for_return_target() -> None:
     assert out["current_regime"]["label"] == "trending"
     assert "state" not in out["current_regime"]
     assert out["params_used"]["signal_source"] == "price"
+    assert out["requested_target"] == "return"
+    assert out["effective_target"] == "price"
+    assert out["target"] == "price"
+    assert any("normalized" in warning for warning in out["warnings"])
 
 
 def test_rule_based_exposes_classification_window_without_segment_claims() -> None:

@@ -26,6 +26,7 @@ from ..shared.schema import (
 from ..utils.barriers import (
     normalize_trade_direction_alias,
 )
+from ..utils.utils import validate_historical_range
 from .tuning_contract import TuningMetricLiteral, TuningModeLiteral
 
 MAX_FORECAST_HORIZON = 500
@@ -60,6 +61,15 @@ class _PublicForecastRequest(BaseModel):
     @classmethod
     def _normalize_symbol(cls, value: Any) -> str:
         return normalize_required_symbol(value)
+
+    @model_validator(mode="after")
+    def _validate_historical_bounds(self) -> "_PublicForecastRequest":
+        issue = validate_historical_range(
+            getattr(self, "start", None), getattr(self, "end", None)
+        )
+        if issue is not None:
+            raise ValueError(str(issue.get("error") or "Invalid historical range."))
+        return self
 
     @property
     def dimred_method(self) -> Optional[str]:

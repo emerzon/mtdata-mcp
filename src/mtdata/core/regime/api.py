@@ -401,8 +401,15 @@ def regime_detect(  # noqa: C901
     """
     requested_method = str(method).strip().lower()
     method = _normalize_regime_method_name(requested_method)
+    requested_target = str(target).strip().lower()
     started_at = time.perf_counter()
     global_warnings: List[str] = []
+    if method == "rule_based" and requested_target != "price":
+        target = "price"
+        global_warnings.append(
+            "rule_based uses price-path efficiency and trend metrics; "
+            "requested target='return' was normalized to target='price'."
+        )
     symbol_input: Optional[str] = None
     analysis_window_meta: Dict[str, Any] = {}
     freshness_meta: Dict[str, Any] = {}
@@ -431,6 +438,10 @@ def regime_detect(  # noqa: C901
                     "method_note",
                     f"Requested method '{requested_method}' is handled by the '{method}' implementation.",
                 )
+            if requested_target != target:
+                result.setdefault("requested_target", requested_target)
+                result["target"] = target
+                result.setdefault("effective_target", target)
             _append_warnings(result, global_warnings)
             if analysis_window_meta:
                 result.setdefault("analysis_window", dict(analysis_window_meta))
@@ -577,16 +588,18 @@ def regime_detect(  # noqa: C901
 
         # Override lookback with effective value (will be used throughout function)
         lookback = p.get("lookback", effective_lookback)
-        global_warnings = _method_parameter_warnings(
-            method,
-            p,
-            threshold=threshold,
-            requested_lookback=int(requested_lookback),
-            requested_min_regime_bars=int(requested_min_regime_bars),
-            include_series=bool(include_series),
-            max_regimes=int(max_regimes),
-            output=output,
-            lookback_mapped_to_window=lookback_mapped_to_window,
+        global_warnings.extend(
+            _method_parameter_warnings(
+                method,
+                p,
+                threshold=threshold,
+                requested_lookback=int(requested_lookback),
+                requested_min_regime_bars=int(requested_min_regime_bars),
+                include_series=bool(include_series),
+                max_regimes=int(max_regimes),
+                output=output,
+                lookback_mapped_to_window=lookback_mapped_to_window,
+            )
         )
 
         rule_based_config: Optional[Dict[str, Any]] = None

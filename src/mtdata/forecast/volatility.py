@@ -1692,13 +1692,14 @@ def forecast_volatility(  # noqa: C901
         # Direct volatility methods
         # Fetch history sized by method
         def _need_bars_direct() -> int:
+            requested = int(lookback) if lookback is not None else 0
             if method_l == 'ewma':
-                lb = int(p.get('lookback', 1500)); return max(lb + 5, int(horizon) + 5)
+                lb = int(p.get('lookback', 1500)); return max(lb + 5, requested, int(horizon) + 5)
             if method_l in {'parkinson','gk','rs','yang_zhang','rolling_std','realized_kernel'}:
-                w = int(p.get('window', 20)); return max(w + int(horizon) + 10, 60)
+                w = int(p.get('window', 20)); return max(w + int(horizon) + 10, requested, 60)
             if method_l in garch_family:
-                fb = int(p.get('fit_bars', 2000)); return max(fb + 10, int(horizon) + 10)
-            return max(300, int(horizon) + 50)
+                fb = int(p.get('fit_bars', 2000)); return max(fb + 10, requested, int(horizon) + 10)
+            return max(300, requested, int(horizon) + 50)
 
         need = _need_bars_direct()
         rates, fetch_error = _fetch_mt5_rates_guarded(
@@ -1727,7 +1728,9 @@ def forecast_volatility(  # noqa: C901
             )
 
         df = pd.DataFrame(rates)
-        requested_history_lookback = p.get("lookback")
+        requested_history_lookback = (
+            lookback if lookback is not None else p.get("lookback")
+        )
         if requested_history_lookback is not None:
             history_bars = int(requested_history_lookback)
             if len(df) > history_bars:

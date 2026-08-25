@@ -13,7 +13,7 @@ import pandas as pd
 from pydantic import Field
 from scipy.signal import find_peaks, periodogram
 
-from ..forecast.common import bars_per_year, observed_bars_per_session
+from ..forecast.common import annualization_context
 from ..services.data_service.candles import _is_last_bar_forming
 from ..shared.constants import TIMEFRAME_MAP, TIMEFRAME_SECONDS
 from ..shared.schema import DetailLiteral, TimeframeLiteral
@@ -403,18 +403,29 @@ def stationarity_test(
 
             regression = "ct" if trend == "ct" else "c"
             result = adfuller(series.to_numpy(), regression=regression, autolag="AIC")
+            adf_samples = int(result[3])
+            adf_sufficient = adf_samples >= 20
             rows.append(
                 {
                     "test": "adf",
                     "statistic": round(float(result[0]), 6),
                     "p_value": float(result[1]),
                     "lags": int(result[2]),
-                    "samples": int(result[3]),
-                    "stationary": bool(float(result[1]) < alpha),
+                    "samples": adf_samples,
+                    "stationary": (
+                        bool(float(result[1]) < alpha) if adf_sufficient else None
+                    ),
+                    "status": "ok" if adf_sufficient else "insufficient_sample",
                     "null_hypothesis": "unit_root",
                     **({"critical_values": _critical_values(result[4])} if detail_mode == "full" else {}),
                 }
             )
+            if not adf_sufficient:
+                warnings_out.append(
+                    "ADF was excluded from the combined conclusion because lag "
+                    f"selection left only {adf_samples} effective observations; "
+                    "at least 20 are required."
+                )
         if "kpss" in requested:
             from statsmodels.tsa.stattools import kpss
 
@@ -462,7 +473,11 @@ def stationarity_test(
                     }
                 )
 
-        votes = [bool(row["stationary"]) for row in rows]
+        votes = [
+            bool(row["stationary"])
+            for row in rows
+            if row.get("stationary") is not None
+        ]
         stationary_votes = int(sum(votes))
         conclusion = (
             "inconclusive"
@@ -638,7 +653,7 @@ def seasonality_detect(
             "items": rows,
             "count": len(rows),
             "dominant_period_bars": rows[0]["period_bars"] if rows else None,
-            "score_formula": "0.55*acf + 0.45*spectral_strength; range 0-1, higher = stronger seasonality",
+            "score_formula": "0.55*clip(acf,0,1) + 0.45*spectral_strength; range 0-1, higher = stronger seasonality",
             **_diagnostic_history_metadata(
                 frame, include_incomplete=include_incomplete
             ),
@@ -954,13 +969,10 @@ def volatility_term_structure(
         observed_times = frame["time"] if "time" in frame else None
         timeframe_seconds = TIMEFRAME_SECONDS.get(str(timeframe).strip().upper())
         intraday = bool(timeframe_seconds and float(timeframe_seconds) < 86400.0)
-        bars_per_session = (
-            observed_bars_per_session(observed_times) if intraday else None
-        )
-        bpy = (
-            bars_per_year(timeframe, symbol, observed_times=observed_times)
+        bpy, annualization_basis = (
+            annualization_context(timeframe, symbol, observed_times=observed_times)
             if annualize
-            else float("nan")
+            else (float("nan"), "not_annualized")
         )
         factor = math.sqrt(bpy) if annualize else 1.0
         if not math.isfinite(factor) or factor <= 0.0:
@@ -1057,20 +1069,10 @@ def volatility_term_structure(
                 else 260 if is_probably_forex_symbol(symbol)
                 else 252
             )
-            if bars_per_session is not None:
-                out["bars_per_session"] = round(float(bars_per_session), 4)
+            if intraday and math.isfinite(bpy):
+                out["bars_per_session"] = round(float(bpy) / sessions_per_year, 4)
                 out["sessions_per_year"] = sessions_per_year
-                out["annualization_basis"] = (
-                    f"observed_median_bars_per_utc_session_x_{sessions_per_year}_sessions"
-                )
-            elif is_probably_crypto_symbol(symbol):
-                out["annualization_basis"] = "365_calendar_days_24h"
-            elif is_probably_forex_symbol(symbol):
-                out["annualization_basis"] = "260_fx_weekdays_24h"
-            elif not intraday:
-                out["annualization_basis"] = "252_trading_days_calendar"
-            else:
-                out["annualization_basis"] = "252_trading_days_24h_intraday"
+            out["annualization_basis"] = annualization_basis
         if normalize_output_verbosity_detail(detail, default="compact") == "full":
             out["method"] = "rolling_root_mean_square_log_return"
             out["lookback"] = int(lookback)

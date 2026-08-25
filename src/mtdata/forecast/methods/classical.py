@@ -126,18 +126,6 @@ class ThetaMethod(ClassicalMethod):
         exog_future: Optional[pd.DataFrame] = None,
         **kwargs
     ) -> ForecastResult:
-        if params.get("alpha") is None:
-            sf_result = self._forecast_with_statsforecast(
-                series=series,
-                horizon=horizon,
-                seasonality=seasonality,
-                params=params,
-                exog_future=exog_future,
-                **kwargs,
-            )
-            if sf_result is not None:
-                return sf_result
-
         vals = np.asarray(series.values, dtype=float)
         n = int(vals.size)
         if n == 0:
@@ -163,51 +151,14 @@ class ThetaMethod(ClassicalMethod):
         return ForecastResult(
             forecast=f_vals,
             params_used={
+                "backend": "statsmodels",
+                "model_name": "ThetaModel",
                 "alpha": float(fitted._alpha),
                 "trend_slope": float(fitted._b0),
                 "theta": 2.0,
                 "m": m,
                 "seasonality_applied": seasonality_applied,
             },
-        )
-
-    def _forecast_with_statsforecast(
-        self,
-        *,
-        series: pd.Series,
-        horizon: int,
-        seasonality: int,
-        params: Dict[str, Any],
-        exog_future: Optional[pd.DataFrame] = None,
-        **kwargs: Any,
-    ) -> Optional[ForecastResult]:
-        try:
-            from .statsforecast import GenericStatsForecastMethod
-        except Exception:
-            return None
-
-        sf_params = dict(params or {})
-        sf_params["model_name"] = "OptimizedTheta"
-        try:
-            result = GenericStatsForecastMethod().forecast(
-                series,
-                horizon,
-                seasonality,
-                sf_params,
-                exog_future=exog_future,
-                **kwargs,
-            )
-        except Exception:
-            return None
-
-        params_used = dict(result.params_used or {})
-        params_used["model_name"] = "OptimizedTheta"
-        params_used["backend"] = "statsforecast"
-        return ForecastResult(
-            forecast=np.asarray(result.forecast, dtype=float),
-            ci_values=result.ci_values,
-            params_used=params_used,
-            metadata=result.metadata,
         )
 
 @ForecastRegistry.register("fourier_ols")

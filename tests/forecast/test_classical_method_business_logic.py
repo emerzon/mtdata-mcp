@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mtdata.forecast.interface import ForecastResult
 from mtdata.forecast.methods import classical as cl
 
 
@@ -114,19 +113,7 @@ def test_theta_forecast_rejects_noncanonical_parameters():
         )
 
 
-def test_theta_forecast_prefers_statsforecast_default_path(monkeypatch):
-    def _fake_forecast(self, series, horizon, seasonality, params, exog_future=None, **kwargs):
-        assert params["model_name"] == "OptimizedTheta"
-        return ForecastResult(
-            forecast=np.array([10.0, 11.0]),
-            params_used={"seasonality": seasonality},
-        )
-
-    monkeypatch.setattr(
-        "mtdata.forecast.methods.statsforecast.GenericStatsForecastMethod.forecast",
-        _fake_forecast,
-    )
-
+def test_theta_forecast_uses_native_statsmodels_backend():
     out = cl.ThetaMethod().forecast(
         pd.Series([2.0, 4.0, 6.0, 8.0]),
         horizon=2,
@@ -134,20 +121,12 @@ def test_theta_forecast_prefers_statsforecast_default_path(monkeypatch):
         params={},
     )
 
-    assert np.allclose(out.forecast, [10.0, 11.0])
-    assert out.params_used["model_name"] == "OptimizedTheta"
-    assert out.params_used["backend"] == "statsforecast"
+    assert np.all(np.isfinite(out.forecast))
+    assert out.params_used["model_name"] == "ThetaModel"
+    assert out.params_used["backend"] == "statsmodels"
 
 
-def test_theta_forecast_falls_back_to_legacy_when_statsforecast_path_fails(monkeypatch):
-    def _fail_forecast(self, series, horizon, seasonality, params, exog_future=None, **kwargs):
-        raise RuntimeError("statsforecast unavailable")
-
-    monkeypatch.setattr(
-        "mtdata.forecast.methods.statsforecast.GenericStatsForecastMethod.forecast",
-        _fail_forecast,
-    )
-
+def test_theta_forecast_reports_native_fit_parameters():
     out = cl.ThetaMethod().forecast(
         pd.Series([2.0, 4.0, 6.0, 8.0]),
         horizon=2,

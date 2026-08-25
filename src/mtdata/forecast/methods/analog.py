@@ -629,7 +629,23 @@ class AnalogMethod(ForecastMethod):
                     overlap_excluded += 1
                     continue
                 valid_candidates.append((int(cand_idx), float(dist)))
-            enough_valid = len(valid_candidates) >= min(top_k, n_windows)
+            diverse_count = 0
+            if valid_candidates:
+                candidate_idxs = np.asarray(
+                    [row[0] for row in valid_candidates], dtype=int
+                )
+                candidate_dists = np.asarray(
+                    [row[1] for row in valid_candidates], dtype=float
+                )
+                diverse_idxs, _, _ = self._select_diverse_matches(
+                    idx,
+                    candidate_idxs,
+                    candidate_dists,
+                    top_k=min(top_k, len(valid_candidates)),
+                    min_separation=min_separation,
+                )
+                diverse_count = int(diverse_idxs.size)
+            enough_valid = diverse_count >= min(top_k, n_windows)
             exhausted = search_k >= n_windows or search_round >= max_search_rounds
             if enough_valid or exhausted:
                 break
@@ -643,6 +659,7 @@ class AnalogMethod(ForecastMethod):
         diagnostic["raw_candidate_count"] = int(len(raw_idxs))
         diagnostic["excluded_overlap_candidates"] = int(overlap_excluded)
         diagnostic["valid_candidate_count"] = int(len(valid_candidates))
+        diagnostic["post_diversity_candidate_count"] = int(diverse_count)
 
         if not valid_candidates:
             return fail(
@@ -719,9 +736,18 @@ class AnalogMethod(ForecastMethod):
 
         scores_arr = np.asarray([meta.get("score", np.nan) for meta in meta_list], dtype=float)
         finite_scores = scores_arr[np.isfinite(scores_arr)]
-        diagnostic["status"] = "ok"
-        diagnostic["reason"] = None
-        diagnostic["returned_paths"] = int(len(futures))
+        returned_paths = int(len(futures))
+        path_shortfall = max(0, int(top_k) - returned_paths)
+        diagnostic["requested_paths"] = int(top_k)
+        diagnostic["path_shortfall"] = path_shortfall
+        diagnostic["search_exhausted"] = bool(
+            search_k >= n_windows or search_round >= max_search_rounds
+        )
+        diagnostic["status"] = "partial" if path_shortfall else "ok"
+        diagnostic["reason"] = (
+            "insufficient_diverse_analogs" if path_shortfall else None
+        )
+        diagnostic["returned_paths"] = returned_paths
         if finite_scores.size > 0:
             diagnostic["score_summary"] = {
                 "best": float(np.min(finite_scores)),

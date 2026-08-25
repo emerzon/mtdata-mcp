@@ -224,6 +224,10 @@ def test_stationarity_default_target_has_usable_minimum_lookback(monkeypatch):
     assert "at least 21" in rejected["error"]
     assert accepted["success"] is True
     assert accepted["items"][0]["samples"] == 18
+    assert accepted["items"][0]["status"] == "insufficient_sample"
+    assert accepted["items"][0]["stationary"] is None
+    assert accepted["conclusion"] == "inconclusive"
+    assert "excluded" in accepted["warnings"][0]
 
 
 def test_stationarity_test_preserves_small_p_value(monkeypatch):
@@ -348,7 +352,9 @@ def test_seasonality_detect_finds_known_period(monkeypatch):
         min_period=4,
         max_period=30,
     )
-    assert result["score_formula"].startswith("0.55*acf + 0.45*spectral_strength")
+    assert result["score_formula"].startswith(
+        "0.55*clip(acf,0,1) + 0.45*spectral_strength"
+    )
 
     assert result["success"] is True
     assert result["analysis_window"]["bars_used"] == len(frame)
@@ -660,7 +666,7 @@ def test_volatility_term_structure_returns_requested_horizons(monkeypatch):
     )
     assert result["bars_per_year"] == 6048.0
     assert result["bars_per_session"] == 24.0
-    assert result["annualization_basis"] == "observed_median_bars_per_utc_session_x_252_sessions"
+    assert result["annualization_basis"] == "252_trading_days_observed_session"
 
 
 def test_volatility_term_structure_reports_usable_horizon_minimum(monkeypatch):
@@ -722,7 +728,7 @@ def test_volatility_term_structure_uses_observed_session_density(monkeypatch):
     assert result["bars_per_session"] == 7.0
     assert result["sessions_per_year"] == 252
     assert result["bars_per_year"] == 1764.0
-    assert result["annualization_basis"] == "observed_median_bars_per_utc_session_x_252_sessions"
+    assert result["annualization_basis"] == "252_trading_days_observed_session"
 
 
 def test_volatility_term_structure_suppresses_tiny_sample_percentiles(monkeypatch):

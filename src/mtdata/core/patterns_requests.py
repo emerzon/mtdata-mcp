@@ -5,6 +5,7 @@ from typing import Any, Dict, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from ..shared.schema import DenoiseSpecInput, TimeframeLiteral
+from ..utils.utils import validate_historical_range
 
 PatternsDetailLiteral = Literal["compact", "standard", "summary", "full"]
 PatternModeLiteral = Literal["candlestick", "classic", "harmonic", "fractal", "elliott", "all"]
@@ -111,6 +112,9 @@ class PatternsDetectRequest(BaseModel):
 
     @model_validator(mode="after")
     def _validate_request(self) -> "PatternsDetectRequest":
+        issue = validate_historical_range(self.start, self.end)
+        if issue is not None:
+            raise ValueError(str(issue.get("error") or "Invalid historical range."))
         if self.mode == "all" and self.lookback < 150:
             raise ValueError(
                 "mode='all' requires lookback >= 150; use a single pattern mode "

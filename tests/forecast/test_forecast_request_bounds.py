@@ -136,6 +136,15 @@ def test_tune_requests_accept_positive_lookback() -> None:
 
 
 @pytest.mark.parametrize(
+    "model",
+    [ForecastGenerateRequest, ForecastBacktestRequest, ForecastVolatilityEstimateRequest],
+)
+def test_forecast_requests_reject_future_end(model) -> None:
+    with pytest.raises(ValidationError, match="end datetime.*is in the future"):
+        model(symbol="EURUSD", end="2030-01-01")
+
+
+@pytest.mark.parametrize(
     "factory",
     [
         lambda **kwargs: ForecastConformalIntervalsRequest(symbol="EURUSD", **kwargs),

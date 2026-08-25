@@ -1511,10 +1511,10 @@ class TestCointegrationTest:
         assert rejected["success"] is False
         assert rejected["error_code"] == "symbol_set_incomplete"
         assert rejected["data_quality"]["analysis_family"] == {
-            "kind": "directed_symbol_pairs",
-            "tests_requested": 6,
-            "tests_available": 2,
-            "tests_removed": 4,
+            "kind": "unordered_pairs_with_stable_orientation",
+            "tests_requested": 3,
+            "tests_available": 1,
+            "tests_removed": 2,
         }
         _mock_coint.assert_not_called()
 
