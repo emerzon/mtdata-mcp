@@ -909,6 +909,9 @@ class TestCausalDiscoverSignals:
         assert result["message"] == (
             "No statistically significant Granger predictive links detected at the selected threshold."
         )
+        assert "higher significance" not in result["hint"]
+        assert "Bonferroni" in result["hint"]
+        assert "separately declared exploratory" in result["hint"]
 
     @patch("statsmodels.tsa.stattools.grangercausalitytests")
     @patch("mtdata.core.causal.discover.TIMEFRAME_MAP", {"H1": 1})
@@ -1688,6 +1691,9 @@ class TestCointegrationTest:
         assert "aligned_observations" not in pair
         assert "window_truncated" not in pair
         assert "window_interpretation" not in result["meta"].get("stats", {})
+        assert result["context"]["limit"] == 10
+        assert result["summary"]["counts"]["pairs_total"] == 1
+        assert result["summary"]["counts"]["test_family"] == 1
 
     @patch("statsmodels.tsa.stattools.coint", return_value=(-4.5, 0.01, [-3.9, -3.3, -3.0]))
     @patch("mtdata.core.causal.cointegration.TIMEFRAME_MAP", {"H1": 1})
@@ -1718,7 +1724,20 @@ class TestCointegrationTest:
         diagnostics = result["context"]["alignment_diagnostics"]
         assert diagnostics["warning_threshold_pct"] == 5.0
         assert diagnostics["loss_reference"] == "larger_transformed_input_series"
-        assert diagnostics["pairs"]["A-B"] == {
+        assert diagnostics["pairs_checked"] == 1
+        assert diagnostics["max_alignment_loss_pct"] == 16.67
+        assert diagnostics["pairs_above_warning"] == 1
+        assert "pairs" not in diagnostics
+        assert "Timestamp alignment discarded more than 5%" in result["warnings"][0]
+
+        full = self._unwrapped()(
+            "A,B",
+            transform="level",
+            window_bars=60,
+            min_overlap=40,
+            detail="full",
+        )
+        assert full["context"]["alignment_diagnostics"]["pairs"]["A-B"] == {
             "series_a": "A",
             "series_b": "B",
             "raw_samples_series_a": 120,
@@ -1726,7 +1745,6 @@ class TestCointegrationTest:
             "aligned_samples": 100,
             "alignment_loss_pct": 16.67,
         }
-        assert "Timestamp alignment discarded more than 5%" in result["warnings"][0]
 
     @patch("statsmodels.tsa.stattools.coint", side_effect=RuntimeError("singular matrix"))
     @patch("mtdata.core.causal.cointegration.TIMEFRAME_MAP", {"H1": 1})

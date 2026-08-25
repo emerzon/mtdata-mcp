@@ -764,7 +764,10 @@ def causal_discover_signals(  # noqa: C901
             if near_misses:
                 out["near_misses"] = near_misses
             out["hint"] = (
-                "For exploration, try higher significance, larger max_lag, or larger window_bars."
+                "No Bonferroni-significant links at the selected family-wise "
+                "threshold. Use more history, review stationarity and transforms, "
+                "or run a separately declared exploratory analysis; do not raise "
+                "significance after seeing these results."
             )
         return out
 
