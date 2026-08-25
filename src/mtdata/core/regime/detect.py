@@ -1043,7 +1043,9 @@ def _detect_ms_ar(  # noqa: C901
             switching_variance=True,
         )
         maxiter, _ = _coerce_param(p, "maxiter", default=100, cast=int)
-        res = mod.fit(disp=False, maxiter=maxiter)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            res = mod.fit(disp=False, maxiter=maxiter)
         inference = str(p.get("inference", "filtered")).strip().lower()
         if inference not in {"filtered", "smoothed"}:
             return {"error": "params.inference must be 'filtered' or 'smoothed'."}
@@ -3158,7 +3160,23 @@ def _detect_all(  # noqa: C901
     runtime_payload: Dict[str, Any] = {
         "completed_methods": list(succeeded_components),
         "failed_methods": list(failed_components),
-        "partial_results": bool(failed_components or ensemble_degraded),
+        "method_execution_status": (
+            "partial" if failed_components else "complete"
+        ),
+        "ensemble_status": (
+            "degraded"
+            if ensemble_aggregated and ensemble_degraded
+            else "complete"
+            if ensemble_aggregated
+            else "unavailable"
+        ),
+        "request_completion_status": (
+            "partial_method_results"
+            if failed_components
+            else "complete_with_degraded_ensemble"
+            if ensemble_degraded
+            else "complete"
+        ),
     }
     if ensemble_aggregated:
         runtime_payload["ensemble_aggregated"] = True

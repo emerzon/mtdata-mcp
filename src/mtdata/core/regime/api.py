@@ -14,7 +14,11 @@ from ...shared.schema import DenoiseSpecInput, DetailLiteral, TimeframeLiteral
 from ...shared.validators import unknown_mapping_keys_error
 from ...utils.denoise import resolve_denoise_base_col
 from ...utils.freshness import completed_bar_freshness_fields
-from ...utils.mt5 import MT5ConnectionError, ensure_mt5_connection_or_raise
+from ...utils.mt5 import (
+    MT5ConnectionError,
+    ensure_mt5_connection_or_raise,
+    resolve_public_symbol,
+)
 from ...utils.time import _format_time_minimal
 from ...utils.utils import validate_historical_range
 from .._mcp_instance import mcp
@@ -399,6 +403,7 @@ def regime_detect(  # noqa: C901
     method = _normalize_regime_method_name(requested_method)
     started_at = time.perf_counter()
     global_warnings: List[str] = []
+    symbol_input: Optional[str] = None
     analysis_window_meta: Dict[str, Any] = {}
     freshness_meta: Dict[str, Any] = {}
     log_operation_start(
@@ -430,6 +435,9 @@ def regime_detect(  # noqa: C901
             if analysis_window_meta:
                 result.setdefault("analysis_window", dict(analysis_window_meta))
             result.setdefault("timezone", "UTC")
+            result["symbol"] = symbol
+            if symbol_input is not None:
+                result["symbol_input"] = symbol_input
             _attach_regime_usage_notice(result)
             result = attach_mt5_source(result)
         log_operation_finish(
@@ -486,9 +494,13 @@ def regime_detect(  # noqa: C901
     range_error = validate_historical_range(start, end)
     if range_error is not None:
         return _finish(range_error)
-    connection_error = _regime_connection_error()
+    gateway = create_mt5_gateway(
+        ensure_connection_impl=ensure_mt5_connection_or_raise,
+    )
+    connection_error = mt5_connection_error(gateway)
     if connection_error is not None:
         return _finish(connection_error)
+    symbol, symbol_input = resolve_public_symbol(symbol, gateway=gateway)
     try:
         p = dict(params or {})
         parameter_error = unknown_mapping_keys_error(

@@ -275,7 +275,10 @@ def test_regime_detect_all_reports_runtime_diagnostics_for_partial_results(monke
     assert result["success"] is True
     assert "results" not in result
     assert "params_used" not in result
-    assert result["runtime"]["partial_results"] is True
+    assert result["runtime"]["method_execution_status"] == "partial"
+    assert result["runtime"]["ensemble_status"] == "degraded"
+    assert result["runtime"]["request_completion_status"] == "partial_method_results"
+    assert "partial_results" not in result["runtime"]
     assert "ms_ar" in result["runtime"]["failed_methods"]
     assert result["runtime"]["method_errors"]["ms_ar"] == "simulated slow fit timeout"
     assert "method_durations_ms" not in result["runtime"]
@@ -330,7 +333,13 @@ def test_regime_detect_all_promotes_excluded_successful_voter(monkeypatch) -> No
     assert "ensemble" not in calls
     assert result["runtime"]["failed_methods"] == []
     assert "ms_ar" in result["runtime"]["completed_methods"]
-    assert result["runtime"]["partial_results"] is True
+    assert result["runtime"]["method_execution_status"] == "complete"
+    assert result["runtime"]["ensemble_status"] == "degraded"
+    assert (
+        result["runtime"]["request_completion_status"]
+        == "complete_with_degraded_ensemble"
+    )
+    assert "partial_results" not in result["runtime"]
     assert result["runtime"]["ensemble_degraded"] is True
     health = result["ensemble_health"]
     assert health["excluded_voters"] == ["ms_ar"]
