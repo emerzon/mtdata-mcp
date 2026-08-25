@@ -211,6 +211,10 @@ def test_compute_volume_profile_caps_tiny_explicit_buckets():
     assert result["success"] is True
     assert result["diagnostics"]["bucket_count"] <= 10
     assert result["diagnostics"]["max_buckets_reached"] is True
+    assert result["requested_bucket_size"] == 0.01
+    assert result["effective_bucket_size"] == result["bucket_size"]
+    assert result["effective_bucket_size"] > result["requested_bucket_size"]
+    assert any("requested_bucket_size" in warning for warning in result["warnings"])
 
 
 def test_compute_volume_profile_discloses_explicit_bucket_count_cap():

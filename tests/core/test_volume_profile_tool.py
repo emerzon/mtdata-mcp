@@ -54,6 +54,31 @@ def test_profile_detail_compacts_value_area_bucket_indexes() -> None:
     assert profile["value_area"]["bucket_indexes"] == [2, 3, 4]
 
 
+def test_profile_detail_keeps_requested_and_effective_bucket_size() -> None:
+    profile = {
+        "success": True,
+        "bucket_size": 0.0002,
+        "requested_bucket_size": 0.0001,
+        "effective_bucket_size": 0.0002,
+        "warnings": [
+            "Explicit bucket width was coarsened to fit max_buckets=120; "
+            "requested_bucket_size=0.0001, effective_bucket_size=0.0002."
+        ],
+        "value_area": {
+            "low": 1.1,
+            "high": 1.2,
+            "volume": 100.0,
+            "bucket_indexes": [2, 3, 4],
+        },
+    }
+
+    compact = vp._profile_detail_payload(profile, "compact")
+
+    assert compact["requested_bucket_size"] == 0.0001
+    assert compact["effective_bucket_size"] == 0.0002
+    assert compact["warnings"][0].startswith("Explicit bucket width was coarsened")
+
+
 def test_compute_volume_profile_payload_uses_m1_fallback_for_large_auto_window(monkeypatch):
     monkeypatch.setattr(vp, "create_mt5_gateway", lambda **_: SimpleNamespace(ensure_connection=lambda: None))
     monkeypatch.setattr(

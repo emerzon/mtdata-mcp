@@ -150,6 +150,14 @@ def compute_volume_profile(
             "code": "volume_profile_invalid_bucket_size",
         }
 
+    requested_bucket_size = bucket_size
+    explicit_width = (
+        cfg.bucket_size is not None
+        or (
+            _finite_positive(cfg.price_point) is not None
+            and _finite_positive(cfg.bucket_points) is not None
+        )
+    )
     buckets_by_index = _bucket_prices(price_values, weights, bucket_size)
     bucket_size, buckets_by_index, buckets_capped = _cap_bucket_count(
         price_values,
@@ -214,6 +222,18 @@ def compute_volume_profile(
             f"bucket_count={int(cfg.bucket_count)} exceeded max_buckets="
             f"{int(cfg.max_buckets)} and was capped."
         )
+    if buckets_capped and explicit_width:
+        rounded_requested = _round_price(requested_bucket_size, cfg.price_digits)
+        rounded_effective = _round_price(bucket_size, cfg.price_digits)
+        result["requested_bucket_size"] = rounded_requested
+        result["effective_bucket_size"] = rounded_effective
+        result["warnings"] = [
+            (
+                "Explicit bucket width was coarsened to fit max_buckets="
+                f"{int(cfg.max_buckets)}; requested_bucket_size="
+                f"{rounded_requested}, effective_bucket_size={rounded_effective}."
+            )
+        ]
     return result
 
 

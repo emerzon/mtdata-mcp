@@ -733,6 +733,19 @@ def _select_profile_rows(
     return fallback
 
 
+def _merge_profile_warnings(*groups: Any) -> list[str]:
+    merged: list[str] = []
+    for group in groups:
+        items = [group] if isinstance(group, str) else group
+        if not isinstance(items, list):
+            continue
+        for item in items:
+            text = str(item).strip()
+            if text and text not in merged:
+                merged.append(text)
+    return merged
+
+
 def _profile_detail_payload(profile: Dict[str, Any], detail: str) -> Dict[str, Any]:
     detail_value = str(detail or "compact").strip().lower()
     if detail_value in {"summary"}:
@@ -757,6 +770,8 @@ def _profile_detail_payload(profile: Dict[str, Any], detail: str) -> Dict[str, A
         "price_source_effective",
         "volume_kind",
         "bucket_size",
+        "requested_bucket_size",
+        "effective_bucket_size",
         "value_area_pct",
         "price_point",
         "price_digits",
@@ -1285,8 +1300,13 @@ def compute_volume_profile_payload(
         )
     )
     profile["units"] = _profile_units(profile)
-    if selected.get("warnings"):
-        profile["warnings"] = list(selected.get("warnings") or [])
+    merged_warnings = _merge_profile_warnings(
+        profile.get("warnings"),
+        selected.get("warnings"),
+        profile.get("warning"),
+    )
+    if merged_warnings:
+        profile["warnings"] = merged_warnings
     profile["fetch_payload"] = fetch_payload
     return attach_mt5_source(
         _profile_detail_payload(profile, detail),
