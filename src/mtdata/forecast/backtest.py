@@ -135,7 +135,6 @@ def _compact_metrics_payload(metrics: Optional[Dict[str, Any]]) -> Dict[str, Any
 def _compact_strategy_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:
     out = dict(result)
     out.pop("detail", None)
-    out.pop("parameters", None)
     sample_warning = out.pop("warning", None)
     last_signal = out.pop("last_signal", None)
     if isinstance(last_signal, dict):

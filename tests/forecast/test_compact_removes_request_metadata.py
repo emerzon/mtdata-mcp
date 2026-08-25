@@ -108,6 +108,8 @@ def test_strategy_backtest_compact_excludes_request_metadata() -> None:
     assert res_compact["units"]["returns"] == "return_fraction"
     assert "drawdown" not in res_compact["units"]
     assert "summary" in res_compact
+    assert res_compact["parameters"]["fast_period"] == 10
+    assert res_compact["parameters"]["slow_period"] == 30
     assert "sample_warning" not in res_compact.get("metrics", {})
     if res_compact.get("metrics"):
         assert "sample_notice" not in res_compact["metrics"]

@@ -1927,7 +1927,7 @@ def test_strategy_validation_returns_walk_forward_oos_metrics() -> None:
         candidates=[
             {"id": "cross", "type": "builtin_strategy", "strategy": "sma_cross", "params": {"fast_period": 5, "slow_period": 20}}
         ],
-        barrier={"horizon": 5, "tp_pct": 0.15, "sl_pct": 0.15},
+        barrier={"horizon": 5},
         n_splits=3,
         cost_model="fixed",
         spread_bps=1.0,
@@ -1959,6 +1959,9 @@ def test_strategy_validation_returns_walk_forward_oos_metrics() -> None:
     assert candidate["folds_requested"] == 3
     assert candidate["skipped_folds"][0]["reason"] == "insufficient_training_trades"
     assert candidate["signal_definition"] == "state_reversal"
+    assert candidate["outcome_model"] == "position_reversal"
+    assert "barrier_window" not in result["validation"]
+    assert result["validation"]["outcome_model"] == "position_reversal"
     assert candidate["evidence"]["criteria"]["cost_model_complete"] is True
     assert candidate["evidence"]["provisional_positive_before_complete_costs"] is False
     assert "calibration" not in candidate
@@ -2037,7 +2040,7 @@ def test_strategy_validation_explicit_range_is_not_tailed_to_lookback() -> None:
                 "params": {"fast_period": 5, "slow_period": 20},
             }
         ],
-        barrier={"horizon": 1, "tp_pct": 0.15, "sl_pct": 0.15},
+        barrier={"horizon": 1},
         n_splits=2,
         cost_model="fixed",
         spread_bps=1.0,
@@ -2160,10 +2163,11 @@ def test_strategy_validation_historical_spread_can_receive_positive_classificati
                 "params": {"fast_period": 5, "slow_period": 20},
             }
         ],
-        barrier={"horizon": 5, "tp_pct": 0.15, "sl_pct": 0.15},
+        barrier={"horizon": 5},
         n_splits=3,
         bootstrap_samples=100,
         min_positive_fold_share=0.0,
+        cost_model="historical_bar_spread",
     )
 
     result = validate_strategies(request, gateway)
@@ -2300,6 +2304,7 @@ def test_strategy_validation_marks_sparse_historical_spreads_incomplete() -> Non
                 "strategy": "sma_cross",
             }
         ],
+        cost_model="historical_bar_spread",
     )
 
     spread, source, complete, window = _observed_spread_bps(
@@ -2313,6 +2318,97 @@ def test_strategy_validation_marks_sparse_historical_spreads_incomplete() -> Non
     assert complete is False
     assert window["observations"] == 17
     assert window["coverage_pct"] == 85.0
+
+
+def test_strategy_validation_auto_uses_conservative_estimate_when_coverage_is_sparse() -> None:
+    gateway = FakeGateway()
+    frame = pd.DataFrame(_bars(20))
+    frame.loc[frame.index[:3], "spread"] = 0.0
+    request = StrategyValidateRequest(
+        symbol="EURUSD",
+        candidates=[
+            {
+                "id": "cross",
+                "type": "builtin_strategy",
+                "strategy": "sma_cross",
+            }
+        ],
+    )
+
+    spread, source, complete, window = _observed_spread_bps(
+        request,
+        gateway,
+        frame,
+    )
+
+    assert request.cost_model == "auto"
+    assert spread is not None
+    assert complete is True
+    assert source in {
+        "mt5_historical_bar_spread_p75",
+        "current_bid_ask_snapshot",
+        "mt5_symbol_info_spread",
+    }
+    assert window["basis"] == "auto_conservative_estimate"
+    assert window["selection_reason"] == "incomplete_historical_spread_coverage"
+
+
+def test_strategy_validation_rejects_barrier_tp_sl_for_state_reversal() -> None:
+    result = validate_strategies(
+        StrategyValidateRequest(
+            symbol="EURUSD",
+            lookback=400,
+            candidates=[
+                {
+                    "id": "cross",
+                    "type": "builtin_strategy",
+                    "strategy": "sma_cross",
+                    "params": {"fast_period": 5, "slow_period": 20},
+                }
+            ],
+            barrier={"horizon": 5, "tp_pct": 0.15, "sl_pct": 0.15},
+            cost_model="fixed",
+            spread_bps=1.0,
+        ),
+        FakeGateway(),
+    )
+
+    assert result["success"] is False
+    assert result["error_code"] == "incompatible_barrier_for_state_reversal"
+    assert result["outcome_model"] == "position_reversal"
+    assert "cross" in result["incompatible_candidates"]
+
+
+def test_strategy_validation_compact_keeps_effective_parameters() -> None:
+    result = validate_strategies(
+        StrategyValidateRequest(
+            symbol="EURUSD",
+            lookback=400,
+            candidates=[
+                {
+                    "id": "cross",
+                    "type": "builtin_strategy",
+                    "strategy": "sma_cross",
+                    "params": {"fast_period": 5, "slow_period": 20},
+                }
+            ],
+            barrier={"horizon": 5},
+            n_splits=3,
+            cost_model="fixed",
+            spread_bps=1.0,
+            bootstrap_samples=100,
+            detail="compact",
+        ),
+        FakeGateway(),
+    )
+
+    assert result["success"] is True
+    assert result["rankings"][0]["effective_parameters"] == {
+        "fast_period": 5,
+        "slow_period": 20,
+    }
+    assert result["rankings"][0]["outcome_model"] == "position_reversal"
+    assert "folds" not in result["rankings"][0]
 
 
 def test_strategy_barrier_entry_uses_next_bar_open_after_gap() -> None:
@@ -2377,6 +2473,7 @@ def test_strategy_validation_fails_when_cost_spread_is_unavailable() -> None:
                 "params": {"fast_period": 5, "slow_period": 20},
             }
         ],
+        cost_model="historical_bar_spread",
     )
 
     result = validate_strategies(request, gateway)

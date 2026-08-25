@@ -120,7 +120,7 @@ def _candidate_signal_definition(candidate: StrategyCandidate) -> str:
 def _candidate_result_identity(
     candidate: StrategyCandidate,
     *,
-    include_effective_parameters: bool,
+    include_effective_parameters: bool = True,
 ) -> Dict[str, Any]:
     identity: Dict[str, Any] = {
         "id": candidate.id,
@@ -358,6 +358,77 @@ _MIN_HISTORICAL_SPREAD_COVERAGE = 0.9
 
 
 
+def _current_spread_bps(gateway: Any, symbol: str) -> Optional[float]:
+    try:
+        tick = gateway.symbol_info_tick(symbol)
+        bid = float(getattr(tick, "bid", 0.0) or 0.0)
+        ask = float(getattr(tick, "ask", 0.0) or 0.0)
+        mid = (bid + ask) / 2.0
+    except Exception:
+        return None
+    if not all(math.isfinite(value) for value in (bid, ask, mid)):
+        return None
+    if bid <= 0.0 or ask <= bid or mid <= 0.0:
+        return None
+    return round((ask - bid) / mid * 10_000.0, 4)
+
+
+def _symbol_info_spread_bps(
+    gateway: Any,
+    symbol: str,
+    frame: pd.DataFrame,
+) -> Optional[float]:
+    try:
+        info = gateway.symbol_info(symbol)
+        spread_points = float(getattr(info, "spread", 0.0) or 0.0)
+        point = float(getattr(info, "point", 0.0) or 0.0)
+        bid = float(getattr(info, "bid", 0.0) or 0.0)
+        ask = float(getattr(info, "ask", 0.0) or 0.0)
+    except Exception:
+        return None
+    if not math.isfinite(spread_points) or spread_points <= 0.0:
+        return None
+    if not math.isfinite(point) or point <= 0.0:
+        return None
+    mid = (bid + ask) / 2.0 if bid > 0.0 and ask > bid else 0.0
+    if mid <= 0.0 and "close" in frame.columns and len(frame):
+        try:
+            close = float(frame["close"].iloc[-1])
+        except Exception:
+            close = 0.0
+        if math.isfinite(close) and close > 0.0:
+            mid = close
+    if mid <= 0.0:
+        return None
+    return round(spread_points * point / mid * 10_000.0, 4)
+
+
+def _conservative_spread_bps(
+    request: StrategyValidateRequest,
+    gateway: Any,
+    frame: pd.DataFrame,
+    historical_spread_bps: Optional[np.ndarray],
+) -> Tuple[Optional[float], str]:
+    candidates: List[Tuple[float, str]] = []
+    if historical_spread_bps is not None and len(historical_spread_bps):
+        candidates.append(
+            (
+                float(np.percentile(historical_spread_bps, 75)),
+                "mt5_historical_bar_spread_p75",
+            )
+        )
+    current = _current_spread_bps(gateway, request.symbol)
+    if current is not None:
+        candidates.append((float(current), "current_bid_ask_snapshot"))
+    symbol_spread = _symbol_info_spread_bps(gateway, request.symbol, frame)
+    if symbol_spread is not None:
+        candidates.append((float(symbol_spread), "mt5_symbol_info_spread"))
+    if not candidates:
+        return None, "unavailable"
+    value, source = max(candidates, key=lambda item: item[0])
+    return round(float(value), 4), source
+
+
 def _observed_spread_bps(
     request: StrategyValidateRequest,
     gateway: Any,
@@ -405,20 +476,44 @@ def _observed_spread_bps(
             2,
         ),
     }
+    historical_values: Optional[np.ndarray] = None
+    historical_median: Optional[float] = None
     if observations and math.isfinite(point) and point > 0.0:
-        spread_values = spread_points[valid_mask] * point / close[valid_mask] * 10_000.0
+        historical_values = (
+            spread_points[valid_mask] * point / close[valid_mask] * 10_000.0
+        )
+        historical_median = float(np.median(historical_values))
+    historical_complete = bool(
+        historical_median is not None
+        and coverage >= _MIN_HISTORICAL_SPREAD_COVERAGE
+    )
+    if historical_complete:
+        window["selection_reason"] = "complete_historical_spread_coverage"
         return (
-            float(np.median(spread_values)),
+            historical_median,
             "mt5_historical_bar_spread_median",
-            coverage >= _MIN_HISTORICAL_SPREAD_COVERAGE,
+            True,
             window,
         )
-    return (
-        None,
-        "unavailable",
-        False,
-        window,
+    if request.cost_model == "historical_bar_spread":
+        return (
+            historical_median,
+            "mt5_historical_bar_spread_median" if historical_median is not None else "unavailable",
+            False,
+            window,
+        )
+    estimate, estimate_source = _conservative_spread_bps(
+        request,
+        gateway,
+        frame,
+        historical_values,
     )
+    if estimate is None:
+        return None, "unavailable", False, window
+    window = dict(window)
+    window["basis"] = "auto_conservative_estimate"
+    window["selection_reason"] = "incomplete_historical_spread_coverage"
+    return estimate, estimate_source, True, window
 
 
 
@@ -485,6 +580,29 @@ def validate_strategies(  # noqa: C901
                 "complete": False,
             },
         }
+    barrier_fields = set(getattr(request.barrier, "model_fields_set", set()) or set())
+    state_reversal_ids = [
+        candidate.id
+        for candidate in request.candidates
+        if _candidate_signal_definition(candidate) == "state_reversal"
+    ]
+    if state_reversal_ids and barrier_fields.intersection({"tp_pct", "sl_pct"}):
+        return {
+            "success": False,
+            "error": (
+                "barrier tp_pct/sl_pct cannot be used with state-reversal strategies "
+                f"({', '.join(state_reversal_ids)}). Those strategies exit on the next "
+                "opposite signal, so TP/SL barriers are ignored. Omit tp_pct/sl_pct, "
+                "or use sma_cross_event/ema_cross_event for barrier outcomes."
+            ),
+            "error_code": "incompatible_barrier_for_state_reversal",
+            "incompatible_candidates": state_reversal_ids,
+            "outcome_model": "position_reversal",
+            "remediation": (
+                "Remove barrier.tp_pct and barrier.sl_pct, keep horizon for walk-forward "
+                "windows, or switch the candidate to sma_cross_event/ema_cross_event."
+            ),
+        }
     round_trip_bps = spread_bps + 2.0 * (request.commission_bps + request.slippage_bps)
     purge = int(request.purge_bars or 0)
     embargo = int(
@@ -539,6 +657,7 @@ def validate_strategies(  # noqa: C901
                 None if max_hold in (None, "") else int(max_hold),
             )
             outcome_end = exit_indices
+            outcome_model = "position_reversal"
         else:
             indices, gross = _barrier_returns(
                 df,
@@ -549,6 +668,7 @@ def validate_strategies(  # noqa: C901
                 same_bar_policy,
             )
             outcome_end = indices + int(request.barrier.horizon)
+            outcome_model = "barrier"
         if len(indices) < request.n_splits * 5:
             if not len(valid_signal_bars):
                 insufficient_reason = "forecast_unavailable_for_all_anchors"
@@ -560,6 +680,7 @@ def validate_strategies(  # noqa: C901
                 "id": candidate.id,
                 "evaluation_status": "insufficient_data",
                 "signal_definition": signal_definition,
+                "outcome_model": outcome_model,
                 "trades": int(len(indices)),
                 "minimum_trades_required": int(request.n_splits * 5),
                 "insufficient_data_reason": insufficient_reason,
@@ -636,12 +757,10 @@ def validate_strategies(  # noqa: C901
         arr = np.asarray(all_net, dtype=float)
         if not len(arr):
             results.append({
-                **_candidate_result_identity(
-                    candidate,
-                    include_effective_parameters=request.detail == "full",
-                ),
+                **_candidate_result_identity(candidate),
                 "evaluation_status": "insufficient_data",
                 "signal_definition": signal_definition,
+                "outcome_model": outcome_model,
                 "trades": 0,
                 "minimum_trades_required": int(request.n_splits * 5),
                 "insufficient_data_reason": "no_evaluable_oos_folds",
@@ -704,14 +823,12 @@ def validate_strategies(  # noqa: C901
                 "interpretation": "Long/short win-rate stability across folds; not continuous-score calibration.",
             }
         results.append({
-            **_candidate_result_identity(
-                candidate,
-                include_effective_parameters=request.detail == "full",
-            ),
+            **_candidate_result_identity(candidate),
             "evaluation_status": (
                 "complete" if folds_evaluated == request.n_splits else "partial"
             ),
             "signal_definition": signal_definition,
+            "outcome_model": outcome_model,
             "trades": int(len(arr)),
             "net_expectancy": float(np.mean(arr)),
             "expectancy_ci_95": expectancy_ci,
@@ -729,7 +846,7 @@ def validate_strategies(  # noqa: C901
             "signal_coverage": signal_coverage,
             "signal_counts": signal_counts,
             "skipped_folds": skipped_folds,
-            "same_bar_policy": same_bar_policy,
+            **({"same_bar_policy": same_bar_policy} if outcome_model == "barrier" else {}),
             "direction_base_rate_stability": base_rate_stability,
             **({"folds": fold_rows} if request.detail == "full" else {}),
         })
@@ -804,8 +921,19 @@ def validate_strategies(  # noqa: C901
     if not complete:
         warnings_out.append(
             "Historical spread coverage is below 90%; positive classification "
-            "is disabled. Use --cost-model fixed with an explicit --spread-bps for "
-            "a controlled complete-cost comparison."
+            "is disabled. Use --cost-model auto or --cost-model fixed with an "
+            "explicit --spread-bps for a controlled complete-cost comparison."
+        )
+    elif (
+        request.cost_model == "auto"
+        and spread_window.get("selection_reason")
+        == "incomplete_historical_spread_coverage"
+    ):
+        warnings_out.append(
+            "Historical bar spread coverage was incomplete "
+            f"({spread_window.get('coverage_pct')}%); auto used a conservative "
+            f"fixed spread estimate from {spread_source} "
+            f"({spread_bps:g} bps round-trip)."
         )
     for item in results:
         folds_evaluated = int(item.get("folds_evaluated") or 0)
@@ -819,30 +947,64 @@ def validate_strategies(  # noqa: C901
                 f"Candidate {item.get('id')} was not evaluable: "
                 f"{item.get('insufficient_data_reason') or 'insufficient_data'}."
             )
+    uses_barrier_outcomes = any(
+        item.get("outcome_model") == "barrier"
+        or (
+            item.get("signal_definition") not in {None, "state_reversal"}
+            and item.get("outcome_model") != "position_reversal"
+        )
+        for item in results
+    )
+    uses_reversal_outcomes = any(
+        item.get("outcome_model") == "position_reversal"
+        or item.get("signal_definition") == "state_reversal"
+        for item in results
+    )
+    validation: Dict[str, Any] = {
+        "protocol": "anchored_expanding_fixed_candidate_oos",
+        "n_splits": request.n_splits,
+        "outcome_horizon_bars": int(request.barrier.horizon),
+        "extra_purge_bars": purge,
+        "embargo_bars": embargo,
+        "candidate_parameters_reestimated": False,
+        "forecast_models_refit_per_anchor": any(
+            item.type == "forecast_threshold" for item in request.candidates
+        ),
+        "forecast_signal_anchor_limit": _MAX_FORECAST_SIGNAL_ANCHORS,
+        "completed_candles_only": True,
+        "signal_timing": "completed_bar_close",
+        "execution_timing": "next_bar_open",
+    }
+    if uses_barrier_outcomes:
+        validation["same_bar_policy"] = request.barrier.same_bar_policy
+        validation["barrier_window"] = "entry_bar_through_horizon"
+        validation["outcome_model"] = (
+            "barrier" if not uses_reversal_outcomes else "mixed"
+        )
+    elif uses_reversal_outcomes:
+        validation["outcome_model"] = "position_reversal"
     payload = {
         "success": True,
         "symbol": request.symbol,
         "timeframe": request.timeframe,
         "rankings": ranked,
         "candidate_counts": candidate_counts,
-        "validation": {
-            "protocol": "anchored_expanding_fixed_candidate_oos",
-            "n_splits": request.n_splits,
-            "outcome_horizon_bars": int(request.barrier.horizon),
-            "extra_purge_bars": purge,
-            "embargo_bars": embargo,
-            "candidate_parameters_reestimated": False,
-            "forecast_models_refit_per_anchor": any(
-                item.type == "forecast_threshold" for item in request.candidates
+        "validation": validation,
+        "cost_model": {
+            "requested_type": request.cost_model,
+            "source": spread_source,
+            "spread_bps": spread_bps,
+            "commission_bps_per_side": request.commission_bps,
+            "slippage_bps_per_side": request.slippage_bps,
+            "round_trip_bps": round_trip_bps,
+            "window": spread_window,
+            "complete": complete,
+            **(
+                {"selection_reason": spread_window.get("selection_reason")}
+                if spread_window.get("selection_reason")
+                else {}
             ),
-            "forecast_signal_anchor_limit": _MAX_FORECAST_SIGNAL_ANCHORS,
-            "same_bar_policy": request.barrier.same_bar_policy,
-            "completed_candles_only": True,
-            "signal_timing": "completed_bar_close",
-            "execution_timing": "next_bar_open",
-            "barrier_window": "entry_bar_through_horizon",
         },
-        "cost_model": {"source": spread_source, "spread_bps": spread_bps, "commission_bps_per_side": request.commission_bps, "slippage_bps_per_side": request.slippage_bps, "round_trip_bps": round_trip_bps, "window": spread_window, "complete": complete},
         "data_quality": {
             "bars": len(df),
             "cost_model_complete": complete,

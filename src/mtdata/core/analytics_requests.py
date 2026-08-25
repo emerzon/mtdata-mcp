@@ -209,12 +209,14 @@ class StrategyValidateRequest(BaseModel):
     barrier: BarrierSpec = Field(default_factory=BarrierSpec)
     purge_bars: Optional[int] = Field(None, ge=0)
     embargo_bars: Optional[int] = Field(None, ge=0)
-    cost_model: Literal["historical_bar_spread", "fixed"] = Field(
-        "historical_bar_spread",
+    cost_model: Literal["auto", "historical_bar_spread", "fixed"] = Field(
+        "auto",
         description=(
-            "Transaction-cost spread source. Historical bar spread uses the completed "
-            "bars in the validation window; coverage below 90% prevents a positive "
-            "evidence classification. Fixed requires an explicit spread_bps."
+            "Transaction-cost spread source. auto uses complete historical bar "
+            "spreads when coverage is sufficient, otherwise a disclosed conservative "
+            "fixed estimate. historical_bar_spread uses completed validation bars and "
+            "coverage below 90% prevents a positive evidence classification. Fixed "
+            "requires an explicit spread_bps."
         ),
     )
     spread_bps: Optional[float] = Field(
@@ -272,7 +274,7 @@ class StrategyValidateRequest(BaseModel):
                 "candidate ids must be unique after trimming and case normalization; "
                 f"duplicates: {duplicate_text}"
             )
-        if self.cost_model == "historical_bar_spread" and self.spread_bps is not None:
+        if self.cost_model in {"historical_bar_spread", "auto"} and self.spread_bps is not None:
             raise ValueError("--spread-bps is only valid with --cost-model fixed")
         if self.cost_model == "fixed" and self.spread_bps is None:
             raise ValueError("--spread-bps is required with --cost-model fixed")
