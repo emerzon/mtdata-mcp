@@ -100,7 +100,7 @@ def _resolve_volume_series(
         if finite_real.size > 0 and np.nanmax(finite_real) > 0:
             return real_volume, "real_volume"
 
-    for column in ("volume", "tick_volume", "Volume"):
+    for column in ("tick_volume", "volume", "Volume"):
         if column not in df.columns:
             continue
         try:
@@ -113,6 +113,29 @@ def _resolve_volume_series(
         if volume.size > 0 and np.isfinite(volume).any():
             return volume, str(column)
     return None, None
+
+
+def volume_provenance(source: Optional[str]) -> Dict[str, Any]:
+    if source == "tick_volume":
+        return {
+            "volume_type": "broker_tick_count",
+            "volume_unit": "broker_tick_count",
+            "volume_event_basis": "mt5_broker_bar_bid_updates",
+            "is_volume_proxy": True,
+        }
+    if source == "real_volume":
+        return {
+            "volume_type": "provider_reported_real_volume",
+            "volume_unit": "provider_volume_units",
+            "is_volume_proxy": False,
+        }
+    if source:
+        return {
+            "volume_type": "unqualified_volume",
+            "volume_unit": "provider_volume_units",
+            "is_volume_proxy": None,
+        }
+    return {}
 
 
 def _volume_window_mean(

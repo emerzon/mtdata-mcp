@@ -18,6 +18,7 @@ from ..patterns.enrichment import (
     _volume_window_mean,
     directional_regime_verdict,
     volume_confirmation_verdict,
+    volume_provenance,
 )
 from ..utils.coercion import safe_float as _safe_float
 from ..utils.time import _format_time_minimal
@@ -1680,6 +1681,7 @@ def _attach_classic_volume_confirmation(
 
     volume, source = _resolve_volume_series(df)
     payload["volume_source"] = source
+    payload.update(volume_provenance(source))
     if volume is None or source is None:
         details["volume_confirmation"] = payload
         out["details"] = details
@@ -1809,6 +1811,7 @@ def _attach_elliott_volume_confirmation(
 
     volume, source = _resolve_volume_series(df)
     payload["volume_source"] = source
+    payload.update(volume_provenance(source))
     if volume is None or source is None:
         details["volume_confirmation"] = payload
         out["details"] = details

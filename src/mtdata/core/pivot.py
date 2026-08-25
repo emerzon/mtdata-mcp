@@ -1031,6 +1031,13 @@ def confluence_levels(  # noqa: C901
                 payload["reference_quote_usable_for_live_trading"] = bool(
                     reference_quote_context.get("usable_for_live_trading")
                 )
+                for source_key, target_key in (
+                    ("freshness_state", "reference_quote_freshness_state"),
+                    ("freshness_reason", "reference_quote_freshness_reason"),
+                ):
+                    value = reference_quote_context.get(source_key)
+                    if value not in (None, ""):
+                        payload[target_key] = value
                 for key in (
                     "quote_source",
                     "quote_source_state",
@@ -1095,11 +1102,22 @@ def confluence_levels(  # noqa: C901
                 quote_source = str(
                     reference_quote_context.get("quote_source") or ""
                 ).strip()
-                spread_quality = str(
-                    reference_quote_context.get("spread_quality") or "unusable"
+                freshness_state = str(
+                    reference_quote_context.get("freshness_state") or ""
                 ).strip()
+                freshness_reason = str(
+                    reference_quote_context.get("freshness_reason") or ""
+                ).strip()
+                blockers = [
+                    str(value)
+                    for value in (reference_quote_context.get("execution_blockers") or [])
+                    if str(value or "").strip()
+                ]
+                rejection = " / ".join(
+                    value for value in (freshness_state, freshness_reason) if value
+                ) or ", ".join(blockers) or "quote readiness checks failed"
                 fallback_reason = (
-                    f"live quote not executable ({spread_quality})"
+                    f"live quote rejected: {rejection}"
                     if quote_source
                     else "no live quote available"
                 )

@@ -37,6 +37,7 @@ from .enrichment import (
     _volume_window_mean,
     directional_regime_verdict,
     volume_confirmation_verdict,
+    volume_provenance,
 )
 
 logger = logging.getLogger(__name__)
@@ -1167,6 +1168,7 @@ def _attach_candlestick_volume_confirmation(
         else "unavailable",
         "volume_source": volume_source,
     }
+    payload.update(volume_provenance(volume_source))
     if payload["status"] == "disabled":
         row["volume_confirmation"] = payload
         return

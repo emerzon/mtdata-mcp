@@ -175,7 +175,7 @@ def test_confluence_levels_tool_combines_pivot_sr_and_fibonacci():
     assert mock_sr.call_args.kwargs["max_levels"] == 5
 
 
-def test_confluence_locked_quote_warning_does_not_claim_tick_is_missing():
+def test_confluence_future_quote_warning_names_freshness_blocker():
     fn = _get_confluence_fn()
     gateway = type("Gateway", (), {"ensure_connection": lambda self: None})()
     rates = np.array([_make_rate(time_=100.0), _make_rate(time_=200.0)])
@@ -189,8 +189,9 @@ def test_confluence_locked_quote_warning_does_not_claim_tick_is_missing():
     }
     quote_context = {
         "quote_source": "mt5.copy_ticks_range",
-        "spread_quality": "locked",
-        "execution_blockers": ["invalid_spread"],
+        "spread_quality": "two_sided",
+        "freshness_state": "clock_skew",
+        "freshness_reason": "future_timestamp",
         "usable_for_live_trading": False,
     }
 
@@ -217,8 +218,12 @@ def test_confluence_locked_quote_warning_does_not_claim_tick_is_missing():
         result = fn("EURUSD", pivot_timeframe="D1", sr_timeframe="H1")
 
     warning = " ".join(result["warnings"])
-    assert "live quote not executable (locked)" in warning
+    assert "live quote rejected: clock_skew / future_timestamp" in warning
+    assert "two_sided" not in warning
     assert "no live tick" not in warning
+    assert result["reference_quote_freshness_state"] == "clock_skew"
+    assert result["reference_quote_freshness_reason"] == "future_timestamp"
+    assert result["spread_quality"] == "two_sided"
 
 
 def test_confluence_historical_window_uses_one_as_of_anchor():

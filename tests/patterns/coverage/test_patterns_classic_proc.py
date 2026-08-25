@@ -193,7 +193,13 @@ class TestEnrichClassicPatterns:
         volume_confirmation = enriched[0]["details"]["volume_confirmation"]
         assert enriched[0]["confidence"] == pytest.approx(0.7)
         assert volume_confirmation["status"] == "confirmed"
-        assert volume_confirmation["volume_source"] in {"volume", "tick_volume"}
+        assert volume_confirmation["volume_source"] == "tick_volume"
+        assert volume_confirmation["volume_type"] == "broker_tick_count"
+        assert volume_confirmation["volume_unit"] == "broker_tick_count"
+        assert volume_confirmation["volume_event_basis"] == (
+            "mt5_broker_bar_bid_updates"
+        )
+        assert volume_confirmation["is_volume_proxy"] is True
         assert volume_confirmation["breakout_to_baseline_ratio"] > 1.2
 
     def test_missing_end_index_uses_latest_bar_for_volume_confirmation(self):
