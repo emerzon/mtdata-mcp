@@ -1541,7 +1541,7 @@ def test_open_position_quote_context_discloses_missing_conversion_metadata() -> 
     assert row["notional_quote_currency"] == "JPY"
 
 
-def test_compact_open_position_projection_omits_quote_diagnostics() -> None:
+def test_compact_open_position_projection_keeps_mark_context() -> None:
     payload = {
         "items": [
             {
@@ -1555,6 +1555,12 @@ def test_compact_open_position_projection_omits_quote_diagnostics() -> None:
                 "tp": 1.12,
                 "profit": 10.0,
                 "usable_for_live_trading": True,
+                "price_current_basis": "broker_price_current",
+                "quote_time": "2026-07-14T20:00:00Z",
+                "data_age_seconds": 2.5,
+                "data_stale": False,
+                "freshness_state": "live",
+                "freshness_reason": "within_live_threshold",
                 "magic": 42,
                 "comment": "audit-cli",
                 "quote_source": "mt5.copy_ticks_range",
@@ -1577,6 +1583,13 @@ def test_compact_open_position_projection_omits_quote_diagnostics() -> None:
         "volume",
         "entry_price",
         "price_current",
+        "price_current_basis",
+        "quote_time",
+        "data_age_seconds",
+        "data_stale",
+        "freshness_state",
+        "freshness_reason",
+        "quote_source",
         "sl",
         "tp",
         "profit",
@@ -1586,7 +1599,7 @@ def test_compact_open_position_projection_omits_quote_diagnostics() -> None:
     }
     assert row["magic"] == 42
     assert row["comment"] == "audit-cli"
-    assert "quote_source" not in row
+    assert row["quote_source"] == "mt5.copy_ticks_range"
 
 
 def test_full_open_position_projection_preserves_quote_diagnostics() -> None:
