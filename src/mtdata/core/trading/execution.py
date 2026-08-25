@@ -35,6 +35,15 @@ def _resolve_position_side(position: Any, mt5: Any) -> Optional[str]:
     return validation._resolve_position_side(position, mt5)
 
 
+def _trading_symbol_or_error(mt5: Any, symbol: Optional[str]) -> Optional[Dict[str, Any]]:
+    symbol_value = str(symbol or "").strip()
+    if not symbol_value:
+        return None
+    from mtdata.core.trading.use_cases.common import _validate_trading_symbol
+
+    return _validate_trading_symbol(mt5, symbol_value)
+
+
 def _position_matches_any_ticket(position: Any, ticket_values: set[int]) -> bool:
     if not ticket_values:
         return False
@@ -1938,6 +1947,9 @@ def _close_positions(  # noqa: C901
                         f"{validation.MT5_UINT64_MAX}, inclusive."
                     )
                 }
+            symbol_error = _trading_symbol_or_error(mt5, symbol)
+            if symbol_error is not None:
+                return symbol_error
 
             # 1. Fetch positions based on criteria
             requested_ticket = None
@@ -2465,6 +2477,9 @@ def _cancel_pending(  # noqa: C901
                         f"{validation.MT5_UINT64_MAX}, inclusive."
                     )
                 }
+            symbol_error = _trading_symbol_or_error(mt5, symbol)
+            if symbol_error is not None:
+                return symbol_error
             # 1. Fetch orders based on criteria
             if ticket is not None:
                 t_int = int(ticket)

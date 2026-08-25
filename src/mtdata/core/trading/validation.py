@@ -475,6 +475,32 @@ def _safe_last_error(mt5: Any) -> Any:
     return None
 
 
+def _is_success_last_error(last_error: Any) -> bool:
+    """Return True when last_error is empty or a success-valued MT5 result."""
+    if last_error in (None, False, (0, ""), [0, ""]):
+        return True
+    if isinstance(last_error, (list, tuple)) and last_error:
+        try:
+            code = int(last_error[0])
+        except (TypeError, ValueError):
+            code = None
+        message = ""
+        if len(last_error) > 1:
+            message = str(last_error[1] or "").strip().lower()
+        if code in (0, 1) and message in {"", "success", "ok", "done"}:
+            return True
+        if code == 1 and not message:
+            return True
+    if isinstance(last_error, str) and last_error.strip().lower() in {
+        "",
+        "success",
+        "ok",
+        "done",
+    }:
+        return True
+    return False
+
+
 def _normalize_price_for_symbol(
     value: Optional[Union[int, float]],
     *,
@@ -1010,6 +1036,7 @@ def snapshot_unavailable_error(
     if (
         isinstance(last_error, (str, int, float, list, tuple, dict))
         and last_error not in (None, False, (0, ""))
+        and not _is_success_last_error(last_error)
     ):
         payload["last_error"] = last_error
     if guardrail_blocked:
