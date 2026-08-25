@@ -2927,12 +2927,19 @@ def test_portfolio_risk_reconciles_component_expected_shortfall() -> None:
     row = result["risk"][0]
     component_total = sum(item["value"] for item in row["component_cvar"])
     assert component_total == pytest.approx(row["cvar"])
+    assert row["var_pct_of_equity"] == pytest.approx(row["var"] / 25000.0 * 100.0)
+    assert row["cvar_pct_of_equity"] == pytest.approx(row["cvar"] / 25000.0 * 100.0)
+    assert sum(item["pct_of_equity"] for item in row["component_cvar"]) == pytest.approx(
+        row["cvar_pct_of_equity"]
+    )
     assert "correlation_to_one_loss_proxy" not in result["stresses"]
     assert result["stresses"]["perfect_positive_correlation_1sigma"][0]["horizon_bars"] == 1
-    assert result["stresses"]["volatility_double"][0]["horizon_bars"] == 1
-    assert result["stresses"]["volatility_double"][0]["holding_period"] == "1 H1 bar"
-    assert result["stresses"]["volatility_double_worst_across_horizons"] == (
-        result["stresses"]["volatility_double"][0]
+    stress = result["stresses"]["two_times_worst_simulated_loss"][0]
+    assert stress["horizon_bars"] == 1
+    assert stress["holding_period"] == "1 H1 bar"
+    assert stress["basis"] == "2 * worst_simulated_pnl"
+    assert result["stresses"]["two_times_worst_simulated_loss_worst_across_horizons"] == (
+        stress
     )
     assert "volatility_double_worst_pnl" not in result["stresses"]
     assert result["timeframe"] == "H1"

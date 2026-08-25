@@ -382,6 +382,12 @@ def decompose_portfolio_risk(  # noqa: C901
             account = account_info()
     except Exception:
         account = None
+    try:
+        equity_value = float(getattr(account, "equity", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        equity_value = 0.0
+    if not math.isfinite(equity_value) or equity_value <= 0.0:
+        equity_value = 0.0
     positions = [_mapping(row) for row in (gateway.positions_get() or [])]
     base_position_count = len(positions)
     if proposed_validated is not None:
@@ -587,6 +593,19 @@ def decompose_portfolio_risk(  # noqa: C901
             base_tail = base_pnl <= base_cutoff
             base_es = float(max(0.0, -np.mean(base_pnl[base_tail]))) if np.any(base_tail) else None
             after_es = float(max(0.0, -np.mean(pnl[tail]))) if np.any(tail) else None
+            var_value = float(max(0.0, -cutoff))
+            component_rows = [
+                {
+                    "symbol": symbol,
+                    "value": float(value),
+                    **(
+                        {"pct_of_equity": float(value) / equity_value * 100.0}
+                        if equity_value > 0.0
+                        else {}
+                    ),
+                }
+                for symbol, value in zip(standardized.columns, es_components)
+            ]
             risk_rows.append({
                 "horizon_bars": horizon,
                 "holding_period": (
@@ -596,12 +615,22 @@ def decompose_portfolio_risk(  # noqa: C901
                 "confidence": confidence,
                 "calibration_observations": int(len(standardized)),
                 "horizon_windows_available": int(max_start + 1),
-                "var": float(max(0.0, -cutoff)),
+                "var": var_value,
                 "cvar": after_es,
+                **(
+                    {
+                        "var_pct_of_equity": var_value / equity_value * 100.0,
+                        "cvar_pct_of_equity": (
+                            after_es / equity_value * 100.0
+                            if after_es is not None
+                            else None
+                        ),
+                    }
+                    if equity_value > 0.0
+                    else {}
+                ),
                 **({"before_cvar": base_es, "incremental_cvar": (after_es - base_es) if after_es is not None and base_es is not None else None} if proposed_sensitivity else {}),
-                "component_cvar": [
-                    {"symbol": symbol, "value": float(value)} for symbol, value in zip(standardized.columns, es_components)
-                ],
+                "component_cvar": component_rows,
                 "worst_simulated_pnl": float(np.min(pnl)),
             })
     exposure_abs = np.abs(sensitivity_vec)
@@ -629,7 +658,7 @@ def decompose_portfolio_risk(  # noqa: C901
                 for symbol, value in horizon_vol.items()
             },
         })
-    volatility_double = [
+    two_times_worst_simulated_loss = [
         {
             "horizon_bars": int(horizon),
             "holding_period": (
@@ -637,17 +666,18 @@ def decompose_portfolio_risk(  # noqa: C901
                 f"bar{'s' if horizon != 1 else ''}"
             ),
             "pnl": float(np.min(values) * 2.0),
+            "basis": "2 * worst_simulated_pnl",
         }
         for horizon, values in sorted(scenario_details.items())
     ]
-    worst_volatility_double = min(
-        volatility_double,
+    worst_two_times_loss = min(
+        two_times_worst_simulated_loss,
         key=lambda row: float(row["pnl"]),
         default=None,
     )
     stresses = {
-        "volatility_double": volatility_double,
-        "volatility_double_worst_across_horizons": worst_volatility_double,
+        "two_times_worst_simulated_loss": two_times_worst_simulated_loss,
+        "two_times_worst_simulated_loss_worst_across_horizons": worst_two_times_loss,
         "perfect_positive_correlation_1sigma": perfect_correlation,
         "worst_historical_bar_pnl": float(worst_historical.min()),
     }
@@ -754,6 +784,9 @@ def decompose_portfolio_risk(  # noqa: C901
         "units": {
             "var": "account_currency",
             "cvar": "account_currency",
+            "var_pct_of_equity": "percent (1.0 = 1%)",
+            "cvar_pct_of_equity": "percent (1.0 = 1%)",
+            "component_cvar.*.pct_of_equity": "percent (1.0 = 1%)",
             "sensitivity": "account_currency_per_1.0_return",
             "stresses": "account_currency",
         },
