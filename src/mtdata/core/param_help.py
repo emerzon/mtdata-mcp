@@ -7,6 +7,10 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "Boolean output control. Compute and include bid/ask spread metrics from "
         "broker DOM or the fallback quote; disabled by default."
     ),
+    ("forecast_train", "quantity"): (
+        "Train a price-level or return target. Volatility uses the dedicated "
+        "forecast_volatility_estimate tool and is not separately trainable."
+    ),
     ("forecast_train", "wait"): (
         "Wait for training to finish. One-shot CLI and stdin shell batches "
         "always wait so the in-process worker stays alive (CLI default: true); "
@@ -241,6 +245,13 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "false; after the US cash close this can empty this-week results."
     ),
     ("forecast_barrier_optimize", "method"): "Barrier simulation method: mc_gbm, mc_gbm_bb, hmm_mc, garch, bootstrap, heston, jump_diffusion, auto, or ensemble.",
+    ("forecast_barrier_optimize", "params"): (
+        "Optimizer extras as JSON or k=v. Grid bounds: tp_min, tp_max, sl_min, "
+        "sl_max (percent points when --mode pct, ticks when --mode ticks), plus "
+        "tp_steps and sl_steps. Tick-mode fixed/ratio defaults convert the "
+        "implicit 0.25/1.5/0.25/2.5 percent (intraday) grid into ticks. "
+        'Example: --params "tp_min=20 tp_max=80 sl_min=20 sl_max=80".'
+    ),
     ("forecast_barrier_prob", "barrier"): (
         "Barrier object. Prefer the shell-safe form "
         "kind=tp_sl,unit=pct,take_profit=0.5,stop_loss=0.5 or "
@@ -294,7 +305,9 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "Historical bars to scan for patterns after applying any start/end window."
     ),
     ("regime_detect", "lookback"): (
-        "Historical bars used for regime detection after applying any start/end window."
+        "Number of recent observations to analyze when fetch_limit is omitted, "
+        "and the summary window when fetch_limit is provided. Extra history may "
+        "be fetched for feature warmup but is excluded from model fitting."
     ),
     ("seasonality_detect", "lookback"): (
         "Historical bars used to detect seasonal periods; must be at least 31."
@@ -339,9 +352,16 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
     ),
     ("outliers_detect", "limit"): "Max anomalous bars to return.",
     ("temporal_analyze", "limit"): (
-        "Max grouped time buckets to return; pagination only, not the analysis window."
+        "For a single group_by, max grouped time buckets to return. For "
+        "group_by=all, limit and offset page each of the four breakdowns "
+        "independently. Compact groups concatenates those pages; "
+        "dimension_pagination is the per-dimension cursor; groups_analyzed "
+        "is the unpaged total. Pagination only, not the analysis window."
     ),
-    ("temporal_analyze", "session_calendar"): "Session calendar: auto, fx, or equity.",
+    ("temporal_analyze", "session_calendar"): (
+        "Session calendar: auto, fx, equity, or continuous_24_7. auto selects "
+        "fx, equity, or continuous_24_7 from the symbol."
+    ),
     ("temporal_analyze", "time_range"): (
         "Half-open clock filter HH:MM-HH:MM in --timezone; defaults to CLIENT_TZ, "
         "then UTC, and wraps midnight."
@@ -455,7 +475,8 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
     ),
     ("cointegration_test", "symbols"): (
         "Comma- or space-separated MT5 symbols (e.g. EURUSD,GBPUSD or EURUSD GBPUSD); one symbol auto-expands "
-        "to its MT5 group. Optional with --group."
+        "to its MT5 group. Optional with --group. The first symbol in each pair is the "
+        "Engle-Granger dependent; reverse the pair for the other hedge."
     ),
     ("cointegration_test", "limit"): (
         "Max ranked pair rows to return. Omitted compact/summary output uses 10; "
@@ -545,6 +566,11 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "Classic-mode engine: native or stock_pattern. Omitted classic calls "
         "use native; invalid for other modes."
     ),
+    ("trade_idea_compose", "template"): (
+        "Idea template: quick runs session, forecast, volatility, one barrier "
+        "pair, and sizing; standard also adds confluence and snaps exits "
+        "toward nearby structure."
+    ),
     ("report_generate", "template"): (
         "Report template: minimal fast context+forecast (default), basic research with confluence, "
         "advanced regimes/HAR/conformal, scalping M5, intraday H1, swing H4/D1, "
@@ -572,8 +598,10 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "analysis, bounded to 200-20000 bars (H1 session: 1440 bars)."
     ),
     ("regime_detect", "fetch_limit"): (
-        "Historical bars fetched for regime detection. Defaults to the effective "
-        "lookback plus warmup bars; use max_regimes for compact output count."
+        "Bars fetched for regime detection. For non-rule methods this also "
+        "becomes the model-fit window when provided; lookback is then only the "
+        "summary window. Defaults to the effective lookback plus warmup bars; "
+        "use max_regimes for compact output count."
     ),
     ("symbols_list", "limit"): "Max symbols or groups to return.",
     ("symbols_top_markets", "rank_by"): (
