@@ -64,7 +64,9 @@ _MULTI_VALUE_SYMBOL_POSITIONAL_COMMANDS = frozenset(
         "correlation_matrix",
         "cointegration_test",
         "cross_correlation",
+        "market_radar",
         "market_relative_strength",
+        "market_scan",
     }
 )
 
@@ -173,6 +175,31 @@ def _is_forecast_method_literal(
         return bool(args.intersection(_FORECAST_METHOD_LITERAL_MARKERS))
     except Exception:
         return False
+
+
+def _collect_literal_choices(
+    value: Any,
+    *,
+    is_literal_origin: Callable[[Any], bool],
+    get_origin_func: Callable[[Any], Any],
+    get_args_func: Callable[[Any], Tuple[Any, ...]],
+) -> list[str]:
+    origin = get_origin_func(value)
+    if is_literal_origin(origin):
+        return [str(item) for item in get_args_func(value)]
+    choices: list[str] = []
+    for member in get_args_func(value):
+        if member is type(None):
+            continue
+        choices.extend(
+            _collect_literal_choices(
+                member,
+                is_literal_origin=is_literal_origin,
+                get_origin_func=get_origin_func,
+                get_args_func=get_args_func,
+            )
+        )
+    return list(dict.fromkeys(choices))
 
 
 def _dedupe_flags(*flags: str) -> tuple[str, ...]:
@@ -469,12 +496,17 @@ def resolve_param_kwargs(
                 else:
                     kwargs["type"] = str
                     kwargs["nargs"] = "+"
-            elif is_literal_origin(origin):
-                choices = [str(v) for v in get_args(base_type)]
+            else:
+                choices = _collect_literal_choices(
+                    base_type,
+                    is_literal_origin=is_literal_origin,
+                    get_origin_func=get_origin,
+                    get_args_func=get_args,
+                )
                 if choices:
                     kwargs["choices"] = choices
                     kwargs["type"] = _case_insensitive_choice_parser(choices)
-                else:
+                elif is_literal_origin(origin):
                     kwargs["type"] = str
         except Exception as exc:
             debug(f"Type resolution failed for param '{param['name']}': {exc}")

@@ -53,10 +53,19 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "(iso_utc / iso_offset in the payload), iso_utc for UTC Z strings, "
         "or epoch for UTC epoch seconds."
     ),
+    ("data_fetch_candles", "selection"): (
+        "Range pagination anchor: start returns the earliest matching candles; "
+        "end returns the latest matching candles. Omit for start when a range is "
+        "provided, otherwise the latest candles are returned."
+    ),
     ("data_fetch_ticks", "timestamp_format"): (
         "Format each MT5 tick event's `time` value as ISO in CLIENT_TZ "
         "(iso_utc / iso_offset in the payload), iso_utc for UTC Z strings, "
         "or UTC epoch seconds."
+    ),
+    ("data_fetch_ticks", "selection"): (
+        "Range snapshot anchor: latest returns the newest matching ticks; earliest "
+        "returns the oldest. Omit for latest."
     ),
     ("data_fetch_ticks", "start"): (
         "Inclusive range start (dateparser). Date-only and calendar phrases "
@@ -74,6 +83,11 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
     ("patterns_detect", "timeframe"): (
         "Chart timeframe. When omitted, candlestick/classic/harmonic/fractal use "
         "H1, elliott scans H1/H4/D1, and all scans M30/H1/H4/D1/W1."
+    ),
+    ("support_resistance_levels", "timeframe"): (
+        "Price-history timeframe. Choose M1, M2, M3, M4, M5, M6, M10, M12, "
+        "M15, M20, M30, H1, H2, H3, H4, H6, H8, H12, D1, W1, MN1, or auto. "
+        "Auto selects a timeframe from the requested lookback."
     ),
     ("patterns_detect", "include_completed"): (
         "Include completed lifecycle structures alongside forming results. "

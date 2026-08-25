@@ -32,6 +32,7 @@ from mtdata.forecast.requests import (
     ForecastBarrierOptimizeRequest,
     ForecastGenerateRequest,
 )
+from mtdata.shared.schema import AutoTimeframeLiteral
 
 # ---------------------------------------------------------------------------
 # Fixture: ensure the cli module is importable with heavy deps mocked
@@ -795,10 +796,10 @@ class TestAddDynamicArguments:
 
         assert "--symbols SYMBOLS" in help_text
         assert "Comma-separated MT5 symbols" in help_text
-        assert parser.parse_args(["EURUSD,GBPUSD"]).symbols == "EURUSD,GBPUSD"
+        assert parser.parse_args(["EURUSD", "GBPUSD"]).symbols == ["EURUSD", "GBPUSD"]
         assert (
             parser.parse_args(["--symbols", "EURUSD,GBPUSD"])._cli_option_symbols
-            == "EURUSD,GBPUSD"
+            == ["EURUSD,GBPUSD"]
         )
 
     def test_market_radar_accepts_optional_positional_symbols(self):
@@ -817,12 +818,12 @@ class TestAddDynamicArguments:
 
         help_text = _strip_ansi(parser.format_help())
 
-        assert "[symbols]" in help_text
+        assert "[symbols ...]" in help_text
         assert "--symbols SYMBOLS" in help_text
-        assert parser.parse_args(["EURUSD,GBPUSD"]).symbols == "EURUSD,GBPUSD"
+        assert parser.parse_args(["EURUSD", "GBPUSD"]).symbols == ["EURUSD", "GBPUSD"]
         assert (
             parser.parse_args(["--symbols", "EURUSD,GBPUSD"])._cli_option_symbols
-            == "EURUSD,GBPUSD"
+            == ["EURUSD,GBPUSD"]
         )
 
     def test_non_positional_required_parameters_are_required_options(self):
@@ -1609,6 +1610,24 @@ class TestResolveParamKwargs:
         assert kwargs["type"]("h1") == "H1"
         assert kwargs["type"]("D1") == "D1"
         assert kwargs["type"]("bad") == "bad"
+
+    def test_union_of_literals_exposes_all_choices(self):
+        param = {
+            "name": "timeframe",
+            "type": AutoTimeframeLiteral,
+            "required": False,
+            "default": "H1",
+        }
+
+        kwargs, _ = _resolve_param_kwargs(
+            param,
+            None,
+            cmd_name="support_resistance_levels",
+        )
+
+        assert "H1" in kwargs["choices"]
+        assert "auto" in kwargs["choices"]
+        assert kwargs["type"]("AUTO") == "auto"
 
     def test_patterns_mode_choices_are_explicit(self):
         param = {

@@ -722,7 +722,7 @@ class TestMain:
             },
         }
 
-        with patch("sys.argv", ["cli.py", "market_scan", "EURUSD,GBPUSD"]):
+        with patch("sys.argv", ["cli.py", "market_scan", "EURUSD", "GBPUSD"]):
             result = main()
 
         assert result == 0
@@ -750,7 +750,7 @@ class TestMain:
             },
         }
 
-        with patch("sys.argv", ["cli.py", "market_radar", "EURUSD,GBPUSD"]):
+        with patch("sys.argv", ["cli.py", "market_radar", "EURUSD", "GBPUSD"]):
             result = main()
 
         assert result == 0

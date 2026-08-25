@@ -518,7 +518,9 @@ def create_command_function(  # noqa: C901
                     "correlation_matrix",
                     "cointegration_test",
                     "cross_correlation",
+                    "market_radar",
                     "market_relative_strength",
+                    "market_scan",
                 }
                 and isinstance(arg_value, (list, tuple))
             ):
