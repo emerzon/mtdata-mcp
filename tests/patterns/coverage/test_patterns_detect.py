@@ -571,8 +571,8 @@ class TestPatternsDetect:
         mock_format.return_value = [{"wave_type": "Impulse", "status": "forming"}]
         result = _call_patterns_detect(symbol="EURUSD", mode="elliott", timeframe=None)
         assert result.get("success") is True
-        assert "findings" in result
-        assert all("patterns" not in row for row in result["findings"])
+        assert "timeframe_findings" in result
+        assert all("patterns" not in row for row in result["timeframe_findings"])
 
     @patch("mtdata.core.patterns._format_elliott_patterns")
     @patch("mtdata.core.patterns._fetch_pattern_data")

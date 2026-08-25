@@ -438,13 +438,13 @@ class TestCausalDiscoverSignals:
         assert "BTCUSD: 50 rows" in details_text
         assert "ETHUSD: 50 rows" in details_text
         assert "aligned: 0" in details_text
-        assert "minimum 11 required" in details_text
+        assert "minimum 19 required" in details_text
 
         stats = result.get("meta", {}).get("stats", {})
         assert stats.get("symbol_rows", {}).get("BTCUSD") == 50
         assert stats.get("symbol_rows", {}).get("ETHUSD") == 50
         assert stats.get("samples_aligned_raw") == 0
-        assert stats.get("minimum_samples_required") == 11
+        assert stats.get("minimum_samples_required") == 19
         assert stats.get("pair_overlaps", {}).get("BTCUSD-ETHUSD") == 0
 
     @patch("mtdata.core.causal.discover.TIMEFRAME_MAP", {"H1": 1})
@@ -472,7 +472,7 @@ class TestCausalDiscoverSignals:
         assert result["success"] is False
         assert result["error_code"] == "insufficient_overlap"
         assert "after applying window_bars=5" in result["error"]
-        assert "Increase --window-bars to at least 11" in result["error"]
+        assert "Increase --window-bars to at least 19" in result["error"]
         assert "Dropped" not in " ".join(result.get("warnings", []))
         details_text = " ".join(str(x) for x in result.get("details", []))
         assert "pair_overlaps: EURUSD-GBPUSD: 200" in details_text
