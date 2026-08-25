@@ -65,7 +65,9 @@ class MonteCarloGBMMethod(ForecastMethod):
     ) -> ForecastResult:
         fh = int(horizon)
         n_sims = int(params.get("n_sims", 500))
+        seed_provided = "seed" in params and params.get("seed") is not None
         seed = int(params.get("seed", 42))
+        seed_source = "params" if seed_provided else "default"
         ci_alpha = kwargs.get("ci_alpha", params.get("ci_alpha", None))
 
         x = np.asarray(series.values, dtype=float)
@@ -106,6 +108,7 @@ class MonteCarloGBMMethod(ForecastMethod):
             params_used = {
                 "n_sims": n_sims,
                 "seed": seed,
+                "seed_source": seed_source,
                 "mu": float(sim.get("mu", 0.0)),
                 "sigma": float(sim.get("sigma", 0.0)),
             }
@@ -127,7 +130,14 @@ class MonteCarloGBMMethod(ForecastMethod):
         ci = None
         if isinstance(ci_alpha, (float, int)) and 0.0 < float(ci_alpha) < 1.0:
             ci = _ci_from_sims(ret_paths, float(ci_alpha))
-        params_used = {"n_sims": n_sims, "seed": seed, "mu": mu, "sigma": sigma, "target": "return"}
+        params_used = {
+            "n_sims": n_sims,
+            "seed": seed,
+            "seed_source": seed_source,
+            "mu": mu,
+            "sigma": sigma,
+            "target": "return",
+        }
         if ci_alpha is not None:
             params_used["ci_alpha"] = float(ci_alpha)
         return ForecastResult(forecast=point, ci_values=ci, params_used=params_used)
@@ -169,7 +179,9 @@ class MonteCarloHMMMethod(ForecastMethod):
     ) -> ForecastResult:
         fh = int(horizon)
         n_sims = int(params.get("n_sims", 500))
+        seed_provided = "seed" in params and params.get("seed") is not None
         seed = int(params.get("seed", 42))
+        seed_source = "params" if seed_provided else "default"
         n_states = int(params.get("n_states", 2))
         ci_alpha = kwargs.get("ci_alpha", params.get("ci_alpha", None))
 
@@ -200,6 +212,7 @@ class MonteCarloHMMMethod(ForecastMethod):
             params_used = {
                 "n_sims": n_sims,
                 "seed": seed,
+                "seed_source": seed_source,
                 "n_states": n_states,
                 "requested_n_states": int(sim["requested_n_states"]),
                 "fitted_n_states": int(sim["fitted_n_states"]),
@@ -237,6 +250,7 @@ class MonteCarloHMMMethod(ForecastMethod):
         params_used = {
             "n_sims": n_sims,
             "seed": seed,
+            "seed_source": seed_source,
             "n_states": n_states,
             "requested_n_states": int(sim["requested_n_states"]),
             "fitted_n_states": int(sim["fitted_n_states"]),

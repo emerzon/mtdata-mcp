@@ -1282,6 +1282,20 @@ def _apply_forecast_generate_detail(  # noqa: C901
     if path_flatness:
         compact.update(path_flatness)
         compact.setdefault("point_forecast_mode", "flat_model_path")
+    method_name = str(
+        payload.get("method") or getattr(request, "method", "") or ""
+    ).strip().lower()
+    if method_name in {"mc_gbm", "hmm_mc"}:
+        params_used = payload.get("params_used")
+        if not isinstance(params_used, dict):
+            params_used = {}
+        simulation: Dict[str, Any] = {}
+        for key in ("n_sims", "seed", "seed_source"):
+            value = params_used.get(key)
+            if value not in (None, "", [], {}):
+                simulation[key] = value
+        if simulation:
+            compact["simulation"] = simulation
     if str(compact.get("quantity") or "").strip().lower() == "volatility":
         for key in (
             "volatility_per_bar",
@@ -1592,7 +1606,9 @@ def _apply_barrier_prob_detail(
             "symbol",
             "symbol_requested",
             "timeframe",
+            "method",
             "direction",
+            "barrier_side",
             "horizon",
             "barrier",
             "reference_price",
