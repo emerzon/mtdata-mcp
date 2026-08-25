@@ -18,6 +18,7 @@ from ...utils.mt5 import MT5ConnectionError, ensure_mt5_connection_or_raise
 from ...utils.time import _format_time_minimal
 from ...utils.utils import validate_historical_range
 from .._mcp_instance import mcp
+from ..error_envelope import build_error_payload
 from ..execution_logging import (
     infer_result_success,
     log_operation_finish,
@@ -172,9 +173,29 @@ def _regime_connection_error() -> Optional[Dict[str, Any]]:
     )
 
 
+def _method_min_fetch_limit(method: str) -> int:
+    if method == "rule_based":
+        return 20
+    return 10
+
+
+def _invalid_fetch_limit_error(message: str, *, fetch_limit: Any, method: str) -> Dict[str, Any]:
+    return build_error_payload(
+        message,
+        code="cli_invalid_arguments",
+        operation="regime_detect",
+        details={"fetch_limit": fetch_limit, "method": method},
+        remediation=(
+            "Pass a positive fetch_limit at or above the method minimum, or omit "
+            "it to use the timeframe lookback plus warmup."
+        ),
+        documentation="docs/forecast/REGIMES.md",
+    )
+
+
 def _history_fetch_limit(fetch_limit: Optional[int], lookback: int) -> int:
-    if fetch_limit is not None and int(fetch_limit) >= 0:
-        return int(max(int(fetch_limit), 50))
+    if fetch_limit is not None:
+        return int(fetch_limit)
     return int(max(int(lookback), 50)) + 20
 
 
@@ -259,15 +280,17 @@ def regime_detect(  # noqa: C901
     lookback: Annotated[Optional[int], Field(ge=1)] = None,
     include_series: bool = False,
     min_regime_bars: Optional[int] = None,
-    max_regimes: Annotated[int, Field(ge=1)] = 10,  # Maximum regimes in compact mode
+    max_regimes: Annotated[int, Field(ge=1)] = 10,  # Compact/standard segment cap
 ) -> Dict[str, Any]:
     """Detect regimes and/or change-points over a bounded history window.
 
-    - fetch_limit: Optional bars to fetch/analyze. For recent-history requests,
-      omission tracks the effective lookback plus warmup bars. An explicit
+    - fetch_limit: Optional bars to fetch/analyze. Negative or method-insufficient
+      values are rejected before fetch (`cli_invalid_arguments`). For recent-history
+      requests, omission tracks the effective lookback plus warmup bars. An explicit
       start/end range is analyzed in full unless fetch_limit or lookback is supplied.
       For rule_based, an explicit fetch_limit also becomes params.window_bars when
       that parameter and lookback are omitted; at least 20 bars are required.
+      Other methods require at least 10 bars.
     - start/end: Optional UTC-compatible analysis window. If provided, an explicit
       `fetch_limit` or `lookback` caps bars analyzed after the window is fetched.
     - method: Default is 'rule_based' (fast trend/ranging/transition classification).
@@ -299,8 +322,9 @@ def regime_detect(  # noqa: C901
     - min_regime_bars: Confirm a new state only after it persists for this many
         consecutive bars. Confirmation is causal and never rewrites earlier labels.
         Omit for timeframe-based defaults: M1: 30, M5: 12, M15-M30: 6-8, H1-H4: 3-4, D1+: 2
-    - max_regimes: Maximum number of regime windows to show in compact mode (default 10).
-        Most recent regimes are shown. Full mode shows all available windows.
+    - max_regimes: Maximum recent regime segment rows in compact and standard
+        output (default 10). Compact keeps current_regime plus those last N
+        rows. Full mode shows all available windows.
     - detail:
         Compact output is the public default. Use `detail="full"` for richer
         consolidated output. Raw `series` is included only if
@@ -485,6 +509,37 @@ def regime_detect(  # noqa: C901
             if min_regime_bars is not None
             else tf_defaults["min_regime_bars"]
         )
+        if fetch_limit is not None:
+            try:
+                fetch_limit_value = int(fetch_limit)
+            except (TypeError, ValueError):
+                return _finish(
+                    _invalid_fetch_limit_error(
+                        "fetch_limit must be an integer.",
+                        fetch_limit=fetch_limit,
+                        method=method,
+                    )
+                )
+            min_fetch = _method_min_fetch_limit(method)
+            if fetch_limit_value < 0:
+                return _finish(
+                    _invalid_fetch_limit_error(
+                        "fetch_limit must be a positive integer; negative values "
+                        "are not coerced to the default window.",
+                        fetch_limit=fetch_limit_value,
+                        method=method,
+                    )
+                )
+            if fetch_limit_value < min_fetch:
+                return _finish(
+                    _invalid_fetch_limit_error(
+                        f"fetch_limit must be >= {min_fetch} for method='{method}'.",
+                        fetch_limit=fetch_limit_value,
+                        method=method,
+                    )
+                )
+            fetch_limit = fetch_limit_value
+
         lookback_mapped_to_window = False
         fetch_limit_mapped_to_window = False
         needs_rule_based_config = method in {"rule_based", "all"}

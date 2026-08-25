@@ -642,6 +642,34 @@ def test_rule_based_rejects_limit_below_minimum_window() -> None:
     out = raw(symbol="TEST", timeframe="H1", fetch_limit=1, method="rule_based")
 
     assert out["error"].startswith("fetch_limit must be >= 20")
+    assert out["error_code"] == "cli_invalid_arguments"
+
+
+def test_regime_detect_rejects_negative_fetch_limit_before_fetch() -> None:
+    raw = _unwrap(regime_detect)
+    called = {"count": 0}
+
+    def fake_fetch_history(*_args, **_kwargs):
+        called["count"] += 1
+        raise AssertionError("fetch should not run for invalid fetch_limit")
+
+    with patch("mtdata.core.regime.api._fetch_history", side_effect=fake_fetch_history):
+        out = raw(symbol="TEST", timeframe="H1", fetch_limit=-1, method="hmm")
+
+    assert called["count"] == 0
+    assert out["success"] is False
+    assert out["error_code"] == "cli_invalid_arguments"
+    assert "negative" in out["error"].lower()
+
+
+def test_regime_detect_rejects_insufficient_hmm_fetch_limit() -> None:
+    raw = _unwrap(regime_detect)
+    with patch("mtdata.core.regime.api._fetch_history") as mocked_fetch:
+        out = raw(symbol="TEST", timeframe="H1", fetch_limit=5, method="hmm")
+
+    mocked_fetch.assert_not_called()
+    assert out["error_code"] == "cli_invalid_arguments"
+    assert "fetch_limit must be >= 10" in out["error"]
 
 
 def test_rule_based_rejects_lookback_below_minimum_window() -> None:

@@ -323,7 +323,9 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "Historical bars scored for anomalous return, volume, and range."
     ),
     ("strategy_validate", "lookback"): (
-        "Historical bars used to validate strategy candidates."
+        "Evaluation bars for strategy candidates. Fetch also includes the "
+        "barrier outcome tail plus 5 warmup bars; see fetch_bars and "
+        "evaluation_bars in the result."
     ),
     ("forecast_generate", "lookback"): (
         "Historical bars to train on. Omit for the method default "
@@ -605,10 +607,11 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "analysis, bounded to 200-20000 bars (H1 session: 1440 bars)."
     ),
     ("regime_detect", "fetch_limit"): (
-        "Bars fetched for regime detection. For non-rule methods this also "
-        "becomes the model-fit window when provided; lookback is then only the "
-        "summary window. Defaults to the effective lookback plus warmup bars; "
-        "use max_regimes for compact output count."
+        "Bars fetched for regime detection. Rejected if negative or below the "
+        "method minimum (20 for rule_based, 10 otherwise). For non-rule methods "
+        "this also becomes the model-fit window when provided; lookback is then "
+        "only the summary window. Defaults to the effective lookback plus warmup "
+        "bars. Use max_regimes to cap compact and standard regime segment rows."
     ),
     ("symbols_list", "limit"): "Max symbols or groups to return.",
     ("symbols_top_markets", "rank_by"): (
@@ -816,6 +819,13 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
     ("confluence_levels", "volume_profile_max_m1_bars"): (
         "Maximum M1 bars used by the volume-profile component; limits work for "
         "large confluence windows."
+    ),
+    ("pivot_compute_points", "end"): (
+        "Historical cutoff. Uses the last completed bar at or before this "
+        "instant; later bars are not used. Alias: as_of."
+    ),
+    ("pivot_compute_points", "as_of"): (
+        "Alias for end. Historical cutoff for the last completed source bar."
     ),
     ("correlation_matrix", "allow_partial"): (
         "Keep symbols with sufficient aligned observations and report exclusions; "
