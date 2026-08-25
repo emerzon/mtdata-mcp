@@ -68,10 +68,11 @@ rejects the bare ticker, use its `details.did_you_mean` list or
 | Live broker quote | `market_ticker` / `symbols_top_markets` — not these tools |
 
 Pin an adapter with `--source finviz` when you want that provider only.
-`--source mt5` is valid on the schema for `calendar`, `equity_profile`,
-`screener`, and `asset_performance`, but those jobs have no MetaTrader 5
-table yet — the response is `research_capability_unsupported`, not an empty
-fake table. `news --source mt5` does work for the broker news feed.
+`equity_profile` and `screener` advertise only `auto` and `finviz`.
+`--source mt5` remains on the schema for `calendar` and `asset_performance`,
+but those jobs have no MetaTrader 5 table yet — the response is
+`research_capability_unsupported`, not an empty fake table.
+`news --source mt5` does work for the broker news feed.
 
 Booleans on the CLI are `true` / `false`.
 

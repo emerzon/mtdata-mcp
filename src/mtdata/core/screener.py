@@ -7,7 +7,7 @@ from typing import Annotated, Any, Dict, Literal, Optional, Union
 
 from pydantic import Field
 
-from ..services.research.capabilities import SCREENER, ResearchSourcePin
+from ..services.research.capabilities import SCREENER, FinvizResearchSourcePin
 from ..services.research.errors import finviz_only_source_error
 from ..services.research.payload import stamp_provider
 from ..shared.schema import DetailLiteral
@@ -77,7 +77,7 @@ def screener(
     ] = 0,
     detail: DetailLiteral = "compact",
     source: Annotated[
-        ResearchSourcePin,
+        FinvizResearchSourcePin,
         Field(
             description="Adapter pin. auto uses every source that can serve this query."
         ),

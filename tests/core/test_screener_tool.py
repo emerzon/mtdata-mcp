@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Annotated, get_args, get_origin, get_type_hints
+
 from mtdata.core.screener import screener
 
 
@@ -49,3 +51,18 @@ def test_screener_rejects_offset_in_results_mode(monkeypatch) -> None:
     assert result["error_code"] == "incompatible_parameters"
     assert result["details"]["invalid"] == ["offset"]
     assert "Use --page" in result["error"]
+
+
+def test_screener_source_schema_omits_mt5() -> None:
+    annotation = get_type_hints(_unwrap(screener), include_extras=True)["source"]
+    source_type = (
+        get_args(annotation)[0] if get_origin(annotation) is Annotated else annotation
+    )
+    assert set(get_args(source_type)) == {"auto", "finviz"}
+
+
+def test_screener_mt5_pin_is_unsupported() -> None:
+    result = _unwrap(screener)(source="mt5")
+
+    assert result["success"] is False
+    assert result["error_code"] == "research_capability_unsupported"

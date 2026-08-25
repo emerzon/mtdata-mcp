@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Annotated, get_args, get_origin, get_type_hints
+
 from mtdata.core.equity_profile import equity_profile
 
 
@@ -145,3 +147,11 @@ def test_equity_profile_non_price_sections_keep_observation_contract(monkeypatch
         "maximum": 20,
     }
     assert "transport time" in result["observation_time_note"]
+
+
+def test_equity_profile_source_schema_omits_mt5() -> None:
+    annotation = get_type_hints(_unwrap(equity_profile), include_extras=True)["source"]
+    source_type = (
+        get_args(annotation)[0] if get_origin(annotation) is Annotated else annotation
+    )
+    assert set(get_args(source_type)) == {"auto", "finviz"}

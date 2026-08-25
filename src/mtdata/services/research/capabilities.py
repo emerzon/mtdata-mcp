@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Final, Literal
 
 ResearchSourcePin = Literal["auto", "finviz", "mt5"]
+FinvizResearchSourcePin = Literal["auto", "finviz"]
 
 NEWS: Final = "news"
 CALENDAR: Final = "calendar"

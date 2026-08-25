@@ -7,7 +7,7 @@ from typing import Annotated, Any, Dict, Optional
 
 from pydantic import Field
 
-from ..services.research.capabilities import EQUITY_PROFILE, ResearchSourcePin
+from ..services.research.capabilities import EQUITY_PROFILE, FinvizResearchSourcePin
 from ..services.research.errors import finviz_only_source_error
 from ..services.research.payload import stamp_provider
 from ..shared.schema import DetailLiteral
@@ -217,7 +217,7 @@ def equity_profile(
     ] = 1,
     detail: DetailLiteral = "compact",
     source: Annotated[
-        ResearchSourcePin,
+        FinvizResearchSourcePin,
         Field(
             description="Adapter pin. auto uses every source that can serve this query."
         ),

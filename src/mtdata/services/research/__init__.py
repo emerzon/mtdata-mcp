@@ -7,6 +7,7 @@ from .capabilities import (
     PERFORMANCE,
     RESEARCH_CAPABILITIES,
     SCREENER,
+    FinvizResearchSourcePin,
     ResearchSourcePin,
 )
 from .errors import capability_unsupported_error, source_unavailable_error
@@ -16,6 +17,7 @@ from .protocols import CalendarRequest
 __all__ = [
     "CALENDAR",
     "EQUITY_PROFILE",
+    "FinvizResearchSourcePin",
     "NEWS",
     "PERFORMANCE",
     "RESEARCH_CAPABILITIES",
