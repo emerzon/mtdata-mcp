@@ -16,7 +16,12 @@ from ..patterns.classic import detect_classic_patterns as _detect_classic_patter
 from ..patterns.classic_impl.config import (
     fatal_classic_detector_config_errors as _fatal_classic_detector_config_errors,
 )
-from ..patterns.common import data_quality_warnings, should_drop_last_live_bar
+from ..patterns.common import (
+    closed_bar_cutoff_epoch,
+    data_quality_warnings,
+    keep_bars_closed_at_or_before,
+    should_drop_last_live_bar,
+)
 from ..patterns.elliott import ElliottWaveConfig as _ElliottCfg
 from ..patterns.elliott import detect_elliott_waves as _detect_elliott_waves
 from ..patterns.fractal import FractalDetectorConfig as _FractalCfg
@@ -271,15 +276,22 @@ def _fetch_pattern_data_after_select(  # noqa: C901
         return None, {"error": f"No valid bars available for {symbol}"}
     warnings_out.extend(quality_warnings)
 
-    # Drop the last bar only when it is still open or cannot be validated.
+    # Drop bars that had not closed at the historical cutoff, then the live tail.
     from ..services.data_service.candles import _resolve_live_bar_reference_epoch
 
-    live_bar_reference_epoch = _resolve_live_bar_reference_epoch(symbol, timeframe)
+    cutoff_epoch = closed_bar_cutoff_epoch(end_dt, utc_now)
+    if cutoff_epoch is not None:
+        df = keep_bars_closed_at_or_before(df, timeframe, cutoff_epoch)
+        if len(df) == 0:
+            return None, {"error": f"No valid bars available for {symbol}"}
+        drop_reference_epoch = cutoff_epoch
+    else:
+        drop_reference_epoch = _resolve_live_bar_reference_epoch(symbol, timeframe)
     if _should_drop_last_pattern_bar(
         df,
         timeframe,
         now_utc=utc_now,
-        current_time_epoch=live_bar_reference_epoch,
+        current_time_epoch=drop_reference_epoch,
     ):
         df = df.iloc[:-1].copy()
     

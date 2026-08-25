@@ -9,7 +9,8 @@ from scipy.signal import find_peaks
 
 from ..services.data_service.candles import _is_last_bar_forming
 from ..shared.symbols import is_probably_crypto_symbol
-from ..utils.utils import to_float_np
+from ..utils.time import bar_close_epoch
+from ..utils.utils import _utc_epoch_seconds, to_float_np
 
 
 def compute_atr_sma(
@@ -465,3 +466,28 @@ def should_drop_last_live_bar(
     if epoch is None and now_utc is not None:
         epoch = now_utc.timestamp()
     return _is_last_bar_forming(df, timeframe, current_time_epoch=epoch)
+
+
+def closed_bar_cutoff_epoch(
+    end_dt: Optional[datetime],
+    now_utc: datetime,
+) -> Optional[float]:
+    """Return min(parsed end, now) as UTC epoch, or None when no end was given."""
+    if end_dt is None:
+        return None
+    return min(float(_utc_epoch_seconds(end_dt)), float(now_utc.timestamp()))
+
+
+def keep_bars_closed_at_or_before(
+    df: pd.DataFrame,
+    timeframe: str,
+    cutoff_epoch: float,
+) -> pd.DataFrame:
+    """Keep bars whose close is knowable at *cutoff_epoch*."""
+    if df.empty or "time" not in df.columns:
+        return df
+    return df.loc[
+        df["time"].map(
+            lambda value: bar_close_epoch(value, timeframe) <= cutoff_epoch
+        )
+    ].copy()

@@ -1,6 +1,7 @@
 """Core patterns detection and response building tests."""
 
 import logging
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import numpy as np
@@ -147,6 +148,66 @@ def test_bounded_historical_pattern_fetch_skips_wall_clock_staleness(monkeypatch
         "Data may be stale" in str(warning)
         for warning in (live.attrs.get("warnings") or [])
     )
+
+
+@pytest.mark.parametrize(
+    ("end", "expected_hour"),
+    [
+        ("2026-08-14T12:30:00Z", 11),
+        ("2026-08-14T13:00:00Z", 12),
+    ],
+)
+def test_historical_pattern_fetch_keeps_bars_closed_at_cutoff(
+    monkeypatch, end, expected_hour
+):
+    class _FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            current = datetime(2026, 8, 14, 15, 0, tzinfo=timezone.utc)
+            return current if tz is not None else current.replace(tzinfo=None)
+
+    opens = [
+        datetime(2026, 8, 14, hour, 0, tzinfo=timezone.utc)
+        for hour in range(8, 14)
+    ]
+    rates = [
+        {
+            "time": open_at.timestamp(),
+            "open": 1.0 + index * 0.01,
+            "high": 1.1 + index * 0.01,
+            "low": 0.9 + index * 0.01,
+            "close": 1.05 + index * 0.01,
+            "tick_volume": 100,
+        }
+        for index, open_at in enumerate(opens)
+    ]
+    gateway = SimpleNamespace(
+        symbol_info=lambda _symbol: SimpleNamespace(visible=True),
+        symbol_select=lambda *_args: True,
+    )
+    monkeypatch.setattr(core_patterns, "datetime", _FrozenDateTime)
+    monkeypatch.setattr(core_patterns, "_mt5_copy_rates_from", lambda *_args: rates)
+    monkeypatch.setattr(
+        data_service_mod,
+        "_resolve_live_bar_reference_epoch",
+        lambda *_args: datetime(2026, 8, 14, 15, 0, tzinfo=timezone.utc).timestamp(),
+    )
+
+    frame, error = core_patterns._fetch_pattern_data(
+        "EURUSD",
+        "H1",
+        5,
+        False,
+        gateway=gateway,
+        end=end,
+    )
+
+    assert error is None
+    assert frame is not None
+    expected_last = datetime(
+        2026, 8, 14, expected_hour, 0, tzinfo=timezone.utc
+    ).timestamp()
+    assert float(frame["time"].iloc[-1]) == expected_last
 
 
 def test_data_quality_uses_tick_volume_when_real_volume_is_structural_zero():

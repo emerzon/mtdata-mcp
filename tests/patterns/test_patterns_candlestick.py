@@ -796,6 +796,97 @@ def test_detect_candlestick_patterns_drops_still_forming_last_bar(monkeypatch):
     assert res["data"][0]["end_index"] == 1
 
 
+@pytest.mark.parametrize(
+    ("end", "expected_hour"),
+    [
+        ("2026-08-14T12:30:00Z", 11),
+        ("2026-08-14T13:00:00Z", 12),
+    ],
+)
+def test_detect_candlestick_patterns_historical_end_uses_closed_bar_cutoff(
+    monkeypatch, end, expected_hour
+):
+    class _FakeFrame(pd.DataFrame):
+        @property
+        def _constructor(self):
+            return _FakeFrame
+
+        @property
+        def ta(self):
+            frame = self
+
+            class _Accessor:
+                def cdl_alpha(self, append=True):
+                    _ = append
+                    values = [0.0] * len(frame)
+                    values[-1] = 200.0
+                    frame["cdl_alpha"] = values
+
+            return _Accessor()
+
+    class _FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            current = datetime(2026, 8, 14, 15, 0, tzinfo=timezone.utc)
+            return current if tz is not None else current.replace(tzinfo=None)
+
+    opens = [
+        datetime(2026, 8, 14, hour, 0, tzinfo=timezone.utc).timestamp()
+        for hour in range(8, 14)
+    ]
+
+    monkeypatch.setattr(candlestick_mod, "datetime", _FrozenDateTime)
+    monkeypatch.setattr(candlestick_mod, "_ensure_candlestick_runtime", lambda: None)
+    monkeypatch.setattr(candlestick_mod, "_use_client_tz", lambda: False)
+    monkeypatch.setattr(candlestick_mod, "TIMEFRAME_MAP", {"H1": 1})
+    monkeypatch.setattr(candlestick_mod, "_symbol_ready_guard", _always_ready_guard)
+    monkeypatch.setattr(
+        candlestick_mod,
+        "_mt5_copy_rates_from",
+        lambda *_a, **_k: [object()] * len(opens),
+    )
+    monkeypatch.setattr(
+        candlestick_mod, "_get_candlestick_pattern_methods", lambda _temp: ["cdl_alpha"]
+    )
+    monkeypatch.setattr(
+        candlestick_mod,
+        "_rates_to_df",
+        lambda _rates: _FakeFrame(
+            {
+                "time": opens,
+                "open": [100.0 + index for index in range(len(opens))],
+                "high": [101.0 + index for index in range(len(opens))],
+                "low": [99.0 + index for index in range(len(opens))],
+                "close": [100.5 + index for index in range(len(opens))],
+            }
+        ),
+    )
+    monkeypatch.setattr(
+        data_service_mod,
+        "_resolve_live_bar_reference_epoch",
+        lambda *_a, **_k: datetime(2026, 8, 14, 15, 0, tzinfo=timezone.utc).timestamp(),
+    )
+
+    res = candlestick_mod.detect_candlestick_patterns(
+        symbol="EURUSD",
+        timeframe="H1",
+        limit=10,
+        min_strength=0.70,
+        min_gap=0,
+        robust_only=False,
+        whitelist=None,
+        top_k=2,
+        end=end,
+    )
+
+    expected_last = datetime(
+        2026, 8, 14, expected_hour, 0, tzinfo=timezone.utc
+    )
+    assert res["success"] is True
+    assert res["data"][0]["time"] == expected_last.strftime("%Y-%m-%dT%H:%MZ")
+    assert res["data"][0]["end_index"] == res["candles"] - 1
+
+
 def test_detect_candlestick_patterns_uses_broker_tick_reference_for_live_bar_trim(
     monkeypatch,
 ):

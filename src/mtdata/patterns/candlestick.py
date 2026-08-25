@@ -20,7 +20,12 @@ from ..utils.utils import (
     _parse_start_datetime,
     _table_from_rows,
 )
-from .common import data_quality_warnings, should_drop_last_live_bar
+from .common import (
+    closed_bar_cutoff_epoch,
+    data_quality_warnings,
+    keep_bars_closed_at_or_before,
+    should_drop_last_live_bar,
+)
 from .enrichment import (
     _apply_confidence_delta,
     _config_bool,
@@ -782,12 +787,17 @@ def detect_candlestick_patterns(  # noqa: C901
     df = _rates_to_df(rates)
     from ..services.data_service.candles import _resolve_live_bar_reference_epoch
 
-    live_bar_reference_epoch = _resolve_live_bar_reference_epoch(symbol, timeframe)
+    cutoff_epoch = closed_bar_cutoff_epoch(end_dt, utc_now)
+    if cutoff_epoch is not None:
+        df = keep_bars_closed_at_or_before(df, timeframe, cutoff_epoch)
+        drop_reference_epoch = cutoff_epoch
+    else:
+        drop_reference_epoch = _resolve_live_bar_reference_epoch(symbol, timeframe)
     if should_drop_last_live_bar(
         df,
         timeframe,
         now_utc=utc_now,
-        current_time_epoch=live_bar_reference_epoch,
+        current_time_epoch=drop_reference_epoch,
     ):
         df = df.iloc[:-1].copy()
     denoise_warnings: List[str] = []
