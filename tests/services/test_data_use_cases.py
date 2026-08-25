@@ -1,3 +1,4 @@
+import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -2617,7 +2618,6 @@ def test_run_data_fetch_ticks_compact_prunes_row_diagnostics():
         "timezone": "UTC",
         "price_precision": 5,
         "price_point": 0.00001,
-        "last_quote": {"bid": 1.16591, "ask": 1.16599},
         "freshness": "stale, tick 10m 0s ago",
         "data_age_seconds": 600.0,
         "data_age_anchor": "wall_clock",
@@ -2635,18 +2635,6 @@ def test_run_data_fetch_ticks_compact_prunes_row_diagnostics():
         "volume_fields": ["volume", "volume_real"],
         "quote_completeness_pct": 50.0,
         "quality": "partial_quotes=1/2; last=unavailable",
-        "data_quality": {
-            "incomplete_quote_ticks": 1,
-            "complete_ticks": 1,
-            "incomplete_ticks": 1,
-            "total_ticks": 2,
-            "incomplete_quote_ratio": 0.5,
-            "spread_ticks_excluded": 1,
-            "warning_ratio": 0.5,
-            "quote_type_counts": {"bid_ask": 1, "bid_only": 1},
-            "incomplete_quote_status": "warning",
-        },
-        "last_unavailable": True,
         "warnings": [
             "Some tick snapshots omitted a bid or ask value.",
             "Broker tick data did not provide a usable last price; last is null.",
@@ -2655,6 +2643,10 @@ def test_run_data_fetch_ticks_compact_prunes_row_diagnostics():
         "limit_reached": True,
         "source": {"provider": "mt5", "context_available": False},
     }
+    assert "last_quote" not in result
+    assert "data_quality" not in result
+    assert "tick_count_event_basis" not in result
+    assert "last_unavailable" not in result
 
 
 def test_run_data_fetch_ticks_compact_retains_clock_skew_safety_fields():
@@ -2764,7 +2756,9 @@ def test_run_data_fetch_ticks_maps_empty_historical_window_to_success() -> None:
     assert result["count"] == 0
     assert result["data"] == []
     assert result["empty"] is True
-    assert result["empty_reason"] == "no_ticks_in_range"
+    assert result["empty_reason"] == "market_closed_weekend"
+    assert result["market_status"] == "closed"
+    assert result["market_status_reason"] == "weekend"
     assert result["requested_limit"] == 20
     assert result["limit_reached"] is False
     assert "error_code" not in result
@@ -2891,8 +2885,8 @@ def test_run_data_fetch_ticks_compact_summarizes_quality_without_verbose_warning
     assert result["data"][3]["mid"] == 1.10006
     assert result["data"][4]["mid"] == 1.10007
     assert result["data"][4]["mid_inferred"] is True
-    assert result["data_quality"]["incomplete_quote_status"] == "warning"
-    assert result["last_unavailable"] is True
+    assert "data_quality" not in result
+    assert "last_unavailable" not in result
     assert len(result["warnings"]) == 2
 
 
@@ -2925,7 +2919,7 @@ def test_run_data_fetch_ticks_compact_marks_normal_quote_only_feed_ok():
 
     assert result["feed_tier"] == "quote_only"
     assert result["quality"] == "ok"
-    assert result["last_unavailable"] is True
+    assert "last_unavailable" not in result
     assert "warnings" not in result
 
 
@@ -2952,6 +2946,106 @@ def test_run_data_fetch_ticks_compact_does_not_infer_mid_outside_locked_quote():
     assert result["data"][1]["bid"] == result["data"][1]["ask"]
     assert "mid" not in result["data"][1]
     assert "mid_inferred" not in result["data"][1]
+
+
+def _one_row_tick_payload() -> dict:
+    return {
+        "success": True,
+        "symbol": "EURUSD",
+        "count": 1,
+        "tick_count": 1,
+        "tick_count_event_basis": "mt5_copy_ticks_all_records",
+        "quote_update_count": 1,
+        "quote_update_count_event_basis": "records_with_bid_or_ask_update_flag",
+        "bid_update_count": 1,
+        "ask_update_count": 1,
+        "data": [{"time": "2026-07-08T12:00:00Z", "bid": 1.1, "ask": 1.1001}],
+        "timezone": "UTC",
+        "price_precision": 5,
+        "price_point": 0.00001,
+        "last_quote": {"bid": 1.1, "ask": 1.1001, "quote_scope": "latest_sample"},
+        "execution_quote": {"bid": 1.1, "ask": 1.1001},
+        "data_quality": {
+            "complete_ticks": 1,
+            "incomplete_ticks": 0,
+            "total_ticks": 1,
+            "incomplete_quote_status": "ok",
+        },
+        "freshness": "fresh",
+        "data_age_seconds": 1.0,
+        "data_stale": False,
+        "warnings": [],
+    }
+
+
+def test_run_data_fetch_ticks_compact_one_row_is_smaller_than_standard():
+    payload = _one_row_tick_payload()
+    gateway = SimpleNamespace(ensure_connection=lambda: None)
+
+    compact = run_data_fetch_ticks(
+        DataFetchTicksRequest(symbol="EURUSD", limit=1, detail="compact"),
+        gateway=gateway,
+        fetch_ticks_impl=lambda **_kwargs: dict(payload),
+    )
+    standard = run_data_fetch_ticks(
+        DataFetchTicksRequest(symbol="EURUSD", limit=1, detail="standard"),
+        gateway=gateway,
+        fetch_ticks_impl=lambda **_kwargs: dict(payload),
+    )
+
+    assert compact["success"] is True
+    assert compact["count"] == 1
+    assert "data" in compact
+    assert "timezone" in compact
+    assert "last_quote" not in compact
+    assert "data_quality" not in compact
+    assert "tick_count_event_basis" not in compact
+    assert standard["last_quote"]["bid"] == 1.1
+    assert standard["data_quality"]["total_ticks"] == 1
+    assert standard["tick_count_event_basis"] == "mt5_copy_ticks_all_records"
+    compact_size = len(json.dumps(compact, sort_keys=True, default=str))
+    standard_size = len(json.dumps(standard, sort_keys=True, default=str))
+    assert compact_size < standard_size * 0.75
+
+
+def test_run_data_fetch_ticks_empty_weekday_keeps_generic_reason():
+    result = run_data_fetch_ticks(
+        DataFetchTicksRequest(
+            symbol="EURUSD",
+            start="2026-07-08T12:00:00Z",
+            end="2026-07-08T13:00:00Z",
+            detail="compact",
+        ),
+        gateway=SimpleNamespace(ensure_connection=lambda: None),
+        fetch_ticks_impl=lambda **_kwargs: {"error": "No tick data available"},
+    )
+
+    assert result["success"] is True
+    assert result["empty_reason"] == "no_ticks_in_range"
+    assert "market_status" not in result
+
+
+def test_run_data_fetch_ticks_empty_crypto_weekend_is_not_closed():
+    result = run_data_fetch_ticks(
+        DataFetchTicksRequest(
+            symbol="BTCUSD",
+            start="2026-07-11T12:00:00Z",
+            end="2026-07-11T13:00:00Z",
+            detail="compact",
+        ),
+        gateway=SimpleNamespace(ensure_connection=lambda: None),
+        fetch_ticks_impl=lambda **_kwargs: {
+            "success": True,
+            "count": 0,
+            "data": [],
+            "empty": True,
+            "empty_reason": "no_ticks_in_range",
+            "timezone": "UTC",
+        },
+    )
+
+    assert result["empty_reason"] == "no_ticks_in_range"
+    assert "market_status" not in result
 
 
 def test_data_fetch_candles_logs_finish_event(monkeypatch, caplog):

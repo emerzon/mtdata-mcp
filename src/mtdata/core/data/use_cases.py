@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 
+from ...services.data_service.errors import attach_empty_range_weekend_context
 from ...utils.freshness import format_age_seconds as _format_age_seconds
 from ...utils.freshness import format_freshness_label
 from ...utils.market_metadata import (
@@ -59,26 +60,17 @@ _COMPACT_TICK_TOP_LEVEL_FIELDS = (
     "success",
     "symbol",
     "count",
-    "tick_count",
-    "tick_count_event_basis",
-    "trade_event_count",
-    "quote_update_count",
-    "quote_update_count_event_basis",
-    "bid_update_count",
-    "ask_update_count",
     "feed_tier",
     "data",
     "empty",
     "empty_reason",
-    "last_quote",
-    "execution_quote",
+    "no_data_reason",
     "data_window",
     "timezone",
     "price_precision",
     "price_point",
     "price_currency",
     "units",
-    "spread_statistics_basis",
     "freshness",
     "freshness_state",
     "freshness_reason",
@@ -91,7 +83,6 @@ _COMPACT_TICK_TOP_LEVEL_FIELDS = (
     "timestamp_skew_seconds",
     "timestamp_skew_tolerance_seconds",
     "timestamp_warning",
-    "history_policy_ok",
     "usable_for_live_trading",
     "usable_for_live_trading_basis",
     "live_max_age_seconds",
@@ -100,6 +91,7 @@ _COMPACT_TICK_TOP_LEVEL_FIELDS = (
     "market_status_source",
     "freshness_policy_relaxed",
     "note",
+    "suggestion",
     "simplified",
     "simplify",
     "query_applied",
@@ -107,8 +99,6 @@ _COMPACT_TICK_TOP_LEVEL_FIELDS = (
     "history_window_limit_days",
     "history_window_floor",
     "effective_start",
-    "data_quality",
-    "last_unavailable",
     "warnings",
     "_tick_page",
 )
@@ -1940,6 +1930,14 @@ def _run_data_fetch_ticks_impl(
         request=request,
         gateway=gateway,
     )
+    if isinstance(result, dict) and result.get("empty") is True:
+        attach_empty_range_weekend_context(
+            result,
+            symbol=request.symbol,
+            start=str(request.start) if request.start is not None else None,
+            end=str(request.end) if request.end is not None else None,
+            item="ticks",
+        )
     if isinstance(result, dict):
         warnings = result.get("warnings")
         if isinstance(warnings, list):
@@ -2096,7 +2094,13 @@ def _normalize_tick_query_error(
                 empty["start"] = str(request.start)
             if request.end is not None:
                 empty["end"] = str(request.end)
-            return empty
+            return attach_empty_range_weekend_context(
+                empty,
+                symbol=request.symbol,
+                start=str(request.start) if request.start is not None else None,
+                end=str(request.end) if request.end is not None else None,
+                item="ticks",
+            )
 
     details: Dict[str, Any] = {
         "symbol": request.symbol,

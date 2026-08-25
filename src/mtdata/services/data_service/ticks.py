@@ -69,7 +69,7 @@ from .candles import (
     _round_row_price_columns,
     _timezone_label,
 )
-from .errors import _future_start_error
+from .errors import _future_start_error, attach_empty_range_weekend_context
 from .query import _DATE_FORMAT_HINT
 
 _TICK_COUNT_EVENT_BASIS = "mt5_copy_ticks_all_records"
@@ -801,7 +801,13 @@ def fetch_ticks(  # noqa: C901
                     "Tick history retrieval stopped at the configured lookback "
                     "budget before reaching the requested start."
                 ]
-            return empty_payload
+            return attach_empty_range_weekend_context(
+                empty_payload,
+                symbol=symbol,
+                start=start,
+                end=end,
+                item="ticks",
+            )
 
         if output_mode not in ("summary", "stats", "rows", "full_rows"):
             return {

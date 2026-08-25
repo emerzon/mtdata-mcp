@@ -48,6 +48,8 @@ def _bounded_weekend_no_data_context(
     symbol: str,
     start_datetime: Optional[str],
     end_datetime: Optional[str],
+    *,
+    item: str = "candles",
 ) -> Dict[str, Any]:
     if not start_datetime or not end_datetime:
         return {}
@@ -78,10 +80,11 @@ def _bounded_weekend_no_data_context(
             )
         ):
             return {}
+        item_label = str(item or "data").strip() or "data"
         session = closed_session_context(
             symbol,
             now_epoch=midpoint.timestamp(),
-            item="candles",
+            item=item_label,
         )
         if not session or session.get("market_status_reason") != "weekend":
             return {}
@@ -95,10 +98,43 @@ def _bounded_weekend_no_data_context(
         "market_status_source": "standard_weekend_hours",
         "note": (
             f"The requested range falls entirely within standard weekend closure "
-            f"hours for {symbol}; no candles are expected."
+            f"hours for {symbol}; no {item_label} are expected."
         ),
         "suggestion": "Choose a range containing an open trading session.",
     }
+
+
+def attach_empty_range_weekend_context(
+    payload: Dict[str, Any],
+    *,
+    symbol: str,
+    start: Optional[str],
+    end: Optional[str],
+    item: str = "ticks",
+) -> Dict[str, Any]:
+    """Copy asset-aware weekend closure fields onto an empty range payload."""
+    context = _bounded_weekend_no_data_context(
+        symbol,
+        start,
+        end,
+        item=item,
+    )
+    if not context:
+        return payload
+    reason = context.get("no_data_reason")
+    if reason:
+        payload["empty_reason"] = reason
+        payload["no_data_reason"] = reason
+    for key in (
+        "market_status",
+        "market_status_reason",
+        "market_status_source",
+        "note",
+        "suggestion",
+    ):
+        if context.get(key) is not None:
+            payload[key] = context[key]
+    return payload
 
 
 def _build_no_data_error_with_context(
