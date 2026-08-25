@@ -145,14 +145,19 @@ def _run_trade_close_once(  # noqa: C901
 
     def _mark_bulk_preview_unconfirmed(payload: Dict[str, Any]) -> Dict[str, Any]:
         out = dict(payload)
-        out["success"] = False
-        out["preview_ok"] = False
-        out["error_code"] = "preview_blocked"
-        out["required_confirmation"] = "--confirm-close-all true"
-        out["error"] = (
-            "Ticketless bulk close preview is not live-eligible until "
-            "--confirm-close-all true is passed."
+        preview_failed = (
+            out.get("success") is False
+            or bool(str(out.get("error") or "").strip())
+            or out.get("preview_ok") is False
         )
+        if not preview_failed:
+            out["success"] = True
+            out.setdefault("preview_ok", True)
+            out.pop("error", None)
+            if out.get("error_code") == "preview_blocked":
+                out.pop("error_code", None)
+        out["required_confirmation"] = "--confirm-close-all true"
+        out["authorization_status"] = "required"
         validation_payload = out.get("validation")
         if not isinstance(validation_payload, dict):
             validation_payload = {}

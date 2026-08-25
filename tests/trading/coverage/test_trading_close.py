@@ -534,7 +534,9 @@ class TestTradeClose:
 
     @patch("mtdata.core.trading._cancel_pending")
     @patch("mtdata.core.trading._close_positions")
-    def test_symbol_bulk_close_dry_run_requires_confirmation(self, mock_close, mock_cancel):
+    def test_symbol_bulk_close_dry_run_succeeds_without_live_confirmation(
+        self, mock_close, mock_cancel
+    ):
         mock_close.return_value = {
             "success": True,
             "matched_count": 0,
@@ -543,10 +545,14 @@ class TestTradeClose:
             "message": "No open positions for EURUSD",
         }
         out = _unwrap_mcp(trade_close(symbol="EURUSD", dry_run=True, __cli_raw=True))
-        assert out["success"] is False
+        assert out["success"] is True
         assert out["dry_run"] is True
-        assert out["preview_ok"] is False
+        assert out["preview_ok"] is True
+        assert out["authorization_status"] == "required"
         assert out["required_confirmation"] == "--confirm-close-all true"
+        assert out["validation"]["live_submission_eligible"] is False
+        assert "confirmation_required" in out["validation"]["blockers"]
+        assert out.get("error_code") != "preview_blocked"
         assert out["would_send_order"] is False
         assert out["operation"] == "close_symbol_positions"
         assert out["symbol"] == "EURUSD"
@@ -560,6 +566,28 @@ class TestTradeClose:
             deviation=20,
             dry_run=True,
         )
+        mock_cancel.assert_not_called()
+
+    @patch("mtdata.core.trading._cancel_pending")
+    @patch("mtdata.core.trading._close_positions")
+    def test_close_all_dry_run_succeeds_without_live_confirmation(
+        self, mock_close, mock_cancel
+    ):
+        mock_close.return_value = {
+            "success": True,
+            "preview_ok": True,
+            "matched_count": 2,
+            "would_send_orders": 2,
+        }
+        out = trade_close(close_all=True, dry_run=True, __cli_raw=True)
+
+        assert out["success"] is True
+        assert out["preview_ok"] is True
+        assert out["authorization_status"] == "required"
+        assert out["required_confirmation"] == "--confirm-close-all true"
+        assert out["validation"]["live_submission_eligible"] is False
+        assert out.get("error_code") != "preview_blocked"
+        mock_close.assert_called_once()
         mock_cancel.assert_not_called()
 
     @patch("mtdata.core.trading._cancel_pending")
@@ -907,6 +935,54 @@ class TestClosePositions:
 
         assert result["success"] is False
         assert result["error_code"] == "positions_snapshot_unavailable"
+
+    @patch.dict("sys.modules", {"MetaTrader5": MagicMock()})
+    def test_invalid_symbol_is_not_reported_as_snapshot_outage(self):
+        mt5 = sys.modules["MetaTrader5"]
+        self._setup_mt5(mt5)
+        mt5.symbol_info.return_value = None
+        mt5.symbol_select.return_value = False
+        mt5.positions_get.return_value = None
+        mt5.last_error.return_value = (1, "Success")
+        from mtdata.core.trading import _close_positions
+
+        result = _close_positions(symbol="NOTREAL", dry_run=True)
+
+        assert result["success"] is False
+        assert result["error_code"] == "symbol_not_found"
+        assert "NOTREAL" in result["error"]
+        assert result.get("related_tools") == ["symbols_list"]
+        assert all(
+            call.kwargs.get("symbol") != "NOTREAL"
+            for call in mt5.positions_get.call_args_list
+        )
+
+    @patch.dict("sys.modules", {"MetaTrader5": MagicMock()})
+    def test_valid_symbol_empty_book_is_not_an_outage(self):
+        mt5 = sys.modules["MetaTrader5"]
+        self._setup_mt5(mt5)
+        mt5.symbol_info.return_value = SimpleNamespace(name="EURUSD")
+        mt5.positions_get.return_value = []
+        from mtdata.core.trading import _close_positions
+
+        result = _close_positions(symbol="EURUSD", dry_run=True)
+
+        assert result.get("error_code") != "positions_snapshot_unavailable"
+        assert "No open positions" in str(result.get("message") or "")
+
+    @patch.dict("sys.modules", {"MetaTrader5": MagicMock()})
+    def test_snapshot_outage_omits_success_last_error(self):
+        mt5 = sys.modules["MetaTrader5"]
+        self._setup_mt5(mt5)
+        mt5.symbol_info.return_value = SimpleNamespace(name="EURUSD")
+        mt5.positions_get.return_value = None
+        mt5.last_error.return_value = (1, "Success")
+        from mtdata.core.trading import _close_positions
+
+        result = _close_positions(symbol="EURUSD")
+
+        assert result["error_code"] == "positions_snapshot_unavailable"
+        assert "last_error" not in result
 
     @patch.dict("sys.modules", {"MetaTrader5": MagicMock()})
     def test_profit_only_filter(self):
