@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Annotated, Any, Dict, Literal, Optional
 
@@ -31,6 +32,29 @@ _NEWS_COMPACT_TOP_LEVEL_KEYS = frozenset(
         "impact_count",
         "upcoming_count",
         "recent_count",
+        "related_selection",
+    }
+)
+
+_NEWS_EVENT_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "as",
+        "at",
+        "for",
+        "from",
+        "in",
+        "is",
+        "of",
+        "on",
+        "the",
+        "to",
+        "with",
+        "why",
+        "stock",
+        "stocks",
     }
 )
 _NEWS_BUCKET_KEYS = (
@@ -247,6 +271,48 @@ def _normalize_news_item_timestamps(value: Any) -> Any:
     return out
 
 
+def _compact_diversify_news_items(items: list[Any]) -> list[Any]:
+    """Collapse conservatively similar headlines for compact event coverage."""
+    selected: list[Any] = []
+    token_sets: list[set[str]] = []
+    duplicate_counts: list[int] = []
+    for item in items:
+        if not isinstance(item, dict):
+            selected.append(item)
+            token_sets.append(set())
+            duplicate_counts.append(1)
+            continue
+        tokens = {
+            token
+            for token in re.findall(
+                r"[a-z0-9]+", str(item.get("title") or "").casefold()
+            )
+            if len(token) > 1 and token not in _NEWS_EVENT_STOPWORDS
+        }
+        duplicate_index = None
+        if len(tokens) >= 3:
+            for index, existing in enumerate(token_sets):
+                if len(existing) < 3:
+                    continue
+                shared = len(tokens & existing)
+                containment = shared / min(len(tokens), len(existing))
+                jaccard = shared / len(tokens | existing)
+                if shared >= 3 and (containment >= 0.7 or jaccard >= 0.5):
+                    duplicate_index = index
+                    break
+        if duplicate_index is None:
+            selected.append(dict(item))
+            token_sets.append(tokens)
+            duplicate_counts.append(1)
+            continue
+        duplicate_counts[duplicate_index] += 1
+
+    for index, count in enumerate(duplicate_counts):
+        if count > 1 and isinstance(selected[index], dict):
+            selected[index]["duplicate_coverage_count"] = count
+    return selected
+
+
 def _news_compact_provenance(result: Dict[str, Any]) -> Dict[str, Any]:
     providers = sorted(
         {
@@ -341,6 +407,8 @@ def normalize_news_output(
         if key_text in _NEWS_BUCKET_KEYS and isinstance(subvalue, list):
             if not subvalue:
                 continue
+            if key_text == "related_news":
+                subvalue = _compact_diversify_news_items(subvalue)
             out[key] = [
                 _strip_news_compact_item_fields(
                     item,

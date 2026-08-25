@@ -2035,7 +2035,8 @@ def test_finviz_partial_calendar_failure_is_not_silent_success(monkeypatch) -> N
             "success": False,
             "error": "Finviz rate limit encountered. Retry after 60 seconds.",
             "error_code": "finviz_rate_limited",
-            "retry_after": 60,
+            "retryable": True,
+            "retry_after_seconds": 60,
         },
     )
     source = svc.FinvizNewsSource()
@@ -2053,6 +2054,12 @@ def test_finviz_partial_calendar_failure_is_not_silent_success(monkeypatch) -> N
     assert result["provider_failures"]["finviz"]["upcoming_events"]["error_code"] == (
         "finviz_rate_limited"
     )
+    assert result["provider_failures"]["finviz"]["upcoming_events"] == {
+        "error": "Finviz rate limit encountered. Retry after 60 seconds.",
+        "error_code": "finviz_rate_limited",
+        "retryable": True,
+        "retry_after_seconds": 60,
+    }
     assert any("Retry after 60" in warning for warning in result["warnings"])
 
     from mtdata.core.news import normalize_news_output
@@ -2167,3 +2174,27 @@ def test_symbol_news_reserves_fresh_direct_headline_before_relevance_slice(
         "preselection_truncated": True,
         "raw_continuation_tool": "news",
     }
+
+
+def test_compact_news_diversifies_near_duplicate_event_headlines() -> None:
+    from mtdata.core.news import normalize_news_output
+
+    result = normalize_news_output(
+        {
+            "success": True,
+            "related_selection": {"method": "internal-ranking-policy"},
+            "related_news": [
+                {"title": "Apple launches new AI Mac Mini", "source": "Wire A"},
+                {"title": "Apple unveils new Mac Mini with AI", "source": "Wire B"},
+                {"title": "Apple supplier warns about component costs", "source": "Wire C"},
+            ],
+        },
+        detail="compact",
+    )
+
+    assert "related_selection" not in result
+    assert [item["title"] for item in result["related_news"]] == [
+        "Apple launches new AI Mac Mini",
+        "Apple supplier warns about component costs",
+    ]
+    assert result["related_news"][0]["duplicate_coverage_count"] == 2

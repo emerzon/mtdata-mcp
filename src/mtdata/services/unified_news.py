@@ -1639,7 +1639,8 @@ class FinvizNewsSource:
             self.endpoint_errors[endpoint] = {
                 "error": payload.get("error"),
                 "error_code": payload.get("error_code"),
-                "retry_after": payload.get("retry_after"),
+                "retryable": payload.get("retryable"),
+                "retry_after_seconds": payload.get("retry_after_seconds"),
             }
         else:
             self.endpoint_errors.pop(endpoint, None)
@@ -2498,17 +2499,18 @@ class NewsAggregator:
             for provider, errors in endpoint_failures.items():
                 if not isinstance(errors, dict):
                     continue
-                retry_after = next(
+                retry_after_seconds = next(
                     (
-                        info.get("retry_after")
+                        info.get("retry_after_seconds")
                         for info in errors.values()
-                        if isinstance(info, dict) and info.get("retry_after") not in (None, "")
+                        if isinstance(info, dict)
+                        and info.get("retry_after_seconds") not in (None, "")
                     ),
                     None,
                 )
                 message = f"{provider} failed {', '.join(sorted(errors))}."
-                if retry_after not in (None, ""):
-                    message += f" Retry after {retry_after} seconds."
+                if retry_after_seconds not in (None, ""):
+                    message += f" Retry after {retry_after_seconds} seconds."
                 warnings_out.append(message)
             if warnings_out:
                 payload["warnings"] = warnings_out
