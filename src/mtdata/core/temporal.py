@@ -31,6 +31,7 @@ from ..utils.mt5 import (
     ensure_mt5_connection_or_raise,
     get_symbol_info_cached,
     mt5,
+    resolve_public_symbol,
 )
 from ..utils.sessions import (
     market_session_label as _market_session_label,
@@ -991,6 +992,13 @@ def temporal_analyze(  # noqa: C901
                 ensure_connection_impl=ensure_mt5_connection_or_raise,
             )
             mt5_gateway.ensure_connection()
+            resolved_symbol, symbol_input = resolve_public_symbol(
+                symbol,
+                gateway=mt5_gateway,
+            )
+            context["symbol"] = resolved_symbol
+            if symbol_input is not None:
+                context["symbol_input"] = symbol_input
             group_norm = _normalize_group_by(group_by)
             if group_norm not in ("dow", "hour", "month", "session", "all"):
                 return _error_response(
@@ -1046,7 +1054,7 @@ def temporal_analyze(  # noqa: C901
                     context=context,
                 )
             context["return_basis"] = return_basis_value
-            info_before = get_symbol_info_cached(symbol)
+            info_before = get_symbol_info_cached(resolved_symbol)
             session_calendar_value = str(session_calendar or "auto").strip().lower()
             if session_calendar_value not in _SESSION_CALENDAR_VALUES:
                 return _error_response(
@@ -1056,7 +1064,7 @@ def temporal_analyze(  # noqa: C901
                 )
             resolved_session_calendar = _resolve_session_calendar(
                 session_calendar_value,
-                symbol,
+                resolved_symbol,
                 path=getattr(info_before, "path", None),
             )
             lookback_defaulted = lookback is None
@@ -1182,12 +1190,12 @@ def temporal_analyze(  # noqa: C901
                     "timezone": tz_name,
                 }
 
-            with _symbol_ready_guard(symbol, info_before=info_before) as (err, _info):
+            with _symbol_ready_guard(resolved_symbol, info_before=info_before) as (err, _info):
                 if err:
                     return _error_response(err, stage="symbol", context=context)
 
                 rates, fetch_err = _fetch_rates(
-                    symbol,
+                    resolved_symbol,
                     timeframe,
                     effective_lookback,
                     start,
@@ -1199,7 +1207,7 @@ def temporal_analyze(  # noqa: C901
 
             if rates is None or len(rates) < 2:
                 return _error_response(
-                    f"Failed to get rates for {symbol}.",
+                    f"Failed to get rates for {resolved_symbol}.",
                     stage="fetch",
                     context=context,
                     details={"mt5_error": mt5.last_error()},
@@ -1575,7 +1583,7 @@ def temporal_analyze(  # noqa: C901
 
             payload: Dict[str, Any] = {
                 "success": True,
-                "symbol": symbol,
+                "symbol": resolved_symbol,
                 "timeframe": timeframe,
                 "group_by": group_norm,
                 "return_mode": return_mode_value,
@@ -1593,8 +1601,6 @@ def temporal_analyze(  # noqa: C901
                 },
                 "timezone": tz_name,
                 "timezone_source": timezone_source,
-                "lookback": effective_lookback,
-                "lookback_source": "auto" if lookback_defaulted else "request",
                 "bars": int(len(analysis_df)),
                 "start": start_str,
                 "end": end_str,
@@ -1613,6 +1619,21 @@ def temporal_analyze(  # noqa: C901
                 ),
                 "volume_source": volume_col,
             }
+            if symbol_input is not None:
+                payload["symbol_input"] = symbol_input
+            if start and end:
+                payload["query_applied"] = {
+                    "mode": "range",
+                    "requested_start": start,
+                    "requested_end": end,
+                    "returned_start": start_str,
+                    "returned_end": end_str,
+                }
+            else:
+                payload["lookback"] = effective_lookback
+                payload["lookback_source"] = (
+                    "auto" if lookback_defaulted else "request"
+                )
             if group_norm in {"dow", "all"}:
                 payload["weekday_calendar"] = weekday_calendar
                 payload["weekday_definition"] = weekday_definition
@@ -1640,7 +1661,7 @@ def temporal_analyze(  # noqa: C901
                     "Each HH:00 bucket covers candle opens from HH:00 inclusive "
                     f"to the next hour exclusive in {tz_name}."
                 )
-            if lookback_defaulted:
+            if lookback_defaulted and not (start and end):
                 payload["lookback_note"] = (
                     f"Auto lookback selected {int(effective_lookback)} bars for "
                     f"{group_norm} analysis on {timeframe}; pass --lookback for a "
@@ -1653,7 +1674,12 @@ def temporal_analyze(  # noqa: C901
                 payload["best"] = global_best
             payload["groups_excluded"] = len(excluded_groups)
             if min_bars_value is not None:
-                payload["min_bars_applied"] = int(min_bars_value or 0)
+                minimum_key = (
+                    "day_of_week_min_bars_applied"
+                    if auto_min_bars
+                    else "min_bars_applied"
+                )
+                payload[minimum_key] = int(min_bars_value or 0)
             if include_session_metadata:
                 payload["session_calendar"] = resolved_session_calendar
                 payload["session_calendar_source"] = (
@@ -1670,6 +1696,7 @@ def temporal_analyze(  # noqa: C901
                     "value": int(min_bars_value or 0),
                     "auto": bool(auto_min_bars),
                     "source": "auto" if auto_min_bars else "request",
+                    "scope": "day_of_week" if auto_min_bars else "all_groupings",
                     "purpose": "exclude grouped rows below this sample size",
                 }
             payload.update(pagination_meta)

@@ -754,6 +754,24 @@ class TestTemporalAnalyze:
         assert r["lookback_source"] == "request"
 
     @_apply_analyze_patches
+    def test_explicit_range_reports_query_instead_of_auto_lookback(self, mock_fetch, *_):
+        r = self._call(
+            mock_fetch,
+            lookback=None,
+            start="2024-01-01",
+            end="2024-01-10",
+        )
+
+        assert r.get("success") is True
+        assert "lookback" not in r
+        assert "lookback_source" not in r
+        assert "lookback_note" not in r
+        assert r["query_applied"]["requested_start"] == "2024-01-01"
+        assert r["query_applied"]["requested_end"] == "2024-01-10"
+        assert r["query_applied"]["returned_start"] == r["start"]
+        assert r["query_applied"]["returned_end"] == r["end"]
+
+    @_apply_analyze_patches
     def test_summary_detail_returns_best_and_overall_only(self, mock_fetch, *_):
         r = self._call(mock_fetch, n=720, detail="summary")
 
@@ -808,6 +826,7 @@ class TestTemporalAnalyze:
             "value": 12,
             "auto": True,
             "source": "auto",
+            "scope": "day_of_week",
             "purpose": "exclude grouped rows below this sample size",
         }
         assert r["excluded_groups"] == [
@@ -1070,6 +1089,8 @@ class TestTemporalAnalyze:
             row["group_label"] for row in by_dimension["dow"]
         }
         assert r["filters"]["min_bars"]["auto"] is True
+        assert r["day_of_week_min_bars_applied"] > 0
+        assert "min_bars_applied" not in r
         assert all(row["dimension"] == "dow" for row in r["excluded_groups"])
 
     def test_group_by_all_standard_detail_sets_dimension_best_rows(self):
