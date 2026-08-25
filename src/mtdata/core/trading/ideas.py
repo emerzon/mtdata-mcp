@@ -64,6 +64,9 @@ _COMPACT_KEYS = (
     "timezone",
     "direction",
     "direction_basis",
+    "requested_direction",
+    "evaluated_direction",
+    "action",
     "suggested_direction",
     "actionability",
     "idea_eligible",
@@ -1134,6 +1137,7 @@ def run_trade_idea_compose(  # noqa: C901
     else:
         stand_down_reasons.append(forecast_direction_reason)
         gates["alignment"] = _gate("fail", forecast_direction_reason)
+    evaluated_direction = direction if direction in {"long", "short"} else None
 
     barriers_payload: Any = None
     take_profit: Optional[float] = None
@@ -1389,6 +1393,9 @@ def run_trade_idea_compose(  # noqa: C901
     for reason in stand_down_reasons:
         if reason not in unique_reasons:
             unique_reasons.append(reason)
+    action = "stand_down" if direction == "stand_down" else "preview"
+    if direction == "stand_down":
+        direction_basis = "gate_outcome"
 
     idea: Dict[str, Any] = {
         "success": True,
@@ -1401,6 +1408,9 @@ def run_trade_idea_compose(  # noqa: C901
         "timezone": "UTC",
         "direction": direction,
         "direction_basis": direction_basis,
+        "requested_direction": requested_direction,
+        "evaluated_direction": evaluated_direction,
+        "action": action,
         "actionability": actionability,
         "idea_eligible": idea_eligible,
         "overall_gate_status": overall_gate_status,

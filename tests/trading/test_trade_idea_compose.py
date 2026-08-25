@@ -275,7 +275,7 @@ def test_trade_idea_stands_down_when_live_quote_is_inside_forecast_interval() ->
     )
 
     assert idea["direction"] == "stand_down"
-    assert idea["direction_basis"] == "forecast_vs_live_quote"
+    assert idea["direction_basis"] == "gate_outcome"
     assert "suggested_direction" not in idea
     assert idea["forecast"]["last_price_source"] == "candle_close"
     live_context = idea["forecast"]["forecast_vs_live_quote"]
@@ -393,6 +393,10 @@ def test_trade_idea_compose_stands_down_on_stale_quote() -> None:
     )
 
     assert idea["direction"] == "stand_down"
+    assert idea["requested_direction"] == "long"
+    assert idea["evaluated_direction"] == "long"
+    assert idea["action"] == "stand_down"
+    assert idea["direction_basis"] == "gate_outcome"
     assert idea["actionability"] == "research"
     assert idea["sizing"]["suggested_volume"] == 0.0
     assert idea["preview"]["preview_ok"] is False
@@ -570,7 +574,7 @@ def test_trade_idea_compose_stands_down_on_unconfirmed_direction() -> None:
     )
 
     assert idea["direction"] == "stand_down"
-    assert idea["direction_basis"] == "forecast_vs_last_price"
+    assert idea["direction_basis"] == "gate_outcome"
     assert "suggested_direction" not in idea
     assert "trend" not in idea["forecast"]
     assert "tp_pct" not in idea.get("barriers", {})
