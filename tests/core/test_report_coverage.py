@@ -2754,6 +2754,24 @@ def test_prioritize_report_payload_orders_as_of_near_top():
     assert keys.index('as_of') < keys.index('sections')
 
 
+def test_report_assessment_cannot_claim_temporal_coherence_without_as_of():
+    from mtdata.core.report.use_cases import _build_overall_report_assessment
+
+    assessment = _build_overall_report_assessment(
+        {
+            "data_as_of_status": "unavailable",
+            "sections_status": {
+                "summary": {"total": 3, "ok": 0, "partial": 0, "error": 0, "omitted": 3}
+            },
+        }
+    )
+
+    assert "temporally coherent" not in assessment["summary"]
+    assert assessment["temporal_coherence"] == "cannot_assess"
+    assert assessment["recommended_action"] == "retry_report"
+    assert assessment["assembly_confidence"] == "low"
+
+
 def test_report_assessment_names_section_health_confidence_explicitly():
     from mtdata.core.report.use_cases import _build_overall_report_assessment
 

@@ -167,7 +167,10 @@ context and forecast sections. `as_of_basis` names that contract, while
 section. `generated_at` is the later assembly time. If no base-timeframe anchor
 is present, `as_of` falls back to the oldest selected section timestamp and
 `as_of_basis` says so. If no section exposes a trustworthy market timestamp,
-`as_of` is null and `data_as_of_status` is `unavailable`.
+`as_of` is null and `data_as_of_status` is `unavailable`. When no sections
+completed and `as_of` is unavailable, the overall assessment does not claim
+the report is temporally coherent; it reports `temporal_coherence=cannot_assess`
+and recommends retrying.
 When context, forecast, or a multi-timeframe source falls outside its
 timeframe-aware session tolerance, `temporal_alignment` reports every checked
 cutoff and the mismatched sections. The report is partial and the combined

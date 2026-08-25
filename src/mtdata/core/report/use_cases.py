@@ -1446,7 +1446,19 @@ def _build_overall_report_assessment(report: Dict[str, Any]) -> Dict[str, Any]:
     partial_sections = _report_section_names_by_status(sections_status, "partial")
     omitted_sections = _report_section_names_by_status(sections_status, "omitted")
 
-    if total <= 0:
+    as_of_unavailable = (
+        report.get("as_of") in (None, "")
+        or str(report.get("data_as_of_status") or "").strip().lower() == "unavailable"
+    )
+    sections_completed = ok + partial
+    if sections_completed <= 0 and as_of_unavailable:
+        confidence = "low"
+        recommended_action = "retry_report"
+        summary_text = (
+            "Temporal coherence cannot be assessed because no sections completed "
+            "and as_of is unavailable. Retry the report."
+        )
+    elif total <= 0:
         confidence = "low"
         recommended_action = "rerun_with_full_detail"
         summary_text = "No report sections were available for assessment."
@@ -1585,6 +1597,8 @@ def _build_overall_report_assessment(report: Dict[str, Any]) -> Dict[str, Any]:
             "status": "closed_session" if closed_session else "stale",
             "affected_sections": stale_sections,
         }
+    if sections_completed <= 0 and as_of_unavailable:
+        assessment["temporal_coherence"] = "cannot_assess"
     return assessment
 
 
@@ -2691,6 +2705,32 @@ def run_report_generate(  # noqa: C901
                         ",".join(error_section_names) or "-",
                         " | ".join(error_summaries)[:600] or "-",
                     )
+                meta = rep.get("meta") if isinstance(rep.get("meta"), dict) else {}
+                meta_timeframe = meta.get("timeframe")
+                base_timeframe = params.get("timeframe") or meta_timeframe
+                timestamp_contract = _derive_report_timestamp_contract(
+                    source_sections or rep.get("sections"),
+                    base_timeframe=(
+                        str(base_timeframe)
+                        if base_timeframe not in (None, "")
+                        else None
+                    ),
+                )
+                rep["as_of"] = timestamp_contract["as_of"]
+                if timestamp_contract["as_of_basis"] is not None:
+                    rep["as_of_basis"] = timestamp_contract["as_of_basis"]
+                else:
+                    rep.pop("as_of_basis", None)
+                if timestamp_contract["oldest_section_data_as_of"] is not None:
+                    rep["oldest_section_data_as_of"] = timestamp_contract[
+                        "oldest_section_data_as_of"
+                    ]
+                else:
+                    rep.pop("oldest_section_data_as_of", None)
+                if timestamp_contract["as_of"] is None:
+                    rep["data_as_of_status"] = "unavailable"
+                else:
+                    rep.pop("data_as_of_status", None)
                 rep["overall_assessment"] = _build_overall_report_assessment(rep)
                 rep["executive_summary"] = _build_report_executive_summary(
                     rep,
