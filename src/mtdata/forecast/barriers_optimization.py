@@ -225,6 +225,115 @@ def _barrier_optimizer_param_keys(method: str) -> set[str]:
     return _BARRIER_OPTIMIZER_PARAM_KEYS | method_keys
 
 
+# Implicit fixed-grid bounds are percent points (intraday preset). Tick mode
+# converts them when the caller did not pass tp_min/tp_max/sl_min/sl_max.
+_IMPLICIT_FIXED_GRID_PCT = {
+    "tp_min": 0.25,
+    "tp_max": 1.5,
+    "sl_min": 0.25,
+    "sl_max": 2.5,
+}
+
+
+def _pct_points_to_ticks(
+    value: float,
+    *,
+    last_price: float,
+    tick_size: float,
+) -> float:
+    return float(value) * (float(last_price) / float(tick_size)) / 100.0
+
+
+def _bound_is_implicit_fixed_default(
+    *,
+    params_dict: Dict[str, Any],
+    key: str,
+    arg_value: Any,
+    default: float,
+) -> bool:
+    if key in params_dict and params_dict.get(key) is not None:
+        return False
+    numeric = _optional_finite_float(arg_value)
+    if numeric is None:
+        return True
+    return float(numeric) == float(default)
+
+
+def _apply_implicit_tick_mode_grid_defaults(
+    *,
+    mode_val: str,
+    params_dict: Dict[str, Any],
+    tp_min: Any,
+    tp_max: Any,
+    sl_min: Any,
+    sl_max: Any,
+    tp_min_val: float,
+    tp_max_val: float,
+    sl_min_val: float,
+    sl_max_val: float,
+    last_price: float,
+    tick_size: Optional[float],
+) -> Tuple[float, float, float, float]:
+    if mode_val != "ticks":
+        return tp_min_val, tp_max_val, sl_min_val, sl_max_val
+    if tick_size is None or tick_size <= 0 or last_price <= 0:
+        return tp_min_val, tp_max_val, sl_min_val, sl_max_val
+    converted = {
+        "tp_min": float(tp_min_val),
+        "tp_max": float(tp_max_val),
+        "sl_min": float(sl_min_val),
+        "sl_max": float(sl_max_val),
+    }
+    args = {
+        "tp_min": tp_min,
+        "tp_max": tp_max,
+        "sl_min": sl_min,
+        "sl_max": sl_max,
+    }
+    for key, default in _IMPLICIT_FIXED_GRID_PCT.items():
+        if _bound_is_implicit_fixed_default(
+            params_dict=params_dict,
+            key=key,
+            arg_value=args[key],
+            default=default,
+        ):
+            converted[key] = _pct_points_to_ticks(
+                converted[key],
+                last_price=last_price,
+                tick_size=float(tick_size),
+            )
+    return converted["tp_min"], converted["tp_max"], converted["sl_min"], converted["sl_max"]
+
+
+def _tick_grid_below_min_distance_error(
+    *,
+    min_barrier_distance: float,
+    cost_per_trade: float,
+) -> Dict[str, Any]:
+    min_distance = float(min_barrier_distance)
+    cost = float(cost_per_trade)
+    return {
+        "success": False,
+        "error": (
+            "No TP/SL candidates remain: every grid point is below "
+            f"min_barrier_distance={min_distance:g} ticks "
+            f"(cost_per_trade={cost:g} ticks). "
+            'Widen the search with --params "tp_min=… sl_min=…" in ticks.'
+        ),
+        "error_code": "invalid_input",
+        "status": "no_candidates",
+        "min_barrier_distance": min_distance,
+        "cost_per_trade": cost,
+        "mode": "ticks",
+        "distance_unit": "ticks",
+        "remediation": (
+            'Pass --params "tp_min=… sl_min=…" in ticks so both bounds exceed '
+            f"min_barrier_distance={min_distance:g} "
+            f"(cost_per_trade={cost:g})."
+        ),
+    }
+
+
 @dataclass(frozen=True)
 class _BarrierEvaluationContext:
     mode_val: str
@@ -1306,7 +1415,10 @@ def forecast_barrier_optimize(  # noqa: C901
 
     Unit conventions:
     - mode="pct": tp/sl are percentage *points* (e.g., tp=0.5 means +0.5%).
-    - mode="ticks": tp/sl are ticks (trade_tick_size units).
+    - mode="ticks": tp/sl are ticks (trade_tick_size units). Implicit
+      fixed/ratio bounds 0.25/1.5/0.25/2.5 are percent points converted like
+      the intraday preset unless tp_min/tp_max/sl_min/sl_max are supplied in
+      params.
 
     Grid styles:
     - fixed/volatility generate tp/sl directly in the selected `mode`.
@@ -1991,7 +2103,23 @@ def forecast_barrier_optimize(  # noqa: C901
         # slippage + commission), not just spread — otherwise setups that are
         # structurally negative-EV after slippage/commission can slip through.
         min_barrier_distance = max(min_barrier_absolute, min_barrier_multiplier * cost_per_trade)
-        
+        tp_min_val, tp_max_val, sl_min_val, sl_max_val = (
+            _apply_implicit_tick_mode_grid_defaults(
+                mode_val=mode_val,
+                params_dict=params_dict,
+                tp_min=tp_min,
+                tp_max=tp_max,
+                sl_min=sl_min,
+                sl_max=sl_max,
+                tp_min_val=tp_min_val,
+                tp_max_val=tp_max_val,
+                sl_min_val=sl_min_val,
+                sl_max_val=sl_max_val,
+                last_price=float(last_price),
+                tick_size=_optional_finite_float(tick_size),
+            )
+        )
+
         method_requested = method_name
         auto_reason = None
         supported_member_methods = ['mc_gbm', 'mc_gbm_bb', 'hmm_mc', 'garch', 'bootstrap', 'heston', 'jump_diffusion', 'auto']
@@ -2748,23 +2876,6 @@ def forecast_barrier_optimize(  # noqa: C901
                 local_bb_uniform_sl,
             )
 
-        try:
-            (
-                paths,
-                bb_enabled,
-                bb_sigma,
-                bb_log_paths,
-                bb_uniform_tp,
-                bb_uniform_sl,
-            ) = _simulate_paths_for_seed_range(seed_base=request_seed_base, seed_count=int(n_seeds))
-        except (ValueError, RuntimeError, np.linalg.LinAlgError) as e:
-            return {
-                "error": f"Simulation failed ({method_name}): {e}",
-                "error_type": "simulation_failure",
-            }
-
-        S, H = paths.shape
-
         def _linspace(a: float, b: float, n: int) -> np.ndarray:
             try:
                 return np.linspace(float(a), float(b), int(max(1, n)))
@@ -2805,7 +2916,7 @@ def forecast_barrier_optimize(  # noqa: C901
             else:
                 scale = (float(last_price) / float(tick_size)) / 100.0
                 _add_fixed(base_candidates, cfg['tp_min'] * scale, cfg['tp_max'] * scale, int(cfg['tp_steps']), cfg['sl_min'] * scale, cfg['sl_max'] * scale, int(cfg['sl_steps']))
-        
+
         elif grid_style_val == 'volatility':
             # Calculate simple volatility over window
             rets = _log_returns_from_prices(prices)
@@ -2830,7 +2941,7 @@ def forecast_barrier_optimize(  # noqa: C901
                 tp_end = max(tp_start * 1.1, vol_ticks * vol_max_mult_val)
                 sl_start = max(vol_floor_ticks_val, vol_ticks * vol_min_mult_val * 0.8)
                 _add_fixed(base_candidates, tp_start, tp_end, vol_steps_val, sl_start, sl_start * vol_sl_multiplier_val, vol_sl_steps_val)
-            
+
         elif grid_style_val == 'ratio':
             # Fixed SL grid, TP derived from ratios
             sl_start = sl_min_val
@@ -2838,9 +2949,32 @@ def forecast_barrier_optimize(  # noqa: C901
             for sl_val in _linspace(sl_start, sl_end, sl_steps_val):
                 for r in _linspace(ratio_min_val, ratio_max_val, ratio_steps_val):
                     _push(sl_val * r, sl_val, base_candidates)
-        
+
         else: # fixed
             _add_fixed(base_candidates, tp_min_val, tp_max_val, tp_steps_val, sl_min_val, sl_max_val, sl_steps_val)
+
+        if mode_val == 'ticks' and not base_candidates:
+            return _tick_grid_below_min_distance_error(
+                min_barrier_distance=min_barrier_distance,
+                cost_per_trade=cost_per_trade,
+            )
+
+        try:
+            (
+                paths,
+                bb_enabled,
+                bb_sigma,
+                bb_log_paths,
+                bb_uniform_tp,
+                bb_uniform_sl,
+            ) = _simulate_paths_for_seed_range(seed_base=request_seed_base, seed_count=int(n_seeds))
+        except (ValueError, RuntimeError, np.linalg.LinAlgError) as e:
+            return {
+                "error": f"Simulation failed ({method_name}): {e}",
+                "error_type": "simulation_failure",
+            }
+
+        S, H = paths.shape
 
         # Evaluate candidates
         results: List[Dict[str, Any]] = []

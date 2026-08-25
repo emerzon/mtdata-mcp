@@ -4483,6 +4483,106 @@ def test_forecast_barrier_prob_marks_stale_reference_verdict_research_only():
     assert out["verdict"] == "Research only — SL-first probability bias"
 
 
+def test_forecast_barrier_prob_verdict_keeps_material_tp_sl_bias():
+    barrier = {
+        "kind": "tp_sl",
+        "unit": "pct",
+        "take_profit": 0.5,
+        "stop_loss": 0.3,
+    }
+    tp_first = forecast_use_cases._annotate_barrier_prob_context(
+        {"prob_tp_first": 0.6, "prob_sl_first": 0.4},
+        ForecastBarrierProbRequest(symbol="EURUSD", barrier=barrier),
+    )
+    sl_first = forecast_use_cases._annotate_barrier_prob_context(
+        {"prob_tp_first": 0.4, "prob_sl_first": 0.6},
+        ForecastBarrierProbRequest(symbol="EURUSD", barrier=barrier),
+    )
+
+    assert tp_first["verdict"] == "TP-first probability bias"
+    assert sl_first["verdict"] == "SL-first probability bias"
+
+
+def test_forecast_barrier_prob_verdict_is_neutral_when_cis_overlap():
+    out = forecast_use_cases._annotate_barrier_prob_context(
+        {
+            "prob_tp_first": 0.031,
+            "prob_sl_first": 0.030,
+            "probability_edge": 0.001,
+            "prob_tp_first_ci95": {"low": 0.020, "high": 0.045},
+            "prob_sl_first_ci95": {"low": 0.019, "high": 0.044},
+        },
+        ForecastBarrierProbRequest(
+            symbol="EURUSD",
+            barrier={
+                "kind": "tp_sl",
+                "unit": "pct",
+                "take_profit": 0.5,
+                "stop_loss": 0.5,
+            },
+        ),
+    )
+
+    assert out["verdict"] == "Neutral first-hit probabilities"
+
+
+def test_forecast_barrier_prob_verdict_is_neutral_when_edge_inside_se():
+    out = forecast_use_cases._annotate_barrier_prob_context(
+        {
+            "prob_tp_first": 0.034,
+            "prob_sl_first": 0.030,
+            "probability_edge": 0.004,
+            "prob_tp_first_se": 0.006,
+            "prob_sl_first_se": 0.006,
+        },
+        ForecastBarrierProbRequest(
+            symbol="EURUSD",
+            barrier={
+                "kind": "tp_sl",
+                "unit": "pct",
+                "take_profit": 0.5,
+                "stop_loss": 0.5,
+            },
+        ),
+    )
+
+    assert out["verdict"] == "Neutral first-hit probabilities"
+
+
+def test_forecast_barrier_prob_compact_omits_cis_after_neutral_verdict():
+    payload = {
+        "success": True,
+        "symbol": "EURUSD",
+        "prob_tp_first": 0.031,
+        "prob_sl_first": 0.030,
+        "probability_edge": 0.001,
+        "prob_tp_first_ci95": {"low": 0.020, "high": 0.045},
+        "prob_sl_first_ci95": {"low": 0.019, "high": 0.044},
+        "prob_tp_first_se": 0.006,
+        "prob_sl_first_se": 0.006,
+    }
+
+    out = forecast_use_cases._apply_barrier_prob_detail(
+        payload,
+        ForecastBarrierProbRequest(
+            symbol="EURUSD",
+            detail="compact",
+            barrier={
+                "kind": "tp_sl",
+                "unit": "pct",
+                "take_profit": 0.5,
+                "stop_loss": 0.5,
+            },
+        ),
+    )
+
+    assert out["verdict"] == "Neutral first-hit probabilities"
+    assert "prob_tp_first_ci95" not in out
+    assert "prob_sl_first_ci95" not in out
+    assert "prob_tp_first_se" not in out
+    assert "prob_sl_first_se" not in out
+
+
 @pytest.mark.parametrize("detail", ["compact", "full"])
 def test_forecast_barrier_prob_keeps_blockers_without_execution_readiness(detail):
     out = forecast_use_cases._apply_barrier_prob_detail(
@@ -5251,9 +5351,20 @@ def test_options_tools_support_compact_and_full_detail(monkeypatch):
     assert compact_chain["contract_terms_summary"][
         "uniform_contract_multiplier"
     ] == 100
-    assert compact_chain["options"][0]["contract_size"] == "REGULAR"
-    assert compact_chain["options"][0]["contract_multiplier"] == 100
-    assert compact_chain["options"][0]["premium_quote_unit"] == (
+    assert compact_chain["contract_terms_summary"][
+        "mixed_or_unresolved_terms"
+    ] is False
+    compact_option = compact_chain["options"][0]
+    assert "contract_size" not in compact_option
+    assert "contract_multiplier" not in compact_option
+    assert "multiplier_status" not in compact_option
+    assert "deliverable" not in compact_option
+    assert "deliverable_status" not in compact_option
+    assert "premium_quote_unit" not in compact_option
+    full_option = raw_chain("AAPL", detail="full")["options"][0]
+    assert full_option["contract_size"] == "REGULAR"
+    assert full_option["contract_multiplier"] == 100
+    assert full_option["premium_quote_unit"] == (
         "currency_per_underlying_unit"
     )
     assert compact_chain["underlying_as_of"] == "2026-06-01T20:00:00Z"

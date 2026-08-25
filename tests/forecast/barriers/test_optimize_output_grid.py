@@ -304,6 +304,145 @@ class TestBarrierOptimizeOutputGrid(_BarrierTestBase):
         grid = result.get("grid")
         self.assertTrue(grid)
 
+    def test_forecast_barrier_optimize_tick_mode_converts_implicit_fixed_grid(self):
+        self._set_flat_history(1.0)
+        paths = self._sample_paths()
+        with patch(f"{_BARRIER_OPT_ROOT}._simulate_gbm_mc") as mock_sim, patch(
+            f"{_BARRIER_OPT_ROOT}._get_live_reference_price",
+            return_value=(None, None),
+        ):
+            mock_sim.return_value = {"price_paths": paths}
+            result = forecast_barrier_optimize(
+                symbol="EURUSD",
+                timeframe="H1",
+                horizon=4,
+                method="mc_gbm",
+                direction="long",
+                mode="ticks",
+                grid_style="fixed",
+                search_profile="fast",
+                return_grid=True,
+                viable_only=False,
+                params={"use_live_price": False},
+            )
+        self.assertTrue(result.get("success"))
+        mock_sim.assert_called()
+        search = result.get("search_config") or {}
+        # last_price=1.0, tick_size=0.0001 → 100 ticks per percent point
+        self.assertAlmostEqual(float(search["tp_range"][0]), 25.0)
+        self.assertAlmostEqual(float(search["tp_range"][1]), 150.0)
+        self.assertAlmostEqual(float(search["sl_range"][0]), 25.0)
+        self.assertAlmostEqual(float(search["sl_range"][1]), 250.0)
+        grid = result.get("grid") or []
+        self.assertTrue(grid)
+        self.assertGreaterEqual(min(float(row["tp"]) for row in grid), 25.0)
+        self.assertGreaterEqual(min(float(row["sl"]) for row in grid), 25.0)
+
+    def test_forecast_barrier_optimize_tick_mode_converts_implicit_ratio_sl(self):
+        self._set_flat_history(1.0)
+        paths = self._sample_paths()
+        with patch(f"{_BARRIER_OPT_ROOT}._simulate_gbm_mc") as mock_sim, patch(
+            f"{_BARRIER_OPT_ROOT}._get_live_reference_price",
+            return_value=(None, None),
+        ):
+            mock_sim.return_value = {"price_paths": paths}
+            result = forecast_barrier_optimize(
+                symbol="EURUSD",
+                timeframe="H1",
+                horizon=4,
+                method="mc_gbm",
+                direction="long",
+                mode="ticks",
+                grid_style="ratio",
+                ratio_min=1.0,
+                ratio_max=2.0,
+                ratio_steps=2,
+                search_profile="fast",
+                return_grid=True,
+                viable_only=False,
+                params={"use_live_price": False},
+            )
+        self.assertTrue(result.get("success"))
+        search = result.get("search_config") or {}
+        self.assertAlmostEqual(float(search["sl_range"][0]), 25.0)
+        self.assertAlmostEqual(float(search["sl_range"][1]), 250.0)
+        grid = result.get("grid") or []
+        self.assertTrue(grid)
+        self.assertGreaterEqual(min(float(row["sl"]) for row in grid), 25.0)
+
+    def test_forecast_barrier_optimize_tick_mode_keeps_explicit_param_bounds(self):
+        self._set_flat_history(1.0)
+        paths = self._sample_paths()
+        with patch(f"{_BARRIER_OPT_ROOT}._simulate_gbm_mc") as mock_sim, patch(
+            f"{_BARRIER_OPT_ROOT}._get_live_reference_price",
+            return_value=(None, None),
+        ):
+            mock_sim.return_value = {"price_paths": paths}
+            result = forecast_barrier_optimize(
+                symbol="EURUSD",
+                timeframe="H1",
+                horizon=4,
+                method="mc_gbm",
+                direction="long",
+                mode="ticks",
+                grid_style="fixed",
+                search_profile="fast",
+                return_grid=True,
+                viable_only=False,
+                params={
+                    "tp_min": 40,
+                    "tp_max": 80,
+                    "sl_min": 40,
+                    "sl_max": 80,
+                    "tp_steps": 2,
+                    "sl_steps": 2,
+                    "use_live_price": False,
+                },
+            )
+        self.assertTrue(result.get("success"))
+        search = result.get("search_config") or {}
+        self.assertAlmostEqual(float(search["tp_range"][0]), 40.0)
+        self.assertAlmostEqual(float(search["tp_range"][1]), 80.0)
+        self.assertAlmostEqual(float(search["sl_range"][0]), 40.0)
+        self.assertAlmostEqual(float(search["sl_range"][1]), 80.0)
+
+    def test_forecast_barrier_optimize_tick_mode_rejects_subspread_grid_before_sim(self):
+        self._set_flat_history(1.0)
+        with patch(f"{_BARRIER_OPT_ROOT}._simulate_gbm_mc") as mock_sim, patch(
+            f"{_BARRIER_OPT_ROOT}._get_live_reference_price",
+            return_value=(None, None),
+        ):
+            result = forecast_barrier_optimize(
+                symbol="EURUSD",
+                timeframe="H1",
+                horizon=4,
+                method="mc_gbm",
+                direction="long",
+                mode="ticks",
+                grid_style="fixed",
+                search_profile="fast",
+                params={
+                    "tp_min": 1,
+                    "tp_max": 2,
+                    "sl_min": 1,
+                    "sl_max": 2,
+                    "min_barrier_ticks": 10,
+                    "use_live_price": False,
+                },
+            )
+        mock_sim.assert_not_called()
+        self.assertFalse(result.get("success"))
+        self.assertEqual(result.get("error_code"), "invalid_input")
+        self.assertEqual(result.get("status"), "no_candidates")
+        self.assertGreaterEqual(float(result["min_barrier_distance"]), 10.0)
+        self.assertIn("cost_per_trade", result)
+        self.assertIn("min_barrier_distance", result["error"])
+        self.assertIn("cost_per_trade", result["error"])
+        self.assertIn('tp_min=', result["error"])
+        self.assertIn("sl_min=", result["error"])
+        self.assertIn("ticks", result["error"])
+        self.assertIn("tp_min=", result.get("remediation", ""))
+
     def test_forecast_barrier_optimize_tie_probabilities_sum_to_one(self):
         paths = np.array([
             [1.0, 1.01, 1.02, 1.03],

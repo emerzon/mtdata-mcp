@@ -1770,6 +1770,38 @@ def _barrier_prob_units(payload: Dict[str, Any]) -> Dict[str, str]:
     return units
 
 
+def _barrier_ci_interval(value: Any) -> Optional[Tuple[float, float]]:
+    if not isinstance(value, dict):
+        return None
+    low = _finite_float(value.get("low"))
+    high = _finite_float(value.get("high"))
+    if low is None or high is None:
+        return None
+    if low > high:
+        low, high = high, low
+    return low, high
+
+
+def _first_hit_edge_is_indeterminate(
+    payload: Dict[str, Any],
+    edge_value: float,
+) -> bool:
+    tp_ci = _barrier_ci_interval(payload.get("prob_tp_first_ci95"))
+    sl_ci = _barrier_ci_interval(payload.get("prob_sl_first_ci95"))
+    if tp_ci is not None and sl_ci is not None:
+        tp_low, tp_high = tp_ci
+        sl_low, sl_high = sl_ci
+        if tp_low <= sl_high and sl_low <= tp_high:
+            return True
+    se_tp = _finite_float(payload.get("prob_tp_first_se"))
+    se_sl = _finite_float(payload.get("prob_sl_first_se"))
+    if se_tp is not None and se_sl is not None:
+        se_edge = (se_tp * se_tp + se_sl * se_sl) ** 0.5
+        if se_edge >= 0.0 and abs(edge_value) < 1.96 * se_edge:
+            return True
+    return False
+
+
 def _barrier_prob_verdict(payload: Dict[str, Any]) -> Optional[str]:
     edge_value = _finite_float(payload.get("probability_edge"))
     if edge_value is None:
@@ -1778,6 +1810,8 @@ def _barrier_prob_verdict(payload: Dict[str, Any]) -> Optional[str]:
         if tp_prob is not None and sl_prob is not None:
             edge_value = tp_prob - sl_prob
     if edge_value is not None:
+        if _first_hit_edge_is_indeterminate(payload, edge_value):
+            return "Neutral first-hit probabilities"
         if edge_value > 0:
             return "TP-first probability bias"
         if edge_value < 0:
