@@ -10,6 +10,7 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
+from mtdata.core.error_envelope import build_error_payload
 from mtdata.core.execution_logging import (
     infer_result_success,
     log_operation_finish,
@@ -223,7 +224,13 @@ def run_trade_history(  # noqa: C901
     try:
         gateway.ensure_connection()
     except MT5ConnectionError as exc:
-        return _finish({"error": str(exc)})
+        return _finish(
+            build_error_payload(
+                str(exc),
+                code="mt5_connection_error",
+                operation="trade_history",
+            )
+        )
     symbol_error = _validate_trading_symbol(gateway, request.symbol)
     if symbol_error is not None:
         return _finish(symbol_error)

@@ -1664,9 +1664,9 @@ def test_trade_history_returns_connection_error_payload() -> None:
         == "Failed to connect to MetaTrader5. Ensure MT5 terminal is running."
     )
     assert out["success"] is False
-    assert out["kind"] == "trade_history"
-    assert out["count"] == 0
-    assert out["items"] == []
+    assert out["error_code"] == "mt5_connection_error"
+    assert out["operation"] == "trade_history"
+    assert not {"kind", "scope", "count", "items", "row_key"} & set(out)
 
 
 def test_normalize_trade_history_output_preserves_upstream_error_metadata() -> None:
@@ -1689,8 +1689,7 @@ def test_normalize_trade_history_output_preserves_upstream_error_metadata() -> N
     assert out["request_id"] == "broker-123"
     assert out["details"] == {"range": "7d"}
     assert out["checked_scopes"] == ["history"]
-    assert out["kind"] == "trade_history"
-    assert out["scope"] == "symbol"
+    assert not {"kind", "scope", "count", "items", "row_key"} & set(out)
 
 
 def test_trade_history_compact_detail_omits_echoed_filters() -> None:
