@@ -615,7 +615,9 @@ def test_market_ticker_price_field_returns_simple_price() -> None:
     assert out["field"] == "mid"
     assert out["price"] == 1.17229
     assert "1.1722899999999998" not in json.dumps(out)
-    assert out["price_precision"] == 5
+    assert out["price_precision"] == 6
+    assert out["selected_value_executable"] is False
+    assert out["quote_usable_for_live_trading"] is False
     assert out["price_currency"] == "USD"
     assert out["price_currency_basis"] == "quote_currency_not_cash_cost"
     assert out["unit"] == "absolute_price"
@@ -662,7 +664,10 @@ def test_market_ticker_spread_field_retains_spread_units() -> None:
         out = _raw_market_ticker("EURUSD", price_field="spread", detail="full")
 
     assert out["success"] is True
+    assert out["type"] == "spread"
     assert out["field"] == "spread"
+    assert out["selected_value_executable"] is False
+    assert out["usable_for_live_trading"] is False
     assert out["price"] == pytest.approx(0.00016)
     assert out["unit"] == "absolute_price"
     assert out["point"] == 0.00001

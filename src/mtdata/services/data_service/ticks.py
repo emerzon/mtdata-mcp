@@ -1432,6 +1432,8 @@ def fetch_ticks(  # noqa: C901
             }
             if price_digits > 0:
                 out["price_precision"] = int(price_digits)
+                out["bid_ask_precision"] = int(price_digits)
+                out["mid_precision"] = int(price_digits) + 1
             if price_point is not None:
                 out["price_point"] = price_point
             if price_currency:
@@ -1572,6 +1574,8 @@ def fetch_ticks(  # noqa: C901
                     pass
             if price_digits > 0:
                 out["price_precision"] = int(price_digits)
+                out["bid_ask_precision"] = int(price_digits)
+                out["mid_precision"] = int(price_digits) + 1
             if price_point is not None:
                 out["price_point"] = price_point
             if price_currency:

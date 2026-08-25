@@ -134,11 +134,14 @@ def symbol_suggestions_from_gateway(
         symbols = list(gateway.symbols_get() or [])
     except Exception:
         return []
+    from mtdata.core.symbols.classify import _symbol_search_sort_key
+
     matches = match_symbol_infos(
         symbols,
         text,
         limit=limit,
         group_of=_extract_group_path,
+        sort_key=lambda info: _symbol_search_sort_key(info, text, "auto"),
     )
     suggestions: list[dict[str, str]] = []
     for info in matches:

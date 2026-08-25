@@ -1313,8 +1313,21 @@ def _check_symbol_market_status_batch(
     total = len(symbols)
     failed_count = len(errors)
     succeeded_count = len(rows)
+    cannot_open_count = max(0, succeeded_count - can_open_count)
     partial_failure = bool(succeeded_count and failed_count)
     success = bool(succeeded_count) and (bool(allow_partial) or not failed_count)
+    if succeeded_count:
+        summary = (
+            f"{can_open_count}/{succeeded_count} evaluated symbol(s) can open new positions."
+        )
+        if failed_count:
+            summary = (
+                f"{summary} {failed_count} symbol(s) unavailable."
+            )
+    elif failed_count:
+        summary = f"0 evaluated symbol(s) can open new positions. {failed_count} symbol(s) unavailable."
+    else:
+        summary = "0/0 evaluated symbol(s) can open new positions."
     payload: Dict[str, Any] = {
         "success": success,
         "mode": "symbols",
@@ -1326,9 +1339,12 @@ def _check_symbol_market_status_batch(
         "requested_count": total,
         "succeeded_count": succeeded_count,
         "failed_count": failed_count,
+        "can_open_count": can_open_count,
+        "cannot_open_count": cannot_open_count,
+        "unknown_count": failed_count,
         "partial_failure": partial_failure,
         "allow_partial": bool(allow_partial),
-        "summary": f"{can_open_count}/{total} symbol(s) can open new positions.",
+        "summary": summary,
         "status_counts": status_counts,
         "timezone_context": _symbol_market_status_timezone_context(timezone_display),
         **shared_fields,

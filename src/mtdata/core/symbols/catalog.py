@@ -44,8 +44,8 @@ from ...utils.symbol import (
     _normalize_group_path_query,
 )
 from ...utils.time import (
-    _format_time_explicit,
-    _format_time_explicit_local,
+    _format_time_second_explicit,
+    _format_time_second_explicit_local,
     _resolve_client_tz,
     timezone_label,
 )
@@ -1088,9 +1088,9 @@ def symbols_describe(  # noqa: C901
 
             client_tz = _resolve_client_tz()
             if client_tz is None:
-                time_formatter = _format_time_explicit
+                time_formatter = _format_time_second_explicit
             else:
-                time_formatter = _format_time_explicit_local
+                time_formatter = _format_time_second_explicit_local
 
             symbol_data = {}
             quote_timestamp_available: Optional[bool] = None

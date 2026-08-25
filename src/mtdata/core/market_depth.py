@@ -904,6 +904,8 @@ def market_ticker(  # noqa: C901
                 "symbol": resolved_symbol,
                 "type": "quote",
                 "price_precision": digits,
+                "bid_ask_precision": digits,
+                "mid_precision": digits + 1,
                 "point": point if point > 0 else None,
                 "price_currency": price_currency,
                 "bid": _round_market_ticker_value(bid, digits=digits),
@@ -1065,29 +1067,39 @@ def market_ticker(  # noqa: C901
                             ),
                         )
                     )
+                quote_usable = out.get("usable_for_live_trading") is True
+                selected_executable = field_value in {"bid", "ask"}
+                selected_precision = digits + 1 if field_value == "mid" else digits
                 simple: Dict[str, Any] = {
                     "success": True,
                     "symbol": resolved_symbol,
-                    "type": "price",
+                    "type": "spread" if field_value == "spread" else "price",
                     "field": field_value,
                     "price": price,
-                    "price_precision": digits,
+                    "price_precision": selected_precision,
                     "price_currency": price_currency,
                     "price_currency_basis": "quote_currency_not_cash_cost",
                     "unit": out["units"].get(field_value, "absolute_price"),
                     "point": out.get("point"),
+                    "price_basis": field_value,
+                    "quote_usable_for_live_trading": quote_usable,
+                    "selected_value_executable": bool(
+                        selected_executable and quote_usable
+                    ),
                     "units": {
                         "price": out["units"].get(field_value, "absolute_price"),
                         "point": out["units"]["point"],
                     },
                 }
+                if selected_executable:
+                    simple["execution_side"] = field_value
                 if field_value == "spread":
                     for key in ("spread_points", "spread_pips", "spread_pct"):
                         if out.get(key) is not None:
                             simple[key] = out[key]
                             if key in out["units"]:
                                 simple["units"][key] = out["units"][key]
-                for key in (
+                copy_keys = [
                     "quote_as_of",
                     "time",
                     "time_epoch",
@@ -1102,8 +1114,6 @@ def market_ticker(  # noqa: C901
                     "freshness",
                     "freshness_state",
                     "freshness_reason",
-                    "usable_for_live_trading",
-                    "usable_for_live_trading_basis",
                     "related_live_symbols",
                     "live_max_age_seconds",
                     "timestamp_ahead_of_wall_clock",
@@ -1122,7 +1132,17 @@ def market_ticker(  # noqa: C901
                     "quote_refresh_attempted",
                     "spread_valid",
                     "spread_quality",
-                ):
+                ]
+                if selected_executable:
+                    copy_keys.extend(
+                        ("usable_for_live_trading", "usable_for_live_trading_basis")
+                    )
+                else:
+                    simple["usable_for_live_trading"] = False
+                    simple["usable_for_live_trading_basis"] = (
+                        "selected_field_is_not_an_executable_side_price"
+                    )
+                for key in copy_keys:
                     if out.get(key) is not None:
                         simple[key] = out.get(key)
                 return _finalize(simple)
