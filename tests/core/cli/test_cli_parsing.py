@@ -1767,6 +1767,32 @@ class TestResolveParamKwargs:
         assert "minimal" not in kwargs["help"]
         assert "scalping" not in kwargs["help"]
 
+    def test_trade_modify_stop_help_does_not_mention_trade_place(self):
+        param = {
+            "name": "stop_loss",
+            "type": Optional[float],
+            "required": False,
+            "default": None,
+        }
+        kwargs, _ = _resolve_param_kwargs(param, None, cmd_name="trade_modify")
+        assert "trade_place" not in kwargs["help"]
+        assert "require-sl-tp" not in kwargs["help"]
+        assert "clear-stop-loss" in kwargs["help"]
+
+    def test_asset_performance_universe_help_is_not_symbol_scan(self):
+        param = {
+            "name": "universe",
+            "type": Literal["forex", "crypto", "futures", "insider"],
+            "required": False,
+            "default": "forex",
+        }
+        kwargs, _ = _resolve_param_kwargs(
+            param, None, cmd_name="asset_performance"
+        )
+        assert "forex" in kwargs["help"]
+        assert "insider" in kwargs["help"]
+        assert "Symbol scan universe" not in kwargs["help"]
+
     def test_list_type(self):
         param = {"name": "items", "type": List[str], "required": False, "default": None}
         kwargs, is_mapping = _resolve_param_kwargs(param, None)

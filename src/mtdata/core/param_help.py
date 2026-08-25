@@ -211,6 +211,13 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "Sort key. Default -marketcap (largest first). Use --order=price for "
         "ascending price. Pagination follows this provider order."
     ),
+    ("asset_performance", "universe"): (
+        "Context table: forex, crypto, futures, or market-wide insider."
+    ),
+    ("asset_performance", "source"): (
+        "Adapter pin. auto uses Finviz; mt5 is unsupported for this delayed "
+        "performance table."
+    ),
     ("asset_performance", "rank_by"): (
         "Rank the fetched forex/crypto/futures snapshot by a performance horizon "
         "before paging: 5min, hour, day, week, month, quarter, half, year, or ytd."
@@ -621,12 +628,18 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "set false for strict completion."
     ),
     ("market_status", "allow_partial"): (
-        "Keep usable comma-separated symbol results after partial failure; set "
-        "false for strict completion."
+        "Keep usable comma-separated symbol results after partial failure. "
+        "Explicit lists default permissive; set false for strict completion."
     ),
     ("market_scan", "allow_partial"): (
-        "Keep usable rows after unknown requested symbols are dropped; set "
-        "false to fail closed when any requested name is missing."
+        "Keep usable rows after unknown requested symbols are dropped. "
+        "Explicit lists default permissive; set false to fail closed when any "
+        "requested name is missing."
+    ),
+    ("market_radar", "allow_partial"): (
+        "Keep usable rows after unknown requested symbols are dropped. "
+        "Explicit watchlists default permissive; set false to fail closed when "
+        "any requested name is missing."
     ),
     ("symbols_top_markets", "candidate_offset"): (
         "Zero-based offset into the deterministic sorted candidate universe. Increment "
@@ -635,6 +648,22 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
     ("symbols_top_markets", "scan_budget_seconds"): (
         "Wall-clock budget for global candidate sampling (default 30 seconds). "
         "Use 0 to wait for the exact full-universe leaderboard."
+    ),
+    ("trade_modify", "stop_loss"): (
+        "New stop-loss price. Omit to leave the existing stop unchanged; use "
+        "--clear-stop-loss to remove it."
+    ),
+    ("trade_modify", "take_profit"): (
+        "New take-profit price. Omit to leave the existing target unchanged; use "
+        "--clear-take-profit to remove it."
+    ),
+    ("trade_risk_analyze", "stop_loss"): (
+        "Stop-loss price required to compute risk-based position size when "
+        "--sizing is supplied."
+    ),
+    ("trade_risk_analyze", "take_profit"): (
+        "Optional take-profit price used for reward-to-risk when sizing a "
+        "candidate trade."
     ),
     ("trade_close", "close_all"): (
         "Select the whole account when ticket, symbol, and magic are omitted."
@@ -868,12 +897,14 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "Minimum complete cycles required for a candidate seasonal period."
     ),
     ("strategy_backtest", "cost_model"): (
-        "Spread source: historical_bar_spread is the fail-closed default and "
-        "requires complete completed-bar coverage; fixed requires spread_bps."
+        "Spread source: auto (default) uses complete historical bar spreads "
+        "when coverage is full, otherwise a disclosed conservative fixed "
+        "estimate. historical_bar_spread fails closed unless coverage is "
+        "complete; fixed requires spread_bps."
     ),
     ("strategy_backtest", "spread_bps"): (
         "Fixed round-trip spread cost in basis points; required when "
-        "cost_model=fixed and invalid with historical_bar_spread."
+        "cost_model=fixed and invalid with auto or historical_bar_spread."
     ),
     ("strategy_validate", "strategy"): (
         "Single built-in strategy shortcut. Use candidates for parameterized or "

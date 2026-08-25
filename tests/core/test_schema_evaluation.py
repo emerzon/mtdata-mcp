@@ -101,6 +101,15 @@ def test_public_schema_evaluation_has_no_unbounded_numeric_parameters() -> None:
     ]
 
 
+def test_market_radar_allow_partial_has_public_description() -> None:
+    evaluate_public_tool_schemas()
+    properties = get_public_tool_schema("market_radar")["properties"]
+
+    description = properties["allow_partial"]["description"]
+    assert "fail closed" in description
+    assert "missing" in description
+
+
 def test_public_schema_evaluation_counts_always_registered_gated_tool() -> None:
     report = evaluate_public_tool_schemas()
 
