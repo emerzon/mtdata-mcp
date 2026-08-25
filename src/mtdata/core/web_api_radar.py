@@ -23,7 +23,7 @@ def get_radar_response(
     limit: int,
     compose_impl: Any = None,
 ) -> Dict[str, Any]:
-    requested = parse_radar_symbols(symbols, limit=limit)
+    requested = parse_radar_symbols(symbols)
     if symbols is not None and str(symbols).strip() and not requested:
         raise _http_error(
             400,

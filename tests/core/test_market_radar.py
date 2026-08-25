@@ -6,7 +6,12 @@ import pytest
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from mtdata.core.radar import MarketRadarRequest, parse_radar_symbols, run_market_radar
+from mtdata.core.radar import (
+    RADAR_MAX_SYMBOLS,
+    MarketRadarRequest,
+    parse_radar_symbols,
+    run_market_radar,
+)
 from mtdata.core.web_api import app
 from mtdata.core.web_api_radar import compact_session_strip
 
@@ -16,6 +21,11 @@ _client = TestClient(app)
 def test_parse_radar_symbols_caps_and_dedupes() -> None:
     symbols = parse_radar_symbols("eurusd, GBPUSD, EURUSD, , XAUUSD", limit=2)
     assert symbols == ["EURUSD", "GBPUSD"]
+
+
+def test_parse_radar_symbols_does_not_cap_by_default() -> None:
+    names = [f"SYM{i}" for i in range(RADAR_MAX_SYMBOLS + 2)]
+    assert parse_radar_symbols(",".join(names)) == names
 
 
 def test_market_radar_rejects_explicit_empty_watchlist() -> None:
@@ -77,6 +87,14 @@ def test_market_radar_ranks_full_watchlist_before_limit() -> None:
         )
         assert [row["symbol"] for row in result["rows"]] == ["GBPUSD", "USDJPY"]
         assert result["count"] == 2
+        assert result["pagination"] == {
+            "total": 3,
+            "returned": 2,
+            "offset": 0,
+            "limit": 2,
+            "has_more": True,
+            "more_available": 1,
+        }
 
 
 def test_market_radar_keeps_watchlist_order() -> None:
@@ -156,8 +174,42 @@ def test_market_radar_reports_missing_names() -> None:
         MarketRadarRequest(symbols="EURUSD,NOPE"),
         call_section=lambda name, kwargs: _scan_rows("EURUSD"),
     )
+    assert result["success"] is True
     assert result["partial_failure"] is True
     assert result["missing"] == ["NOPE"]
+    assert MarketRadarRequest().allow_partial is True
+
+
+def test_market_radar_fails_closed_when_allow_partial_false() -> None:
+    observed: Dict[str, Any] = {}
+
+    def caller(name: str, kwargs: Dict[str, Any]) -> Any:
+        observed.update(kwargs)
+        return _scan_rows("EURUSD")
+
+    result = run_market_radar(
+        MarketRadarRequest(symbols="EURUSD,NOPE", allow_partial=False),
+        call_section=caller,
+    )
+    assert observed["allow_partial"] is False
+    assert result["success"] is False
+    assert result["error_code"] == "missing_symbols"
+    assert result["missing"] == ["NOPE"]
+    assert result["partial_failure"] is True
+
+
+def test_market_radar_rejects_watchlist_over_cap() -> None:
+    names = [f"SYM{i}" for i in range(RADAR_MAX_SYMBOLS + 2)]
+    result = run_market_radar(
+        MarketRadarRequest(symbols=",".join(names)),
+        call_section=lambda *_args, **_kwargs: pytest.fail("scan should not run"),
+    )
+    assert result["success"] is False
+    assert result["error_code"] == "too_many_symbols"
+    assert result["details"]["cap"] == RADAR_MAX_SYMBOLS
+    assert result["details"]["omitted"] == names[RADAR_MAX_SYMBOLS:]
+    assert str(RADAR_MAX_SYMBOLS) in result["error"]
+    assert names[RADAR_MAX_SYMBOLS] in result["error"]
 
 
 @pytest.mark.parametrize("detail", ["compact", "full"])

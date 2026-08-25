@@ -13,7 +13,7 @@ from ..utils.time import format_datetime_utc
 from ._mcp_instance import mcp
 from .error_envelope import build_error_payload
 from .execution_logging import run_logged_operation
-from .output_contract import attach_success_guidance
+from .output_contract import attach_success_guidance, build_pagination_meta
 from .runtime_metadata import attach_mt5_source
 from .tool_calling import call_tool_sync_structured
 
@@ -106,6 +106,13 @@ class MarketRadarRequest(BaseModel):
         ),
     )
     detail: DetailLiteral = Field(default="compact")
+    allow_partial: bool = Field(
+        default=True,
+        description=(
+            "Keep usable rows after unknown requested symbols are dropped; set "
+            "false to fail closed when any requested name is missing."
+        ),
+    )
 
     @model_validator(mode="after")
     def _reject_empty_explicit_watchlist(self) -> "MarketRadarRequest":
@@ -117,7 +124,7 @@ class MarketRadarRequest(BaseModel):
         return self
 
 
-def parse_radar_symbols(value: Any, *, limit: int = RADAR_MAX_SYMBOLS) -> List[str]:
+def parse_radar_symbols(value: Any, *, limit: Optional[int] = None) -> List[str]:
     if value is None:
         return []
     if isinstance(value, (list, tuple)):
@@ -126,13 +133,14 @@ def parse_radar_symbols(value: Any, *, limit: int = RADAR_MAX_SYMBOLS) -> List[s
         parts = str(value).replace(";", ",").split(",")
     symbols: List[str] = []
     seen: set[str] = set()
+    cap = None if limit is None else int(limit)
     for part in parts:
         symbol = str(part or "").strip().upper()
         if not symbol or symbol in seen:
             continue
         seen.add(symbol)
         symbols.append(symbol)
-        if len(symbols) >= int(limit):
+        if cap is not None and len(symbols) >= cap:
             break
     return symbols
 
@@ -211,6 +219,7 @@ def assemble_radar_payload(
     timeframe: str,
     rank_by: str,
     seeded: bool,
+    allow_partial: bool = True,
 ) -> Dict[str, Any]:
     by_symbol: Dict[str, Dict[str, Any]] = {}
     for row in _scan_rows(scan):
@@ -282,6 +291,12 @@ def assemble_radar_payload(
         payload["partial_failure"] = True
         payload["error"] = scan.get("error") or "Radar scan failed."
         payload["error_code"] = scan.get("error_code") or "radar_scan_failed"
+    elif missing and not allow_partial:
+        payload["success"] = False
+        payload["error"] = "Requested symbol(s) not found: " + ", ".join(missing) + "."
+        payload["error_code"] = "missing_symbols"
+        if ordered:
+            payload["partial_failure"] = True
     elif missing and ordered:
         payload["partial_failure"] = True
     elif not ordered:
@@ -310,7 +325,19 @@ def run_market_radar(
 ) -> Dict[str, Any]:
     caller = call_section or _default_call_section
     limit = min(int(request.limit), RADAR_MAX_SYMBOLS)
-    requested = parse_radar_symbols(request.symbols, limit=RADAR_MAX_SYMBOLS)
+    requested = parse_radar_symbols(request.symbols)
+    if request.symbols is not None and len(requested) > RADAR_MAX_SYMBOLS:
+        omitted = requested[RADAR_MAX_SYMBOLS:]
+        return build_error_payload(
+            (
+                f"Requested {len(requested)} unique symbols; "
+                f"market_radar accepts at most {RADAR_MAX_SYMBOLS}. "
+                f"Omitted: {', '.join(omitted)}."
+            ),
+            code="too_many_symbols",
+            operation="market_radar",
+            details={"cap": RADAR_MAX_SYMBOLS, "omitted": omitted},
+        )
     seeded = False
     if not requested:
         seeded = True
@@ -321,6 +348,7 @@ def run_market_radar(
         "abs_live_price_change_pct",
         "live_price_change_pct",
     }
+    allow_partial = bool(request.allow_partial)
     scan_kwargs = {
         "symbols": ",".join(requested),
         "timeframe": request.timeframe,
@@ -328,6 +356,7 @@ def run_market_radar(
         "rank_by": scan_rank,
         "quote_usable_only": live_rank,
         "detail": request.detail,
+        "allow_partial": allow_partial,
     }
     scan = caller("scan", scan_kwargs)
     if _scan_rows(scan) or not seeded:
@@ -337,6 +366,7 @@ def run_market_radar(
             timeframe=str(request.timeframe),
             rank_by=request.rank_by,
             seeded=seeded,
+            allow_partial=allow_partial,
         )
     else:
         top = caller(
@@ -364,6 +394,7 @@ def run_market_radar(
                 "rank_by": scan_rank,
                 "quote_usable_only": live_rank,
                 "detail": "compact",
+                "allow_partial": allow_partial,
             },
         )
         payload = assemble_radar_payload(
@@ -372,12 +403,21 @@ def run_market_radar(
             timeframe=str(request.timeframe),
             rank_by=request.rank_by,
             seeded=True,
+            allow_partial=allow_partial,
         )
 
     rows = payload.get("rows")
-    if isinstance(rows, list) and len(rows) > limit:
-        payload["rows"] = rows[:limit]
-        payload["count"] = limit
+    if isinstance(rows, list):
+        total = len(rows)
+        sliced = rows[:limit]
+        payload["rows"] = sliced
+        payload["count"] = len(sliced)
+        payload["pagination"] = build_pagination_meta(
+            total=total,
+            returned=len(sliced),
+            offset=0,
+            limit=limit,
+        )
     payload = attach_mt5_source(payload)
     payload = attach_success_guidance(payload, tool_name="market_radar")
     return payload
