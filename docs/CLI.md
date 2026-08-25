@@ -666,10 +666,13 @@ mtdata-cli strategy_backtest EURUSD --cost-model fixed --spread-bps 1.2 --json
 
 The runnable examples use a fixed 1.2 bps round-trip assumption; replace it with
 a defensible value for the instrument and venue. By default,
-`strategy_backtest` uses only spreads stored with the evaluation bars and fails
-closed before evaluation unless every required bar has a usable spread. The
-`fixed` model requires an explicit `spread_bps`; it never substitutes a current
-quote into historical trades.
+`strategy_backtest` uses `cost_model=auto`: complete historical bar spreads
+when coverage is full, otherwise a disclosed conservative fixed estimate from
+available spread stats or the current broker quote. It never silently uses
+zero costs. `historical_bar_spread` still fails closed unless every required
+bar has a usable spread. The `fixed` model requires an explicit `spread_bps`;
+it never substitutes a current quote into historical trades unless you chose
+`auto`.
 `strategy_validate` may evaluate with at least some historical
 spread observations, but coverage below 90% prevents a positive evidence
 classification. Select `fixed` with an explicit spread for controlled

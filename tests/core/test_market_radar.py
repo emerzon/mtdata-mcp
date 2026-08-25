@@ -176,7 +176,9 @@ def test_market_radar_reports_missing_names() -> None:
     )
     assert result["success"] is True
     assert result["partial_failure"] is True
-    assert result["missing"] == ["NOPE"]
+    assert result["missing_symbols"] == ["NOPE"]
+    assert "missing" not in result
+    assert any("NOPE" in warning for warning in result["warnings"])
     assert MarketRadarRequest().allow_partial is True
 
 
@@ -194,7 +196,8 @@ def test_market_radar_fails_closed_when_allow_partial_false() -> None:
     assert observed["allow_partial"] is False
     assert result["success"] is False
     assert result["error_code"] == "missing_symbols"
-    assert result["missing"] == ["NOPE"]
+    assert result["missing_symbols"] == ["NOPE"]
+    assert "missing" not in result
     assert result["partial_failure"] is True
 
 

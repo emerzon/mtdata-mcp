@@ -2583,8 +2583,9 @@ def market_scan(  # noqa: C901
     preset, excluding stale, future, locked, inverted, and one-sided quotes
     before pagination. Set it explicitly for other rankings. Locked or invalid
     quotes cannot satisfy a maximum-spread filter. `allow_partial` defaults true
-    so unknown requested names are dropped with `missing_symbols`; set false to
-    fail closed when any requested symbol is missing.
+    so unknown requested names are dropped with `missing_symbols` and a warning;
+    explicit lists are permissive by default. Set false to fail closed when any
+    requested symbol is missing.
     """
 
     detail_mode = normalize_output_verbosity_detail(detail, default="compact")

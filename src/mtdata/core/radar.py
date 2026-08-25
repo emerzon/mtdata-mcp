@@ -109,8 +109,9 @@ class MarketRadarRequest(BaseModel):
     allow_partial: bool = Field(
         default=True,
         description=(
-            "Keep usable rows after unknown requested symbols are dropped; set "
-            "false to fail closed when any requested name is missing."
+            "Keep usable rows after unknown requested symbols are dropped. "
+            "Explicit watchlists default permissive; set false to fail closed "
+            "when any requested name is missing."
         ),
     )
 
@@ -283,7 +284,7 @@ def assemble_radar_payload(
             if scan.get(key) is not None:
                 payload[key] = scan[key]
     if missing:
-        payload["missing"] = missing
+        payload["missing_symbols"] = missing
     if seeded:
         payload["seeded"] = True
     if isinstance(scan, dict) and scan.get("success") is False:
@@ -299,6 +300,15 @@ def assemble_radar_payload(
             payload["partial_failure"] = True
     elif missing and ordered:
         payload["partial_failure"] = True
+        warnings = list(payload.get("warnings") or [])
+        warning = (
+            "Requested symbol(s) not found and excluded from the radar: "
+            + ", ".join(missing)
+            + "."
+        )
+        if warning not in warnings:
+            warnings.append(warning)
+        payload["warnings"] = warnings
     elif not ordered:
         payload["success"] = False
         payload["error"] = "No radar rows were available for the requested symbols."

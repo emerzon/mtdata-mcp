@@ -41,9 +41,11 @@ Tools that combine independently requested symbols or sections use
 Multi-symbol `market_status` and all-mode `patterns_detect` also return
 `requested_count`, `succeeded_count`, `failed_count`, and machine-readable
 `failed_items`; radar, snapshot, and reports identify their missing rows or
-sections in their domain-specific fields. Where `allow_partial` is exposed, it
-keeps usable results by default; set it to false when automation requires
-`success: false` and a nonzero CLI exit for any omission. If every requested
+sections in their domain-specific fields (`missing_symbols` on scan and radar).
+Where `allow_partial` is exposed on explicit market lists, it keeps usable
+results by default and is documented as permissive; set it to false when
+automation requires `success: false` and a nonzero CLI exit for any omission.
+Correlation and similar statistical tools stay fail-closed. If every requested
 item fails, `success` is false regardless of `allow_partial`.
 
 ### Data provenance

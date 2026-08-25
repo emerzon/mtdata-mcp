@@ -132,8 +132,11 @@ views of the same quote instant.
 
 `market_status` also accepts a comma-separated symbol batch. Mixed results set
 `partial_failure: true` and include requested, succeeded, and failed counts plus
-`failed_items`. Usable rows remain successful by default; pass
-`--allow-partial false` when a pre-trade gate must fail if any symbol is omitted.
+`failed_items`. Explicit symbol lists on `market_status`, `market_scan`, and
+`market_radar` stay successful by default (`allow_partial=true`); radar also
+warns and lists `missing_symbols`. Pass `--allow-partial false` when a
+pre-trade gate must fail if any requested name is omitted. Statistical tools
+such as `correlation_matrix` remain fail-closed unless you opt in.
 
 ---
 
