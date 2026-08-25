@@ -563,7 +563,9 @@ def _fetch_m1_rows(
             "approximation": "M1 bar volume split across low/close/high prices.",
         },
         "warnings": [
-            "Volume profile used an OHLC proxy from M1 bars instead of a quote-side price; intrabar volume location is estimated.",
+            "Volume profile used an L/C/H equal-weight proxy from M1 bars "
+            "(open omitted; each bar's volume split equally across low, close, "
+            "and high); intrabar volume location is estimated.",
             *(
                 [f"M1 input exceeded max_m1_bars={max_bars}; the latest {max_bars} bars were retained."]
                 if truncated
@@ -650,12 +652,16 @@ def _select_profile_rows(
             end=end,
             max_m1_bars=max_m1_bars,
         )
-        if window_exceeds_tick_budget:
-            diagnostics = selected.setdefault("diagnostics", {})
-            if isinstance(diagnostics, dict):
-                diagnostics["tick_window_days"] = round(days, 4)
-                diagnostics["max_tick_window_days"] = int(max_tick_window_days)
-                diagnostics["auto_fallback_reason"] = "requested window exceeds bounded tick window"
+        diagnostics = selected.setdefault("diagnostics", {})
+        if isinstance(diagnostics, dict) and window_exceeds_tick_budget:
+            diagnostics["tick_window_days"] = round(days, 4)
+            diagnostics["max_tick_window_days"] = int(max_tick_window_days)
+            if source_value == "auto":
+                diagnostics["auto_fallback_reason"] = (
+                    "requested window exceeds bounded tick window"
+                )
+            else:
+                diagnostics["tick_window_budget_exceeded"] = True
         return selected
 
     tick_result = _fetch_tick_rows(
@@ -769,6 +775,9 @@ def _profile_detail_payload(profile: Dict[str, Any], detail: str) -> Dict[str, A
         "price_source",
         "price_source_requested",
         "price_source_effective",
+        "proxy_prices",
+        "allocation_method",
+        "volume_is_synthetic",
         "volume_kind",
         "bucket_size",
         "requested_bucket_size",
@@ -1018,8 +1027,12 @@ def compute_volume_profile_payload(
                 "Choose exactly one volume-profile bucket control: bucket_size, "
                 "bucket_points, or bucket_count."
             ),
-            "code": "volume_profile_conflicting_bucket_controls",
+            "error_code": "volume_profile_conflicting_bucket_controls",
             "conflicting_parameters": bucket_controls,
+            "parameter": "bucket_size,bucket_points,bucket_count",
+            "remediation": (
+                "Pass exactly one of bucket_size, bucket_points, or bucket_count."
+            ),
         }
     if start is not None and (timeframe is not None or lookback is not None):
         return {
@@ -1028,7 +1041,19 @@ def compute_volume_profile_payload(
                 "bounds, or timeframe/lookback bars. Do not combine start with "
                 "timeframe or lookback."
             ),
-            "code": "volume_profile_conflicting_window_selectors",
+            "error_code": "volume_profile_conflicting_window_selectors",
+            "conflicting_parameters": [
+                name
+                for name, value in (
+                    ("start", start),
+                    ("timeframe", timeframe),
+                    ("lookback", lookback),
+                )
+                if value is not None
+            ],
+            "remediation": (
+                "Use start/end or timeframe/lookback, not both."
+            ),
         }
     range_error = validate_historical_range(start, end)
     if range_error is not None:
@@ -1043,7 +1068,7 @@ def compute_volume_profile_payload(
                 "value_area_pct must be in (0, 100] percent; "
                 f"got {value_area_pct!r}"
             ),
-            "code": "volume_profile_invalid_value_area_pct",
+            "error_code": "volume_profile_invalid_value_area_pct",
         }
     if lookback is not None and not timeframe:
         return {
@@ -1163,9 +1188,13 @@ def compute_volume_profile_payload(
     profile.update(_profile_source_quality(selected.get("source")))
     profile["price_source_requested"] = requested_price_source
     profile["price_source_effective"] = (
-        "ohlc_proxy" if selected_source == "m1_bars" else requested_price_source
+        "lch_equal_weight_proxy" if selected_source == "m1_bars" else requested_price_source
     )
     profile["price_source"] = profile["price_source_effective"]
+    if selected_source == "m1_bars":
+        profile["proxy_prices"] = ["low", "close", "high"]
+        profile["allocation_method"] = "equal_weight"
+        profile["volume_is_synthetic"] = True
     selected_diagnostics = selected.get("diagnostics")
     selected_reason = None
     if isinstance(selected_diagnostics, dict):
@@ -1288,10 +1317,26 @@ def compute_volume_profile_payload(
     fetch_payload = selected.get("fetch_payload")
     window = profile.get("window") if isinstance(profile.get("window"), dict) else {}
     window_days = _window_days(window.get("start"), window.get("end"))
+    profile_source_name = str(
+        profile.get("profile_source") or selected.get("source") or ""
+    )
+    bar_window_meta = profile.get("bar_window")
+    data_as_of = None
+    if profile_source_name == "m1_bars":
+        if isinstance(bar_window_meta, dict):
+            data_as_of = bar_window_meta.get("last_bar_close")
+        if not data_as_of:
+            last_open = _parse_start_datetime(window.get("end"))
+            if last_open is not None:
+                data_as_of = _format_window_timestamp(
+                    last_open + timedelta(minutes=1)
+                )
+    if not data_as_of:
+        data_as_of = window.get("end")
     profile.update(
         _profile_freshness_meta(
             fetch_payload,
-            data_as_of=profile["window"].get("end"),
+            data_as_of=data_as_of,
             historical_query=(
                 start is not None or end is not None
             ),
@@ -1299,7 +1344,7 @@ def compute_volume_profile_payload(
             window_seconds=(
                 None if window_days is None else float(window_days) * 86400.0
             ),
-            profile_source=str(profile.get("profile_source") or selected.get("source") or ""),
+            profile_source=profile_source_name,
             symbol=str(profile.get("symbol") or ""),
         )
     )
@@ -1347,7 +1392,7 @@ def volume_profile_levels(  # noqa: PLR0913
     requires `timeframe`; use `max_ticks` to cap tick rows. When `timeframe` is
     provided without `lookback`, the window defaults to 200 bars. `price_source="mid"`
     is the safe default for FX tick data where `last` is often unavailable. M1
-    approximation always reports an `ohlc_proxy` effective price source.
+    approximation always reports an `lch_equal_weight_proxy` effective price source.
     """
 
     def _run() -> Dict[str, Any]:

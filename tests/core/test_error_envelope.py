@@ -152,6 +152,20 @@ def test_generic_method_errors_use_the_failing_operation_help():
     assert "related_tools" not in out
 
 
+def test_normalize_error_payload_promotes_domain_code_field():
+    out = normalize_error_payload(
+        {
+            "error": "Choose exactly one volume-profile bucket control.",
+            "code": "volume_profile_conflicting_bucket_controls",
+            "conflicting_parameters": ["bucket_size", "bucket_points"],
+        },
+        operation="volume_profile_levels",
+    )
+
+    assert out["error_code"] == "volume_profile_conflicting_bucket_controls"
+    assert out["conflicting_parameters"] == ["bucket_size", "bucket_points"]
+
+
 def test_normalize_error_payload_adds_symbol_lookup_guidance():
     out = normalize_error_payload(
         {

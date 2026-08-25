@@ -149,7 +149,7 @@ def test_compute_volume_profile_payload_rejects_invalid_value_area_before_io(mon
             value_area_pct=invalid,
         )
 
-        assert result["code"] == "volume_profile_invalid_value_area_pct"
+        assert result["error_code"] == "volume_profile_invalid_value_area_pct"
         assert "percent" in result["error"]
         assert "percentage points" not in result["error"]
 
@@ -171,7 +171,7 @@ def test_compute_volume_profile_payload_rejects_conflicting_bucket_controls_befo
     ):
         result = vp.compute_volume_profile_payload(symbol="EURUSD", **controls)
 
-        assert result["code"] == "volume_profile_conflicting_bucket_controls"
+        assert result["error_code"] == "volume_profile_conflicting_bucket_controls"
         assert set(result["conflicting_parameters"]) == set(controls)
 
 
@@ -887,8 +887,8 @@ def test_compute_volume_profile_payload_auto_falls_back_on_low_tick_mid_coverage
     assert result["success"] is True
     assert result["profile_source"] == "m1_bars"
     assert result["price_source_requested"] == "mid"
-    assert result["price_source_effective"] == "ohlc_proxy"
-    assert result["price_source"] == "ohlc_proxy"
+    assert result["price_source_effective"] == "lch_equal_weight_proxy"
+    assert result["price_source"] == "lch_equal_weight_proxy"
     assert result["diagnostics"]["auto_fallback_reason"] == "tick price coverage below threshold"
     assert result["diagnostics"]["tick_price_quality"] == {
         "price_source": "mid",
@@ -1007,7 +1007,7 @@ def test_profile_bar_window_resolves_before_symbol_guard(monkeypatch):
     ]
 
 
-def test_m1_profile_downgrades_quote_side_to_ohlc_proxy(monkeypatch):
+def test_m1_profile_downgrades_quote_side_to_lch_equal_weight_proxy(monkeypatch):
     monkeypatch.setattr(
         vp,
         "create_mt5_gateway",
@@ -1046,9 +1046,12 @@ def test_m1_profile_downgrades_quote_side_to_ohlc_proxy(monkeypatch):
 
     assert result["success"] is True
     assert result["price_source_requested"] == "ask"
-    assert result["price_source_effective"] == "ohlc_proxy"
-    assert result["price_source"] == "ohlc_proxy"
-    assert "OHLC proxy" in result["warnings"][0]
+    assert result["price_source_effective"] == "lch_equal_weight_proxy"
+    assert result["price_source"] == "lch_equal_weight_proxy"
+    assert result["proxy_prices"] == ["low", "close", "high"]
+    assert result["allocation_method"] == "equal_weight"
+    assert result["volume_is_synthetic"] is True
+    assert "L/C/H equal-weight proxy" in result["warnings"][0]
 
 
 def test_compute_volume_profile_payload_defaults_timeframe_lookback(monkeypatch):
@@ -1231,3 +1234,145 @@ class _Guard:
 
     def __exit__(self, *args):
         return False
+
+
+def test_explicit_m1_source_does_not_claim_auto_fallback(monkeypatch):
+    monkeypatch.setattr(
+        vp,
+        "create_mt5_gateway",
+        lambda **_: SimpleNamespace(ensure_connection=lambda: None),
+    )
+    monkeypatch.setattr(
+        vp,
+        "_symbol_ready_guard",
+        lambda symbol: _Guard(None, SimpleNamespace(point=0.0001, digits=5)),
+    )
+    monkeypatch.setattr(
+        vp,
+        "fetch_candles",
+        lambda **_: {
+            "data": [
+                {
+                    "time": "2026-01-01 00:00:00",
+                    "high": 1.2,
+                    "low": 0.9,
+                    "close": 1.1,
+                    "tick_volume": 90,
+                    "real_volume": 0,
+                }
+            ]
+        },
+    )
+    monkeypatch.setattr(
+        vp, "fetch_ticks", lambda **_: (_ for _ in ()).throw(AssertionError("no tick fetch"))
+    )
+
+    result = vp.compute_volume_profile_payload(
+        symbol="EURUSD",
+        start="2026-01-01",
+        end="2026-02-01",
+        source="m1_bars",
+        bucket_size=0.0005,
+        detail="full",
+    )
+
+    assert result["success"] is True
+    assert result["source_decision"] == {
+        "requested": "m1_bars",
+        "selected": "m1_bars",
+        "reason": "explicit_source",
+    }
+    assert result["diagnostics"].get("tick_window_budget_exceeded") is True
+    assert "auto_fallback_reason" not in result["diagnostics"]
+
+
+def test_m1_profile_data_as_of_uses_last_included_bar_close(monkeypatch):
+    monkeypatch.setattr(vp, "_utc_now_naive", lambda: vp.datetime(2026, 1, 2, 12, 0))
+    monkeypatch.setattr(
+        vp,
+        "create_mt5_gateway",
+        lambda **_: SimpleNamespace(ensure_connection=lambda: None),
+    )
+    monkeypatch.setattr(
+        vp,
+        "_symbol_ready_guard",
+        lambda symbol: _Guard(None, SimpleNamespace(point=0.0001, digits=5)),
+    )
+    monkeypatch.setattr(
+        vp,
+        "fetch_candles",
+        lambda **kwargs: (
+            _completed_hour_bars(vp.datetime(2026, 1, 1), 2)
+            if kwargs.get("timeframe") == "H1"
+            else {
+                "data": [
+                    {
+                        "time": "2026-01-01 01:59:00",
+                        "high": 1.1010,
+                        "low": 1.0990,
+                        "close": 1.1005,
+                        "tick_volume": 90,
+                        "real_volume": 0,
+                    }
+                ]
+            }
+        ),
+    )
+
+    result = vp.compute_volume_profile_payload(
+        symbol="EURUSD",
+        timeframe="H1",
+        lookback=2,
+        source="m1_bars",
+        bucket_points=10,
+        detail="compact",
+    )
+
+    assert result["success"] is True
+    assert result["window"]["end"] == "2026-01-01T01:59:00Z"
+    assert result["bar_window"]["last_bar_close"] == "2026-01-01T02:00:00Z"
+    assert result["data_as_of"] == result["bar_window"]["last_bar_close"]
+    assert result["freshness_basis"] == "completed_bar_close_timeframe_window"
+
+
+def test_m1_proxy_splits_volume_equally_across_low_close_high(monkeypatch):
+    monkeypatch.setattr(
+        vp,
+        "create_mt5_gateway",
+        lambda **_: SimpleNamespace(ensure_connection=lambda: None),
+    )
+    monkeypatch.setattr(
+        vp,
+        "_symbol_ready_guard",
+        lambda symbol: _Guard(None, SimpleNamespace(point=0.0001, digits=5)),
+    )
+    monkeypatch.setattr(
+        vp,
+        "fetch_candles",
+        lambda **_: {
+            "data": [
+                {
+                    "time": "2026-01-01 00:00:00",
+                    "open": 1.0500,
+                    "high": 1.2000,
+                    "low": 1.0000,
+                    "close": 1.1000,
+                    "tick_volume": 90,
+                    "real_volume": 0,
+                }
+            ]
+        },
+    )
+
+    selected = vp._fetch_m1_rows(
+        symbol="EURUSD",
+        start="2026-01-01",
+        end="2026-01-01",
+        max_m1_bars=20_000,
+    )
+
+    rows = selected["rows"]
+    assert len(rows) == 3
+    assert {round(row["mid"], 4) for row in rows} == {1.0, 1.1, 1.2}
+    assert all(row["tick_volume"] == 30.0 for row in rows)
+    assert 1.05 not in {row["mid"] for row in rows}

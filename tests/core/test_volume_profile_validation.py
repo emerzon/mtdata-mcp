@@ -18,7 +18,7 @@ def test_volume_profile_rejects_mixed_window_modes_before_io(monkeypatch) -> Non
         lookback=100,
     )
 
-    assert result["code"] == "volume_profile_conflicting_window_selectors"
+    assert result["error_code"] == "volume_profile_conflicting_window_selectors"
     assert "one volume-profile window mode" in result["error"]
 
 

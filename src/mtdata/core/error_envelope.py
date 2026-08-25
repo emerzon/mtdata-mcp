@@ -413,7 +413,7 @@ def normalize_error_payload(
 
     out = dict(payload)
     original_error_code = str(
-        out.get("error_code") or default_code or "tool_error"
+        out.get("error_code") or out.get("code") or default_code or "tool_error"
     ).strip()
     operation_value = str(out.get("operation") or operation or "").strip()
     error_code = _canonical_error_code(
