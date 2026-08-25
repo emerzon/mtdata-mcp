@@ -81,6 +81,7 @@ _NAMED_ONLY_REQUIRED_PARAMS: set[tuple[str, str]] = {
 _PRESERVE_OMITTED_DEFAULT_PARAMS: set[tuple[str, str]] = {
     ("data_fetch_candles", "limit"),
     ("data_fetch_ticks", "limit"),
+    ("forecast_train", "wait"),
     ("market_microstructure_analyze", "minutes_back"),
     ("trade_execution_quality", "minutes_back"),
 }

@@ -373,7 +373,7 @@ class TestAddForecastGenerateArgs:
         # Should parse without error when given required args
         args = parser.parse_args(["EURUSD"])
         assert args.symbol_positional == "EURUSD"
-        assert args.library == "native"
+        assert not hasattr(args, "library")
         assert args.method == "theta"
         assert args.timeframe == "H1"
         assert args.horizon == 12
@@ -1899,6 +1899,7 @@ class TestResolveParamKwargs:
         )
 
         assert "One-shot CLI and stdin shell batches always wait" in kwargs["help"]
+        assert "--wait false is rejected there" in kwargs["help"]
         assert "CLI default: true" in kwargs["help"]
         assert "interactive shell, MCP, and Web API" in kwargs["help"]
 

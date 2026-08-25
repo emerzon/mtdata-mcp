@@ -14,8 +14,8 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
     ("forecast_train", "wait"): (
         "Wait for training to finish. One-shot CLI and stdin shell batches "
         "always wait so the in-process worker stays alive (CLI default: true); "
-        "the flag only applies in interactive shell, MCP, and Web API sessions "
-        "(those default: false)."
+        "--wait false is rejected there. The flag only applies in interactive "
+        "shell, MCP, and Web API sessions (those default: false)."
     ),
     ("forecast_backtest_run", "slippage_bps"): (
         "Per-side slippage in basis points (1 bp = 0.01%). Simulated trades "

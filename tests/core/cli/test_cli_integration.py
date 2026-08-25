@@ -1888,6 +1888,32 @@ class TestMain:
         assert invoked == [("EURUSD", True)]
 
     @patch("mtdata.core.cli.api.discover_tools")
+    def test_forecast_train_rejects_wait_false_in_one_shot_process(
+        self, mock_discover, capsys
+    ):
+        invoked = []
+
+        def forecast_train(symbol: str, wait: bool = False, **_kwargs):
+            invoked.append((symbol, wait))
+            return {"success": True, "status": "pending", "task_id": "task-1"}
+
+        mock_discover.return_value = {
+            "forecast_train": {
+                "func": forecast_train,
+                "meta": {"description": "Train a forecast model"},
+            },
+        }
+
+        with patch("sys.argv", ["cli.py", "forecast_train", "EURUSD", "--wait", "false", "--json"]):
+            result = main()
+
+        payload = json.loads(capsys.readouterr().out)
+        assert result != 0
+        assert payload["error_code"] == "cli_background_process_required"
+        assert "--wait false" in payload["error"]
+        assert invoked == []
+
+    @patch("mtdata.core.cli.api.discover_tools")
     def test_forecast_train_waits_in_stdin_shell_batch(
         self, mock_discover, monkeypatch, capsys
     ):
@@ -2003,7 +2029,7 @@ class TestForecastGenerateIntegration:
         request = call_kwargs["request"]
         assert isinstance(request, ForecastGenerateRequest)
         assert request.symbol == "EURUSD"
-        assert request.library == "native"
+        assert request.library is None
         assert request.method == "theta"
         assert request.detail == "compact"
         assert request.ci_alpha == 0.0
@@ -3355,7 +3381,8 @@ class TestPrintExtendedHelp:
         out = capsys.readouterr().out
         assert "wait=true" in out
         assert "wait=false" not in out
-        assert "one-shot cli and stdin batches always wait" in out.lower()
+        assert "one-shot cli and stdin batches wait by default" in out.lower()
+        assert "--wait false is rejected" in out.lower()
 
 
 # ========================================================================

@@ -1230,7 +1230,9 @@ def _forecast_method_help() -> str:
 
 def _add_forecast_generate_args(cmd_parser: argparse.ArgumentParser) -> None:
     cmd_parser.description = (
-        "Generate forecasts with an optional preprocessing pipeline."
+        "Generate forecasts with an optional preprocessing pipeline. "
+        "One-shot CLI runs synchronously; --async-mode requires an interactive "
+        "shell, MCP, or Web API session that can keep the training worker alive."
     )
     cmd_parser.epilog = _forecast_generate_typed_value_epilog()
     cmd_parser.usage = "%(prog)s (SYMBOL | --symbol SYMBOL) [options]"
@@ -1257,8 +1259,12 @@ def _add_forecast_generate_args(cmd_parser: argparse.ArgumentParser) -> None:
             ["native", "statsforecast", "sktime", "mlforecast", "pretrained"]
         ),
         choices=["native", "statsforecast", "sktime", "mlforecast", "pretrained"],
-        default="native",
-        help="Method library.",
+        default=argparse.SUPPRESS,
+        help=(
+            "Method library. Omit to resolve aliases such as sf_theta across "
+            "libraries; an explicit library rejects methods that do not belong "
+            "to it."
+        ),
     )
     group_method.add_argument(
         "--method",
@@ -1418,7 +1424,11 @@ def _add_forecast_generate_args(cmd_parser: argparse.ArgumentParser) -> None:
         const=True,
         default=False,
         metavar="BOOL",
-        help="Submit heavy model training in the background when supported.",
+        help=(
+            "Submit heavy model training in the background when supported. "
+            "One-shot CLI cannot keep a worker and rejects this flag; use an "
+            "interactive shell, MCP, or the Web API instead."
+        ),
     )
     group_exec.add_argument(
         "--model-id",
@@ -1473,8 +1483,24 @@ def create_command_function(
 
     def _forecast_train_cmd(args: Any) -> int:
         # One-shot and stdin-batch processes exit after the command. Training
-        # runs in-process, so those invocations always wait or the worker dies.
+        # runs in-process, so those invocations wait unless the user asked not
+        # to; --wait false is rejected rather than silently overridden.
         if _INTERACTIVE_SHELL_SESSION_DEPTH <= 0:
+            wait_token = getattr(args, "wait", None)
+            parsed_wait = parse_bool_like(wait_token)
+            if parsed_wait is False:
+                return _render_cli_result_status(
+                    build_error_payload(
+                        "One-shot CLI and stdin batches cannot use --wait false "
+                        "because the process exits after the command.",
+                        code="cli_background_process_required",
+                        operation="forecast_train",
+                        remediation=_BACKGROUND_COMMAND_REMEDIATION,
+                        documentation="docs/FORECAST.md#background-training--model-store",
+                    ),
+                    args=args,
+                    cmd_name="forecast_train",
+                )
             args.wait = "true"
         return command_func(args)
 
@@ -2209,9 +2235,15 @@ def _print_extended_help(functions: Dict[str, ToolInfo], query: str) -> None:
             print(f"  Optional: {', '.join(optional)}")
         if name == "forecast_train":
             print(
-                "  Wait: one-shot CLI and stdin batches always wait so the "
-                "in-process worker stays alive; --wait only applies in "
-                "interactive shell, MCP, and Web API sessions."
+                "  Wait: one-shot CLI and stdin batches wait by default so the "
+                "in-process worker stays alive; --wait false is rejected there. "
+                "The flag only applies in interactive shell, MCP, and Web API sessions."
+            )
+        if name == "forecast_generate":
+            print(
+                "  Async: one-shot CLI cannot keep a training worker; "
+                "--async-mode is rejected there. Use an interactive shell, MCP, "
+                "or the Web API for background training."
             )
         if name == "trade_place":
             print(
@@ -2586,7 +2618,7 @@ def main():  # noqa: C901
                 request = ForecastGenerateRequest(
                     symbol=resolved_symbol,
                     timeframe=args.timeframe,
-                    library=args.library,
+                    library=getattr(args, "library", None),
                     method=args.method,
                     horizon=int(args.horizon),
                     lookback=args.lookback,
