@@ -2467,6 +2467,62 @@ def _parse_native_scale_factors(config: Optional[Dict[str, Any]]) -> List[float]
     return out
 
 
+def validate_ensemble_weights(
+    engines: List[str],
+    ensemble_weights: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    if ensemble_weights is None:
+        return None
+    if not isinstance(ensemble_weights, dict):
+        return {
+            "success": False,
+            "error": "ensemble_weights must be a JSON object of engine name to weight.",
+            "error_code": "invalid_parameter",
+            "parameter": "ensemble_weights",
+            "remediation": "Pass a mapping such as {\"native\":1,\"stock_pattern\":0}.",
+        }
+    unknown: List[str] = []
+    invalid: List[Dict[str, Any]] = []
+    for key, value in ensemble_weights.items():
+        engine_key = _normalize_engine_name(key)
+        if engine_key not in engines:
+            unknown.append(str(key))
+            continue
+        try:
+            weight = float(value)
+        except (TypeError, ValueError):
+            invalid.append({"engine": str(key), "value": value, "reason": "not_numeric"})
+            continue
+        if not np.isfinite(weight) or weight < 0:
+            invalid.append(
+                {
+                    "engine": str(key),
+                    "value": value,
+                    "reason": "must_be_finite_and_nonnegative",
+                }
+            )
+    if not unknown and not invalid:
+        return None
+    return {
+        "success": False,
+        "error": "ensemble_weights contains unknown engines or invalid values.",
+        "error_code": "invalid_parameter",
+        "parameter": "ensemble_weights",
+        "details": {
+            "unknown_engines": unknown,
+            "invalid_weights": invalid,
+        },
+        "valid_values": {
+            "engines": list(engines),
+            "weight_range": "[0, +inf)",
+        },
+        "remediation": (
+            "Use engine names from engines_run with finite weights >= 0. "
+            "Zero excludes an engine."
+        ),
+    }
+
+
 def _resolve_engine_weights(
     engines: List[str],
     ensemble_weights: Optional[Dict[str, Any]],
@@ -2480,7 +2536,7 @@ def _resolve_engine_weights(
             continue
         try:
             weight = float(value)
-            if np.isfinite(weight) and weight > 0:
+            if np.isfinite(weight) and weight >= 0:
                 out[engine_key] = weight
         except Exception:
             continue

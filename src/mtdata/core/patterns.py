@@ -82,6 +82,7 @@ from .patterns_support import (
     _parse_engine_list,
     _parse_native_scale_factors,
     _resolve_engine_weights,
+    validate_ensemble_weights,
     _round_value,
     _summarize_engine_findings,
     _summarize_pattern_bias,

@@ -19,6 +19,7 @@ from .patterns_support import (
     _filter_non_actionable_elliott_warnings,
     _highlights_all_mode_payload,
     score_all_mode_patterns,
+    validate_ensemble_weights,
 )
 
 _ALL_MODE_TIMEFRAMES = ("M30", "H1", "H4", "D1", "W1")
@@ -737,17 +738,31 @@ def run_patterns_detect(  # noqa: C901
                 resp["engine_errors"] = engine_errors
             return resp
 
+        requested_weights = (
+            request.ensemble_weights
+            if isinstance(request.ensemble_weights, dict)
+            else (
+                (request.config or {}).get("ensemble_weights")
+                if isinstance(request.config, dict)
+                else None
+            )
+        )
         run_ensemble = bool(request.ensemble) or len(non_empty) > 1
+        if requested_weights is not None and not run_ensemble:
+            return {
+                "success": False,
+                "error": "ensemble_weights requires ensemble=true or multiple engines.",
+                "error_code": "incompatible_parameters",
+                "parameter": "ensemble_weights",
+                "remediation": "Set ensemble=true or pass multiple engines before supplying weights.",
+            }
         if run_ensemble:
+            weight_error = validate_ensemble_weights(engines, requested_weights)
+            if weight_error is not None:
+                return weight_error
             weight_map = deps.resolve_engine_weights(
                 engines,
-                request.ensemble_weights
-                if isinstance(request.ensemble_weights, dict)
-                else (
-                    (request.config or {}).get("ensemble_weights")
-                    if isinstance(request.config, dict)
-                    else None
-                ),
+                requested_weights,
             )
             out_list = deps.merge_classic_ensemble(non_empty, weight_map)
         else:

@@ -157,9 +157,10 @@ class TestResolveEngineWeights:
         result = self._call(["native"], {"native": "bad"})
         assert result["native"] == 1.0
 
-    def test_ignores_zero_weight(self):
-        result = self._call(["native"], {"native": 0.0})
-        assert result["native"] == 1.0
+    def test_allows_zero_weight_as_exclusion(self):
+        result = self._call(["native", "stock_pattern"], {"native": 0.0, "stock_pattern": 1.0})
+        assert result["native"] == 0.0
+        assert result["stock_pattern"] == 1.0
 
     def test_ignores_negative_weight(self):
         result = self._call(["native"], {"native": -1.0})
