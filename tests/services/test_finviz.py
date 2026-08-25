@@ -1501,6 +1501,34 @@ class TestFinvizTools:
         ]
         assert "perf_wtd_pct" not in result["items"][0]
 
+    @patch("mtdata.core.finviz.markets.get_crypto_performance")
+    def test_finviz_crypto_filters_symbol_aliases(self, mock_get_crypto):
+        from mtdata.core.finviz import finviz_crypto
+
+        mock_get_crypto.return_value = {
+            "success": True,
+            "market": "crypto",
+            "coins": [
+                {"Ticker": "BTC", "Name": "Bitcoin", "Price": "90000", "Perf Day": "2.5%"},
+                {"Ticker": "ETH", "Name": "Ethereum", "Price": "3000", "Perf Day": "1.1%"},
+            ],
+        }
+
+        raw = getattr(finviz_crypto, "__wrapped__", finviz_crypto)
+        result = raw(symbol="BTCUSD")
+
+        assert result["requested_symbol"] == "BTCUSD"
+        assert result["provider_symbol"] == "BTC"
+        assert result["count"] == 1
+        assert result["items"][0]["symbol"] == "BTC"
+        assert result["items"][0]["name"] == "Bitcoin"
+
+        missing = raw(symbol="DOGE")
+        assert missing["items"] == []
+        assert missing["requested_symbol"] == "DOGE"
+        assert "provider_symbol" not in missing
+        assert any("DOGE" in warning for warning in missing["warnings"])
+
     @patch("mtdata.core.finviz.markets.get_futures_performance")
     def test_finviz_futures_uses_items_with_snake_case_rows(self, mock_get_futures):
         from mtdata.core.finviz import finviz_futures
@@ -1562,6 +1590,38 @@ class TestFinvizTools:
         result = raw()
 
         assert result["items"][0]["perf_day_pct"] == 0.93
+
+    @patch("mtdata.core.finviz.markets.get_futures_performance")
+    def test_finviz_futures_filters_symbol_against_ticker_and_name(
+        self,
+        mock_get_futures,
+    ):
+        from mtdata.core.finviz import finviz_futures
+
+        mock_get_futures.return_value = {
+            "success": True,
+            "market": "futures",
+            "futures": [
+                {"ticker": "GC", "label": "Gold", "perf": "0.4%"},
+                {"ticker": "NQ", "label": "Nasdaq 100", "perf": "0.8%"},
+            ],
+        }
+
+        raw = getattr(finviz_futures, "__wrapped__", finviz_futures)
+        result = raw(symbol="gc")
+
+        assert result["requested_symbol"] == "gc"
+        assert result["provider_symbol"] == "GC"
+        assert result["count"] == 1
+        assert result["items"][0]["symbol"] == "GC"
+
+        by_name = raw(symbol="Nasdaq 100")
+        assert by_name["provider_symbol"] == "NQ"
+        assert by_name["items"][0]["name"] == "Nasdaq 100"
+
+        missing = raw(symbol="XAUUSD")
+        assert missing["items"] == []
+        assert any("XAUUSD" in warning for warning in missing["warnings"])
 
     @patch("mtdata.core.finviz.markets.get_futures_performance")
     def test_finviz_market_tools_accept_full_detail(self, mock_get_futures):
@@ -1879,6 +1939,60 @@ class TestFinvizTools:
         assert fundamentals["new_52w_high_unconfirmed"] is True
         assert "high_52w_distance_pct_recomputed" not in fundamentals
         assert "upstream 52-week data may be delayed" in fundamentals["data_quality_warnings"][0]
+
+    @patch("mtdata.core.finviz.fundamentals.get_stock_fundamentals")
+    def test_finviz_fundamentals_splits_composite_provider_strings(
+        self,
+        mock_get_fundamentals,
+    ):
+        from mtdata.core.finviz import finviz_fundamentals
+
+        mock_get_fundamentals.return_value = {
+            "success": True,
+            "symbol": "AAPL",
+            "fundamentals": {
+                "Employees": "166000",
+                "Cash/sh": "4.28",
+                "EV/EBITDA": "27.10",
+                "EV/Sales": "9.75",
+                "Option/Short": "Yes / Yes",
+                "Earnings": "Jul 30 AMC",
+                "EPS/Sales Surpr.": "6.77% 0.35%",
+                "Short Interest": "141.61M",
+                "Volatility": "2.19% 2.04%",
+                "Recom": "2.11",
+                "Target Price": "333.10",
+                "Prev Close": "309.35",
+            },
+        }
+
+        raw = getattr(finviz_fundamentals, "__wrapped__", finviz_fundamentals)
+        result = raw("AAPL", category="all")
+        fundamentals = result["fundamentals"]
+
+        assert fundamentals["employees"] == 166000
+        assert fundamentals["cash_per_share"] == 4.28
+        assert fundamentals["ev_ebitda"] == 27.10
+        assert fundamentals["ev_sales"] == 9.75
+        assert fundamentals["options_available"] is True
+        assert fundamentals["shortable"] is True
+        assert "option_short" not in fundamentals
+        assert fundamentals["earnings_date"] == "Jul 30"
+        assert fundamentals["earnings_session"] == "amc"
+        assert "earnings" not in fundamentals
+        assert fundamentals["eps_surprise_pct"] == 6.77
+        assert fundamentals["sales_surprise_pct"] == 0.35
+        assert fundamentals["short_interest"] == 141_610_000
+        assert fundamentals["volatility_w_pct"] == 2.19
+        assert fundamentals["volatility_m_pct"] == 2.04
+        assert "volatility" not in fundamentals
+        assert fundamentals["recom"] == 2.11
+        assert fundamentals["target_price"] == 333.10
+        assert fundamentals["prev_close"] == 309.35
+        assert result["units"]["cash_per_share"] == "listing_currency_per_share"
+        assert result["units"]["employees"] == "count"
+        assert result["units"]["short_interest"] == "shares"
+        assert result["units"]["eps_surprise_pct"] == "percent (1.0 = 1%)"
 
     @patch("mtdata.core.finviz.fundamentals.get_stock_fundamentals")
     def test_finviz_fundamentals_filters_category_and_fields(self, mock_get_fundamentals):

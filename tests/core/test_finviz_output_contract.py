@@ -191,6 +191,34 @@ def test_screen_pagination_uses_unknown_total_lower_bound() -> None:
     }
 
 
+def test_screen_declares_price_market_cap_and_volume_units() -> None:
+    result = _normalize_finviz_market_payload(
+        {
+            "success": True,
+            "stocks": [
+                {
+                    "Ticker": "AAPL",
+                    "Price": "310.34",
+                    "Change": "0.32%",
+                    "Volume": "34673582",
+                    "Market Cap": "4529.16B",
+                }
+            ],
+        },
+        rows_key="stocks",
+        tool="finviz_screen",
+        request={"view": "valuation"},
+        detail="full",
+        limit=1,
+    )
+
+    assert result["units"]["price"] == "USD_per_share"
+    assert result["units"]["market_cap"] == "USD"
+    assert result["units"]["volume"] == "shares (provider delayed snapshot)"
+    assert result["units"]["change_pct"] == "percent (1.0 = 1%)"
+    assert result["change_pct_basis"] == "delayed_price_vs_previous_close"
+
+
 def test_market_rows_keep_canonical_price_and_performance_fields_in_full_detail():
     payload = {
         "success": True,

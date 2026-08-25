@@ -107,6 +107,7 @@ def finviz_forex(
 
 
 def finviz_crypto(
+    symbol: Optional[str] = None,
     limit: Annotated[int, Field(ge=1)] = 20,
     offset: Annotated[int, Field(ge=0)] = 0,
     detail: DetailLiteral = "compact",  # type: ignore
@@ -127,6 +128,7 @@ def finviz_crypto(
         Crypto performance data
     """
     request = {
+        "symbol": symbol,
         "limit": limit,
         "offset": offset,
         "detail": detail,
@@ -146,12 +148,14 @@ def finviz_crypto(
             detail=detail,
             tool="finviz_crypto",
             request=request,
+            symbol_filter=symbol,
         )
 
     return _run_logged_tool("finviz_crypto", request, _run)
 
 
 def finviz_futures(
+    symbol: Optional[str] = None,
     limit: Annotated[int, Field(ge=1)] = 20,
     offset: Annotated[int, Field(ge=0)] = 0,
     detail: DetailLiteral = "compact",  # type: ignore
@@ -173,6 +177,7 @@ def finviz_futures(
         Futures performance data
     """
     request = {
+        "symbol": symbol,
         "limit": limit,
         "offset": offset,
         "detail": detail,
@@ -192,6 +197,7 @@ def finviz_futures(
             detail=detail,
             tool="finviz_futures",
             request=request,
+            symbol_filter=symbol,
         )
 
     return _run_logged_tool("finviz_futures", request, _run)

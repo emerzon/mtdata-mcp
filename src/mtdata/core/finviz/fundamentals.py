@@ -1,5 +1,6 @@
 """Finviz fundamentals and company-description adapters."""
 
+import re
 from typing import (
     Any,
     Dict,
@@ -139,6 +140,21 @@ _FINVIZ_DUAL_PERIOD_FIELDS = {
     "dividend_gr_3_5_y": ("dividend_growth_3y_cagr_pct", "dividend_growth_5y_cagr_pct"),
     "dividend_growth_3_5_y": ("dividend_growth_3y_cagr_pct", "dividend_growth_5y_cagr_pct"),
 }
+_FINVIZ_VOLATILITY_COMPOUND_FIELDS = {
+    "volatility": ("volatility_w_pct", "volatility_m_pct"),
+}
+_FINVIZ_SURPRISE_COMPOUND_FIELDS = {
+    "eps_sales_surpr": ("eps_surprise_pct", "sales_surprise_pct"),
+}
+_FINVIZ_OPTION_SHORT_FIELDS = ("options_available", "shortable")
+_FINVIZ_EARNINGS_COMPOUND_FIELDS = ("earnings_date", "earnings_session")
+_FINVIZ_EARNINGS_SESSION_MAP = {
+    "amc": "amc",
+    "ah": "amc",
+    "bmo": "bmo",
+    "a": "amc",
+    "b": "bmo",
+}
 _FINVIZ_PERCENT_FUNDAMENTAL_KEYS = frozenset(
     {
         "change_pct",
@@ -180,6 +196,10 @@ _FINVIZ_CURRENCY_PER_SHARE_FUNDAMENTAL_KEYS = frozenset(
     {
         "eps_ttm",
         "eps_next_q",
+        "cash_per_share",
+        "target_price",
+        "prev_close",
+        "book_value_per_share",
     }
 )
 _FINVIZ_LARGE_NUMBER_FORMAT_KEYS = frozenset(
@@ -193,14 +213,63 @@ _FINVIZ_LARGE_NUMBER_FORMAT_KEYS = frozenset(
         "shares_outstanding",
         "shares_float",
         "employees",
+        "short_interest",
     }
 )
+
+
+def _parse_finviz_yes_no_token(value: Any) -> Optional[bool]:
+    text = str(value or "").strip().lower()
+    if text in {"yes", "y", "true"}:
+        return True
+    if text in {"no", "n", "false"}:
+        return False
+    return None
+
+
+def _expand_finviz_option_short(value: Any) -> Optional[Dict[str, Any]]:
+    tokens = [token.strip() for token in re.split(r"[/,]", str(value or "")) if token.strip()]
+    parsed = [_parse_finviz_yes_no_token(token) for token in tokens]
+    parsed = [item for item in parsed if item is not None]
+    if len(parsed) < 2:
+        return None
+    return {
+        "options_available": parsed[0],
+        "shortable": parsed[1],
+    }
+
+
+def _expand_finviz_earnings(value: Any) -> Optional[Dict[str, Any]]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    session = None
+    date_text = text
+    slash = re.search(r"/([abAB])\s*$", text)
+    if slash:
+        session = _FINVIZ_EARNINGS_SESSION_MAP.get(slash.group(1).lower())
+        date_text = text[: slash.start()].strip()
+    else:
+        match = re.search(r"\b(AMC|BMO|AH)\b", text, re.I)
+        if match:
+            session = _FINVIZ_EARNINGS_SESSION_MAP.get(match.group(1).lower())
+            date_text = (text[: match.start()] + text[match.end() :]).strip()
+    out: Dict[str, Any] = {}
+    if date_text:
+        out["earnings_date"] = date_text
+    if session:
+        out["earnings_session"] = session
+    return out or None
 
 
 def _expand_finviz_compound_fundamental(
     key: str,
     value: Any,
 ) -> Optional[Dict[str, Any]]:
+    if key == "option_short":
+        return _expand_finviz_option_short(value)
+    if key == "earnings":
+        return _expand_finviz_earnings(value)
     values = _parse_finviz_numeric_tokens(value)
     if key in _FINVIZ_52W_COMPOUND_FIELDS and len(values) >= 2:
         price_key, distance_key = _FINVIZ_52W_COMPOUND_FIELDS[key]
@@ -214,6 +283,18 @@ def _expand_finviz_compound_fundamental(
             first_key: values[0],
             second_key: values[1],
         }
+    if key in _FINVIZ_VOLATILITY_COMPOUND_FIELDS and len(values) >= 2:
+        first_key, second_key = _FINVIZ_VOLATILITY_COMPOUND_FIELDS[key]
+        return {
+            first_key: values[0],
+            second_key: values[1],
+        }
+    if key in _FINVIZ_SURPRISE_COMPOUND_FIELDS and len(values) >= 2:
+        first_key, second_key = _FINVIZ_SURPRISE_COMPOUND_FIELDS[key]
+        return {
+            first_key: values[0],
+            second_key: values[1],
+        }
     return None
 
 
@@ -222,6 +303,14 @@ def _finviz_compound_output_keys(key: str) -> tuple[str, ...]:
         return _FINVIZ_52W_COMPOUND_FIELDS[key]
     if key in _FINVIZ_DUAL_PERIOD_FIELDS:
         return _FINVIZ_DUAL_PERIOD_FIELDS[key]
+    if key in _FINVIZ_VOLATILITY_COMPOUND_FIELDS:
+        return _FINVIZ_VOLATILITY_COMPOUND_FIELDS[key]
+    if key in _FINVIZ_SURPRISE_COMPOUND_FIELDS:
+        return _FINVIZ_SURPRISE_COMPOUND_FIELDS[key]
+    if key == "option_short":
+        return _FINVIZ_OPTION_SHORT_FIELDS
+    if key == "earnings":
+        return _FINVIZ_EARNINGS_COMPOUND_FIELDS
     return ()
 
 
@@ -244,6 +333,10 @@ def _finviz_fundamental_units(fundamentals: Dict[str, Any]) -> Dict[str, str]:
             units[key] = "percent (1.0 = 1%)"
         elif key in _FINVIZ_CURRENCY_PER_SHARE_FUNDAMENTAL_KEYS:
             units[key] = "listing_currency_per_share"
+        elif key == "employees":
+            units[key] = "count"
+        elif key == "short_interest":
+            units[key] = "shares"
     return units
 
 

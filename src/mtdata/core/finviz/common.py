@@ -493,6 +493,30 @@ def _is_known_forex_pair_row(row: Any) -> bool:
     return _derive_forex_pair_name(row.get("symbol")) is not None
 
 
+def _compact_finviz_market_symbol(value: Any) -> str:
+    return re.sub(r"[^A-Z0-9]+", "", str(value or "").upper())
+
+
+def _finviz_market_row_matches_symbol(row: Any, requested: Any) -> bool:
+    if not isinstance(row, dict):
+        return False
+    needle = _compact_finviz_market_symbol(requested)
+    if not needle:
+        return False
+    candidates: list[str] = []
+    for field in ("symbol", "ticker", "name"):
+        compact = _compact_finviz_market_symbol(row.get(field))
+        if compact:
+            candidates.append(compact)
+    for token in candidates:
+        if token == needle:
+            return True
+        shorter, longer = (needle, token) if len(needle) <= len(token) else (token, needle)
+        if len(shorter) >= 3 and longer.startswith(shorter):
+            return True
+    return False
+
+
 def _finviz_market_performance_periods(rows: Any) -> List[str]:
     if not isinstance(rows, list):
         return []
@@ -566,7 +590,11 @@ def _attach_finviz_delayed_root_metadata(out: Dict[str, Any]) -> None:
     )
 
 
-def _finviz_screen_units_for_rows(rows: Any) -> Dict[str, str]:
+def _finviz_screen_units_for_rows(
+    rows: Any,
+    *,
+    rows_key: Optional[str] = None,
+) -> Dict[str, str]:
     if not isinstance(rows, list):
         return {}
     seen_fields = {
@@ -583,6 +611,13 @@ def _finviz_screen_units_for_rows(rows: Any) -> Dict[str, str]:
     }
     if "short_ratio" in seen_fields:
         units["short_ratio"] = "days_to_cover"
+    if rows_key == "stocks":
+        if "price" in seen_fields:
+            units["price"] = "USD_per_share"
+        if "market_cap" in seen_fields:
+            units["market_cap"] = "USD"
+        if "volume" in seen_fields:
+            units["volume"] = "shares (provider delayed snapshot)"
     return units
 
 
@@ -716,6 +751,14 @@ def _normalize_finviz_market_payload(  # noqa: C901
                     for row in normalized_rows
                     if str(row.get("symbol") or "").upper() == symbol_filter_norm
                 ]
+    elif rows_key in {"coins", "futures"} and symbol_filter not in (None, ""):
+        symbol_filter_norm = str(symbol_filter).strip() or None
+        if symbol_filter_norm is not None:
+            normalized_rows = [
+                row
+                for row in normalized_rows
+                if _finviz_market_row_matches_symbol(row, symbol_filter_norm)
+            ]
     rank_by_value: Optional[str] = None
     rank_order_value = "desc"
     rank_field: Optional[str] = None
@@ -828,6 +871,25 @@ def _normalize_finviz_market_payload(  # noqa: C901
             out,
             f"No Finviz forex row matched symbol {symbol_filter_norm}.",
         )
+    if rows_key in {"coins", "futures"} and symbol_filter_norm is not None:
+        out["requested_symbol"] = symbol_filter_norm
+        provider_symbol = None
+        for row in output_rows:
+            if isinstance(row, dict) and row.get("symbol") not in (None, ""):
+                provider_symbol = str(row.get("symbol"))
+                break
+        if provider_symbol:
+            out["provider_symbol"] = provider_symbol
+            out["symbol"] = provider_symbol
+        else:
+            _append_finviz_warning(
+                out,
+                (
+                    "No Finviz "
+                    + ("crypto" if rows_key == "coins" else "futures")
+                    + f" row matched symbol {symbol_filter_norm}."
+                ),
+            )
     if rows_key == "futures":
         for row in output_rows:
             if isinstance(row, dict):
@@ -847,9 +909,14 @@ def _normalize_finviz_market_payload(  # noqa: C901
             )
         else:
             out["selection_order"] = "provider_table_order"
-    units = _finviz_screen_units_for_rows(output_rows)
+    units = _finviz_screen_units_for_rows(output_rows, rows_key=rows_key)
     if units:
         out["units"] = units
+    if rows_key == "stocks" and any(
+        isinstance(row, dict) and row.get("change_pct") not in (None, "")
+        for row in output_rows
+    ):
+        out["change_pct_basis"] = "delayed_price_vs_previous_close"
     if rows_key in {"pairs", "coins", "futures"}:
         limitations: Dict[str, Any] = {}
         periods = _finviz_market_performance_periods(output_rows)
@@ -1150,6 +1217,20 @@ _FINVIZ_OUTPUT_KEY_MAP = {
     "Perf 10Y": "performance_10y",
     "Volatility W": "volatility_w_pct",
     "Volatility M": "volatility_m_pct",
+    "Volatility": "volatility",
+    "Cash/sh": "cash_per_share",
+    "Cash/Sh": "cash_per_share",
+    "Employees": "employees",
+    "EV/EBITDA": "ev_ebitda",
+    "EV/Sales": "ev_sales",
+    "Recom": "recom",
+    "Target Price": "target_price",
+    "Prev Close": "prev_close",
+    "Short Interest": "short_interest",
+    "Option/Short": "option_short",
+    "EPS/Sales Surpr.": "eps_sales_surpr",
+    "EPS/Sales Surprise": "eps_sales_surpr",
+    "Earnings": "earnings",
     "Dividend %": "dividend_yield",
     "Dividend Est.": "dividend_est",
     "Dividend TTM": "dividend_ttm",
@@ -1182,6 +1263,9 @@ _FINVIZ_OUTPUT_KEY_ALIASES = {
     "sales_y_y_ttm": "sales_yoy_ttm_growth_pct",
     "date_from": "start",
     "date_to": "end",
+    "cash_sh": "cash_per_share",
+    "cash_per_sh": "cash_per_share",
+    "eps_sales_surprise": "eps_sales_surpr",
 }
 _FINVIZ_FUNDAMENTAL_NUMERIC_KEYS = frozenset(
     {
@@ -1260,6 +1344,14 @@ _FINVIZ_FUNDAMENTAL_NUMERIC_KEYS = frozenset(
         "inst_trans",
         "short_float",
         "short_ratio",
+        "employees",
+        "cash_per_share",
+        "ev_ebitda",
+        "ev_sales",
+        "recom",
+        "target_price",
+        "prev_close",
+        "short_interest",
     }
 )
 _FINVIZ_NUMERIC_SUFFIX_MULTIPLIERS = {

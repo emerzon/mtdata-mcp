@@ -215,7 +215,7 @@ mtdata-cli asset_performance --universe insider --option "top week buys" --json
 | Flag | Default | What it does |
 |------|---------|----------------|
 | `--universe` | `forex` | `forex`, `crypto`, `futures`, or `insider`. |
-| `--symbol` | (none) | Optional forex pair filter such as `EURUSD`. |
+| `--symbol` | (none) | Optional forex, crypto, or futures filter such as `EURUSD`, `BTCUSD`/`BTC`, or the provider ticker/name. |
 | `--option` | `latest` | Insider slice: `latest`, `latest buys`, `latest sales`, `top week`, `top week buys`, `top week sales`, `top owner trade`, `top owner buys`, `top owner sales`. |
 | `--rank-by` | (none) | Forex/crypto/futures: rank the fetched snapshot before paging (`5min`, `hour`, `day`, `week`, `month`, `quarter`, `half`, `year`, `ytd`). Omit to keep `selection_order=provider_table_order`. |
 | `--order` | `desc` with `--rank-by` | Rank direction: `desc` or `asc`. Requires `--rank-by`. |

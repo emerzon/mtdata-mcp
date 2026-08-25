@@ -57,6 +57,7 @@ def _fetch_finviz_performance(
         )
     if universe == "crypto":
         return finviz_impl.finviz_crypto(
+            symbol=symbol,
             limit=limit,
             offset=offset,
             detail=detail,  # type: ignore[arg-type]
@@ -65,6 +66,7 @@ def _fetch_finviz_performance(
         )
     if universe == "futures":
         return finviz_impl.finviz_futures(
+            symbol=symbol,
             limit=limit,
             offset=offset,
             detail=detail,  # type: ignore[arg-type]
@@ -87,7 +89,12 @@ def asset_performance(
     ] = "forex",
     symbol: Annotated[
         Optional[str],
-        Field(description="Optional forex pair filter such as EURUSD."),
+        Field(
+            description=(
+                "Optional forex, crypto, or futures filter such as EURUSD, "
+                "BTCUSD/BTC, or the provider ticker/name."
+            )
+        ),
     ] = None,
     option: Annotated[
         Literal[
@@ -148,7 +155,7 @@ def asset_performance(
             return pin_error
         universe_key = str(universe)
         invalid: list[str] = []
-        if universe_key != "forex" and symbol is not None:
+        if universe_key == "insider" and symbol is not None:
             invalid.append("symbol")
         if universe_key != "insider" and str(option) != "latest":
             invalid.append("option")
@@ -166,8 +173,8 @@ def asset_performance(
         if invalid:
             valid_by_universe = {
                 "forex": ["symbol", "offset", "limit", "rank_by", "order", "detail"],
-                "crypto": ["offset", "limit", "rank_by", "order", "detail"],
-                "futures": ["offset", "limit", "rank_by", "order", "detail"],
+                "crypto": ["symbol", "offset", "limit", "rank_by", "order", "detail"],
+                "futures": ["symbol", "offset", "limit", "rank_by", "order", "detail"],
                 "insider": ["option", "page", "limit", "detail"],
             }
             return build_error_payload(

@@ -27,15 +27,37 @@ def test_asset_performance_forex_stamps_research_quote_role(monkeypatch) -> None
 
 def test_asset_performance_rejects_inapplicable_universe_selectors(monkeypatch) -> None:
     monkeypatch.setattr(
-        "mtdata.core.finviz.finviz_crypto",
-        lambda **_kwargs: pytest.fail("crypto must not fetch with a forex symbol"),
+        "mtdata.core.finviz.finviz_insider_activity",
+        lambda **_kwargs: pytest.fail("insider must not fetch with a symbol"),
     )
 
-    result = _unwrap(asset_performance)(universe="crypto", symbol="EURUSD")
+    result = _unwrap(asset_performance)(universe="insider", symbol="AAPL")
 
     assert result["success"] is False
     assert result["error_code"] == "incompatible_parameters"
     assert result["details"]["invalid"] == ["symbol"]
+
+
+def test_asset_performance_forwards_crypto_symbol_filter(monkeypatch) -> None:
+    captured = {}
+
+    def _fake_crypto(**kwargs):
+        captured.update(kwargs)
+        return {
+            "success": True,
+            "items": [{"symbol": "BTC", "name": "Bitcoin"}],
+            "requested_symbol": kwargs.get("symbol"),
+            "provider_symbol": "BTC",
+        }
+
+    monkeypatch.setattr("mtdata.core.finviz.finviz_crypto", _fake_crypto)
+
+    result = _unwrap(asset_performance)(universe="crypto", symbol="BTCUSD")
+
+    assert captured["symbol"] == "BTCUSD"
+    assert result["success"] is True
+    assert result["requested_symbol"] == "BTCUSD"
+    assert result["provider_symbol"] == "BTC"
 
 
 def test_asset_performance_rank_by_is_applied_before_paging(monkeypatch) -> None:
