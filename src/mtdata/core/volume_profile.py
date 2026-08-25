@@ -453,22 +453,65 @@ def _fetch_m1_rows(
     end: Optional[str],
     max_m1_bars: int,
 ) -> Dict[str, Any]:
+    # fetch_candles with start+end+limit is start-anchored first_n. A capped
+    # profile must retain the most recent bars, so query end-anchored and then
+    # discard any rows preceding the requested start locally.
+    max_bars = max(1, int(max_m1_bars))
     payload = fetch_candles(
         symbol=symbol,
         timeframe="M1",
-        limit=max(1, int(max_m1_bars)),
-        start=start,
+        limit=max_bars,
+        start=None,
         end=end,
         ohlcv="OHLCV",
         include_incomplete=False,
     )
     if payload.get("error"):
         return payload
-    candles = _table_rows(payload)
-    max_bars = max(1, int(max_m1_bars))
+    provider_candles = [
+        candle for candle in _table_rows(payload) if isinstance(candle, dict)
+    ]
+    parsed_start = _parse_start_datetime(start) if start else None
+    start_epoch = _profile_datetime_epoch(parsed_start)
+    candles = provider_candles
+    if start_epoch is not None:
+        candles = [
+            candle
+            for candle in provider_candles
+            if (
+                (
+                    row_epoch := _profile_datetime_epoch(
+                        _parse_start_datetime(str(candle.get("time") or ""))
+                    )
+                )
+                is None
+                or row_epoch >= start_epoch
+            )
+        ]
     truncated = len(candles) > max_bars
     if truncated:
         candles = candles[-max_bars:]
+    provider_limit_reached = bool(payload.get("limit_reached")) or len(
+        provider_candles
+    ) >= max_bars
+    earliest_provider_epoch = (
+        _profile_datetime_epoch(
+            _parse_start_datetime(str(provider_candles[0].get("time") or ""))
+        )
+        if provider_candles
+        else None
+    )
+    truncated = bool(
+        truncated
+        or (
+            provider_limit_reached
+            and (
+                start_epoch is None
+                or earliest_provider_epoch is None
+                or earliest_provider_epoch >= start_epoch
+            )
+        )
+    )
     rows = []
     for candle in candles:
         if not isinstance(candle, dict):

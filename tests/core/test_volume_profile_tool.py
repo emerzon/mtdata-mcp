@@ -383,6 +383,51 @@ def test_compute_volume_profile_payload_uses_explicit_max_ticks(monkeypatch):
     assert captured["start"] is None
 
 
+def test_fetch_m1_rows_retains_latest_bars_when_capped(monkeypatch):
+    start = vp.datetime(2026, 1, 1, tzinfo=vp.timezone.utc)
+    bars = [
+        {
+            "time": (start + vp.timedelta(minutes=index)).strftime("%Y-%m-%d %H:%M:%S"),
+            "open": 1.1000,
+            "high": 1.1010,
+            "low": 1.0990,
+            "close": 1.1005,
+            "tick_volume": 10,
+            "real_volume": 0,
+        }
+        for index in range(400)
+    ]
+    captured: dict = {}
+
+    def fake_fetch_candles(**kwargs):
+        captured.update(kwargs)
+        limit = max(1, int(kwargs.get("limit") or 1))
+        if kwargs.get("start"):
+            selected = bars[:limit]
+        else:
+            selected = bars[-limit:]
+        return {"data": selected, "limit_reached": True}
+
+    monkeypatch.setattr(vp, "fetch_candles", fake_fetch_candles)
+
+    result = vp._fetch_m1_rows(
+        symbol="EURUSD",
+        start="2026-01-01T00:00:00Z",
+        end="2026-01-01T06:39:00Z",
+        max_m1_bars=200,
+    )
+
+    assert captured["start"] is None
+    assert captured["end"] == "2026-01-01T06:39:00Z"
+    assert captured["limit"] == 200
+    assert result["diagnostics"]["truncated"] is True
+    assert result["diagnostics"]["selection"] == "latest_n"
+    assert "latest 200 bars were retained" in result["warnings"][1]
+    times = [row["time"] for row in result["rows"] if row.get("time")]
+    assert times[0].startswith("2026-01-01T03:20:00")
+    assert times[-1].startswith("2026-01-01T06:39:00")
+
+
 def test_fetch_tick_rows_retains_latest_rows_in_bounded_window(monkeypatch):
     captured = {}
 
@@ -808,6 +853,8 @@ def test_compute_volume_profile_payload_auto_falls_back_on_low_tick_mid_coverage
 
     result = vp.compute_volume_profile_payload(
         symbol="EURUSD",
+        start="2026-01-01",
+        end="2026-01-01",
         source="auto",
         bucket_size=0.0005,
     )
@@ -965,6 +1012,8 @@ def test_m1_profile_downgrades_quote_side_to_ohlc_proxy(monkeypatch):
 
     result = vp.compute_volume_profile_payload(
         symbol="EURUSD",
+        start="2026-01-01",
+        end="2026-01-01",
         source="m1_bars",
         price_source="ask",
         bucket_size=0.0005,
@@ -1098,7 +1147,7 @@ def test_volume_profile_bar_window_skips_weekend_clock_hours(monkeypatch):
         "last_bar_close": "2026-01-12T00:00:00Z",
         "boundary_basis": "actual_completed_timeframe_bars",
     }
-    assert captured_m1["start"] == "2026-01-09T20:00:00Z"
+    assert captured_m1["start"] is None
     assert captured_m1["end"] == "2026-01-12T00:00:00Z"
 
 
