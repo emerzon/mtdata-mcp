@@ -1072,6 +1072,7 @@ def forecast_list_methods(
         Literal[
             "analog",
             "arima",
+            "barrier",
             "classical",
             "ensemble",
             "ets_arima",
@@ -1081,6 +1082,7 @@ def forecast_list_methods(
             "pretrained",
             "sktime",
             "statsforecast",
+            "volatility",
         ]
     ] = None,
     library: Optional[
@@ -2008,7 +2010,17 @@ def _forecast_list_methods_impl(  # noqa: C901
         if profile_auto_expanded:
             profile_value = "all"
             profile_methods = None
-        if isinstance(snapshot, dict) and search_value:
+        auxiliary_rows = _auxiliary_method_catalog_rows()
+        auxiliary_categories = {
+            str(row.get("category") or "").strip().lower()
+            for row in auxiliary_rows
+            if isinstance(row, dict) and str(row.get("category") or "").strip()
+        } | {"barrier", "volatility"}
+        include_auxiliary = bool(
+            search_value
+            or category_filter_value in auxiliary_categories
+        )
+        if isinstance(snapshot, dict) and include_auxiliary:
             catalog_rows = list(snapshot.get("methods") or [])
             existing = {
                 (
@@ -2027,7 +2039,7 @@ def _forecast_list_methods_impl(  # noqa: C901
                 )
             except Exception:
                 pass
-            for row in _auxiliary_method_catalog_rows():
+            for row in auxiliary_rows:
                 name = str(row.get("method") or "")
                 key = (name, str(row.get("tool") or ""))
                 if name and key not in existing:
@@ -2081,6 +2093,7 @@ def _forecast_list_methods_impl(  # noqa: C901
                 for item in snapshot.get("methods", [])
                 if isinstance(item, dict)
             }
+            | auxiliary_categories
         )
         if category_filter_value and category_filter_value not in known_categories:
             return {
@@ -2119,11 +2132,14 @@ def _forecast_list_methods_impl(  # noqa: C901
             auxiliary_tool = str(item.get("tool") or "")
             if profile_methods is not None and method_name not in profile_methods:
                 if not (
-                    search_value
-                    and auxiliary_tool in {
+                    auxiliary_tool in {
                         "forecast_volatility_estimate",
                         "forecast_barrier_prob",
                     }
+                    and (
+                        search_value
+                        or category_filter_value in auxiliary_categories
+                    )
                 ):
                     return False
             if library_value and _item_library(item) != library_value:
