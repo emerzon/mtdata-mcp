@@ -6,7 +6,7 @@ import sys
 import time
 import warnings
 from contextlib import nullcontext
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Callable, Dict, List, Optional
 
 from ...shared.constants import SANITY_BARS_TOLERANCE, TIMEFRAME_SECONDS
@@ -247,7 +247,15 @@ def _report_base_timestamp_candidates(
                 ),
             )
         if context_time is not None:
-            candidates.append(context_time)
+            context_timeframe = str(
+                base_timeframe or context.get("timeframe") or ""
+            ).strip().upper()
+            context_seconds = TIMEFRAME_SECONDS.get(context_timeframe)
+            candidates.append(
+                context_time + timedelta(seconds=context_seconds)
+                if context_seconds is not None
+                else context_time
+            )
 
     forecast = sections.get("forecast")
     forecast_time = _first_report_timestamp(
@@ -285,7 +293,12 @@ def _report_base_timestamp_candidates(
             ("source_bar_time", "last_bar_time", "last_bar_epoch"),
         )
         if timeframe_time is not None:
-            candidates.append(timeframe_time)
+            timeframe_seconds = TIMEFRAME_SECONDS.get(normalized_timeframe)
+            candidates.append(
+                timeframe_time + timedelta(seconds=timeframe_seconds)
+                if timeframe_seconds is not None
+                else timeframe_time
+            )
             break
     return candidates
 
@@ -314,7 +327,7 @@ def _derive_report_timestamp_contract(
     if base_times:
         return {
             "as_of": _format_report_timestamp(min(base_times)),
-            "as_of_basis": "base_timeframe_last_completed_bar_open",
+            "as_of_basis": "base_timeframe_last_completed_bar_close",
             "oldest_section_data_as_of": oldest_section,
         }
     return {

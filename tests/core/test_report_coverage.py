@@ -2329,7 +2329,7 @@ class TestReportWarnings:
         assert res["success"] is True
         assert res["section_run_status"] == "partial"
         assert res["as_of"] == "2026-06-30T22:00:00Z"
-        assert res["as_of_basis"] == "base_timeframe_last_completed_bar_open"
+        assert res["as_of_basis"] == "base_timeframe_last_completed_bar_close"
         assert res["oldest_section_data_as_of"] == "2026-06-30T22:00:00Z"
         assert res["temporal_alignment"] == {
             "status": "mismatch",
@@ -2499,7 +2499,7 @@ class TestReportWarnings:
 
         assert res["generated_at"] == "2026-06-02T12:00:00Z"
         assert res["as_of"] == "2026-06-01T09:30:00Z"
-        assert res["as_of_basis"] == "base_timeframe_last_completed_bar_open"
+        assert res["as_of_basis"] == "base_timeframe_last_completed_bar_close"
         assert res["oldest_section_data_as_of"] == "2026-05-31T21:00:00Z"
         assert res["as_of"] != res["generated_at"]
 
@@ -2741,12 +2741,12 @@ def test_compact_report_payload_retains_as_of():
         'success': True,
         'timezone': 'UTC',
         'as_of': '2026-06-05T20:00:00Z',
-        'as_of_basis': 'base_timeframe_last_completed_bar_open',
+        'as_of_basis': 'base_timeframe_last_completed_bar_close',
         'oldest_section_data_as_of': '2026-06-04T21:00:00Z',
     }
     out = _compact_report_payload(rep, symbol='EURUSD', template='basic')
     assert out['as_of'] == '2026-06-05T20:00:00Z'
-    assert out['as_of_basis'] == 'base_timeframe_last_completed_bar_open'
+    assert out['as_of_basis'] == 'base_timeframe_last_completed_bar_close'
     assert out['oldest_section_data_as_of'] == '2026-06-04T21:00:00Z'
 
 
@@ -2872,9 +2872,27 @@ def test_report_data_as_of_prefers_base_timeframe_over_older_sections():
 
     assert contract == {
         "as_of": "2026-08-18T23:00:00Z",
-        "as_of_basis": "base_timeframe_last_completed_bar_open",
+        "as_of_basis": "base_timeframe_last_completed_bar_close",
         "oldest_section_data_as_of": "2026-08-17T21:00:00Z",
     }
+
+
+def test_report_data_as_of_converts_context_bar_open_to_completed_close():
+    from mtdata.core.report.use_cases import _derive_report_timestamp_contract
+
+    contract = _derive_report_timestamp_contract(
+        {
+            "context": {
+                "timeframe": "H1",
+                "last_snapshot": {"time": "2026-08-25T19:00:00Z"},
+            },
+            "forecast": {"last_observation_time": "2026-08-25T20:00:00Z"},
+        },
+        base_timeframe="H1",
+    )
+
+    assert contract["as_of"] == "2026-08-25T20:00:00Z"
+    assert contract["as_of_basis"] == "base_timeframe_last_completed_bar_close"
 
 
 def test_report_data_as_of_labels_oldest_section_fallback():
@@ -2906,8 +2924,8 @@ def test_report_data_as_of_uses_selected_base_timeframe_context():
         },
         base_timeframe="H4",
     ) == {
-        "as_of": "2026-08-18T17:00:00Z",
-        "as_of_basis": "base_timeframe_last_completed_bar_open",
+        "as_of": "2026-08-18T21:00:00Z",
+        "as_of_basis": "base_timeframe_last_completed_bar_close",
         "oldest_section_data_as_of": "2026-08-17T21:00:00Z",
     }
 
