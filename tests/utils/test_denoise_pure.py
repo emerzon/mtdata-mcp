@@ -964,21 +964,31 @@ class TestApplyDenoise:
         assert "close_smooth" in added
         assert effective_denoise_base_col(df, spec, added_columns=added) == "close_smooth"
 
-    def test_missing_column_skipped(self):
+    def test_missing_column_raises(self):
+        from mtdata.utils.denoise import DenoiseColumnError
+
         df = self._make_df()
         spec = {"method": "sma", "params": {"window": 5}, "columns": ["nonexistent"], "keep_original": True}
-        added = apply_denoise(df, spec)
-        assert added == []
-        assert "denoise_warnings" in df.attrs
-        assert "skipped missing column 'nonexistent'" in df.attrs["denoise_warnings"][0]
+        with pytest.raises(DenoiseColumnError, match="nonexistent"):
+            apply_denoise(df, spec)
 
-    def test_missing_column_warning_does_not_block_valid_columns(self):
+    def test_missing_column_does_not_partially_apply(self):
+        from mtdata.utils.denoise import DenoiseColumnError
+
         df = self._make_df()
+        original_close = df["close"].copy()
         spec = {"method": "sma", "params": {"window": 5}, "columns": ["close", "nonexistent"], "keep_original": True}
+        with pytest.raises(DenoiseColumnError, match="nonexistent"):
+            apply_denoise(df, spec)
+        assert df["close"].equals(original_close)
+
+    def test_explicit_column_is_resolved_case_insensitively(self):
+        df = self._make_df()
+        df["rsi_14"] = df["close"]
+        spec = {"method": "sma", "params": {"window": 5}, "columns": ["RSI_14"], "keep_original": True}
         added = apply_denoise(df, spec)
-        assert "close_dn" in added
-        assert "denoise_warnings" in df.attrs
-        assert any("skipped missing column 'nonexistent'" in msg for msg in df.attrs["denoise_warnings"])
+        assert "rsi_14_dn" in added
+        assert any("resolved to 'rsi_14'" in msg for msg in df.attrs.get("denoise_warnings", []))
 
     def test_all_columns(self):
         df = self._make_df()

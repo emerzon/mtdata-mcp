@@ -42,9 +42,8 @@ mtdata-cli indicators_describe macd --json
 ### With Candle Data
 
 Add indicators directly when fetching candles:
-```bash
-mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 200 \
-  --indicators "ema(20),ema(50),rsi(14),macd(12,26,9)"
+```powershell
+mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 200 --indicators "ema(20),ema(50),rsi(14),macd(12,26,9)"
 ```
 
 **Syntax:**
@@ -56,10 +55,10 @@ mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 200 \
 
 Indicators add new columns to the output:
 ```
-time,open,high,low,close,volume,EMA_20,EMA_50,RSI_14,MACD_12_26_9,MACDh_12_26_9,MACDs_12_26_9
+time,open,high,low,close,volume,ema_20,ema_50,rsi_14,macd_12_26_9,macdh_12_26_9,macds_12_26_9
 ```
 
-Column naming convention: `INDICATOR_PARAM1_PARAM2`
+Column naming convention: lowercase `indicator_param1_param2` (the same names `indicators_describe` reports). Denoise `columns=` must use these names, not `RSI_14`.
 
 ---
 
@@ -84,9 +83,8 @@ Show direction and dynamic support/resistance levels.
 | `kc` | Keltner Channels | `kc(20,2)` |
 
 **Usage example:**
-```bash
-mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 100 \
-  --indicators "ema(20),ema(50),bbands(20,2)"
+```powershell
+mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 100 --indicators "ema(20),ema(50),bbands(20,2)"
 ```
 
 **Interpretation:**
@@ -166,17 +164,13 @@ Use `mtdata-cli indicators_list --category <name>` to explore them.
 Smooth noisy indicator outputs to reduce false signals:
 
 **Smooth RSI after calculation:**
-```bash
-mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 200 \
-  --indicators "rsi(14)" \
-  --denoise ema --denoise-params "columns=RSI_14,when=post_ti,alpha=0.3"
+```powershell
+mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 200 --indicators "rsi(14)" --denoise ema --denoise-params "columns=rsi_14,when=post_ti,alpha=0.3"
 ```
 
 **Smooth price before calculating indicators:**
-```bash
-mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 200 \
-  --indicators "rsi(14)" \
-  --denoise ema --denoise-params "columns=close,when=pre_ti,alpha=0.2"
+```powershell
+mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 200 --indicators "rsi(14)" --denoise ema --denoise-params "columns=close,when=pre_ti,alpha=0.2"
 ```
 
 See [DENOISING.md](DENOISING.md) for more options.
@@ -223,7 +217,9 @@ See [DENOISING.md](DENOISING.md) for more options.
 mtdata gets its indicator list from pandas-ta. That library can compute the
 indicators on its own, so you do not need to install TA-Lib. If TA-Lib is
 present, some functions may use it instead, and a few values (especially
-candlestick pattern columns) can look slightly different.
+candlestick pattern columns) can look slightly different. Candle responses that
+include indicators attach a compact `indicator_engine` object with the
+pandas-ta name/version, whether TA-Lib is available, and the effective backend.
 
 ---
 

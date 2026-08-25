@@ -6,6 +6,7 @@ from __future__ import annotations
 from . import filters as _filters  # noqa: F401
 from .api import (
     DenoiseCausalityError,
+    DenoiseColumnError,
     apply_denoise,
     consume_denoise_warnings,
     denoise_list_methods,
@@ -22,6 +23,7 @@ from .base import get_filter, list_filters, register_filter
 
 __all__ = [
     "DenoiseCausalityError",
+    "DenoiseColumnError",
     "register_filter",
     "get_filter",
     "list_filters",

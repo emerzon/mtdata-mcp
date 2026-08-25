@@ -17,6 +17,22 @@ class DenoiseCausalityError(ValueError):
             "explicit opt-in causality='zero_phase'."
         )
 
+
+class DenoiseColumnError(ValueError):
+    """Raised when an explicitly requested denoise column is missing."""
+
+    def __init__(self, columns: List[str], *, available: Optional[List[str]] = None) -> None:
+        self.columns = [str(column) for column in columns if str(column).strip()]
+        self.available = [str(column) for column in (available or []) if str(column).strip()]
+        missing = ", ".join(self.columns)
+        available_text = ", ".join(self.available[:12]) if self.available else ""
+        suffix = f" Available columns: {available_text}." if available_text else ""
+        super().__init__(
+            f"Denoise column(s) not found: {missing}.{suffix} "
+            "Use lowercase names from indicators_describe / data_fetch_candles, "
+            "for example rsi_14."
+        )
+
 # Import optional dependencies for availability checking
 try:
     import pywt as _pywt
@@ -236,11 +252,38 @@ def _as_column_selection(cols: Any) -> Any:
     return list(_DENOISE_BASE_DEFAULTS["columns"])
 
 
+def _resolve_dataframe_column(df: pd.DataFrame, name: str) -> Optional[str]:
+    """Return the DataFrame column matching *name*, ignoring case."""
+    if name in df.columns:
+        return name
+    lowered = {str(column).lower(): column for column in df.columns}
+    return lowered.get(str(name).lower())
+
+
 def _expand_column_selection(cols: Any, df: pd.DataFrame) -> List[str]:
     """Expand alias strings so apply_denoise always iterates real columns."""
     selection = _as_column_selection(cols)
     if not isinstance(selection, str):
-        return list(selection)
+        resolved: List[str] = []
+        missing: List[str] = []
+        notices: List[str] = []
+        for name in selection:
+            matched = _resolve_dataframe_column(df, name)
+            if matched is None:
+                missing.append(str(name))
+                continue
+            if matched != name:
+                notices.append(f"Denoise column '{name}' resolved to '{matched}'.")
+            if matched not in resolved:
+                resolved.append(matched)
+        for notice in notices:
+            _append_denoise_warning(df, notice)
+        if missing:
+            raise DenoiseColumnError(
+                missing,
+                available=[str(column) for column in df.columns],
+            )
+        return resolved
     if selection in _COLUMN_ALIASES_CLOSE:
         return ["close"] if "close" in df.columns else list(_DENOISE_BASE_DEFAULTS["columns"])
     if selection in _COLUMN_ALIASES_OHLC or selection in _COLUMN_ALIASES_OHLCV:
@@ -527,11 +570,10 @@ def apply_denoise(
     attempted_columns = 0
     for col in cols:
         if col not in df.columns:
-            _append_denoise_warning(
-                df,
-                f"Denoise skipped missing column '{col}'.",
+            raise DenoiseColumnError(
+                [str(col)],
+                available=[str(column) for column in df.columns],
             )
-            continue
         attempted_columns += 1
         try:
             y = _run_denoise_handler(df[col], handler, params, causality)
@@ -817,6 +859,7 @@ def denoise_list_methods() -> Dict[str, Any]:
 
 __all__ = [
     "DenoiseCausalityError",
+    "DenoiseColumnError",
     "denoise_series",
     "apply_denoise",
     "consume_denoise_warnings",
