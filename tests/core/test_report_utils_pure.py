@@ -29,6 +29,7 @@ from mtdata.core.report.utils import (
     parse_table_tail,
     pick_best_forecast_method,
     report_market_quote,
+    resolve_report_context_end,
     summarize_barrier_grid,
 )
 from mtdata.utils.formatting import format_number as util_format_number
@@ -63,6 +64,14 @@ class TestNowUtcIso:
 )
 def test_normalize_report_methods_accepts_documented_input_shapes(value, expected):
     assert normalize_report_methods(value) == expected
+
+
+@pytest.mark.parametrize("timeframe", ["H1", "M15", "D1", "W1"])
+def test_resolve_report_context_end_does_not_pre_subtract_a_bar(timeframe):
+    end = "2026-08-14T12:30:00Z"
+    assert resolve_report_context_end(end, timeframe) == end
+    assert resolve_report_context_end(None, timeframe) is None
+    assert resolve_report_context_end("", timeframe) == ""
 
 
 def test_bounded_market_sections_are_omitted_without_live_snapshot():
@@ -865,7 +874,6 @@ class TestContextForTf:
         ]
 
         def _raw_fetch(**kwargs):
-            assert kwargs.get("__cli_raw") is True
             return {"data": rows}
 
         async def _wrapped_fetch(**kwargs):

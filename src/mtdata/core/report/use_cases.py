@@ -1018,6 +1018,12 @@ def _compact_report_payload(  # noqa: C901
         compact["oldest_section_data_as_of"] = oldest_section_data_as_of
     if report.get("data_as_of_status") not in (None, ""):
         compact["data_as_of_status"] = report.get("data_as_of_status")
+    temporal_alignment = report.get("temporal_alignment")
+    if (
+        isinstance(temporal_alignment, dict)
+        and temporal_alignment.get("status") == "mismatch"
+    ):
+        compact["temporal_alignment"] = temporal_alignment
     structured_preview = report.get("summary_structured")
     if isinstance(structured_preview, dict):
         narrative = structured_preview.get("narrative")
@@ -2580,23 +2586,28 @@ def run_report_generate(  # noqa: C901
                         )
                     )
                 elif not rep["success"] and rep["section_run_status"] == "partial":
+                    details: Dict[str, Any] = {
+                        "partial_sections": _report_section_names_by_status(
+                            sections_status, "partial"
+                        ),
+                        "failed_sections": _report_section_names_by_status(
+                            sections_status, "error"
+                        ),
+                        "omitted_sections": _report_section_names_by_status(
+                            sections_status, "omitted"
+                        ),
+                    }
+                    if temporal_mismatch:
+                        details["reason"] = "temporal_mismatch"
+                        if temporal_alignment is not None:
+                            details["temporal_alignment"] = temporal_alignment
                     rep.update(
                         build_error_payload(
                             "The report is partial and allow_partial=false requires every "
                             "selected section to complete successfully.",
                             code="report_partial_not_allowed",
                             operation="report_generate",
-                            details={
-                                "partial_sections": _report_section_names_by_status(
-                                    sections_status, "partial"
-                                ),
-                                "failed_sections": _report_section_names_by_status(
-                                    sections_status, "error"
-                                ),
-                                "omitted_sections": _report_section_names_by_status(
-                                    sections_status, "omitted"
-                                ),
-                            },
+                            details=details,
                             remediation=(
                                 "Retry the named sections, increase max_runtime, or set "
                                 "allow_partial=true when partial output is acceptable."

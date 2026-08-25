@@ -178,12 +178,59 @@ def test_template_minimal_anchors_bounded_context_at_end() -> None:
         )
 
     assert calls["data_fetch_candles"]["start"] is None
-    assert calls["data_fetch_candles"]["end"] == (
-        "2026-03-29T22:59:59.999999Z"
-    )
+    assert calls["data_fetch_candles"]["end"] == "2026-03-29"
     assert calls["data_fetch_candles"]["allow_stale"] is True
     assert calls["forecast_generate"]["start"] == "2026-03-01"
     assert calls["forecast_generate"]["end"] == "2026-03-29"
+
+
+def test_template_minimal_midbar_end_shares_cutoff_with_forecast() -> None:
+    calls = {}
+
+    def _fake_get_raw_result(func, *args, **kwargs):
+        func_name = getattr(func, "__name__", "")
+        calls[func_name] = kwargs
+        if func_name == "data_fetch_candles":
+            return {
+                "bars": [
+                    {
+                        "time": "2026-08-14T11:00:00Z",
+                        "close": 1.1500,
+                        "EMA_20": 1.1490,
+                        "EMA_50": 1.1480,
+                        "RSI_14": 55.0,
+                    }
+                ]
+            }
+        if func_name == "forecast_generate":
+            return {
+                "last_observation_time": "2026-08-14T11:00:00Z",
+                "forecast_price": [1.1510],
+            }
+        raise AssertionError(f"Unexpected tool call: {func_name}")
+
+    end = "2026-08-14T12:30:00Z"
+    with patch(
+        "mtdata.core.report_templates.minimal._get_raw_result",
+        side_effect=_fake_get_raw_result,
+    ):
+        from mtdata.core.report_templates.minimal import template_minimal
+
+        report = template_minimal(
+            "EURUSD",
+            3,
+            None,
+            {"timeframe": "H1", "end": end},
+        )
+
+    assert calls["data_fetch_candles"]["end"] == end
+    assert calls["forecast_generate"]["end"] == end
+    assert report["sections"]["context"]["last_snapshot"]["time"] == (
+        "2026-08-14T11:00:00Z"
+    )
+    assert report["sections"]["forecast"]["last_observation_time"] == (
+        "2026-08-14T11:00:00Z"
+    )
 
 
 def test_template_minimal_context_plan_skips_forecast_call() -> None:
@@ -272,7 +319,7 @@ def test_template_basic_anchors_bounded_context_at_end() -> None:
         )
 
     assert requested["start"] is None
-    assert requested["end"] == "2026-03-29T22:59:59.999999Z"
+    assert requested["end"] == "2026-03-29"
 
 
 def test_template_basic_forwards_context_indicators_param() -> None:

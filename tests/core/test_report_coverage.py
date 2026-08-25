@@ -2314,6 +2314,105 @@ class TestReportWarnings:
         }
         assert "narrative" not in res["summary_structured"]
 
+    def test_temporal_mismatch_compact_and_strict_name_alignment(self):
+        fn = _get_report_generate()
+        alignment = {
+            "status": "mismatch",
+            "canonical_as_of": "2026-06-30T22:00:00Z",
+            "section_as_of": {
+                "context": "2026-06-30T23:00:00Z",
+                "forecast": "2026-06-30T22:00:00Z",
+            },
+            "basis": "context_last_snapshot_vs_forecast_last_observation",
+        }
+
+        def mock_template(_symbol, _horizon, _denoise, _params):
+            return {
+                "meta": {"template": "minimal"},
+                "sections": {
+                    "context": {
+                        "last_snapshot": {
+                            "time": "2026-06-30T23:00:00Z",
+                            "close": 1.1413,
+                        },
+                    },
+                    "forecast": {
+                        "method": "theta",
+                        "last_observation_time": "2026-06-30T22:00:00Z",
+                        "forecast": [
+                            {"time": "2026-06-30T23:00:00Z", "value": 1.1418},
+                        ],
+                    },
+                },
+            }
+
+        with patch(
+            "mtdata.core.report_templates.template_minimal",
+            mock_template,
+            create=True,
+        ):
+            res = fn(
+                "EURUSD",
+                template="minimal",
+                detail="compact",
+                allow_partial=False,
+            )
+
+        assert res["success"] is False
+        assert res["section_run_status"] == "partial"
+        assert res["error_code"] == "report_partial_not_allowed"
+        assert res["temporal_alignment"] == alignment
+        assert res["details"]["reason"] == "temporal_mismatch"
+        assert res["details"]["temporal_alignment"] == alignment
+        assert res["details"]["partial_sections"] == []
+
+    def test_minimal_midbar_historical_end_aligns_context_and_forecast(self):
+        fn = _get_report_generate()
+
+        def mock_template(_symbol, _horizon, _denoise, params):
+            assert params.get("end") == "2026-08-14T12:30:00Z"
+            return {
+                "meta": {"template": "minimal", "timeframe": "H1"},
+                "sections": {
+                    "context": {
+                        "timeframe": "H1",
+                        "last_snapshot": {
+                            "time": "2026-08-14T11:00:00Z",
+                            "close": 1.1500,
+                        },
+                    },
+                    "forecast": {
+                        "method": "theta",
+                        "last_observation_time": "2026-08-14T11:00:00Z",
+                        "forecast": [
+                            {"time": "2026-08-14T12:00:00Z", "value": 1.1510},
+                        ],
+                    },
+                },
+            }
+
+        with patch(
+            "mtdata.core.report_templates.template_minimal",
+            mock_template,
+            create=True,
+        ):
+            res = fn(
+                "EURUSD",
+                template="minimal",
+                timeframe="H1",
+                end="2026-08-14T12:30:00Z",
+                allow_partial=False,
+            )
+
+        assert res["success"] is True
+        assert res["section_run_status"] == "complete"
+        assert res["as_of"] == "2026-08-14T11:00:00Z"
+        assert res["temporal_alignment"]["status"] == "aligned"
+        assert res["temporal_alignment"]["section_as_of"] == {
+            "context": "2026-08-14T11:00:00Z",
+            "forecast": "2026-08-14T11:00:00Z",
+        }
+
     @pytest.mark.parametrize(
         "template_name",
         ["basic", "advanced", "scalping", "intraday", "swing", "position"],
@@ -2568,6 +2667,31 @@ class TestReportParams:
         call_args = mock_basic.call_args
         p = call_args[0][3]
         assert p.get("methods") == ["EMA", "ARIMA"]
+
+
+def test_compact_report_payload_includes_temporal_mismatch():
+    from mtdata.core.report.use_cases import _compact_report_payload
+
+    alignment = {
+        "status": "mismatch",
+        "canonical_as_of": "2026-08-14T11:00:00Z",
+        "section_as_of": {
+            "context": "2026-08-14T10:00:00Z",
+            "forecast": "2026-08-14T11:00:00Z",
+        },
+    }
+    out = _compact_report_payload(
+        {
+            "success": True,
+            "section_run_status": "partial",
+            "temporal_alignment": alignment,
+            "summary_structured": {"market": {"close": 1.15}},
+        },
+        symbol="EURUSD",
+        template="minimal",
+    )
+
+    assert out["temporal_alignment"] == alignment
 
 
 def test_compact_report_payload_retains_as_of():
