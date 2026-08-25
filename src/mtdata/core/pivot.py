@@ -57,6 +57,10 @@ from ..utils.time import (
     _use_client_tz,
     bar_close_epoch,
     format_datetime_utc,
+    format_epoch_utc,
+    parse_iso_utc,
+)
+from ..utils.time import (
     timezone_label as _timezone_object_label,
 )
 from ..utils.utils import (
@@ -119,6 +123,71 @@ def _round_level_payload_prices(value: Any, *, digits: Optional[int], key: Optio
     if key in _LEVEL_PRICE_FIELD_NAMES or (isinstance(key, str) and key.endswith("_price")):
         return _round_level_price(value, digits=digits)
     return value
+
+
+def _as_of_epoch(value: Any) -> Optional[float]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        resolved = (
+            value.replace(tzinfo=timezone.utc)
+            if value.tzinfo is None
+            else value.astimezone(timezone.utc)
+        )
+        return resolved.timestamp()
+    if isinstance(value, (int, float)):
+        out = float(value)
+        return out if math.isfinite(out) else None
+    if isinstance(value, str) and value.strip():
+        try:
+            return parse_iso_utc(value).timestamp()
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def _support_resistance_close_epochs(sr_payload: Dict[str, Any]) -> List[float]:
+    epochs: List[float] = []
+    structure_epoch = _as_of_epoch(sr_payload.get("structure_as_of"))
+    if structure_epoch is not None:
+        epochs.append(structure_epoch)
+    per_timeframe = sr_payload.get("per_timeframe")
+    if isinstance(per_timeframe, list):
+        for item in per_timeframe:
+            if not isinstance(item, dict):
+                continue
+            item_as_of = _as_of_epoch(item.get("structure_as_of"))
+            if item_as_of is not None:
+                epochs.append(item_as_of)
+                continue
+            window = item.get("window")
+            if not isinstance(window, dict):
+                continue
+            open_epoch = _as_of_epoch(window.get("end"))
+            if open_epoch is None:
+                continue
+            tf = str(item.get("timeframe") or "").strip()
+            try:
+                epochs.append(bar_close_epoch(open_epoch, tf) if tf else open_epoch)
+            except (OverflowError, TypeError, ValueError):
+                epochs.append(open_epoch)
+    if epochs:
+        return epochs
+    for key in ("window", "scan_window"):
+        window = sr_payload.get(key)
+        if not isinstance(window, dict):
+            continue
+        open_epoch = _as_of_epoch(window.get("end"))
+        if open_epoch is None:
+            continue
+        tf = str(sr_payload.get("timeframe") or "").strip().upper()
+        if tf and tf != "AUTO":
+            try:
+                return [bar_close_epoch(open_epoch, tf)]
+            except (OverflowError, TypeError, ValueError):
+                return [open_epoch]
+        return [open_epoch]
+    return epochs
 
 
 def _confluence_volume_profile_window(
@@ -941,20 +1010,42 @@ def confluence_levels(  # noqa: C901
                     )
                 ),
             }
+            period_start = float(source_bar["time"]) if _has_field(source_bar, "time") else float("nan")
+            pivot_close_epoch = (
+                bar_close_epoch(period_start, pivot_tf)
+                if math.isfinite(period_start)
+                else None
+            )
             if reference_price_source == "live_tick":
                 payload["reference_quote_as_of"] = (
                     format_datetime_utc(datetime.now(timezone.utc))
                 )
             elif historical_cutoff is not None:
-                reference_as_of = sr_payload.get("structure_as_of")
-                if reference_as_of is None:
-                    scan_window = sr_payload.get("scan_window")
-                    if isinstance(scan_window, dict):
-                        reference_as_of = scan_window.get("end")
-                payload["reference_price_as_of"] = reference_as_of
-                payload["analysis_as_of"] = reference_as_of or format_datetime_utc(
-                    historical_cutoff.replace(tzinfo=timezone.utc)
-                )
+                sr_close_epochs = _support_resistance_close_epochs(sr_payload)
+                if sr_close_epochs:
+                    payload["reference_price_as_of"] = format_epoch_utc(
+                        max(sr_close_epochs)
+                    )
+                else:
+                    reference_as_of = sr_payload.get("structure_as_of")
+                    if reference_as_of is None:
+                        scan_window = sr_payload.get("scan_window")
+                        if not isinstance(scan_window, dict):
+                            scan_window = sr_payload.get("window")
+                        if isinstance(scan_window, dict):
+                            reference_as_of = scan_window.get("end")
+                    payload["reference_price_as_of"] = reference_as_of
+                analysis_epochs = list(sr_close_epochs)
+                if pivot_close_epoch is not None:
+                    analysis_epochs.append(float(pivot_close_epoch))
+                if analysis_epochs:
+                    payload["analysis_as_of"] = format_epoch_utc(max(analysis_epochs))
+                else:
+                    payload["analysis_as_of"] = payload.get(
+                        "reference_price_as_of"
+                    ) or format_datetime_utc(
+                        historical_cutoff.replace(tzinfo=timezone.utc)
+                    )
             else:
                 quote_source = str(
                     reference_quote_context.get("quote_source") or ""
@@ -973,16 +1064,13 @@ def confluence_levels(  # noqa: C901
                     "the proximity of price to support/resistance reflects the analysis window, "
                     "not a live quote."
                 )
-            period_start = float(source_bar["time"]) if _has_field(source_bar, "time") else float("nan")
             if math.isfinite(period_start):
                 _use_ctz = _use_client_tz()
                 payload["pivot_period"] = {
                     "start": _format_time_minimal_local(period_start) if _use_ctz else _format_time_minimal(period_start),
-                    "end": _format_time_minimal_local(
-                        bar_close_epoch(period_start, pivot_tf)
-                    )
+                    "end": _format_time_minimal_local(pivot_close_epoch)
                     if _use_ctz
-                    else _format_time_minimal(bar_close_epoch(period_start, pivot_tf)),
+                    else _format_time_minimal(pivot_close_epoch),
                 }
                 payload["timezone"] = display_timezone_label(
                     use_client_tz=_use_ctz,
@@ -1161,7 +1249,7 @@ def support_resistance_levels(
                 result["current_price_time_basis"] = "quote_time"
             else:
                 result["current_price_as_of"] = result.get("structure_as_of")
-                result["current_price_time_basis"] = "completed_bar_open_time"
+                result["current_price_time_basis"] = "completed_bar_close_time"
             if reference_quote_as_of is not None:
                 result["reference_quote_as_of"] = reference_quote_as_of
             if reference_quote_context:

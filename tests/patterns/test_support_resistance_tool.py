@@ -6,6 +6,7 @@ from unittest.mock import patch
 import pandas as pd
 
 from mtdata.utils.mt5 import MT5ConnectionError
+from mtdata.utils.time import _format_time_minimal, bar_close_epoch, parse_iso_utc
 
 _COMPACT_LEVEL_KEYS = {
     "type",
@@ -198,7 +199,7 @@ def test_support_resistance_tool_rejects_non_live_tick_as_level_reference():
     assert result["current_price"] == 105.0
     assert result["current_price_source"] == "last_completed_bar_close"
     assert result["current_price_as_of"] == result["structure_as_of"]
-    assert result["current_price_time_basis"] == "completed_bar_open_time"
+    assert result["current_price_time_basis"] == "completed_bar_close_time"
     assert result["reference_price_warning_code"] == (
         "reference_price_fallback_last_close"
     )
@@ -237,6 +238,39 @@ def test_support_resistance_tool_rejects_locked_live_tick_reference():
     assert result["reference_spread_quality"] == "locked"
     assert result["reference_execution_blockers"] == ["invalid_spread"]
     assert "latest completed bar close" in result["warnings"][0]
+
+
+def test_support_resistance_close_derived_as_of_not_before_source_bar_close():
+    fn = _get_support_resistance_fn()
+    gateway = _gateway()
+    frame = _frame()
+    last_open = float(frame["time"].iloc[-1])
+    last_close = bar_close_epoch(last_open, "H1")
+
+    with patch("mtdata.core.pivot.create_mt5_gateway", return_value=gateway), \
+         patch("mtdata.core.pivot._fetch_history", return_value=frame):
+        result = fn(
+            "EURUSD",
+            timeframe="H1",
+            lookback=200,
+            start="2023-11-14",
+            end="2023-11-16",
+            tolerance_pct=0.5,
+            min_touches=2,
+            max_levels=3,
+            max_distance_pct=None,
+            reaction_bars=4,
+        )
+
+    structure_as_of = parse_iso_utc(result["structure_as_of"]).timestamp()
+    current_price_as_of = parse_iso_utc(result["current_price_as_of"]).timestamp()
+    assert result["current_price_source"] == "last_completed_bar_close"
+    assert result["current_price_time_basis"] == "completed_bar_close_time"
+    assert result["scan_window"]["end"] == _format_time_minimal(last_open)
+    assert result["source_bar_open"] == _format_time_minimal(last_open)
+    assert structure_as_of >= last_close
+    assert current_price_as_of >= last_close
+    assert result["current_price_as_of"] == result["structure_as_of"]
 
 
 def test_support_resistance_tool_applies_near_price_distance_default():

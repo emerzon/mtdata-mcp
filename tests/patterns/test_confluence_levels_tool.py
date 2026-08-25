@@ -8,6 +8,8 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
+from mtdata.utils.time import bar_close_epoch, parse_iso_utc
+
 
 def _make_rate(open_=1.08, high=1.09, low=1.08, close=1.085, time_=1_700_000_000.0):
     return {
@@ -268,6 +270,72 @@ def test_confluence_historical_window_uses_one_as_of_anchor():
     assert result["reference_price_source"] == "historical_window_close"
     assert result["reference_price_as_of"] == "2026-07-03T20:00:00Z"
     assert result["analysis_as_of"] == "2026-07-03T20:00:00Z"
+    assert parse_iso_utc(result["analysis_as_of"]) >= parse_iso_utc(
+        result["pivot_period"]["end"]
+    )
+
+
+def test_confluence_analysis_as_of_not_before_pivot_or_source_bar_close():
+    fn = _get_confluence_fn()
+    gateway = type("Gateway", (), {"ensure_connection": lambda self: None})()
+    pivot_open = datetime(2026, 7, 10, 20, 0, tzinfo=timezone.utc)
+    rates = np.array(
+        [
+            _make_rate(time_=pivot_open.timestamp() - 3600),
+            _make_rate(time_=pivot_open.timestamp()),
+        ]
+    )
+    m15_open = "2026-07-10T20:45:00Z"
+    sr_payload = {
+        "success": True,
+        "symbol": "EURUSD",
+        "timeframe": "auto",
+        "timeframes_analyzed": ["M15", "H1", "H4", "D1"],
+        "current_price": 1.075,
+        "current_price_source": "last_completed_bar_close",
+        "structure_as_of": m15_open,
+        "per_timeframe": [
+            {"timeframe": "M15", "window": {"end": m15_open}},
+            {"timeframe": "H1", "window": {"end": "2026-07-10T20:00:00Z"}},
+            {"timeframe": "H4", "window": {"end": "2026-07-10T16:00:00Z"}},
+            {"timeframe": "D1", "window": {"end": "2026-07-09T00:00:00Z"}},
+        ],
+        "levels": [],
+        "fibonacci": {"levels": []},
+    }
+
+    with (
+        patch("mtdata.core.pivot.create_mt5_gateway", return_value=gateway),
+        patch("mtdata.core.pivot.TIMEFRAME_MAP", {"H1": 16385}),
+        patch("mtdata.core.pivot.TIMEFRAME_SECONDS", {"H1": 3600}),
+        _mock_symbol_guard(),
+        patch("mtdata.core.pivot.mt5.symbol_info_tick", return_value=_make_tick()),
+        patch("mtdata.core.pivot._mt5_copy_rates_from", return_value=rates),
+        patch(
+            "mtdata.core.pivot.compute_volume_profile_payload",
+            return_value={"success": False},
+        ),
+        patch(
+            "mtdata.core.pivot.compute_support_resistance_payload",
+            return_value=sr_payload,
+        ),
+    ):
+        result = fn(
+            "EURUSD",
+            pivot_timeframe="H1",
+            sr_timeframe="auto",
+            start="2026-07-01",
+            end="2026-07-10",
+        )
+
+    analysis_as_of = parse_iso_utc(result["analysis_as_of"]).timestamp()
+    pivot_end = parse_iso_utc(result["pivot_period"]["end"]).timestamp()
+    m15_close = bar_close_epoch(parse_iso_utc(m15_open).timestamp(), "M15")
+    h1_close = bar_close_epoch(pivot_open.timestamp(), "H1")
+    assert analysis_as_of >= pivot_end
+    assert analysis_as_of >= m15_close
+    assert analysis_as_of >= h1_close
+    assert parse_iso_utc(result["reference_price_as_of"]).timestamp() >= m15_close
 
 
 def test_confluence_bounded_volume_profile_uses_only_explicit_window():

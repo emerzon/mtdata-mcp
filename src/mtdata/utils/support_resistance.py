@@ -12,7 +12,7 @@ from ..shared.constants import (
     TIMEFRAME_SECONDS as _TIMEFRAME_SECONDS,
 )
 from .coercion import coerce_finite_float as _as_finite_float
-from .time import _format_time_minimal, format_epoch_utc, parse_iso_utc
+from .time import _format_time_minimal, bar_close_epoch, format_epoch_utc, parse_iso_utc
 
 _METHOD_NAME = "weighted_retests"
 _DEFAULT_REACTION_BARS = 6
@@ -104,6 +104,30 @@ def _parse_output_time(value: Any) -> Optional[float]:
         except Exception:
             return None
     return None
+
+
+def _bar_close_as_of_epoch(
+    open_epoch: Optional[float],
+    timeframe: Any,
+) -> Optional[float]:
+    if open_epoch is None:
+        return None
+    tf = str(timeframe or "").strip().upper()
+    if not tf or tf == "AUTO":
+        return open_epoch
+    try:
+        return bar_close_epoch(open_epoch, tf)
+    except (OverflowError, TypeError, ValueError):
+        return open_epoch
+
+
+def _payload_close_as_of_epoch(payload: Dict[str, Any]) -> Optional[float]:
+    parsed = _parse_output_time(payload.get("structure_as_of"))
+    if parsed is not None:
+        return parsed
+    window = payload.get("window") if isinstance(payload.get("window"), dict) else None
+    open_epoch = _parse_output_time((window or {}).get("end"))
+    return _bar_close_as_of_epoch(open_epoch, payload.get("timeframe"))
 
 
 def _to_numeric_array(frame: pd.DataFrame, column: str) -> np.ndarray:
@@ -2360,6 +2384,20 @@ def merge_support_resistance_results(  # noqa: C901
         for payload in sorted(results, key=lambda item: _timeframe_sort_key(item.get("timeframe")))
         if str(payload.get("timeframe") or "").strip()
     ]
+    structure_close_epoch = None
+    source_bar_open_epoch = None
+    for payload in results:
+        close_epoch = _payload_close_as_of_epoch(payload)
+        if close_epoch is None:
+            continue
+        if structure_close_epoch is not None and close_epoch < structure_close_epoch:
+            continue
+        window = payload.get("window") if isinstance(payload.get("window"), dict) else None
+        open_epoch = _parse_output_time(payload.get("source_bar_open"))
+        if open_epoch is None:
+            open_epoch = _parse_output_time((window or {}).get("end"))
+        structure_close_epoch = close_epoch
+        source_bar_open_epoch = open_epoch
     fibonacci = _select_auto_fibonacci_payload(results, current_price=current_price)
     warnings = _collect_support_resistance_warnings(
         fibonacci=fibonacci,
@@ -2373,9 +2411,8 @@ def merge_support_resistance_results(  # noqa: C901
         "timeframe": str(timeframe),
         "mode": "auto",
         "source": "mt5_history",
-        "structure_as_of": format_epoch_utc(
-            _parse_output_time(max(end_values)) if end_values else None
-        ),
+        "structure_as_of": format_epoch_utc(structure_close_epoch),
+        "source_bar_open": _format_time(source_bar_open_epoch),
         "timezone": "UTC",
         "timeframes_analyzed": timeframes_analyzed,
         "timeframe_weights": {tf: _timeframe_weight(tf) for tf in timeframes_analyzed},
@@ -2608,6 +2645,7 @@ def compact_support_resistance_payload(payload: Dict[str, Any]) -> Dict[str, Any
         "reference_quote_freshness_reason",
         "source",
         "structure_as_of",
+        "source_bar_open",
         "timezone",
         "timeframes_analyzed",
         "units",
@@ -2861,6 +2899,7 @@ def compute_support_resistance_levels(
     epochs = [_to_epoch(value) for value in frame["time"].tolist()] if "time" in frame.columns else []
     window_start = next((value for value in epochs if value is not None), None)
     window_end = next((value for value in reversed(epochs) if value is not None), None)
+    structure_close_epoch = _bar_close_as_of_epoch(window_end, timeframe)
 
     tests = _collect_tests(
         highs,
@@ -2958,7 +2997,8 @@ def compute_support_resistance_levels(
         "timeframe": timeframe,
         "mode": "single",
         "source": "mt5_history",
-        "structure_as_of": format_epoch_utc(window_end),
+        "structure_as_of": format_epoch_utc(structure_close_epoch),
+        "source_bar_open": _format_time(window_end),
         "timezone": "UTC",
         "timeframes_analyzed": [str(timeframe)] if timeframe is not None else [],
         "limit": int(limit) if limit is not None else len(frame),
