@@ -1143,10 +1143,14 @@ def _consolidate_payload(  # noqa: C901
                 if threshold_scope == "full_window_percentiles"
                 else "retrospective_full_window_model_fit"
             )
+            example_symbol = str(payload.get("symbol") or "EURUSD")
+            example_timeframe = str(payload.get("timeframe") or "H1")
+            example_method = str(method or payload.get("method") or "hmm")
             new_payload["point_in_time_guidance"] = (
                 "Use rolling --end cutoffs when evaluating historical labels as "
-                "live strategy inputs. Example: regime_detect EURUSD --timeframe H1 "
-                "--method hmm --end 2026-08-20T12:00:00Z."
+                "live strategy inputs. Example: regime_detect "
+                f"{example_symbol} --timeframe {example_timeframe} "
+                f"--method {example_method} --end 2026-08-20T12:00:00Z."
             )
         for state_count_key in ("requested_n_states", "effective_n_states"):
             if state_count_key in payload:
