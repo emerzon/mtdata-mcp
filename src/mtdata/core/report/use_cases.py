@@ -1074,10 +1074,45 @@ def _compact_report_payload(  # noqa: C901
                     if key in executive_summary
                 }
             )
-    for key in ("section_controls", "runtime_plan", "execution_progress"):
-        value = report.get(key)
-        if value not in (None, "", [], {}):
-            compact[key] = value
+    section_run_status = str(report.get("section_run_status") or "").strip().lower()
+    progress = report.get("execution_progress")
+    progress_incomplete = isinstance(progress, dict) and progress.get("complete") is False
+    keep_runtime_internals = (
+        (not compact["success"])
+        or section_run_status in {"partial", "error", "failed"}
+        or progress_incomplete
+    )
+    if keep_runtime_internals:
+        for key in ("section_controls", "runtime_plan", "execution_progress"):
+            value = report.get(key)
+            if value not in (None, "", [], {}):
+                compact[key] = value
+    else:
+        section_controls = report.get("section_controls")
+        if section_controls not in (None, "", [], {}):
+            compact["section_controls"] = section_controls
+        progress = report.get("execution_progress")
+        plan = report.get("runtime_plan")
+        completed = (
+            progress.get("completed_sections")
+            if isinstance(progress, dict)
+            else None
+        )
+        if not isinstance(completed, list):
+            completed = (
+                progress.get("selected_sections")
+                if isinstance(progress, dict)
+                else []
+            )
+        runtime_seconds = None
+        budget_exhausted = False
+        if isinstance(plan, dict):
+            runtime_seconds = plan.get("actual_runtime_seconds")
+            budget_exhausted = bool(plan.get("runtime_budget_exhausted"))
+        compact["sections_completed"] = int(len(completed or []))
+        if runtime_seconds is not None:
+            compact["runtime_seconds"] = runtime_seconds
+        compact["runtime_budget_exhausted"] = budget_exhausted
     for key in ("summary_structured",):
         value = report.get(key)
         if value not in (None, "", [], {}):
