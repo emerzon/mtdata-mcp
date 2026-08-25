@@ -38,6 +38,16 @@ FX_SESSION_DEFINITION = {
         "new_york_close": "17:00",
     },
 }
+CONTINUOUS_24_7_SESSION_DEFINITION = {
+    **{key: value for key, value in FX_SESSION_DEFINITION.items() if key != "off_session"},
+    "calendar": "continuous_24_7",
+    "basis": "continuous_market",
+    "off_hours": (
+        "Hours outside the Asia/London/NY geographic windows. This is a 24/7 "
+        "liquidity partition, not an exchange close."
+    ),
+}
+_FX_SESSION_WINDOWS = frozenset({"fx", "continuous_24_7"})
 
 _TOKYO_TZ = ZoneInfo("Asia/Tokyo")
 _LONDON_TZ = ZoneInfo("Europe/London")
@@ -62,12 +72,22 @@ def _session_boundary(
     ).astimezone(analysis_tz)
 
 
+def _uses_fx_session_windows(session_calendar: str) -> bool:
+    return session_calendar in _FX_SESSION_WINDOWS
+
+
+def _leftover_session_label(session_calendar: str) -> str:
+    if session_calendar == "continuous_24_7":
+        return "off_hours"
+    return "off_session"
+
+
 def session_boundaries_for_day(
     day: date,
     analysis_tz: Any,
     session_calendar: str = "equity",
 ) -> Dict[str, datetime]:
-    fx = session_calendar == "fx"
+    fx = _uses_fx_session_windows(session_calendar)
     return {
         "asia_open": _session_boundary(
             day, market_tz=_TOKYO_TZ, hour=9, minute=0, analysis_tz=analysis_tz
@@ -134,17 +154,18 @@ def market_session_label(
             return "london_ny_overlap"
         if boundaries["london_close"] <= dt_analysis < boundaries["ny_close"]:
             return "ny"
-    return "off_session"
+    return _leftover_session_label(session_calendar)
 
 
 def session_definition_for_clock(
     clock_name: str, session_calendar: str = "equity"
 ) -> Dict[str, Any]:
-    source = (
-        FX_SESSION_DEFINITION
-        if session_calendar == "fx"
-        else EQUITY_SESSION_DEFINITION
-    )
+    if session_calendar == "fx":
+        source = FX_SESSION_DEFINITION
+    elif session_calendar == "continuous_24_7":
+        source = CONTINUOUS_24_7_SESSION_DEFINITION
+    else:
+        source = EQUITY_SESSION_DEFINITION
     out = dict(source)
     out["clock"] = clock_name or "UTC"
     return out

@@ -539,7 +539,6 @@ def _normalize_trade_read_output(
             return _trade_read_error_output(
                 error_text,
                 source=rows,
-                context=out if kind == "trade_history" else None,
             )
 
         items = rows.get("items")
@@ -594,7 +593,6 @@ def _normalize_trade_read_output(
             return _trade_read_error_output(
                 error_text,
                 source=first,
-                context=out if kind == "trade_history" else None,
             )
         message_text = str(first.get("message", "")).strip()
         if message_text:
@@ -605,7 +603,6 @@ def _normalize_trade_read_output(
     if not isinstance(rows, list):
         return _trade_read_error_output(
             f"Unexpected {kind} payload type: {type(rows).__name__}",
-            context=out if kind == "trade_history" else None,
         )
 
     normalized_items = [

@@ -332,3 +332,139 @@ def test_return_basis_can_exclude_overnight_gap() -> None:
     assert bar_open["groups"][0]["avg_return_pct"] < 0
     assert previous_close["session_gap_policy"] == "included_in_the_destination_bar_return"
     assert bar_open["session_gap_policy"] == "excluded_from_same_bar_open_to_close_returns"
+
+
+def test_temporal_analyze_compact_validation_error_omits_request_echo() -> None:
+    result = _raw_temporal_analyze(
+        symbol="EURUSD",
+        start="nonsense",
+        end="now",
+        detail="compact",
+    )
+
+    assert result["success"] is False
+    assert result["error_code"] == "invalid_datetime"
+    assert "context" not in result
+    assert result["details"]["invalid_fields"][0]["field"] == "start"
+    assert result["details"]["invalid_fields"][0]["value"] == "nonsense"
+
+
+def test_temporal_auto_calendar_uses_continuous_market_for_crypto() -> None:
+    friday = datetime(2026, 7, 17, 12, tzinfo=timezone.utc)
+    times = [
+        int((friday + timedelta(hours=offset)).timestamp())
+        for offset in range(72)
+    ]
+    rates = _make_rates_from_epochs(times)
+    common_patches = (
+        patch(_P + "_fetch_rates", return_value=(rates, None)),
+        patch(_P + "_symbol_ready_guard", new=_guard_stub),
+        patch(_P + "ensure_mt5_connection_or_raise", new=lambda: None),
+        patch(
+            _P + "get_symbol_info_cached",
+            return_value=SimpleNamespace(path="Crypto\\Major"),
+        ),
+        patch(_P + "_resolve_client_tz", return_value=None),
+    )
+    for active_patch in common_patches:
+        active_patch.start()
+    try:
+        session_result = _raw_temporal_analyze(
+            symbol="BTCUSD",
+            timeframe="H1",
+            lookback=100,
+            group_by="session",
+            min_bars=0,
+            detail="full",
+        )
+        dow_result = _raw_temporal_analyze(
+            symbol="BTCUSD",
+            timeframe="H1",
+            lookback=100,
+            group_by="dow",
+            min_bars=0,
+            detail="full",
+        )
+    finally:
+        for active_patch in reversed(common_patches):
+            active_patch.stop()
+
+    assert session_result["success"] is True, session_result
+    assert session_result["session_calendar"] == "continuous_24_7"
+    assert session_result["session_calendar"] != "equity"
+    assert session_result["session_calendar_source"] == "symbol_and_broker_metadata"
+    definition = session_result["session_definition"]
+    assert definition["basis"] == "continuous_market"
+    assert definition["calendar"] == "continuous_24_7"
+    assert "24/7" in definition["off_hours"]
+    assert "not an exchange close" in definition["off_hours"]
+    session_groups = {row["group"] for row in session_result["groups"]}
+    assert "off_session" not in session_groups
+    assert "off_hours" in session_groups
+    assert {"asia", "london", "ny"} & session_groups
+
+    assert dow_result["success"] is True, dow_result
+    weekday_labels = {row["group_label"] for row in dow_result["groups"]}
+    assert {"Sat", "Sun"} <= weekday_labels
+    assert dow_result["weekday_calendar"] != "fx_trading_day"
+
+
+def test_calendar_timeframe_rejects_hour_and_session_grouping() -> None:
+    with patch(_P + "ensure_mt5_connection_or_raise", new=lambda: None):
+        for timeframe in ("D1", "W1", "MN1"):
+            for group_by in ("hour", "session"):
+                result = _raw_temporal_analyze(
+                    symbol="EURUSD",
+                    timeframe=timeframe,
+                    group_by=group_by,
+                )
+                assert result["success"] is False, result
+                assert result["stage"] == "validate"
+                assert result["error_code"] == "temporal_invalid_input"
+                assert "H1" in result["error"] or "M15" in result["error"]
+                assert "dow/month" in result["error"]
+
+
+def test_group_by_all_on_daily_omits_hour_and_session() -> None:
+    start = datetime(2026, 6, 1, 21, tzinfo=timezone.utc)
+    times = [int((start + timedelta(days=offset)).timestamp()) for offset in range(40)]
+    rates = _make_rates_from_epochs(times)
+    with patch(_P + "_fetch_rates", return_value=(rates, None)), patch(
+        _P + "_symbol_ready_guard", new=_guard_stub
+    ), patch(_P + "ensure_mt5_connection_or_raise", new=lambda: None), patch(
+        _P + "get_symbol_info_cached", new=_info_stub
+    ):
+        result = _raw_temporal_analyze(
+            symbol="EURUSD",
+            timeframe="D1",
+            lookback=100,
+            group_by="all",
+            min_bars=0,
+            detail="full",
+        )
+        compact = _raw_temporal_analyze(
+            symbol="EURUSD",
+            timeframe="D1",
+            lookback=100,
+            group_by="all",
+            min_bars=0,
+            detail="compact",
+        )
+
+    assert result["success"] is True, result
+    dimensions = [item["dimension"] for item in result["groups"]]
+    assert dimensions == ["dow", "month"]
+    assert "hour" not in dimensions
+    assert "session" not in dimensions
+    assert "session_calendar" not in result
+    assert "timing_convention" not in result
+    assert any(
+        "Hour and session" in warning and "D1" in warning
+        for warning in result["warnings"]
+    )
+    assert compact["success"] is True, compact
+    assert {row["dimension"] for row in compact["groups"]} == {"dow", "month"}
+    assert any(
+        "Hour and session" in warning and "D1" in warning
+        for warning in compact["warnings"]
+    )

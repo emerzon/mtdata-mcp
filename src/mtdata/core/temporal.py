@@ -14,7 +14,10 @@ from ..services.data_service.candles import (
 )
 from ..shared.constants import CALENDAR_TIMEFRAMES, TIMEFRAME_MAP, TIMEFRAME_SECONDS
 from ..shared.schema import DetailLiteral, TimeframeLiteral
-from ..shared.symbols import is_probably_fx_session_symbol
+from ..shared.symbols import (
+    is_probably_crypto_symbol,
+    is_probably_fx_session_symbol,
+)
 from ..shared.validators import (
     invalid_timeframe_error,
     unsupported_timeframe_seconds_error,
@@ -87,8 +90,13 @@ _SESSION_ORDER = {
     "london": 1,
     "london_ny_overlap": 2,
     "ny": 3,
+    "off_hours": 4,
     "off_session": 4,
 }
+_SESSION_CALENDAR_VALUES = frozenset({"auto", "fx", "equity", "continuous_24_7"})
+_INTRADAY_GROUP_BY = frozenset({"hour", "session"})
+_ALL_GROUP_DIMENSIONS = ("dow", "hour", "month", "session")
+_CALENDAR_TF_GROUP_DIMENSIONS = ("dow", "month")
 
 
 def _fx_trading_weekday(value: Any) -> int:
@@ -152,6 +160,22 @@ def _normalize_group_by(value: Optional[str]) -> str:
     if v in ("all", "none", "overall"):
         return "all"
     return v
+
+
+def _resolve_session_calendar(
+    session_calendar: str,
+    symbol: str,
+    *,
+    path: Any = None,
+) -> str:
+    value = str(session_calendar or "auto").strip().lower()
+    if value != "auto":
+        return value
+    if is_probably_crypto_symbol(symbol):
+        return "continuous_24_7"
+    if is_probably_fx_session_symbol(symbol, path=path):
+        return "fx"
+    return "equity"
 
 
 def _default_temporal_lookback(timeframe: str, group_by: str) -> int:
@@ -883,7 +907,7 @@ def temporal_analyze(  # noqa: C901
     start: Optional[str] = None,
     end: Optional[str] = None,
     group_by: Literal["dow", "hour", "month", "session", "all"] = "dow",
-    session_calendar: Literal["auto", "fx", "equity"] = "auto",
+    session_calendar: Literal["auto", "fx", "equity", "continuous_24_7"] = "auto",
     day_of_week: Optional[str] = None,
     month: Optional[str] = None,
     time_range: Optional[str] = None,
@@ -912,19 +936,26 @@ def temporal_analyze(  # noqa: C901
     - min_bars: exclude grouped rows below this sample size. When omitted for
       day-of-week analysis, sparse weekend groups are auto-filtered.
     - session_calendar: with auto/fx, day-of-week uses the FX trading day that
-      rolls at 17:00 America/New_York; equity uses civil analysis-timezone days.
-    - limit/offset: page grouped output rows; does not change the analysis
+      rolls at 17:00 America/New_York; equity and continuous_24_7 use civil
+      analysis-timezone days (or broker session dates on D1/W1/MN1). auto
+      selects fx, equity, or continuous_24_7 from the symbol.
+    - limit/offset: for a single group_by, page that row list. For group_by=all,
+      they page each of the four breakdowns independently. Compact groups is
+      the concatenation; dimension_pagination is the per-dimension cursor;
+      groups_analyzed is the unpaged total. Does not change the analysis
       window or overall statistics.
     - volume: uses real_volume when available and non-zero, else tick_volume
 
     Returns grouped averages for returns and volatility plus simple extras.
     Group keys are numeric for dow/hour/month; session uses DST-aware market
-    session labels (asia, london, london_ny_overlap, ny, off_session)
-    evaluated in the same analysis timezone used for hour and time_range.
+    session labels (asia, london, london_ny_overlap, ny, off_session, or
+    off_hours on continuous_24_7) evaluated in the same analysis timezone
+    used for hour and time_range.
     Example: temporal_analyze(symbol="EURUSD", group_by="dow")
     Use group_by='all' to return day-of-week, hour, month, and session
     breakdowns in one call. The overall sample statistics are included when
-    detail is 'standard' or 'full'.
+    detail is 'standard' or 'full'. Hour and session require intraday
+    candles; D1/W1/MN1 with group_by=all keep dow/month and omit hour/session.
     """
     def _run() -> Dict[str, Any]:  # noqa: C901
         context: Dict[str, Any] = {
@@ -947,13 +978,9 @@ def temporal_analyze(  # noqa: C901
             context["limit"] = limit
         range_error = validate_historical_range(start, end)
         if range_error is not None:
-            context["error_code"] = range_error["error_code"]
-            if range_error.get("remediation"):
-                context["remediation"] = range_error["remediation"]
             return _error_response(
                 str(range_error["error"]),
                 stage="validate",
-                context=context,
                 details=range_error.get("details"),
                 code=range_error["error_code"],
             )
@@ -971,6 +998,16 @@ def temporal_analyze(  # noqa: C901
                     context=context,
                 )
             context["group_by"] = group_norm
+            calendar_timeframe = (
+                str(timeframe or "").strip().upper() in CALENDAR_TIMEFRAMES
+            )
+            if calendar_timeframe and group_norm in _INTRADAY_GROUP_BY:
+                return _error_response(
+                    "Hour and session grouping need intraday candles. Use H1 or "
+                    "M15 for hour/session; D1, W1, and MN1 are for dow/month.",
+                    stage="validate",
+                    context=context,
+                )
             requested_timezone = str(timezone or "").strip()
             if requested_timezone:
                 try:
@@ -1010,20 +1047,16 @@ def temporal_analyze(  # noqa: C901
             context["return_basis"] = return_basis_value
             info_before = get_symbol_info_cached(symbol)
             session_calendar_value = str(session_calendar or "auto").strip().lower()
-            if session_calendar_value not in {"auto", "fx", "equity"}:
+            if session_calendar_value not in _SESSION_CALENDAR_VALUES:
                 return _error_response(
-                    "Invalid session_calendar. Use: auto, fx, equity.",
+                    "Invalid session_calendar. Use: auto, fx, equity, continuous_24_7.",
                     stage="validate",
                     context=context,
                 )
-            resolved_session_calendar = (
-                "fx"
-                if session_calendar_value == "auto"
-                and is_probably_fx_session_symbol(
-                    symbol,
-                    path=getattr(info_before, "path", None),
-                )
-                else "equity" if session_calendar_value == "auto" else session_calendar_value
+            resolved_session_calendar = _resolve_session_calendar(
+                session_calendar_value,
+                symbol,
+                path=getattr(info_before, "path", None),
             )
             lookback_defaulted = lookback is None
             try:
@@ -1353,6 +1386,15 @@ def temporal_analyze(  # noqa: C901
 
             groups_out: List[Dict[str, Any]] = []
             grouped_dimensions: List[Dict[str, Any]] = []
+            payload_warnings: List[str] = []
+            omit_intraday_dimensions = bool(
+                group_norm == "all" and calendar_timeframe
+            )
+            if omit_intraday_dimensions:
+                payload_warnings.append(
+                    f"Hour and session breakdowns omitted for {timeframe}; "
+                    "use H1 or M15 for hour/session. Day-of-week and month remain."
+                )
 
             if group_norm in {"dow", "month", "hour", "session"}:
                 groups_out = _groups_for_dimension(group_norm)
@@ -1368,7 +1410,12 @@ def temporal_analyze(  # noqa: C901
                             lambda value: _SESSION_ORDER.get(str(value), 99)
                         )
             elif group_norm == "all":
-                for dimension in ("dow", "hour", "month", "session"):
+                dimensions = (
+                    _CALENDAR_TF_GROUP_DIMENSIONS
+                    if omit_intraday_dimensions
+                    else _ALL_GROUP_DIMENSIONS
+                )
+                for dimension in dimensions:
                     breakdown = _groups_for_dimension(dimension)
                     if breakdown:
                         grouped_dimensions.append(
@@ -1569,7 +1616,13 @@ def temporal_analyze(  # noqa: C901
                 payload["message"] = (
                     "No temporal group met the requested minimum bar count."
                 )
-            if group_norm in {"hour", "all"}:
+            include_hour_metadata = group_norm == "hour" or (
+                group_norm == "all" and not omit_intraday_dimensions
+            )
+            include_session_metadata = group_norm == "session" or (
+                group_norm == "all" and not omit_intraday_dimensions
+            )
+            if include_hour_metadata:
                 payload["timing_convention"] = (
                     "candle_open_utc"
                     if tz_name == "UTC"
@@ -1593,7 +1646,7 @@ def temporal_analyze(  # noqa: C901
             payload["groups_excluded"] = len(excluded_groups)
             if min_bars_value is not None:
                 payload["min_bars_applied"] = int(min_bars_value or 0)
-            if group_norm in {"session", "all"}:
+            if include_session_metadata:
                 payload["session_calendar"] = resolved_session_calendar
                 payload["session_calendar_source"] = (
                     "symbol_and_broker_metadata"
@@ -1620,16 +1673,18 @@ def temporal_analyze(  # noqa: C901
             if excluded_groups:
                 payload["excluded_groups"] = excluded_groups
                 if group_norm == "all":
-                    payload["warnings"] = [
+                    payload_warnings.append(
                         "Sparse temporal groups below min_bars were excluded from "
                         "their grouped breakdowns only; overall statistics use the "
                         "full filtered sample."
-                    ]
+                    )
                 else:
-                    payload["warnings"] = [
+                    payload_warnings.append(
                         "Sparse temporal groups below min_bars were excluded from "
                         "grouped results and overall statistics."
-                    ]
+                    )
+            if payload_warnings:
+                payload["warnings"] = payload_warnings
             if grouped_dimensions:
                 payload["groups"] = grouped_dimensions
             else:

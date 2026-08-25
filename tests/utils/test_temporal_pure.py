@@ -233,6 +233,29 @@ def test_fx_session_calendar_uses_eight_am_new_york_open():
     value = datetime(2024, 1, 15, 13, 30, tzinfo=timezone.utc)
     assert _market_session_label(value, session_calendar="fx") == "london_ny_overlap"
     assert _market_session_label(value, session_calendar="equity") == "london"
+    assert _market_session_label(
+        value, session_calendar="continuous_24_7"
+    ) == "london_ny_overlap"
+
+
+def test_continuous_24_7_leftover_hours_are_not_exchange_close():
+    leftover = datetime(2024, 1, 15, 22, 30, tzinfo=timezone.utc)
+    assert _market_session_label(leftover, session_calendar="fx") == "off_session"
+    assert _market_session_label(
+        leftover, session_calendar="continuous_24_7"
+    ) == "off_hours"
+
+
+def test_temporal_analyze_session_calendar_literal_includes_continuous_market():
+    annotation = inspect.signature(
+        _raw_temporal_analyze
+    ).parameters["session_calendar"].annotation
+    assert set(get_args(annotation)) == {
+        "auto",
+        "fx",
+        "equity",
+        "continuous_24_7",
+    }
 
 
 def test_default_temporal_lookback_scales_by_timeframe_and_group():
@@ -901,6 +924,33 @@ class TestTemporalAnalyze:
             "has_more": True,
             "more_available": 5,
         }
+        assert r["groups_analyzed"] > sum(len(item["breakdown"]) for item in r["groups"])
+
+    @_apply_analyze_patches
+    def test_group_by_all_compact_concatenates_per_dimension_pages(self, mock_fetch, *_):
+        rates = _make_rates(n=24 * 40, start_epoch=1704067200, interval=3600)
+        r = self._call(
+            mock_fetch,
+            rates=rates,
+            group_by="all",
+            limit=2,
+            offset=0,
+            detail="compact",
+        )
+
+        assert r.get("success") is True
+        assert all("breakdown" not in row for row in r["groups"])
+        by_dimension = {}
+        for row in r["groups"]:
+            by_dimension.setdefault(row["dimension"], 0)
+            by_dimension[row["dimension"]] += 1
+        assert by_dimension["dow"] == 2
+        assert by_dimension["hour"] == 2
+        assert by_dimension["session"] == 2
+        assert by_dimension["month"] >= 1
+        assert r["dimension_pagination"]["dow"]["limit"] == 2
+        assert r["dimension_pagination"]["hour"]["limit"] == 2
+        assert r["groups_analyzed"] > len(r["groups"])
 
     @_apply_analyze_patches
     def test_temporal_analyze_logs_finish_event(self, mock_fetch, caplog):

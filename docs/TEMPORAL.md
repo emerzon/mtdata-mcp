@@ -33,7 +33,8 @@ mtdata-cli temporal_analyze EURUSD --timeframe D1 --group-by month --lookback 10
 | `--start` | (optional) | Start date (ISO or flexible format) |
 | `--end` | (optional) | End date (ISO or flexible format) |
 | `--group-by` | `dow` | Grouping: `dow` (day of week), `hour`, `month`, `session` (Asia/London/overlap/NY/off), or `all` (all four breakdowns) |
-| `--session-calendar` | `auto` | Session calendar for `session` grouping: `auto`, `fx`, or `equity`. |
+| `--session-calendar` | `auto` | Session calendar for `session` grouping: `auto`, `fx`, `equity`, or `continuous_24_7`. |
+| `--limit` / `--offset` | (optional) / `0` | For a single `--group-by`, page that row list. For `all`, they page **each** of the four breakdowns independently. Compact `groups` is the concatenation; `dimension_pagination` is the per-dimension cursor; `groups_analyzed` is the unpaged total. |
 | `--day-of-week` | (optional) | Filter to a specific day (0–6 or name, e.g., `Mon`, `Friday`) |
 | `--month` | (optional) | Filter to a specific month (1–12 or name, e.g., `Jan`, `September`) |
 | `--time-range` | (optional) | Filter by time window `HH:MM-HH:MM` using a half-open interval `[start, end)` (wraps midnight, e.g., `22:00-02:00`) |
@@ -44,8 +45,11 @@ mtdata-cli temporal_analyze EURUSD --timeframe D1 --group-by month --lookback 10
 
 `auto` uses both symbol syntax and the broker symbol path. Currency pairs,
 metals, and broker-classified index/commodity CFDs use the near-24/5 FX session
-buckets; stock-like symbols use equity sessions. Responses include the resolved
-`session_calendar` and `session_calendar_source`. Set `fx` or `equity`
+buckets; recognizable crypto pairs use `continuous_24_7` (the same
+Asia/London/NY windows, with leftover hours labeled `off_hours` as a 24/7
+liquidity partition, not an exchange close); stock-like symbols use equity
+sessions. Responses include the resolved `session_calendar` and
+`session_calendar_source`. Set `fx`, `equity`, or `continuous_24_7`
 explicitly to override inference.
 
 ---
@@ -73,6 +77,7 @@ Fri     400    0.005%     0.062%      50.5%     1100
 ### Hour of Day (`--group-by hour`)
 
 Shows performance by hour. Reveals session activity patterns.
+D1, W1, and MN1 cannot group by hour or session; use H1 or M15 for those, and keep calendar bars for dow/month.
 
 ```bash
 mtdata-cli temporal_analyze EURUSD --group-by hour --lookback 5000 --json
@@ -112,7 +117,11 @@ Returns day-of-week, hour, month, and session breakdowns in one call. With
 `--detail standard` or `--detail full`, the response also includes an
 `overall` block containing aggregate statistics across all analyzed bars.
 An explicit `--min-bars` floor is applied independently to each breakdown;
-excluded rows include their dimension in `excluded_groups`.
+excluded rows include their dimension in `excluded_groups`. `--limit` and
+`--offset` page each of the four breakdowns independently; compact `groups`
+concatenates those pages, `dimension_pagination` is the per-dimension cursor,
+and `groups_analyzed` is the unpaged total. On D1/W1/MN1, hour and session
+are omitted with a warning; day-of-week and month remain.
 
 ```bash
 mtdata-cli temporal_analyze EURUSD --group-by all --detail standard --json

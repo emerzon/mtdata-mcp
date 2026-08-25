@@ -112,6 +112,27 @@ def test_normalize_trade_read_output_error_omits_success_collection_fields():
     assert not {"kind", "scope", "count", "items", "as_of", "symbol"} & set(out)
 
 
+def test_normalize_trade_history_error_omits_success_collection_fields():
+    out = positions._normalize_trade_read_output(
+        {
+            "error": "Could not parse historical datetime bound(s).",
+            "error_code": "invalid_datetime",
+            "remediation": "Correct the listed start/end value.",
+        },
+        request=SimpleNamespace(
+            start="nonsense",
+            end="now",
+            detail="compact",
+        ),
+        kind="trade_history",
+        account_currency="USD",
+    )
+
+    assert out["success"] is False
+    assert out["error_code"] == "invalid_datetime"
+    assert not {"kind", "scope", "count", "items", "row_key", "currency", "filters_applied"} & set(out)
+
+
 def test_normalize_trade_read_output_unexpected_type_is_error_only():
     out = positions._normalize_trade_read_output(
         None,
