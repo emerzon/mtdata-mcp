@@ -1944,10 +1944,12 @@ class TestHarRvBlock:
             )
 
         assert result["success"] is True
-        assert result["data_as_of"] == "2026-08-17T02:15Z"
+        assert result["last_bar_open"] == "2026-08-17T02:15Z"
+        assert result["data_as_of"] == result["last_observation_close_time"]
+        assert result["data_as_of"] != result["last_bar_open"]
         window = result["forecast_window"]
         assert window["anchor"] == _format_time_minimal(anchor_epoch)
-        assert window["input_data_as_of"] == result["data_as_of"]
+        assert window["input_data_as_of"] == result["last_bar_open"]
         assert window["alignment_basis"] == (
             "mt5_requested_timeframe_candle_grid"
         )

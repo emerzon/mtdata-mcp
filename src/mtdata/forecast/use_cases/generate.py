@@ -778,6 +778,7 @@ def run_forecast_volatility_estimate(
             method=request.method,
             proxy=request.proxy,
             params=request.params,
+            lookback=request.lookback,
             as_of=request.as_of,
             start=request.start,
             end=request.end,

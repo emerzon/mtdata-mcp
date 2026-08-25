@@ -722,6 +722,8 @@ def _compact_volatility(payload: Any) -> Dict[str, Any]:
         "volatility_horizon",
         "volatility_annualized",
         "volatility_unit",
+        "bars_per_year",
+        "annualization_basis",
         "data_as_of",
         "data_window",
     ):

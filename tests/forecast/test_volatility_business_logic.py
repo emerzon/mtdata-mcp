@@ -3,15 +3,18 @@ from __future__ import annotations
 import math
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from typing import Any
 
 import numpy as np
 import pandas as pd
 import pytest
+from pydantic import ValidationError
 
 from mtdata.forecast import volatility as vol
 from mtdata.forecast.common import bars_per_year
 from mtdata.forecast.requests import ForecastVolatilityEstimateRequest
 from mtdata.forecast.use_cases import run_forecast_volatility_estimate
+from mtdata.utils.time import parse_iso_utc
 
 
 def _rates(n: int = 360, start: int = 1_700_000_000, step: int = 3600):
@@ -258,6 +261,71 @@ def test_har_rv_and_ewma_share_completed_bar_horizon_window(monkeypatch):
     assert har["forecast_window"]["end"] == ewma["forecast_window"]["end"]
 
 
+def test_forecast_volatility_estimate_request_maps_lookback_and_rejects_conflict():
+    matching = ForecastVolatilityEstimateRequest(
+        symbol="EURUSD",
+        lookback=80,
+        params={"lookback": 80, "lambda_": 0.9},
+    )
+    assert matching.lookback == 80
+
+    with pytest.raises(ValidationError, match="Conflicting volatility lookbacks"):
+        ForecastVolatilityEstimateRequest(
+            symbol="EURUSD",
+            lookback=80,
+            params={"lookback": 200},
+        )
+
+
+def test_forecast_volatility_accepts_top_level_lookback(monkeypatch):
+    monkeypatch.setattr(vol, "TIMEFRAME_MAP", {"H1": 1})
+    monkeypatch.setattr(vol, "TIMEFRAME_SECONDS", {"H1": 3600})
+    monkeypatch.setattr(vol.mt5, "symbol_info", lambda _symbol: SimpleNamespace(visible=True))
+    monkeypatch.setattr(vol.mt5, "symbol_info_tick", lambda _symbol: SimpleNamespace(time=1_700_100_000))
+    monkeypatch.setattr("mtdata.utils.mt5._mt5_epoch_to_utc", lambda t: float(t))
+    monkeypatch.setattr(vol.mt5, "last_error", lambda: (0, "ok"))
+    monkeypatch.setattr(vol, "fetch_history_frame", lambda *args, **kwargs: _rates(240))
+
+    out = vol.forecast_volatility(
+        symbol="EURUSD",
+        timeframe="H1",
+        horizon=5,
+        method="ewma",
+        lookback=80,
+        params={"lambda_": 0.9},
+        detail="full",
+    )
+
+    assert out["success"] is True
+    assert out["params_used"]["lookback"] == 80
+    assert out["data_window"]["bars_used"] == 80
+
+    conflicted = vol.forecast_volatility(
+        symbol="EURUSD",
+        timeframe="H1",
+        method="ewma",
+        lookback=80,
+        params={"lookback": 200},
+    )
+    assert "Conflicting volatility lookbacks" in conflicted["error"]
+
+
+def test_forecast_volatility_estimate_forwards_lookback():
+    captured: dict[str, Any] = {}
+
+    def fake_forecast_volatility(**kwargs):
+        captured.update(kwargs)
+        return {"success": True, "volatility_per_bar": 0.01}
+
+    out = run_forecast_volatility_estimate(
+        ForecastVolatilityEstimateRequest(symbol="EURUSD", lookback=200),
+        forecast_volatility_impl=fake_forecast_volatility,
+    )
+
+    assert out["success"] is True
+    assert captured["lookback"] == 200
+
+
 def test_forecast_volatility_estimate_preserves_canonical_fields():
     def fake_forecast_volatility(**_kwargs):
         return {
@@ -410,7 +478,12 @@ def test_forecast_volatility_direct_methods_and_short_data(monkeypatch):
     assert out["data_window"]["bars_used"] == 80
     assert out["data_window"]["returns_used"] == 79
     assert out["data_window"]["input_bar_policy"] == "closed_bars_only"
-    assert out["data_as_of"] == out["data_window"]["end"]
+    assert out["last_bar_open"] == out["data_window"]["end"]
+    assert out["data_as_of"] == out["last_observation_close_time"]
+    assert parse_iso_utc(out["data_as_of"]).timestamp() == pytest.approx(
+        out["data_as_of_epoch"]
+    )
+    assert out["data_as_of"] != out["data_window"]["end"]
     assert out["freshness_basis"] == "last_completed_bar_close"
     assert out["freshness_age_metric"] == "latest_completed_bar_close_age_seconds"
 
@@ -516,7 +589,12 @@ def test_forecast_volatility_compact_includes_input_window(monkeypatch):
         "returns_used": 119,
         "input_bar_policy": "closed_bars_only",
     }
-    assert out["data_as_of"] == "2023-11-19T21:13Z"
+    assert out["last_bar_open"] == "2023-11-19T21:13Z"
+    assert out["data_as_of"] == out["last_observation_close_time"]
+    assert parse_iso_utc(out["data_as_of"]).timestamp() == pytest.approx(
+        out["data_as_of_epoch"]
+    )
+    assert out["data_as_of"] != out["data_window"]["end"]
     assert out["forecast_window"] == {
         "anchor": "2023-11-19T21:13Z",
         "start": "2023-11-19T22:13Z",
@@ -528,6 +606,27 @@ def test_forecast_volatility_compact_includes_input_window(monkeypatch):
     }
     assert out["data_stale"] is True
     assert out["freshness"].startswith("stale, data ")
+
+
+def test_volatility_input_context_as_of_iso_matches_close_epoch() -> None:
+    last_open = datetime(2026, 8, 25, 2, tzinfo=timezone.utc).timestamp()
+    context = vol._volatility_input_context(
+        pd.DataFrame({"time": [last_open - 3600, last_open]}),
+        symbol="EURUSD",
+        timeframe="H1",
+        returns_used=1,
+        live_window=True,
+        horizon=1,
+        now_epoch=last_open + 3610,
+    )
+
+    assert context["last_bar_open"] == "2026-08-25T02:00Z"
+    assert context["data_as_of"] == context["last_observation_close_time"]
+    assert parse_iso_utc(context["data_as_of"]).timestamp() == pytest.approx(
+        context["data_as_of_epoch"]
+    )
+    assert context["data_as_of_epoch"] == pytest.approx(last_open + 3600)
+    assert context["data_window"]["end"] == context["last_bar_open"]
 
 
 def test_volatility_forecast_window_skips_closed_fx_weekend() -> None:

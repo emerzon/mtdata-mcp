@@ -220,15 +220,17 @@ def get_volatility_methods_data() -> Dict[str, Any]:
 
 def _volatility_allowed_param_keys(method: str) -> set[str]:
     method_l = str(method or "").strip().lower()
+    keys = {"lookback"}
     for item in get_volatility_methods_data().get("methods") or []:
         if str(item.get("method") or "").strip().lower() != method_l:
             continue
-        return {
+        keys.update(
             str(param.get("name"))
             for param in (item.get("params") or [])
             if str(param.get("name") or "").strip()
-        }
-    return set()
+        )
+        return keys
+    return keys
 
 
 def _forecast_method_supports(method: str) -> Dict[str, bool]:
@@ -559,11 +561,13 @@ def _volatility_input_context(
         return {}
 
     observation_timeframe = str(observed_timeframe or timeframe)
+    last_bar_open = _format_time_minimal(last_epoch)
     out: Dict[str, Any] = {
-        "data_as_of": _format_time_minimal(last_epoch),
+        "data_as_of": last_bar_open,
+        "last_bar_open": last_bar_open,
         "data_window": {
             "start": _format_time_minimal(first_epoch),
-            "end": _format_time_minimal(last_epoch),
+            "end": last_bar_open,
             "bars_used": int(len(df)),
             "returns_used": int(returns_used),
             "input_bar_policy": "closed_bars_only",
@@ -656,10 +660,7 @@ def _volatility_input_context(
         now_epoch=now_epoch,
         item="data",
     )
-    data_as_of = out.get("data_as_of")
     out.update(freshness)
-    if data_as_of is not None:
-        out["data_as_of"] = data_as_of
     out["last_observation_close_time"] = freshness.get("data_as_of")
     if observation_timeframe != str(timeframe):
         out["freshness_timeframe"] = observation_timeframe
@@ -1065,6 +1066,7 @@ def forecast_volatility(  # noqa: C901
     method: Literal['ewma','parkinson','gk','rs','yang_zhang','rolling_std','realized_kernel','har_rv','garch','egarch','gjr_garch','garch_t','egarch_t','gjr_garch_t','figarch','arima','sarima','ets','theta','ensemble'] = 'ewma',  # type: ignore
     proxy: Optional[Literal['squared_return','abs_return','log_r2']] = None,  # type: ignore
     params: Optional[Dict[str, Any]] = None,
+    lookback: Optional[int] = None,
     as_of: Optional[str] = None,
     start: Optional[str] = None,
     end: Optional[str] = None,
@@ -1118,6 +1120,22 @@ def forecast_volatility(  # noqa: C901
         # Parse method params: accept dict, JSON string, or k=v pairs
         __stage = 'parse_params'
         p = parse_kv_or_json(params)
+        if lookback is not None:
+            nested_lookback = p.get("lookback")
+            if nested_lookback is not None:
+                try:
+                    lookbacks_match = int(nested_lookback) == int(lookback)
+                except (TypeError, ValueError):
+                    lookbacks_match = False
+                if not lookbacks_match:
+                    return {
+                        "error": (
+                            "Conflicting volatility lookbacks: top-level lookback="
+                            f"{lookback} and params.lookback={nested_lookback}. Use one "
+                            "value or make them equal."
+                        )
+                    }
+            p["lookback"] = int(lookback)
         param_error = unknown_mapping_keys_error(
             p,
             _volatility_allowed_param_keys(method_l),

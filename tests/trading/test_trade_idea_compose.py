@@ -73,6 +73,10 @@ def _volatility() -> Dict[str, Any]:
         "horizon": 12,
         "volatility_per_bar": 0.0006,
         "volatility_horizon": 0.0021,
+        "volatility_annualized": 0.0474,
+        "volatility_unit": "return_fraction",
+        "bars_per_year": 6240.0,
+        "annualization_basis": "260_fx_weekdays_24h",
         "data_as_of": "2026-07-31T20:00:00Z",
         "data_window": {
             "start": "2026-06-01T20:00:00Z",
@@ -680,6 +684,9 @@ def test_trade_idea_compose_full_detail_keeps_source_calls() -> None:
     assert idea["lineage"]["volatility"]["data_as_of"] == (
         "2026-07-31T20:00:00Z"
     )
+    assert idea["volatility"]["bars_per_year"] == 6240.0
+    assert idea["volatility"]["annualization_basis"] == "260_fx_weekdays_24h"
+    assert idea["volatility"]["volatility_annualized"] == 0.0474
     assert idea["lineage"]["barriers"]["price_anchor"] == {
         "value": 1.1002,
         "source": "candle_close",

@@ -1835,7 +1835,7 @@ def _forecast_ci_method(item: Dict[str, Any]) -> Optional[str]:
         return explicit
     method_name = str(item.get("method") or "").strip().lower()
     category = str(item.get("category") or item.get("namespace") or "").strip().lower()
-    if method_name in {"ses", "holt", "holt_winters_add", "holt_winters_mul", "ets", "arima", "sarima"}:
+    if method_name in {"arima", "sarima"}:
         return "statsmodels_prediction_interval"
     if method_name == "theta":
         return "native_theta_interval"
@@ -1848,6 +1848,22 @@ def _forecast_ci_method(item: Dict[str, Any]) -> Optional[str]:
     if method_name in {"chronos2", "chronos_bolt", "timesfm"} or category == "pretrained":
         return "probabilistic_model_quantile"
     return None
+
+
+def _declared_supports_ci(item: Dict[str, Any]) -> Optional[bool]:
+    supports = item.get("supports")
+    if isinstance(supports, dict) and isinstance(supports.get("ci"), bool):
+        return bool(supports.get("ci"))
+    if isinstance(item.get("supports_ci"), bool):
+        return bool(item.get("supports_ci"))
+    return None
+
+
+def _catalog_supports_ci(item: Dict[str, Any]) -> Optional[bool]:
+    """Catalog CI flag derived from declared support or the interval resolver."""
+    if _forecast_ci_method(item) is not None:
+        return True
+    return _declared_supports_ci(item)
 
 
 def _forecast_list_full_row(
@@ -1867,11 +1883,9 @@ def _forecast_list_full_row(
     desc = str(item.get("description") or "").strip()
     if desc and desc.lower() != method_name.lower():
         row["description"] = desc.splitlines()[0].strip()
-    supports = item.get("supports")
-    if isinstance(supports, dict) and isinstance(supports.get("ci"), bool):
-        row["supports_ci"] = bool(supports.get("ci"))
-    elif isinstance(item.get("supports_ci"), bool):
-        row["supports_ci"] = bool(item.get("supports_ci"))
+    supports_ci = _catalog_supports_ci(item)
+    if supports_ci is not None:
+        row["supports_ci"] = bool(supports_ci)
     if row.get("supports_ci") is True:
         ci_method = _forecast_ci_method(item)
         if ci_method:
@@ -2078,12 +2092,7 @@ def _forecast_list_methods_impl(  # noqa: C901
             }
 
         def _item_supports_ci(item: Dict[str, Any]) -> Optional[bool]:
-            supports = item.get("supports")
-            if isinstance(supports, dict) and isinstance(supports.get("ci"), bool):
-                return bool(supports.get("ci"))
-            if isinstance(item.get("supports_ci"), bool):
-                return bool(item.get("supports_ci"))
-            return None
+            return _catalog_supports_ci(item)
 
         def _item_supports_training(item: Dict[str, Any]) -> Optional[bool]:
             if isinstance(item.get("supports_training"), bool):
@@ -2282,11 +2291,9 @@ def _forecast_list_methods_impl(  # noqa: C901
                 namespace = item.get("namespace")
                 if isinstance(namespace, str) and namespace.strip():
                     row["namespace"] = namespace
-            supports = item.get("supports")
-            if isinstance(supports, dict) and isinstance(supports.get("ci"), bool):
-                row["supports_ci"] = bool(supports.get("ci"))
-            elif isinstance(item.get("supports_ci"), bool):
-                row["supports_ci"] = bool(item.get("supports_ci"))
+            method_supports_ci = _catalog_supports_ci(item)
+            if method_supports_ci is not None:
+                row["supports_ci"] = bool(method_supports_ci)
             if detail_value == "standard" and row.get("supports_ci") is True:
                 ci_method = _forecast_ci_method(item)
                 if ci_method:

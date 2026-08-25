@@ -334,12 +334,14 @@ class StrategyBacktestRequest(_PublicForecastRequest):
     oversold: float = Field(30.0, gt=0.0, lt=100.0)
     overbought: float = Field(70.0, gt=0.0, lt=100.0)
     max_hold_bars: Optional[int] = Field(None, ge=1)
-    cost_model: Literal["historical_bar_spread", "fixed"] = Field(
-        "historical_bar_spread",
+    cost_model: Literal["auto", "historical_bar_spread", "fixed"] = Field(
+        "auto",
         description=(
-            "Transaction-cost spread source. Historical bar spread is the "
-            "fail-closed default and requires complete coverage. Fixed requires "
-            "an explicit spread_bps assumption."
+            "Transaction-cost spread source. auto uses complete historical bar "
+            "spreads when coverage is full, otherwise a disclosed conservative "
+            "fixed estimate from available spread stats or the current broker "
+            "quote. historical_bar_spread fails closed unless coverage is "
+            "complete. fixed requires an explicit spread_bps."
         ),
     )
     spread_bps: Optional[float] = Field(
@@ -347,7 +349,7 @@ class StrategyBacktestRequest(_PublicForecastRequest):
         ge=0.0,
         description=(
             "Explicit round-trip spread assumption for the fixed model. Omit it "
-            "when using historical_bar_spread."
+            "when using auto or historical_bar_spread."
         ),
     )
     slippage_bps: FiniteFloat = Field(1.0, ge=0.0)
@@ -358,7 +360,7 @@ class StrategyBacktestRequest(_PublicForecastRequest):
             raise ValueError("fast_period must be less than slow_period")
         if self.oversold >= self.overbought:
             raise ValueError("oversold must be less than overbought")
-        if self.cost_model == "historical_bar_spread" and self.spread_bps is not None:
+        if self.cost_model in {"historical_bar_spread", "auto"} and self.spread_bps is not None:
             raise ValueError("--spread-bps is only valid with --cost-model fixed")
         if self.cost_model == "fixed" and self.spread_bps is None:
             raise ValueError("--spread-bps is required with --cost-model fixed")
@@ -820,6 +822,15 @@ class ForecastVolatilityEstimateRequest(_PublicForecastRequest):
     )
     proxy: Optional[str] = None
     params: Optional[Dict[str, Any]] = None
+    lookback: Optional[int] = Field(
+        None,
+        ge=1,
+        description=(
+            "Historical bars to use. Mapped into the estimator where applicable "
+            "(for example EWMA lookback). Conflicts with params.lookback when "
+            "the two values disagree."
+        ),
+    )
     as_of: Optional[str] = None
     start: Optional[str] = None
     end: Optional[str] = None
@@ -829,4 +840,18 @@ class ForecastVolatilityEstimateRequest(_PublicForecastRequest):
     @model_validator(mode="after")
     def _validate_time_window(self) -> "ForecastVolatilityEstimateRequest":
         validate_as_of_time_window(self.as_of, self.start, self.end)
+        nested = (
+            None if not isinstance(self.params, dict) else self.params.get("lookback")
+        )
+        if self.lookback is not None and nested is not None:
+            try:
+                lookbacks_match = int(nested) == int(self.lookback)
+            except (TypeError, ValueError):
+                lookbacks_match = False
+            if not lookbacks_match:
+                raise ValueError(
+                    "Conflicting volatility lookbacks: top-level lookback="
+                    f"{self.lookback} and params.lookback={nested}. Use one "
+                    "value or make them equal."
+                )
         return self

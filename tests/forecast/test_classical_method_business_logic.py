@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mtdata.forecast.methods import classical as cl
 from mtdata.forecast.interface import ForecastResult
+from mtdata.forecast.methods import classical as cl
 
 
 def test_classical_base_metadata_via_naive_method():
@@ -18,6 +18,7 @@ def test_classical_base_metadata_via_naive_method():
         "volatility": True,
         "ci": False,
     }
+    assert cl.ThetaMethod().supports_features["ci"] is True
 
 
 def test_naive_and_drift_forecasts_return_expected_values():

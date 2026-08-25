@@ -113,6 +113,10 @@ class ThetaMethod(ClassicalMethod):
     def name(self) -> str:
         return "theta"
 
+    @property
+    def supports_features(self) -> Dict[str, bool]:
+        return {"price": True, "return": True, "volatility": True, "ci": True}
+
     def forecast(
         self, 
         series: pd.Series, 
