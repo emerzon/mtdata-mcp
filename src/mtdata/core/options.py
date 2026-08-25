@@ -330,6 +330,51 @@ def _validate_options_integer(
     }
 
 
+def _validate_options_ordered_bounds(
+    min_name: str,
+    min_value: Any,
+    max_name: str,
+    max_value: Any,
+) -> Optional[Dict[str, Any]]:
+    if min_value in (None, "") or max_value in (None, ""):
+        return None
+    try:
+        lower = float(min_value)
+        upper = float(max_value)
+    except (TypeError, ValueError):
+        return None
+    if lower > upper:
+        return {
+            "success": False,
+            "error": f"{min_name} must be less than or equal to {max_name}.",
+            "error_code": "invalid_parameter_range",
+            "parameter": f"{min_name},{max_name}",
+            "details": {min_name: lower, max_name: upper},
+            "remediation": f"Swap or correct {min_name} and {max_name} so the interval is non-empty.",
+        }
+    return None
+
+
+def _options_provider_no_data_error(symbol: str, exc: BaseException) -> Dict[str, Any]:
+    message = str(exc)
+    return {
+        "success": False,
+        "error": f"Failed to fetch options chain: {message}",
+        "error_code": "options_data_not_found",
+        "symbol": symbol,
+        "classification": "unknown_symbol_or_no_listed_options",
+        "remediation": (
+            "Confirm the underlier with options_expirations or use a US-listed "
+            "equity ticker such as AAPL."
+        ),
+        "related_tools": [
+            "options_expirations",
+            "options_provider_status",
+            "symbols_list",
+        ],
+    }
+
+
 def _validate_options_optional_number(
     parameter: str,
     value: Any,
@@ -731,7 +776,7 @@ def _apply_options_detail(
                 _compact_option_contract(
                     row,
                     include_uniform_terms=include_uniform_terms,
-                    include_freshness=True,
+                    include_freshness=False,
                 )
                 for row in options
             ]
@@ -1092,6 +1137,32 @@ def options_chain(
             detail=detail,
             func=lambda: input_error,
         )
+    range_error = next(
+        (
+            error
+            for error in (
+                _validate_options_ordered_bounds(
+                    "min_strike", min_strike, "max_strike", max_strike
+                ),
+                _validate_options_ordered_bounds(
+                    "min_moneyness_pct",
+                    min_moneyness_pct,
+                    "max_moneyness_pct",
+                    max_moneyness_pct,
+                ),
+            )
+            if error is not None
+        ),
+        None,
+    )
+    if range_error is not None:
+        return _run_options_operation(
+            "options_chain",
+            symbol=symbol_value,
+            expiration=expiration_value,
+            detail=detail,
+            func=lambda: range_error,
+        )
     gate = _options_chain_provider_gate("options_chain")
     if gate is not None:
         return _run_options_operation(
@@ -1106,6 +1177,39 @@ def options_chain(
         )
     symbol_value = _resolve_options_provider_symbol(symbol_value)
 
+    def _run_chain() -> Dict[str, Any]:
+        try:
+            payload = _impl(
+                symbol=symbol_value,
+                expiration=expiration_value,
+                option_type=option_type,
+                min_open_interest=int(min_open_interest),
+                min_volume=int(min_volume),
+                min_strike=min_strike,
+                max_strike=max_strike,
+                min_moneyness_pct=min_moneyness_pct,
+                max_moneyness_pct=max_moneyness_pct,
+                quote_usable_only=bool(quote_usable_only),
+                max_quote_age_seconds=max_quote_age_seconds,
+                sort_by=sort_value,
+                limit=effective_limit,
+                offset=int(offset),
+            )
+        except ValueError as exc:
+            text = str(exc)
+            if "No options data" in text or "no options" in text.lower():
+                return _options_provider_no_data_error(symbol_value, exc)
+            raise
+        return _apply_options_detail(
+            _attach_options_symbol_mapping(
+                payload,
+                requested_symbol=symbol,
+                provider_symbol=symbol_value,
+            ),
+            detail=detail,
+            kind="chain",
+        )
+
     return _run_options_operation(
         "options_chain",
         symbol=symbol_value,
@@ -1113,30 +1217,7 @@ def options_chain(
         option_type=option_type,
         limit=effective_limit,
         detail=detail,
-        func=lambda: _apply_options_detail(
-            _attach_options_symbol_mapping(
-                _impl(
-                    symbol=symbol_value,
-                    expiration=expiration_value,
-                    option_type=option_type,
-                    min_open_interest=int(min_open_interest),
-                    min_volume=int(min_volume),
-                    min_strike=min_strike,
-                    max_strike=max_strike,
-                    min_moneyness_pct=min_moneyness_pct,
-                    max_moneyness_pct=max_moneyness_pct,
-                    quote_usable_only=bool(quote_usable_only),
-                    max_quote_age_seconds=max_quote_age_seconds,
-                    sort_by=sort_value,
-                    limit=effective_limit,
-                    offset=int(offset),
-                ),
-                requested_symbol=symbol,
-                provider_symbol=symbol_value,
-            ),
-            detail=detail,
-            kind="chain",
-        ),
+        func=_run_chain,
     )
 
 
@@ -1188,6 +1269,8 @@ def options_barrier_price(
                 valid_values={"maturity_days": "integer >= 1"},
                 example="--maturity-days 30",
             )
+        rate_value = float(risk_free_rate)
+        vol_value = float(volatility)
         payload = _impl(
             spot=float(spot),
             strike=float(strike),
@@ -1195,15 +1278,26 @@ def options_barrier_price(
             maturity_days=int(maturity_days),
             option_type=option_type,
             barrier_type=barrier_type,
-            risk_free_rate=float(risk_free_rate),
+            risk_free_rate=rate_value,
             dividend_yield=float(dividend_yield),
-            volatility=float(volatility),
+            volatility=vol_value,
             rebate=float(rebate),
             valuation_date=valuation_date,
             calendar=calendar,
             maturity_basis=maturity_basis,
         )
         if isinstance(payload, dict) and payload.get("success"):
+            warnings_out = list(payload.get("warnings") or [])
+            if rate_value >= 1.0:
+                warnings_out.append(
+                    "risk_free_rate is a decimal fraction; 5 means 500%, not 5%. Use 0.05 for 5%."
+                )
+            if vol_value >= 5.0:
+                warnings_out.append(
+                    "volatility is a decimal fraction; 20 means 2000%, not 20%. Use 0.20 for 20%."
+                )
+            if warnings_out:
+                payload["warnings"] = warnings_out
             payload.update(
                 {
                     "option_type": option_type,

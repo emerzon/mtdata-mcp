@@ -437,7 +437,7 @@ PARAM_HINTS = {
     "option_type": "Option side filter: call, put, or both.",
     "min_open_interest": "Minimum option open interest filter.",
     "min_volume": "Minimum option volume filter.",
-    "risk_free_rate": "Annual risk-free rate for option pricing/calibration.",
+    "risk_free_rate": "Annual risk-free rate as a decimal fraction; 0.05 = 5% (default 0.02).",
     "dividend_yield": "Annual dividend yield for option pricing/calibration.",
     "maturity_days": "Option time-to-maturity in days.",
     "spot": "Current underlying spot price.",
@@ -445,7 +445,7 @@ PARAM_HINTS = {
     "max_contracts": "Maximum option contracts to use during calibration.",
     "barrier_type": "Barrier style: up_in, up_out, down_in, down_out.",
     "rebate": "Barrier option rebate paid upon knock-in/out.",
-    "volatility": "Annualized volatility input for pricing.",
+    "volatility": "Annualized volatility as a decimal fraction; 0.20 = 20% (default 0.2).",
     # Finviz parameters
     "news_type": "News type: 'news' or 'blogs'.",
     "filters": "JSON filter dict for stock screener.",
