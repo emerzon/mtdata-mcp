@@ -37,3 +37,20 @@ def test_provider_no_data_error_uses_stable_code():
     )
     assert payload["error_code"] == "options_data_not_found"
     assert payload["classification"] == "unknown_symbol_or_no_listed_options"
+
+
+def test_options_expirations_maps_provider_no_data_to_stable_error(monkeypatch):
+    monkeypatch.setattr(
+        "mtdata.services.options_service.get_options_expirations",
+        lambda **kwargs: (_ for _ in ()).throw(ValueError("No options data found")),
+    )
+    monkeypatch.setattr(options_mod, "_options_chain_provider_gate", lambda _: None)
+    raw = options_mod.options_expirations
+    while hasattr(raw, "__wrapped__"):
+        raw = raw.__wrapped__
+
+    result = raw("NOTAREAL")
+
+    assert result["success"] is False
+    assert result["error_code"] == "options_data_not_found"
+    assert result["classification"] == "unknown_symbol_or_no_listed_options"

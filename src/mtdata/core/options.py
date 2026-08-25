@@ -961,19 +961,26 @@ def options_expirations(
         )
     symbol_value = _resolve_options_provider_symbol(symbol_value)
 
-    return _run_options_operation(
-        "options_expirations",
-        symbol=symbol_value,
-        detail=detail,
-        func=lambda: _apply_options_detail(
+    def _fetch_expirations() -> Dict[str, Any]:
+        try:
+            payload = _impl(symbol=symbol_value)
+        except ValueError as exc:
+            payload = _options_provider_no_data_error(symbol_value, exc)
+        return _apply_options_detail(
             _attach_options_symbol_mapping(
-                _impl(symbol=symbol_value),
+                payload,
                 requested_symbol=symbol,
                 provider_symbol=symbol_value,
             ),
             detail=detail,
             kind="expirations",
-        ),
+        )
+
+    return _run_options_operation(
+        "options_expirations",
+        symbol=symbol_value,
+        detail=detail,
+        func=_fetch_expirations,
     )
 
 
