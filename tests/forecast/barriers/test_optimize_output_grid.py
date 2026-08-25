@@ -8,7 +8,10 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
-from mtdata.forecast.barriers_optimization import forecast_barrier_optimize
+from mtdata.forecast.barriers_optimization import (
+    _finalize_barrier_output,
+    forecast_barrier_optimize,
+)
 from mtdata.forecast.barriers_shared import (
     _build_actionability_payload,
     _build_selection_diagnostics,
@@ -93,6 +96,25 @@ class TestBarrierOptimizeOutputGrid(_BarrierTestBase):
         self.assertEqual(result.get("output_mode"), "summary")
         self.assertNotIn("diagnostics", result)
         self.assertIn("compute_profile", result)
+
+    def test_concise_top_k_one_omits_duplicate_results(self):
+        candidate = {"tp": 0.5, "sl": 0.4, "ev": 0.1, "noise": "drop-me"}
+        out = _finalize_barrier_output(
+            {
+                "success": True,
+                "status": "ok",
+                "best": dict(candidate),
+                "results": [dict(candidate)],
+            },
+            output_mode="summary",
+            concise_val=True,
+            viable_only_val=True,
+            top_k_val=1,
+        )
+        self.assertIn("best", out)
+        self.assertNotIn("results", out)
+        self.assertEqual(out["best"]["tp"], 0.5)
+        self.assertNotIn("noise", out["best"])
 
     def test_forecast_barrier_optimize_uses_null_profit_factor_when_lossless(self):
         self._set_flat_history(1.0)

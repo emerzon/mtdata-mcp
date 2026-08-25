@@ -1230,10 +1230,19 @@ def _finalize_barrier_output(
         if top_k_val is None:
             out.pop("results", None)
         elif isinstance(out.get("results"), list):
-            out["results"] = [
+            compacted_results = [
                 _compact_barrier_candidate(row)
                 for row in out["results"]
             ]
+            best_compact = out.get("best")
+            if (
+                len(compacted_results) == 1
+                and isinstance(best_compact, dict)
+                and compacted_results[0] == best_compact
+            ):
+                out.pop("results", None)
+            else:
+                out["results"] = compacted_results
         for key in ("grid", "least_negative"):
             if out.get(key) is None:
                 out.pop(key, None)
@@ -4210,6 +4219,12 @@ def forecast_barrier_optimize(  # noqa: C901
                 missing_cost_assumptions
             )
             out.update(diagnostics)
+            out["remediation"] = (
+                "Pass --spread-bps, --commission-bps-per-side, and --slippage-bps "
+                "(use 0 to model a cost as free) so expected value is net of "
+                "trading costs. Pip- or percent-denominated values remain available "
+                "via --params when needed."
+            )
         if warning is not None:
             out["warning"] = warning
         elif best is not None and not viable:
