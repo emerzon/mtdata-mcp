@@ -629,6 +629,25 @@ def test_volatility_input_context_as_of_iso_matches_close_epoch() -> None:
     assert context["data_window"]["end"] == context["last_bar_open"]
 
 
+def test_volatility_replay_data_as_of_is_completed_bar_close() -> None:
+    last_open = datetime(2026, 8, 25, 2, tzinfo=timezone.utc).timestamp()
+    context = vol._volatility_input_context(
+        pd.DataFrame({"time": [last_open - 3600, last_open]}),
+        symbol="EURUSD",
+        timeframe="H1",
+        returns_used=1,
+        live_window=False,
+        horizon=1,
+    )
+
+    assert context["last_bar_open"] == "2026-08-25T02:00Z"
+    assert context["data_as_of"] == context["last_observation_close_time"]
+    assert context["data_as_of"] == "2026-08-25T03:00Z"
+    assert context["data_as_of"] != context["last_bar_open"]
+    assert context["data_as_of_epoch"] == pytest.approx(last_open + 3600)
+    assert context["data_window"]["end"] == context["last_bar_open"]
+
+
 def test_volatility_forecast_window_skips_closed_fx_weekend() -> None:
     friday_19 = datetime(2026, 6, 12, 19, tzinfo=timezone.utc).timestamp()
     frame = pd.DataFrame({"time": [friday_19 - 3600, friday_19]})

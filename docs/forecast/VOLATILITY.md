@@ -40,6 +40,9 @@ count from complete observed sessions. The response reports `bars_per_year`
 and `annualization_basis`; `252_trading_days_assumed_24h` means there were not
 enough timestamps to infer a session and the generic 24-hour fallback was used.
 
+`data_as_of` is the last completed bar's close in both live and replay
+windows. `last_bar_open` is the open of that same bar.
+
 **Interpretation:**
 - `volatility_per_bar: 0.00062` → Expect ~0.06% moves per hour (1 standard deviation)
 - `volatility_horizon: 0.002145` → Over 12 hours, expect ~0.21% total range (1 σ)
@@ -131,7 +134,9 @@ has less than 90% of that coverage. Full output reports the final aggregate's
 observed time range, observed and expected bars, coverage, and inclusion status.
 When `rv_timeframe` differs from the requested forecast timeframe, target times
 are aligned to actual MT5 candle opens for the requested timeframe; `data_as_of`
-continues to identify the latest high-frequency model input.
+is the completed-bar close of the latest high-frequency model input, while
+`last_bar_open` stays the last bar's open. Live and replay windows share that
+`data_as_of` meaning.
 
 Horizon is measured in requested-timeframe bars after the last **completed**
 bar at the cutoff. An intra-bar `as_of` (for example 13:55 on an H4 chart)

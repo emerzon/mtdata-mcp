@@ -562,17 +562,30 @@ def _volatility_input_context(
 
     observation_timeframe = str(observed_timeframe or timeframe)
     last_bar_open = _format_time_minimal(last_epoch)
+    try:
+        last_close_epoch = bar_close_epoch(last_epoch, observation_timeframe)
+        last_bar_close = _format_time_minimal(last_close_epoch)
+    except (KeyError, TypeError, ValueError, OverflowError, OSError):
+        last_close_epoch = None
+        last_bar_close = last_bar_open
     out: Dict[str, Any] = {
-        "data_as_of": last_bar_open,
+        "data_as_of": last_bar_close,
         "last_bar_open": last_bar_open,
-        "data_window": {
-            "start": _format_time_minimal(first_epoch),
-            "end": last_bar_open,
-            "bars_used": int(len(df)),
-            "returns_used": int(returns_used),
-            "input_bar_policy": "closed_bars_only",
-        },
+        "last_observation_close_time": last_bar_close,
     }
+    if last_close_epoch is not None:
+        out["data_as_of_epoch"] = last_close_epoch
+    out.update(
+        {
+            "data_window": {
+                "start": _format_time_minimal(first_epoch),
+                "end": last_bar_open,
+                "bars_used": int(len(df)),
+                "returns_used": int(returns_used),
+                "input_bar_policy": "closed_bars_only",
+            },
+        }
+    )
     if observation_timeframe != str(timeframe):
         out["data_window"]["observed_timeframe"] = observation_timeframe
     tf_secs = int(TIMEFRAME_SECONDS.get(timeframe, 0) or 0)
