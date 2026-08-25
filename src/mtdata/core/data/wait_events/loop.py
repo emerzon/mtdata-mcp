@@ -135,11 +135,27 @@ def run_wait_event_loop(  # noqa: C901
         and len(boundaries) == 1
         and boundaries[0]["type"] == "candle_close"
     )
-    if boundary_only and request.symbol is None and request.symbols is None:
+    if boundary_only:
+        if request.symbol is not None or request.symbols is not None:
+            connection_error = _wait_event_connection_error(gateway)
+            if connection_error is not None:
+                return connection_error
+            symbol_error = _wait_event_symbol_preflight(
+                gateway,
+                request=request,
+                watch_for=watch_for,
+                boundaries=boundaries,
+            )
+            if symbol_error is not None:
+                return symbol_error
         return _run_candle_boundary_only(
             request=request,
             boundary=boundaries[0],
-            gateway=None,
+            gateway=(
+                gateway
+                if request.symbol is not None or request.symbols is not None
+                else None
+            ),
             sleep_impl=sleep_impl,
             now_utc=started_at_utc,
             now_utc_impl=now_utc_impl,
@@ -175,16 +191,6 @@ def run_wait_event_loop(  # noqa: C901
         return symbol_error
     if (timeout_result := _timeout_if_expired()) is not None:
         return timeout_result
-
-    if boundary_only:
-        return _run_candle_boundary_only(
-            request=request,
-            boundary=boundaries[0],
-            gateway=gateway,
-            sleep_impl=sleep_impl,
-            now_utc=started_at_utc,
-            now_utc_impl=now_utc_impl,
-        )
 
     history_state = _build_account_history_state(
         gateway=gateway,

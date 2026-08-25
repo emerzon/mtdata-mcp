@@ -1102,6 +1102,44 @@ def test_wait_event_boundary_respects_duration_cap(monkeypatch) -> None:
     assert result["remaining_seconds"] == 60.0
     assert clock.monotonic_value == 0.0
 
+
+def test_wait_event_empty_watch_with_symbol_uses_boundary_budget(monkeypatch) -> None:
+    started = datetime(2026, 3, 15, 12, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(
+        "mtdata.core.data.wait_events.compile._next_candle_wait_payload",
+        lambda timeframe, buffer_seconds, now_utc, **_kwargs: {
+            "timeframe": timeframe,
+            "buffer_seconds": buffer_seconds,
+            "sleep_seconds": 60.0,
+            "started_at_utc": now_utc.isoformat(),
+            "next_candle_close_utc": (now_utc + timedelta(seconds=60)).isoformat(),
+            "next_candle_close_server": "2026-03-15T12:01:00",
+            "server_timezone": "UTC",
+        },
+    )
+    clock = FakeClock(started)
+
+    result = run_wait_event(
+        WaitEventRequest(
+            watch_for=[],
+            symbol="EURUSD",
+            timeframe="H1",
+            max_wait_seconds=0,
+        ),
+        gateway=SequenceGateway(),
+        sleep_impl=clock.sleep,
+        monotonic_impl=clock.monotonic,
+        now_utc_impl=clock.now_utc,
+    )
+
+    assert result["success"] is False
+    assert result["error_code"] == "wait_budget_exceeded"
+    assert result["not_waited"] is True
+    assert result["wait_mode"] == "timeframe_boundary"
+    assert result["remaining_seconds"] == 60.0
+    assert clock.monotonic_value == 0.0
+
+
 def test_run_wait_event_uses_timeframe_as_boundary_when_watchers_are_inferred(monkeypatch) -> None:
     monkeypatch.setattr(
         "mtdata.core.data.wait_events.compile._next_candle_wait_payload",
