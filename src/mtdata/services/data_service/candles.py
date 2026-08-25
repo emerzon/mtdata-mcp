@@ -189,6 +189,31 @@ def _indicator_param_syntax_error(ti_spec: Optional[str]) -> Optional[str]:
     return None
 
 
+def _indicator_validation_error(
+    message: str,
+    *,
+    received: Any = None,
+    parameter: str = "indicators",
+) -> Dict[str, Any]:
+    details: Dict[str, Any] = {"parameter": parameter}
+    if received is not None:
+        details["received"] = received
+    return build_error_payload(
+        message,
+        code="invalid_indicator_parameter",
+        operation="data_fetch_candles",
+        details=details,
+        remediation=(
+            "Use name(params) syntax such as rsi(14) or sma(20). "
+            "Keep rolling-window periods greater than 0 and within the "
+            "available bar count."
+        ),
+        related_tools=["indicators_list"],
+        valid_values={"catalog": "indicators_list"},
+        example="rsi(14)",
+    )
+
+
 def _resolve_live_bar_reference_epoch(symbol: Optional[str], timeframe: str) -> float:
     """Use wall-clock time when classifying whether the latest bar is live."""
     del symbol, timeframe
@@ -1942,10 +1967,13 @@ def fetch_candles(  # noqa: C901
             try:
                 ti_spec = _normalize_indicator_spec(ti)
             except ValueError as exc:
-                return {"error": str(exc)}
+                return _indicator_validation_error(str(exc), received=ti)
             indicator_syntax_error = _indicator_param_syntax_error(ti_spec)
             if indicator_syntax_error:
-                return {"error": indicator_syntax_error}
+                return _indicator_validation_error(
+                    indicator_syntax_error,
+                    received=ti,
+                )
             # Determine warmup bars if technical indicators requested
             unknown_indicators = _find_unknown_ta_indicators(ti_spec or "")
             if unknown_indicators:
@@ -2122,7 +2150,10 @@ def fetch_candles(  # noqa: C901
             )
         _apply_stage_denoise(df, headers, denoise, denoise_apps, when="pre_ti")
         denoise_warnings.extend(consume_denoise_warnings(df))
-        ti_cols = _apply_indicator_stage(df, headers, ti_spec, denoise)
+        try:
+            ti_cols = _apply_indicator_stage(df, headers, ti_spec, denoise)
+        except ValueError as exc:
+            return _indicator_validation_error(str(exc), received=ti_spec)
         denoise_warnings.extend(consume_denoise_warnings(df))
 
         # Filter out warmup region to return the intended target window only
@@ -2835,6 +2866,21 @@ def fetch_candles(  # noqa: C901
                     )
 
         return payload
+    except ValueError as e:
+        message = str(e)
+        lowered = message.lower()
+        if indicators and ("indicator" in lowered or "vwap" in lowered):
+            return _indicator_validation_error(message, received=indicators)
+        return {
+            "error": f"Error getting rates: {type(e).__name__}: {e}",
+            "error_detail": {
+                "operation": "fetch_candles",
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "start": str(start) if start else None,
+                "end": str(end) if end else None,
+            },
+        }
     except Exception as e:
         return {
             "error": f"Error getting rates: {type(e).__name__}: {e}",

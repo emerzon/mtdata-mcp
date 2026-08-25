@@ -299,6 +299,9 @@ class TestFetchCandlesIndicators(unittest.TestCase):
         mock_cfg.get_time_offset_seconds.return_value = 0
         result = fetch_candles('EURUSD', limit=10, indicators='sma,20')
         self.assertEqual(result['error'], 'Indicator params must use parentheses, e.g. sma(20), not sma,20.')
+        self.assertEqual(result['error_code'], 'invalid_indicator_parameter')
+        self.assertEqual(result['details']['parameter'], 'indicators')
+        self.assertNotIn('Error getting rates', result['error'])
         mock_from.assert_not_called()
 
     @patch(_MT5_CONFIG)
@@ -318,7 +321,40 @@ class TestFetchCandlesIndicators(unittest.TestCase):
         mock_cfg.get_time_offset_seconds.return_value = 0
         result = fetch_candles('EURUSD', limit=10, indicators='[{"name":"rsi","params":[14]}')
         self.assertTrue(result['error'].startswith('Invalid indicator JSON:'))
+        self.assertEqual(result['error_code'], 'invalid_indicator_parameter')
+        self.assertNotIn('Error getting rates', result['error'])
         mock_from.assert_not_called()
+
+    @patch(_MT5_CONFIG)
+    @patch(_APPLY_TI)
+    @patch(_RATES_FROM)
+    @patch(_CACHED_INFO, return_value=MagicMock())
+    @patch(_RESOLVE_CTZ, return_value=None)
+    @patch(_ESTIMATE_WARMUP, return_value=0)
+    @patch(_GUARD, _mock_symbol_guard)
+    def test_invalid_indicator_parameter_is_not_wrapped_as_rates_error(
+        self,
+        mock_warmup,
+        mock_ctz,
+        mock_info,
+        mock_from,
+        mock_ti,
+        mock_cfg,
+    ):
+        mock_cfg.get_time_offset_seconds.return_value = 0
+        mock_from.return_value = _make_rates(10)
+        mock_ti.side_effect = ValueError(
+            "Indicator 'rsi' parameter 'length' must be greater than 0; received 0."
+        )
+
+        result = fetch_candles('EURUSD', limit=10, indicators='rsi(0)')
+
+        self.assertEqual(result['error_code'], 'invalid_indicator_parameter')
+        self.assertIn("parameter 'length'", result['error'])
+        self.assertEqual(result['details']['parameter'], 'indicators')
+        self.assertEqual(result['details']['received'], 'rsi(0)')
+        self.assertNotIn('Error getting rates', result['error'])
+        self.assertEqual(result['related_tools'], ['indicators_list'])
 
     # ------------------------------------------------------------------ #
     # NaN warmup retry                                                    #
