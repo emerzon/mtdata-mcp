@@ -1701,23 +1701,52 @@ def _annotate_strength_metrics(levels: List[Dict[str, Any]]) -> None:
         return
 
     score_values = [_as_finite_float(level.get("score")) for level in levels]
-    finite_scores = [score for score in score_values if score is not None]
-    if not finite_scores:
-        finite_scores = [0.0]
+    finite_scores = [score if score is not None else 0.0 for score in score_values]
     min_score = min(finite_scores)
     max_score = max(finite_scores)
     spread = max_score - min_score
     count = len(levels)
+    ranked_indexes = sorted(
+        range(count),
+        key=lambda index: (-finite_scores[index], index),
+    )
+    rank_by_index = {
+        index: rank for rank, index in enumerate(ranked_indexes, start=1)
+    }
 
-    for index, (level, score) in enumerate(zip(levels, score_values), start=1):
-        level["strength_rank"] = index
-        percentile = 1.0 if count == 1 else 1.0 - (float(index - 1) / float(count - 1))
+    for index, (level, score) in enumerate(zip(levels, score_values)):
+        rank = rank_by_index[index]
+        level["strength_rank"] = rank
+        percentile = 1.0 if count == 1 else 1.0 - (float(rank - 1) / float(count - 1))
         if score is None or spread <= 1e-12:
             normalized = 1.0
         else:
             normalized = (score - min_score) / spread
         level["strength_percentile"] = float(round(max(0.0, min(1.0, percentile)), 4))
-        level["strength_score_normalized"] = float(round(max(0.0, min(1.0, normalized)), 4))
+        level["strength_score_normalized"] = float(
+            round(max(0.0, min(1.0, normalized)), 4)
+        )
+
+
+def _annotate_proximity_ranks(levels: List[Dict[str, Any]]) -> None:
+    if not levels:
+        return
+    distances: List[tuple[float, float]] = []
+    for level in levels:
+        distance_pct = _as_finite_float(level.get("distance_pct"))
+        distance = _as_finite_float(level.get("distance"))
+        distances.append(
+            (
+                abs(distance_pct) if distance_pct is not None else float("inf"),
+                abs(distance) if distance is not None else 0.0,
+            )
+        )
+    ranked_indexes = sorted(
+        range(len(levels)),
+        key=lambda index: (distances[index][0], distances[index][1], index),
+    )
+    for rank, index in enumerate(ranked_indexes, start=1):
+        levels[index]["proximity_rank"] = rank
 
 
 def _drop_zero_score_when_stronger_exist(levels: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -2307,6 +2336,9 @@ def merge_support_resistance_results(  # noqa: C901
     _annotate_strength_metrics(supports)
     _annotate_strength_metrics(resistances)
     _annotate_strength_metrics(ranges)
+    _annotate_proximity_ranks(supports)
+    _annotate_proximity_ranks(resistances)
+    _annotate_proximity_ranks(ranges)
     zone_overlap = _build_zone_overlap(
         support_level=supports[0] if supports else None,
         resistance_level=resistances[0] if resistances else None,
@@ -2444,7 +2476,9 @@ def compact_support_resistance_level(level: Any) -> Optional[Dict[str, Any]]:
         "touches",
         "episodes",
         "score",
+        "status",
         "strength_rank",
+        "proximity_rank",
         "last_touch",
         "zone_width",
         "zone_width_atr",
@@ -2482,6 +2516,7 @@ def _standard_support_resistance_level(level: Any) -> Optional[Dict[str, Any]]:
         "status",
         "score",
         "strength_rank",
+        "proximity_rank",
         "role_transition",
         "strength_percentile",
         "strength_score_normalized",
@@ -2576,6 +2611,7 @@ def compact_support_resistance_payload(payload: Dict[str, Any]) -> Dict[str, Any
         "timezone",
         "timeframes_analyzed",
         "units",
+        "input_bar_policy",
     ):
         value = payload.get(key)
         if value is not None:
@@ -2623,6 +2659,16 @@ def compact_support_resistance_payload(payload: Dict[str, Any]) -> Dict[str, Any
         value = payload.get(key)
         if value not in (None, "", [], {}):
             out[key] = value
+    lookback_bars = payload.get("lookback_bars")
+    if lookback_bars in (None, "", [], {}):
+        lookback_bars = payload.get("lookback")
+    if lookback_bars in (None, "", [], {}):
+        lookback_bars = payload.get("limit")
+    if lookback_bars not in (None, "", [], {}):
+        try:
+            out["lookback_bars"] = int(lookback_bars)
+        except (TypeError, ValueError):
+            out["lookback_bars"] = lookback_bars
 
     support_levels = _compact_support_resistance_levels(supports)
     if isinstance(supports, list):
@@ -2882,6 +2928,9 @@ def compute_support_resistance_levels(
     _annotate_strength_metrics(supports)
     _annotate_strength_metrics(resistances)
     _annotate_strength_metrics(ranges)
+    _annotate_proximity_ranks(supports)
+    _annotate_proximity_ranks(resistances)
+    _annotate_proximity_ranks(ranges)
     zone_overlap = _build_zone_overlap(
         support_level=supports[0] if supports else None,
         resistance_level=resistances[0] if resistances else None,

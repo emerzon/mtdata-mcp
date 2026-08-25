@@ -14,7 +14,9 @@ _COMPACT_LEVEL_KEYS = {
     "touches",
     "episodes",
     "score",
+    "status",
     "strength_rank",
+    "proximity_rank",
     "last_touch",
     "zone_width",
     "zone_width_atr",
@@ -106,6 +108,11 @@ def test_support_resistance_tool_returns_weighted_levels():
     assert len(result["resistances"]) == 1
     assert set(result["supports"][0]).issubset(_COMPACT_LEVEL_KEYS)
     assert set(result["resistances"][0]).issubset(_COMPACT_LEVEL_KEYS)
+    assert result["supports"][0]["status"] in {"intact", "broken", "role_reversal"}
+    assert result["resistances"][0]["status"] in {"intact", "broken", "role_reversal"}
+    assert result["supports"][0]["proximity_rank"] == 1
+    assert result["resistances"][0]["proximity_rank"] == 1
+    assert result["lookback_bars"] == 200
     assert "zone_width" in result["supports"][0]
     assert "last_touch" in result["supports"][0]
     assert result["effective_reaction_bars"] >= 1

@@ -6,6 +6,8 @@ import pytest
 
 from mtdata.utils.support_resistance import (
     _analyze_cluster_state,
+    _annotate_proximity_ranks,
+    _annotate_strength_metrics,
     _build_fibonacci_level,
     _build_zone_overlap,
     _collect_support_resistance_warnings,
@@ -15,6 +17,7 @@ from mtdata.utils.support_resistance import (
     _format_time,
     _nearest_fibonacci_levels,
     _resolve_adaptive_settings,
+    compact_support_resistance_level,
     compact_support_resistance_payload,
     compute_support_resistance_levels,
     full_support_resistance_payload,
@@ -365,6 +368,8 @@ def test_compute_support_resistance_returns_ranked_levels_around_current_price()
     assert resistance["score_breakdown"]["total"] == resistance["score"]
     assert support["strength_rank"] == 1
     assert resistance["strength_rank"] == 1
+    assert support["proximity_rank"] == 1
+    assert resistance["proximity_rank"] == 1
     assert support["strength_percentile"] == 1.0
     assert resistance["strength_percentile"] == 1.0
     assert support["strength_score_normalized"] == 1.0
@@ -493,7 +498,9 @@ def test_compact_support_resistance_payload_omits_fibonacci_until_standard_detai
             "touches",
             "episodes",
             "score",
+            "status",
             "strength_rank",
+            "proximity_rank",
             "last_touch",
             "zone_width",
             "zone_width_atr",
@@ -631,6 +638,7 @@ def test_compact_support_resistance_payload_explains_missing_side():
         "end": "2026-01-02 00:00",
     }
     assert compact["limit"] == 200
+    assert compact["lookback_bars"] == 200
 
 
 def test_recent_stronger_support_scores_above_older_weaker_support():
@@ -660,6 +668,70 @@ def test_recent_stronger_support_scores_above_older_weaker_support():
     assert older["strength_percentile"] < recent["strength_percentile"]
     assert older["strength_score_normalized"] < recent["strength_score_normalized"]
     assert older["avg_pretest_adx"] < recent["avg_pretest_adx"]
+
+
+def test_strength_rank_follows_score_not_proximity_order() -> None:
+    levels = [
+        {"score": 2.0, "distance_pct": -0.1, "value": 1.09},
+        {"score": 10.0, "distance_pct": -5.0, "value": 1.0},
+        {"score": 6.0, "distance_pct": -1.0, "value": 1.05},
+    ]
+    levels.sort(key=lambda level: abs(float(level["distance_pct"])))
+    _annotate_strength_metrics(levels)
+    _annotate_proximity_ranks(levels)
+
+    by_value = {level["value"]: level for level in levels}
+    assert by_value[1.0]["strength_rank"] == 1
+    assert by_value[1.05]["strength_rank"] == 2
+    assert by_value[1.09]["strength_rank"] == 3
+    assert by_value[1.09]["proximity_rank"] == 1
+    assert by_value[1.05]["proximity_rank"] == 2
+    assert by_value[1.0]["proximity_rank"] == 3
+    assert by_value[1.0]["strength_percentile"] > by_value[1.05]["strength_percentile"]
+    assert by_value[1.05]["strength_percentile"] > by_value[1.09]["strength_percentile"]
+
+    ranked = sorted(levels, key=lambda level: level["strength_rank"])
+    for stronger, weaker in zip(ranked, ranked[1:]):
+        assert stronger["score"] >= weaker["score"]
+
+
+def test_computed_strength_rank_never_inverts_score_within_a_side() -> None:
+    result = compute_support_resistance_levels(
+        _clustered_levels_frame(),
+        symbol="EURUSD",
+        timeframe="H1",
+        limit=200,
+        tolerance_fraction=0.005,
+        min_touches=1,
+        max_levels=4,
+        reaction_bars=4,
+    )
+    for side in ("supports", "resistances"):
+        rows = result[side]
+        ranked = sorted(rows, key=lambda level: int(level["strength_rank"]))
+        for stronger, weaker in zip(ranked, ranked[1:]):
+            assert float(stronger["score"]) >= float(weaker["score"])
+        nearby = sorted(rows, key=lambda level: int(level["proximity_rank"]))
+        for closer, farther in zip(nearby, nearby[1:]):
+            assert abs(float(closer["distance_pct"])) <= abs(float(farther["distance_pct"]))
+
+
+def test_compact_support_resistance_level_keeps_broken_status() -> None:
+    compact = compact_support_resistance_level(
+        {
+            "type": "support",
+            "value": 1.09,
+            "distance_pct": -0.9,
+            "score": 0.0,
+            "status": "broken",
+            "strength_rank": 2,
+            "proximity_rank": 1,
+        }
+    )
+
+    assert compact["status"] == "broken"
+    assert compact["strength_rank"] == 2
+    assert compact["proximity_rank"] == 1
 
 
 def test_volume_weighting_uses_tick_volume_when_real_volume_is_unavailable():
