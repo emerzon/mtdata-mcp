@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pandas as pd
 import pytest
+from pydantic import ValidationError
 
 from mtdata.analytics.engine_common import _tick_frame, _window
 from mtdata.analytics.engines import (
@@ -1417,6 +1418,49 @@ def test_execution_quality_compact_omits_expanded_breakdowns() -> None:
     assert "units" not in result
 
 
+def test_execution_quality_summary_matches_compact_headlines() -> None:
+    gateway = FakeGateway()
+    start = _now() - 100
+    gateway.tick_rows = _ticks(100, start=start)
+    gateway.orders = [
+        {
+            "ticket": 10,
+            "type": 0,
+            "price_open": 1.10005,
+            "volume_initial": 1.0,
+            "time_setup_msc": (start + 9) * 1000,
+        }
+    ]
+    gateway.deals = [
+        {
+            "ticket": 20,
+            "order": 10,
+            "symbol": "EURUSD",
+            "type": 0,
+            "volume": 1.0,
+            "price": 1.10008,
+            "time_msc": (start + 10) * 1000,
+        }
+    ]
+
+    result = analyze_execution_quality(
+        TradeExecutionQualityRequest(
+            minutes_back=60,
+            markout_seconds=[1],
+            detail="summary",
+        ),
+        gateway,
+    )
+
+    assert result["summary"]["fills"] == 1
+    assert "breakdowns" not in result
+    assert "items" not in result
+    assert "requested_window" not in result
+    assert "timing_definition" not in result
+    assert "price_quality_definition" not in result
+    assert "units" not in result
+
+
 def test_execution_quality_labels_truncated_latest_fill_sample() -> None:
     gateway = FakeGateway()
     start = _now() - 400
@@ -2582,13 +2626,15 @@ def test_portfolio_risk_resolves_and_accepts_valid_proposed_broker_volume() -> N
 
     assert result["success"] is True
     assert result["summary"]["positions_after_proposed"] == 1
-    assert result["proposed_trade"] == {
-        "symbol": "EURUSD",
-        "side": "buy",
-        "volume": 0.01,
-        "margin_required": 10.0,
-        "symbol_input": "EUR/USD",
-    }
+    proposed = result["proposed_trade"]
+    assert proposed["symbol"] == "EURUSD"
+    assert proposed["side"] == "buy"
+    assert proposed["volume"] == 0.01
+    assert proposed["margin_required"] == 10.0
+    assert proposed["symbol_input"] == "EUR/USD"
+    assert proposed["mark_price"] == pytest.approx(1.1001)
+    assert proposed["mark_price_basis"] == "ask"
+    assert proposed["quote_time"]
 
 
 def test_portfolio_mark_freshness_is_aggregated_by_symbol() -> None:
@@ -2694,6 +2740,58 @@ def test_portfolio_risk_compact_keeps_quote_conflict_warning() -> None:
     assert "quote_source_conflict" not in marks[0]
 
 
+def test_portfolio_risk_accepts_long_short_proposed_side() -> None:
+    gateway = FakeGateway()
+
+    result = decompose_portfolio_risk(
+        PortfolioRiskDecomposeRequest(
+            lookback=300,
+            horizon_bars=[1],
+            confidence=[0.95],
+            simulations=500,
+            proposed_trade={
+                "symbol": "EURUSD",
+                "side": "long",
+                "volume": 0.01,
+            },
+        ),
+        gateway,
+    )
+
+    assert result["success"] is True
+    assert result["proposed_trade"]["side"] == "buy"
+    assert result["proposed_trade"]["mark_price_basis"] == "ask"
+
+
+def test_portfolio_risk_historical_omits_unused_ewma_half_life() -> None:
+    gateway = FakeGateway()
+    gateway.positions = [
+        {"ticket": 1, "symbol": "EURUSD", "type": 0, "volume": 1.0, "price_current": 1.1},
+    ]
+
+    result = decompose_portfolio_risk(
+        PortfolioRiskDecomposeRequest(
+            lookback=300,
+            horizon_bars=[1],
+            confidence=[0.95],
+            simulations=500,
+            method="historical",
+        ),
+        gateway,
+    )
+
+    assert result["success"] is True
+    assert "ewma_half_life" not in result["model_context"]
+
+
+def test_portfolio_risk_historical_rejects_non_default_ewma_half_life() -> None:
+    with pytest.raises(ValidationError, match="filtered_historical"):
+        PortfolioRiskDecomposeRequest(
+            method="historical",
+            ewma_half_life=90.0,
+        )
+
+
 def test_portfolio_risk_reconciles_component_expected_shortfall() -> None:
     gateway = FakeGateway()
     gateway.account_info = lambda: SimpleNamespace(currency="USD", equity=25000.0)
@@ -2709,8 +2807,8 @@ def test_portfolio_risk_reconciles_component_expected_shortfall() -> None:
     assert result["currency"] == "USD"
     assert result["equity"] == 25000.0
     row = result["risk"][0]
-    component_total = sum(item["value"] for item in row["component_expected_shortfall"])
-    assert component_total == pytest.approx(row["expected_shortfall"])
+    component_total = sum(item["value"] for item in row["component_cvar"])
+    assert component_total == pytest.approx(row["cvar"])
     assert "correlation_to_one_loss_proxy" not in result["stresses"]
     assert result["stresses"]["perfect_positive_correlation_1sigma"][0]["horizon_bars"] == 1
     assert result["stresses"]["volatility_double"][0]["horizon_bars"] == 1

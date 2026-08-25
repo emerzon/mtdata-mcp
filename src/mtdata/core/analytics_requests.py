@@ -281,13 +281,28 @@ class StrategyValidateRequest(BaseModel):
 
 class ProposedTrade(BaseModel):
     symbol: str
-    side: Literal["buy", "sell"]
+    side: Literal["buy", "sell"] = Field(
+        description=(
+            "Order side. Canonical values are buy and sell; long maps to buy "
+            "and short maps to sell."
+        ),
+    )
     volume: float = Field(gt=0.0)
 
     @field_validator("symbol")
     @classmethod
     def _symbol(cls, value: str) -> str:
         return normalize_required_symbol(value)
+
+    @field_validator("side", mode="before")
+    @classmethod
+    def _side(cls, value: Any) -> str:
+        text = str(value or "").strip().lower()
+        if text in {"buy", "long"}:
+            return "buy"
+        if text in {"sell", "short"}:
+            return "sell"
+        raise ValueError("side must be buy/sell or long/short")
 
 
 class PortfolioRiskDecomposeRequest(BaseModel):
@@ -296,7 +311,14 @@ class PortfolioRiskDecomposeRequest(BaseModel):
     horizon_bars: List[int] = Field(default_factory=lambda: [1, 5])
     confidence: List[float] = Field(default_factory=lambda: [0.95, 0.99])
     method: Literal["filtered_historical", "historical"] = "filtered_historical"
-    ewma_half_life: float = Field(60.0, gt=1.0)
+    ewma_half_life: float = Field(
+        60.0,
+        gt=1.0,
+        description=(
+            "EWMA volatility half-life in bars of the requested timeframe. "
+            "Applies only to method=filtered_historical."
+        ),
+    )
     simulations: int = Field(5_000, ge=500, le=50_000)
     seed: int = Field(42, ge=0, le=4_294_967_295)
     proposed_trade: Optional[ProposedTrade] = None
@@ -318,6 +340,20 @@ class PortfolioRiskDecomposeRequest(BaseModel):
         if not out or any(not math.isfinite(item) or not 0.5 < item < 1.0 for item in out):
             raise ValueError("confidence values must be between 0.5 and 1")
         return out
+
+    @model_validator(mode="after")
+    def _historical_ewma_unused(self) -> "PortfolioRiskDecomposeRequest":
+        if self.method != "historical":
+            return self
+        if "ewma_half_life" not in self.model_fields_set:
+            return self
+        default = type(self).model_fields["ewma_half_life"].default
+        if self.ewma_half_life != default:
+            raise ValueError(
+                "ewma_half_life applies only to method=filtered_historical; "
+                "omit it for historical"
+            )
+        return self
 
 
 class MarketRelativeStrengthRequest(BaseModel):

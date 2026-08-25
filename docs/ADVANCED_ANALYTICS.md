@@ -178,9 +178,11 @@ the same convention used by the backtest tools.
 ## Portfolio risk decomposition
 
 `portfolio_risk_decompose` maps current MT5 positions into account-currency
-filtered-historical scenarios. It returns multi-horizon VaR/Expected Shortfall,
-component ES, concentration, prescribed stresses, and optional proposed-trade
-incremental ES and margin.
+filtered-historical scenarios. It returns multi-horizon VaR/CVaR,
+component CVaR, concentration, prescribed stresses, and optional proposed-trade
+incremental CVaR and margin. `ewma_half_life` applies only to
+`method=filtered_historical`; historical simulation omits it from
+`model_context` and rejects a non-default supplied value.
 Multi-bar log-return paths are converted to compounded simple returns before
 they are applied to account-currency position sensitivities.
 
@@ -188,6 +190,10 @@ When `proposed_trade` is supplied, its symbol is resolved against the broker
 catalog and its volume is validated against that symbol's minimum, maximum, and
 lot step before any scenarios run. Invalid requests return the constraints and
 the nearest valid volume instead of modeling a trade the broker would reject.
+`side` accepts `buy`/`sell` or `long`/`short` and is echoed as canonical
+`buy`/`sell`. The proposed trade is marked from one frozen quote snapshot
+(`ask` for buy, `bid` for sell) and the response includes `mark_price`,
+`mark_price_basis`, and `quote_time`.
 
 ```bash
 mtdata-cli portfolio_risk_decompose --timeframe H1 --lookback 1000 --horizon-bars 1,5 --confidence 0.95,0.99 --json

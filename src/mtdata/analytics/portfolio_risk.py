@@ -318,11 +318,30 @@ def _validate_proposed_trade(
             ),
         )
 
+    proposed_side = str(proposed.side)
+    mark_price_basis = "ask" if proposed_side == "buy" else "bid"
+    mark_price = None
+    quote_time = None
+    try:
+        tick = gateway.symbol_info_tick(resolved_symbol)
+    except Exception:
+        tick = None
+    if tick is not None:
+        try:
+            raw_price = float(getattr(tick, mark_price_basis))
+        except (TypeError, ValueError):
+            raw_price = float("nan")
+        if math.isfinite(raw_price):
+            mark_price = raw_price
+        quote_time = format_epoch_utc(tick_epoch(tick))
     return {
         "symbol": resolved_symbol,
         "symbol_input": input_symbol,
-        "side": proposed.side,
+        "side": proposed_side,
         "volume": float(volume),
+        "mark_price": mark_price,
+        "mark_price_basis": mark_price_basis,
+        "quote_time": quote_time,
     }, None
 
 
@@ -342,10 +361,11 @@ def decompose_portfolio_risk(  # noqa: C901
         "lookback_requested": request.lookback,
         "confidence_levels": list(request.confidence),
         "simulations": request.simulations,
-        "ewma_half_life": request.ewma_half_life,
         "random_seed": request.seed,
         "completion_policy": "allow_partial" if request.allow_partial else "fail_closed",
     }
+    if request.method == "filtered_historical":
+        model_context["ewma_half_life"] = request.ewma_half_life
     proposed = request.proposed_trade
     proposed_validated: Optional[Dict[str, Any]] = None
     if proposed is not None:
@@ -367,13 +387,12 @@ def decompose_portfolio_risk(  # noqa: C901
     if proposed_validated is not None:
         proposed_symbol = str(proposed_validated["symbol"])
         proposed_side = str(proposed_validated["side"])
-        tick = gateway.symbol_info_tick(proposed_symbol)
         positions.append({
             "ticket": "proposed",
             "symbol": proposed_symbol,
             "type": getattr(gateway, "POSITION_TYPE_BUY", 0) if proposed_side == "buy" else getattr(gateway, "POSITION_TYPE_SELL", 1),
             "volume": proposed_validated["volume"],
-            "price_current": getattr(tick, "ask" if proposed_side == "buy" else "bid", None),
+            "price_current": proposed_validated.get("mark_price"),
             "proposed": True,
         })
     all_positions = list(positions)
@@ -578,9 +597,9 @@ def decompose_portfolio_risk(  # noqa: C901
                 "calibration_observations": int(len(standardized)),
                 "horizon_windows_available": int(max_start + 1),
                 "var": float(max(0.0, -cutoff)),
-                "expected_shortfall": after_es,
-                **({"before_expected_shortfall": base_es, "incremental_expected_shortfall": (after_es - base_es) if after_es is not None and base_es is not None else None} if proposed_sensitivity else {}),
-                "component_expected_shortfall": [
+                "cvar": after_es,
+                **({"before_cvar": base_es, "incremental_cvar": (after_es - base_es) if after_es is not None and base_es is not None else None} if proposed_sensitivity else {}),
+                "component_cvar": [
                     {"symbol": symbol, "value": float(value)} for symbol, value in zip(standardized.columns, es_components)
                 ],
                 "worst_simulated_pnl": float(np.min(pnl)),
@@ -634,29 +653,36 @@ def decompose_portfolio_risk(  # noqa: C901
     }
     proposed_context = None
     if proposed_validated is not None:
+        proposed_symbol = str(proposed_validated["symbol"])
+        proposed_side = str(proposed_validated["side"])
+        proposed_volume = float(proposed_validated["volume"])
+        proposed_context = {
+            "symbol": proposed_symbol,
+            "side": proposed_side,
+            "volume": proposed_volume,
+            "mark_price": proposed_validated.get("mark_price"),
+            "mark_price_basis": proposed_validated.get("mark_price_basis"),
+            "quote_time": proposed_validated.get("quote_time"),
+            "margin_required": None,
+        }
+        if proposed_validated["symbol_input"] != proposed_symbol:
+            proposed_context["symbol_input"] = proposed_validated["symbol_input"]
         try:
-            proposed_symbol = str(proposed_validated["symbol"])
-            proposed_side = str(proposed_validated["side"])
-            proposed_volume = float(proposed_validated["volume"])
-            tick = gateway.symbol_info_tick(proposed_symbol)
             action = getattr(gateway, "ORDER_TYPE_BUY", 0) if proposed_side == "buy" else getattr(gateway, "ORDER_TYPE_SELL", 1)
-            price = float(getattr(tick, "ask" if proposed_side == "buy" else "bid"))
-            margin = gateway.order_calc_margin(action, proposed_symbol, proposed_volume, price)
-            proposed_context = {
-                "symbol": proposed_symbol,
-                "side": proposed_side,
-                "volume": proposed_volume,
-                "margin_required": float(margin) if margin is not None else None,
-            }
-            if proposed_validated["symbol_input"] != proposed_symbol:
-                proposed_context["symbol_input"] = proposed_validated["symbol_input"]
+            price = proposed_validated.get("mark_price")
+            if price is None:
+                raise ValueError("proposed trade mark price is unavailable")
+            margin = gateway.order_calc_margin(
+                action,
+                proposed_symbol,
+                proposed_volume,
+                float(price),
+            )
+            proposed_context["margin_required"] = (
+                float(margin) if margin is not None else None
+            )
         except Exception:
-            proposed_context = {
-                "symbol": proposed_validated["symbol"],
-                "side": proposed_validated["side"],
-                "volume": proposed_validated["volume"],
-                "margin_required": None,
-            }
+            proposed_context["margin_required"] = None
     account_context = {
         key: value
         for key, value in {
@@ -727,7 +753,7 @@ def decompose_portfolio_risk(  # noqa: C901
         "warnings": warnings_out,
         "units": {
             "var": "account_currency",
-            "expected_shortfall": "account_currency",
+            "cvar": "account_currency",
             "sensitivity": "account_currency_per_1.0_return",
             "stresses": "account_currency",
         },
