@@ -16,6 +16,7 @@ from ..utils.mt5 import (
     MT5ConnectionError,
     _symbol_ready_guard,
     ensure_mt5_connection_or_raise,
+    resolve_public_symbol,
 )
 from ..utils.time import _format_datetime_explicit, bar_close_epoch
 from ..utils.utils import (
@@ -880,22 +881,12 @@ def _profile_freshness_meta(
                 TIMEFRAME_SECONDS.get(str(timeframe or "").strip().upper(), 0)
                 or 0
             )
-            try:
-                window_length = float(window_seconds) if window_seconds is not None else 0.0
-            except (TypeError, ValueError):
-                window_length = 0.0
-            if not math.isfinite(window_length) or window_length < 0.0:
-                window_length = 0.0
-            source_name = str(profile_source or "").strip().lower()
             if timeframe_seconds > 0:
                 stale_after_seconds = max(300.0, timeframe_seconds)
                 freshness_basis = "completed_bar_close_timeframe_window"
-            elif source_name == "m1_bars" or window_length >= 3600.0:
-                stale_after_seconds = window_length if window_length > 0.0 else 86400.0
-                freshness_basis = "profile_window"
             else:
-                stale_after_seconds = max(300.0, window_length)
-                freshness_basis = "observation_age_300_seconds"
+                stale_after_seconds = 300.0
+                freshness_basis = "latest_observation_fixed_5m"
             age_seconds = max(
                 0.0,
                 (_utc_now_naive() - observed_at).total_seconds(),
@@ -991,7 +982,7 @@ def _profile_source_quality(source: Any) -> Dict[str, Any]:
     return {}
 
 
-def compute_volume_profile_payload(
+def compute_volume_profile_payload(  # noqa: C901
     *,
     symbol: str,
     start: Optional[str] = None,
@@ -1092,6 +1083,7 @@ def compute_volume_profile_payload(
         ensure_connection_impl=ensure_mt5_connection_or_raise
     )
     mt5_gateway.ensure_connection()
+    symbol, symbol_input = resolve_public_symbol(symbol, gateway=mt5_gateway)
     requested_bars = window.get("requested_bars")
     if requested_bars is not None and timeframe is not None:
         # fetch_candles owns its symbol-readiness guard. Resolve the requested
@@ -1357,6 +1349,9 @@ def compute_volume_profile_payload(
     if merged_warnings:
         profile["warnings"] = merged_warnings
     profile["fetch_payload"] = fetch_payload
+    profile["symbol"] = symbol
+    if symbol_input is not None:
+        profile["symbol_input"] = symbol_input
     return attach_mt5_source(
         _profile_detail_payload(profile, detail),
         gateway=mt5_gateway,

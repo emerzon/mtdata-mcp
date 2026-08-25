@@ -500,7 +500,7 @@ def test_default_profile_window_is_bounded_to_24_hours(monkeypatch):
     }
 
 
-def test_default_m1_profile_uses_window_length_not_quote_ttl(monkeypatch):
+def test_default_m1_profile_uses_fixed_observation_age_threshold(monkeypatch):
     monkeypatch.setattr(
         vp,
         "_utc_now_naive",
@@ -516,9 +516,9 @@ def test_default_m1_profile_uses_window_length_not_quote_ttl(monkeypatch):
         symbol="EURUSD",
     )
 
-    assert out["data_stale"] is False
-    assert out["stale_after_seconds"] == 86400.0
-    assert out["freshness_basis"] == "profile_window"
+    assert out["data_stale"] is True
+    assert out["stale_after_seconds"] == 300.0
+    assert out["freshness_basis"] == "latest_observation_fixed_5m"
 
 
 def test_latest_m1_profile_is_stale_on_weekend(monkeypatch):
