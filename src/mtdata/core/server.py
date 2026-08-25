@@ -20,6 +20,9 @@ from .mt5_gateway import mt5_connection_error
 
 def _mcp_readiness_payload() -> tuple[dict[str, Any], int]:
     """Return MCP readiness without invoking a user-facing tool."""
+    from .mcp_trading_policy import mcp_trading_policy_payload
+
+    trading_policy = mcp_trading_policy_payload()
     connection_error = mt5_connection_error()
     if connection_error is None:
         return (
@@ -28,6 +31,7 @@ def _mcp_readiness_payload() -> tuple[dict[str, Any], int]:
                 "status": "ok",
                 "ready": True,
                 "components": {"mt5_connection": {"status": "ok"}},
+                "mcp_trading": trading_policy,
             },
             200,
         )
@@ -42,6 +46,7 @@ def _mcp_readiness_payload() -> tuple[dict[str, Any], int]:
                     "error_code": "mt5_connection_error",
                 }
             },
+            "mcp_trading": trading_policy,
         },
         503,
     )

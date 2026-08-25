@@ -1636,11 +1636,14 @@ class TestMcpHttpProbes:
             payload, status_code = server._mcp_readiness_payload()
 
         assert status_code == 200
-        assert payload == {
-            "service": "mtdata-mcp",
-            "status": "ok",
-            "ready": True,
-            "components": {"mt5_connection": {"status": "ok"}},
+        assert payload["service"] == "mtdata-mcp"
+        assert payload["status"] == "ok"
+        assert payload["ready"] is True
+        assert payload["components"] == {"mt5_connection": {"status": "ok"}}
+        assert payload["mcp_trading"]["mcp_trading_mode"] in {
+            "disabled",
+            "preview_only",
+            "live",
         }
 
     def test_readiness_payload_reports_mt5_outage_without_error_details(self):

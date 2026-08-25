@@ -91,6 +91,7 @@ Control how the MCP server binds and exposes endpoints.
 | `FASTMCP_MOUNT_PATH` | `/` | SSE base mount path or streamable-HTTP endpoint path |
 | `FASTMCP_SSE_PATH` | `/sse` | SSE event-stream path |
 | `FASTMCP_MESSAGE_PATH` | `/message` | Message endpoint path |
+| `MTDATA_MCP_TRADING_MODE` | `preview_only` | MCP-only trading policy: `disabled` blocks `trade_place` / `trade_modify` / `trade_close`, `preview_only` allows dry-run previews and rejects `dry_run=false`, `live` allows live submission. Unknown values fail closed to `preview_only`. CLI and Web API are unchanged. |
 
 ---
 
