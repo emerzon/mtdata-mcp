@@ -690,6 +690,126 @@ def test_build_pattern_response_include_completed_filter_behavior():
     assert with_completed["n_patterns"] == 2
 
 
+def test_completed_bullish_harmonic_past_target_is_not_a_long_setup(monkeypatch):
+    from mtdata.patterns.harmonic import HarmonicDetectorConfig, HarmonicPatternResult
+
+    df = pd.DataFrame(
+        {
+            "time": list(range(10)),
+            "open": [10.0] * 10,
+            "high": [10.2, 10.3, 10.4, 10.5, 10.6, 11.5, 12.4, 13.1, 13.4, 13.6],
+            "low": [9.8] * 10,
+            "close": [10.0, 10.1, 10.2, 10.3, 10.4, 11.2, 12.2, 13.0, 13.2, 13.5],
+        }
+    )
+    pattern = HarmonicPatternResult(
+        confidence=0.9,
+        start_index=0,
+        end_index=4,
+        start_time=0.0,
+        end_time=4.0,
+        name="Bullish Gartley",
+        status="completed",
+        bias="bullish",
+        entry_price=10.4,
+        target_prices=[12.0, 13.0],
+        invalidation_price=9.5,
+        details={"bias": "bullish"},
+    )
+    monkeypatch.setattr(
+        core_patterns,
+        "_detect_harmonic_patterns",
+        lambda _df, _cfg: [pattern],
+    )
+    rows = core_patterns._format_harmonic_patterns(
+        df,
+        HarmonicDetectorConfig(recent_bars=20),
+    )
+
+    assert rows[0]["lifecycle"] == "target_reached"
+    assert rows[0]["signal_eligible"] is False
+    assert rows[0]["bias_scope"] == "historical_structure"
+    assert rows[0]["target_price"] == 12.0
+    assert rows[0]["invalidation_price"] == 9.5
+
+    compact = _build_pattern_response(
+        "EURUSD",
+        "H1",
+        100,
+        "harmonic",
+        rows,
+        include_completed=False,
+        include_series=False,
+        series_time="string",
+        df=df,
+        detail="compact",
+    )
+
+    assert compact.get("suggested_review") != "long_setup"
+    assert compact["review_recommended"] is False
+    assert compact["top_patterns"][0]["lifecycle"] == "target_reached"
+    assert compact["top_patterns"][0]["target_price"] == 12.0
+    assert compact["top_patterns"][0]["invalidation_price"] == 9.5
+
+
+def test_completed_bullish_harmonic_still_active_keeps_current_setup(monkeypatch):
+    from mtdata.patterns.harmonic import HarmonicDetectorConfig, HarmonicPatternResult
+
+    df = pd.DataFrame(
+        {
+            "time": list(range(8)),
+            "open": [10.0] * 8,
+            "high": [10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8, 10.9],
+            "low": [9.8] * 8,
+            "close": [10.0, 10.1, 10.2, 10.3, 10.4, 10.5, 10.6, 10.7],
+        }
+    )
+    pattern = HarmonicPatternResult(
+        confidence=0.9,
+        start_index=0,
+        end_index=4,
+        start_time=0.0,
+        end_time=4.0,
+        name="Bullish Gartley",
+        status="completed",
+        bias="bullish",
+        entry_price=10.4,
+        target_prices=[12.0, 13.0],
+        invalidation_price=9.5,
+        details={"bias": "bullish"},
+    )
+    monkeypatch.setattr(
+        core_patterns,
+        "_detect_harmonic_patterns",
+        lambda _df, _cfg: [pattern],
+    )
+    rows = core_patterns._format_harmonic_patterns(
+        df,
+        HarmonicDetectorConfig(recent_bars=20),
+    )
+
+    assert rows[0]["lifecycle"] == "active"
+    assert rows[0]["signal_eligible"] is True
+    assert rows[0]["bias_scope"] == "current"
+
+    compact = _build_pattern_response(
+        "EURUSD",
+        "H1",
+        100,
+        "harmonic",
+        rows,
+        include_completed=False,
+        include_series=False,
+        series_time="string",
+        df=df,
+        detail="compact",
+    )
+
+    assert compact["suggested_review"] == "long_setup"
+    assert compact["top_patterns"][0]["target_price"] == 12.0
+    assert compact["top_patterns"][0]["invalidation_price"] == 9.5
+
+
 def test_build_pattern_response_shows_completed_harmonics_by_default():
     response = _build_pattern_response(
         "EURUSD",
@@ -1121,6 +1241,8 @@ def test_build_pattern_response_compact_keeps_actionable_fields():
             "match_score": 0.85,
             "time": "2026-03-02 00:00",
             "reference_price": 12.0,
+            "target_price": 13.2,
+            "invalidation_price": 11.4,
         }
     ]
     assert "recent_patterns" not in compact

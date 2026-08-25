@@ -155,6 +155,9 @@ def _aggregate_non_signal_pattern_status(
         if _pattern_has_status(row, "forming"):
             forming = True
             continue
+        lifecycle = str(row.get("lifecycle") or "").strip().lower()
+        if lifecycle in {"target_reached", "expired", "historical"}:
+            continue
         is_recent = bool(row.get("is_recent"))
         bias_scope = str(row.get("bias_scope") or "").strip().lower()
         if is_recent or bias_scope == "provisional_structure":
@@ -657,6 +660,10 @@ def _compact_patterns_payload(  # noqa: C901
         reference_price = row.get("reference_price")
         if reference_price not in (None, ""):
             result["reference_price"] = reference_price
+        for key in ("target_price", "invalidation_price"):
+            value = row.get(key)
+            if value not in (None, ""):
+                result[key] = value
 
         side = _first_present(row, "side")
         if side in (None, ""):
@@ -759,6 +766,7 @@ def _compact_patterns_payload(  # noqa: C901
             "age_bars",
             "is_recent",
             "bias_scope",
+            "lifecycle",
         ):
             value = row.get(key)
             if key == "confidence":
@@ -1073,6 +1081,7 @@ _ALL_COMPACT_CLASSIC_KEYS = (
 _ALL_COMPACT_HARMONIC_KEYS = (
     "timeframe", "name", "status", "confidence", "bias",
     "entry_price", "target_price", "invalidation_price",
+    "lifecycle", "bias_scope",
     "start_date", "end_date",
 )
 _ALL_COMPACT_ELLIOTT_KEYS = (

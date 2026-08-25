@@ -902,6 +902,78 @@ def _format_fractal_patterns(
     return out_list
 
 
+def _series_extremum(frame: pd.DataFrame, column: str, *, kind: str) -> Optional[float]:
+    if column not in frame.columns or frame.empty:
+        return None
+    series = pd.to_numeric(frame[column], errors="coerce")
+    values = series.to_numpy(dtype=float)
+    finite = values[np.isfinite(values)]
+    if finite.size == 0:
+        return None
+    if kind == "max":
+        return float(np.max(finite))
+    return float(np.min(finite))
+
+
+def _harmonic_post_completion_lifecycle(
+    df: pd.DataFrame,
+    *,
+    end_index: int,
+    bias: str,
+    target: Optional[float],
+    invalidation: Optional[float],
+    is_recent: bool,
+    status: str,
+) -> str:
+    """Classify a completed harmonic against later OHLC and current recency."""
+    status_text = str(status or "").strip().lower()
+    if status_text == "forming":
+        return "forming"
+    if not is_recent:
+        return "historical"
+    start = int(end_index) + 1
+    after = df.iloc[start:] if 0 <= start < len(df) else df.iloc[0:0]
+    if after.empty:
+        return "active"
+    max_high = _series_extremum(after, "high", kind="max")
+    min_low = _series_extremum(after, "low", kind="min")
+    last_close: Optional[float] = None
+    if "close" in after.columns and not after.empty:
+        close_values = pd.to_numeric(after["close"], errors="coerce").to_numpy(dtype=float)
+        finite_close = close_values[np.isfinite(close_values)]
+        if finite_close.size:
+            last_close = float(finite_close[-1])
+    if max_high is None:
+        max_high = last_close
+    if min_low is None:
+        min_low = last_close
+    if bias == "bullish":
+        if (
+            invalidation is not None
+            and min_low is not None
+            and min_low <= float(invalidation)
+        ):
+            return "expired"
+        if target is not None and (
+            (max_high is not None and max_high >= float(target))
+            or (last_close is not None and last_close >= float(target))
+        ):
+            return "target_reached"
+    elif bias == "bearish":
+        if (
+            invalidation is not None
+            and max_high is not None
+            and max_high >= float(invalidation)
+        ):
+            return "expired"
+        if target is not None and (
+            (min_low is not None and min_low <= float(target))
+            or (last_close is not None and last_close <= float(target))
+        ):
+            return "target_reached"
+    return "active"
+
+
 def _format_harmonic_patterns(
     df: pd.DataFrame,
     cfg: _HarmonicCfg,
@@ -928,11 +1000,12 @@ def _format_harmonic_patterns(
             ]
             target_1 = target_prices[0] if target_prices else None
             target_2 = target_prices[1] if len(target_prices) > 1 else None
+            invalidation = float(p.invalidation_price)
             price_levels: Dict[str, Any] = {
                 "entry": float(p.entry_price),
                 "target_1": target_1,
                 "target_2": target_2,
-                "invalidation": float(p.invalidation_price),
+                "invalidation": invalidation,
             }
             for key in ("prz_low", "prz_mid", "prz_high"):
                 value = details.get(key)
@@ -951,7 +1024,7 @@ def _format_harmonic_patterns(
                 "bias": bias,
                 "entry_price": float(p.entry_price),
                 "reference_price": float(p.entry_price),
-                "invalidation_price": float(p.invalidation_price),
+                "invalidation_price": invalidation,
                 "price_levels": {
                     key: _round_value(value)
                     for key, value in price_levels.items()
@@ -961,15 +1034,29 @@ def _format_harmonic_patterns(
             }
             age_bars = max(0, n_bars - 1 - int(p.end_index))
             is_recent = age_bars < recent_bars
+            lifecycle = _harmonic_post_completion_lifecycle(
+                df,
+                end_index=int(p.end_index),
+                bias=bias,
+                target=target_1,
+                invalidation=invalidation,
+                is_recent=is_recent,
+                status=str(p.status),
+            )
             row["age_bars"] = age_bars
             row["is_recent"] = is_recent
-            signal_eligible = is_recent and str(p.status).lower() == "completed"
+            row["lifecycle"] = lifecycle
+            signal_eligible = (
+                is_recent
+                and str(p.status).lower() == "completed"
+                and lifecycle == "active"
+            )
             row["signal_eligible"] = signal_eligible
             row["bias_scope"] = (
                 "current"
                 if signal_eligible
                 else "provisional_structure"
-                if is_recent
+                if is_recent and lifecycle == "forming"
                 else "historical_structure"
             )
             if target_1 is not None:

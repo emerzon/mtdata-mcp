@@ -115,8 +115,14 @@ mtdata-cli patterns_detect EURUSD --timeframe H1 --mode harmonic --config "patte
 | `entry_price` | D-point completion price |
 | `target_price`, `target_price_1`, `target_price_2` | CD retracement targets |
 | `invalidation_price` | Pattern invalidation level with configured buffer |
+| `lifecycle` | Post-completion state vs later OHLC: `forming`, `active`, `target_reached`, `expired`, or `historical` |
+| `bias_scope` | `current` only while a completed pattern is still an active setup |
 | `price_levels` | Entry, targets, invalidation, and PRZ levels |
 | `details.ratios` | Measured Fibonacci ratios for the candidate |
+
+A completed bullish harmonic is not a `long_setup` after price has already
+reached the first target or broken invalidation. Compact output still keeps
+`target_price` and `invalidation_price` for an active current setup.
 
 ### Fractal Patterns
 
