@@ -446,6 +446,13 @@ def pivot_compute_points(  # noqa: C901
                 system_now_dt = datetime.now(timezone.utc)
                 system_now_ts = system_now_dt.timestamp()
                 pivot_cutoff_dt = historical_cutoff or system_now_dt
+                comparable = (
+                    pivot_cutoff_dt.replace(tzinfo=timezone.utc)
+                    if getattr(pivot_cutoff_dt, "tzinfo", None) is None
+                    else pivot_cutoff_dt
+                )
+                if comparable.timestamp() > system_now_ts:
+                    pivot_cutoff_dt = system_now_dt
                 rates = _mt5_copy_rates_from(symbol, mt5_tf, pivot_cutoff_dt, 5)
 
             if rates is None or len(rates) == 0:
@@ -456,6 +463,7 @@ def pivot_compute_points(  # noqa: C901
                 if historical_cutoff is not None
                 else system_now_ts
             )
+            cutoff_ts = min(float(cutoff_ts), float(system_now_ts))
             src = next(
                 (
                     row
