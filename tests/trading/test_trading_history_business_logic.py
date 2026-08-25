@@ -1510,6 +1510,68 @@ def test_trade_history_queries_minutes_back_as_absolute_mt5_epoch_window() -> No
     assert out["message"] == "No deals found for BTCUSD in the last 60 minute(s)"
 
 
+@pytest.mark.parametrize("history_kind", ["deals", "orders"])
+def test_trade_history_computes_epochs_without_signature_error(history_kind: str) -> None:
+    captured: dict[str, object] = {}
+
+    def history_get(from_dt, to_dt, symbol=None):
+        captured["from_dt"] = from_dt
+        captured["to_dt"] = to_dt
+        return []
+
+    gateway = SimpleNamespace(
+        ensure_connection=lambda: None,
+        history_deals_get=history_get,
+        history_orders_get=history_get,
+        symbol_info=lambda _symbol: SimpleNamespace(name="EURUSD"),
+    )
+
+    out = run_trade_history(
+        TradeHistoryRequest(history_kind=history_kind, minutes_back=60),
+        gateway=gateway,
+        use_client_tz=lambda: False,
+        format_time_minimal=lambda ts: f"t{int(ts)}",
+        format_time_minimal_local=lambda ts: f"lt{int(ts)}",
+        mt5_epoch_to_utc=lambda ts: ts,
+        parse_end_datetime=lambda value: None,
+        parse_start_datetime=lambda value: None,
+        normalize_limit=lambda value: value,
+        comment_row_metadata=lambda comment: {},
+        normalize_ticket_filter=lambda value, name: (None, None),
+        normalize_minutes_back=lambda value: (value, None),
+        decode_mt5_enum_label=lambda gateway, value, prefix=None: None,
+        mt5_config=SimpleNamespace(
+            get_client_tz=lambda: "UTC",
+            get_time_offset_seconds=lambda at_time=None: 3 * 60 * 60,
+        ),
+    )
+
+    assert "unexpected keyword argument" not in str(out.get("error") or "")
+    assert out.get("error_code") != "tool_error"
+    assert "error" not in out
+    assert isinstance(captured["from_dt"], (int, float))
+    assert isinstance(captured["to_dt"], (int, float))
+    assert float(captured["to_dt"]) - float(captured["from_dt"]) == 60 * 60
+    assert "No " in out["message"]
+
+
+def test_trade_journal_analyze_reaches_history_without_epoch_signature_error() -> None:
+    mt5, prev = _install_mock_mt5()
+    mt5.history_deals_get.return_value = []
+    mt5.account_info.return_value = SimpleNamespace(currency="USD")
+
+    try:
+        with patch("mtdata.core.trading.account._use_client_tz", lambda: False):
+            out = trade_journal_analyze(minutes_back=43200, __cli_raw=True)
+    finally:
+        if prev is not None:
+            sys.modules["MetaTrader5"] = prev
+
+    assert "unexpected keyword argument" not in str(out.get("error") or "")
+    assert out.get("error_code") != "tool_error"
+    mt5.history_deals_get.assert_called()
+
+
 def test_trade_history_returns_connection_error_payload() -> None:
     with patch(
         "mtdata.core.trading.account.ensure_mt5_connection_or_raise",

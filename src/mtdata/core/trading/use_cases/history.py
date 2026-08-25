@@ -374,14 +374,8 @@ def run_trade_history(  # noqa: C901
                     "remediation": "Choose a start datetime at or before the current time.",
                 }
 
-            history_from_dt = _utc_epoch_seconds(
-                from_dt,
-                config=mt5_config,
-            )
-            history_to_dt = _utc_epoch_seconds(
-                to_dt,
-                config=mt5_config,
-            )
+            history_from_dt = _utc_epoch_seconds(from_dt)
+            history_to_dt = _utc_epoch_seconds(to_dt)
 
             kind = str(request.history_kind or "deals").strip().lower()
             if kind not in ("deals", "orders"):
