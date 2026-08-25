@@ -659,6 +659,58 @@ def test_get_options_chain_uses_configured_tradier_provider(monkeypatch):
     )
 
 
+def test_normalize_tradier_options_maps_greeks(monkeypatch):
+    rows = [
+        {
+            "symbol": "AAPL260417C00100000",
+            "option_type": "call",
+            "strike": 100.0,
+            "last": 2.1,
+            "bid": 2.0,
+            "ask": 2.2,
+            "change": 0.1,
+            "change_percentage": 5.0,
+            "volume": 15,
+            "open_interest": 20,
+            "trade_date": "2026-04-16T19:59:00Z",
+            "currency": "USD",
+            "greeks": {
+                "delta": 0.55,
+                "gamma": 0.03,
+                "theta": -0.04,
+                "vega": 0.12,
+                "rho": 0.02,
+                "phi": 0.01,
+                "bid_iv": 0.24,
+                "mid_iv": 0.25,
+                "ask_iv": 0.26,
+                "smv_vol": 0.25,
+                "updated_at": "2026-04-16T19:58:00Z",
+            },
+        }
+    ]
+
+    out = osvc._normalize_tradier_options(
+        rows,
+        option_type="call",
+        min_open_interest=0,
+        min_volume=0,
+        underlying_price=101.0,
+    )
+
+    assert len(out) == 1
+    contract = out[0]
+    assert contract["implied_volatility"] == 0.25
+    assert contract["delta"] == 0.55
+    assert contract["gamma"] == 0.03
+    assert contract["theta"] == -0.04
+    assert contract["vega"] == 0.12
+    assert contract["rho"] == 0.02
+    assert contract["greeks_source"] == "tradier"
+    assert contract["greeks_as_of"] == "2026-04-16T19:58:00Z"
+    assert "phi" not in contract
+
+
 def test_configured_tradier_provider_without_token_falls_back_to_yahoo(monkeypatch):
     monkeypatch.setattr(osvc.options_data_config, "provider", "tradier")
     monkeypatch.setattr(osvc.options_data_config, "api_key", None)

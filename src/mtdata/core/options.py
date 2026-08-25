@@ -22,6 +22,14 @@ from .output_contract import normalize_output_verbosity_detail
 
 logger = logging.getLogger(__name__)
 
+_OPTIONS_CHAIN_UNIFORM_TERM_FIELDS = (
+    "contract_size",
+    "contract_multiplier",
+    "multiplier_status",
+    "deliverable",
+    "deliverable_status",
+    "premium_quote_unit",
+)
 _OPTIONS_CHAIN_COMPACT_FIELDS = (
     "side",
     "contract",
@@ -38,6 +46,7 @@ _OPTIONS_CHAIN_COMPACT_FIELDS = (
     "volume",
     "open_interest",
     "implied_volatility",
+    "delta",
     "in_the_money",
     "contract_as_of",
     "contract_data_age_seconds",
@@ -364,12 +373,21 @@ def _options_chain_provider_gate(tool_name: str) -> Optional[Dict[str, Any]]:
     }
 
 
-def _compact_option_contract(row: Any) -> Any:
+def _compact_option_contract(
+    row: Any,
+    *,
+    include_uniform_terms: bool = True,
+) -> Any:
     if not isinstance(row, dict):
         return row
+    fields = _OPTIONS_CHAIN_COMPACT_FIELDS
+    if not include_uniform_terms:
+        fields = tuple(
+            key for key in fields if key not in _OPTIONS_CHAIN_UNIFORM_TERM_FIELDS
+        )
     return {
         key: row[key]
-        for key in _OPTIONS_CHAIN_COMPACT_FIELDS
+        for key in fields
         if key in row and row[key] is not None
     }
 
@@ -509,7 +527,19 @@ def _apply_options_detail(
         }
         options = out.get("options")
         if isinstance(options, list):
-            compact["options"] = [_compact_option_contract(row) for row in options]
+            terms_summary = out.get("contract_terms_summary")
+            include_uniform_terms = True
+            if isinstance(terms_summary, dict) and terms_summary.get(
+                "mixed_or_unresolved_terms"
+            ) is False:
+                include_uniform_terms = False
+            compact["options"] = [
+                _compact_option_contract(
+                    row,
+                    include_uniform_terms=include_uniform_terms,
+                )
+                for row in options
+            ]
         return compact
     if kind == "barrier_price":
         return {

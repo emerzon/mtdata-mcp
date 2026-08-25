@@ -1229,6 +1229,7 @@ def _normalize_tradier_options(
         implied_volatility = row.get("implied_volatility")
         if implied_volatility in (None, ""):
             implied_volatility = greeks.get("mid_iv")
+        mapped_greeks = _tradier_greeks_fields(greeks)
         in_the_money = False
         if underlying == underlying:
             if side == "call":
@@ -1275,8 +1276,29 @@ def _normalize_tradier_options(
             **_option_contract_terms(
                 row.get("contract_size") or row.get("contractSize"),
             ),
+            **mapped_greeks,
         }
         out.append(entry)
+    return out
+
+
+def _tradier_greeks_fields(greeks: Dict[str, Any]) -> Dict[str, Any]:
+    if not greeks:
+        return {}
+    out: Dict[str, Any] = {}
+    for name in ("delta", "gamma", "theta", "vega", "rho"):
+        raw = greeks.get(name)
+        if raw in (None, ""):
+            continue
+        value = _to_numeric(raw, float, float("nan"), field_name=name)
+        if value == value:
+            out[name] = float(value)
+    if not out:
+        return {}
+    out["greeks_source"] = "tradier"
+    as_of = greeks.get("updated_at") or greeks.get("as_of")
+    if as_of not in (None, ""):
+        out["greeks_as_of"] = as_of
     return out
 
 
