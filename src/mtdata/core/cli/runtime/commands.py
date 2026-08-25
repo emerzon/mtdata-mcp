@@ -256,6 +256,14 @@ def friendly_validation_error(exc: ValidationError, *, cmd_name: str) -> str:
                 f"{example}"
             )
         if cmd_name == "trade_stress_test" and loc.split(".", 1)[0] == "shocks":
+            cleaned = msg
+            if cleaned.lower().startswith("value error, "):
+                cleaned = cleaned.split(",", 1)[1].strip()
+            lowered = cleaned.lower()
+            if "greater than -100" in lowered or (
+                "finite" in lowered and "-100" in lowered
+            ):
+                return cleaned
             return (
                 "shocks must be a JSON object mapping symbols to percentage shocks. "
                 "Examples: '{\"*\":-2}' or '{\"EURUSD\":-1,\"XAUUSD\":-3}'."

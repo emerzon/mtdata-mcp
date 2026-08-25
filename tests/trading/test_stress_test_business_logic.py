@@ -3,6 +3,9 @@ from __future__ import annotations
 import time
 from types import SimpleNamespace
 
+import pytest
+from pydantic import ValidationError
+
 from mtdata.core.trading.requests import TradeStressTestRequest
 from mtdata.core.trading.use_cases import run_trade_stress_test
 
@@ -48,6 +51,17 @@ class _Gateway:
 
     def symbol_info_tick(self, symbol):
         return SimpleNamespace(bid=1.0999, ask=1.1001, time=1)
+
+
+def test_trade_stress_test_rejects_total_loss_shock() -> None:
+    with pytest.raises(ValidationError, match="greater than -100"):
+        TradeStressTestRequest(shocks={"EURUSD": -100.0})
+
+
+def test_trade_stress_test_schema_publishes_exclusive_minimum() -> None:
+    schema = TradeStressTestRequest.model_json_schema()
+    additional = schema["properties"]["shocks"]["additionalProperties"]
+    assert additional["exclusiveMinimum"] == -100
 
 
 def test_trade_stress_test_offsets_long_and_short_positions():

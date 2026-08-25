@@ -1125,6 +1125,34 @@ class TestCreateCommandFunction:
         assert "shocks must be a JSON object mapping symbols" in capsys.readouterr().out
         mock_fn.assert_not_called()
 
+    def test_trade_stress_test_preserves_shock_bound_error(self, capsys):
+        mock_fn = MagicMock(return_value={"ok": True})
+        func_info = {
+            "func": mock_fn,
+            "request_model": TradeStressTestRequest,
+            "request_param_name": "request",
+            "params": [
+                {
+                    "name": "shocks",
+                    "type": Dict[str, float],
+                    "required": True,
+                    "default": None,
+                },
+            ],
+        }
+        cmd_fn = create_command_function(func_info, cmd_name="trade_stress_test")
+        args = argparse.Namespace(
+            shocks='{"EURUSD":-100}',
+            json=False,
+            verbose=False,
+        )
+
+        assert cmd_fn(args) == 2
+        output = capsys.readouterr().out
+        assert "greater than -100" in output
+        assert "must be a JSON object mapping symbols" not in output
+        mock_fn.assert_not_called()
+
     def test_labels_invalid_barrier_has_json_remediation(self, capsys):
         mock_fn = MagicMock(return_value={"ok": True})
         func_info = {

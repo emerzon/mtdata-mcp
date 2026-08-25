@@ -149,10 +149,10 @@ mtdata-cli trade_var_cvar_calculate EURUSD --method ewma --horizon-bars 6 --incl
 | `symbol` | — | Restrict to one symbol's exposure; omit for the full portfolio. |
 | `timeframe` | `H1` | Return interval. Combined with `horizon_bars` this is the holding period. |
 | `lookback` | `500` | Historical bars used to build the return distribution. |
+| `horizon_bars` | `1` | Holding period in bars of `timeframe`. Default is one-bar VaR; pass `5` to match `portfolio_risk_decompose`. Multi-bar results scale the one-bar return sample rather than simulating a path. |
+| `include_incomplete` | `false` | When true, the currently forming candle can enter the return series. Default uses only completed bars. |
 | `confidence` | `0.95` | Confidence fraction (`0.95`, `0.99`); must satisfy `0 < confidence < 1`. |
 | `method` | `historical` | `historical` (empirical tail), `parametric` (Gaussian), `cornish_fisher` (skew/kurtosis-adjusted Gaussian), or `ewma` (exponentially weighted historical). |
-| `horizon_bars` | `1` | Number of bars in the holding period. Multi-bar results scale the one-bar return sample rather than simulating a path. |
-| `include_incomplete` | `false` | When true, the currently forming candle can enter the return series. Default uses only completed bars. |
 | `transform` | `log_return` | Return transform: `log_return` or `pct`. |
 | `min_observations` | `50` | Minimum aligned observations before estimating risk. EWMA and Cornish-Fisher need enough sample for their extra moments/weights; the tool reports the effective sample in the payload. |
 
@@ -202,7 +202,7 @@ mtdata-cli trade_stress_test --shocks '{"*":-3.0}' --detail full --json
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `shocks` | (required) | Per-symbol percentage shocks, e.g. `{"EURUSD": -2.0}`. Use `"*"` as a fallback for symbols without an explicit entry. |
+| `shocks` | (required) | Per-symbol percentage shocks, e.g. `{"EURUSD": -2.0}`. Use `"*"` as a fallback for symbols without an explicit entry. Each shock must be finite and **greater than -100**. `-100` is rejected because it would imply a zero or negative price; model a near-total wipeout with a shock such as `-99.99`. |
 | `include_unshocked` | `false` | Include positions that received no shock (no exact match and no `"*"` fallback). |
 | `detail` | `compact` | `full` adds per-position diagnostics. |
 
@@ -220,9 +220,12 @@ metadata is available — `equity_before`/`equity_after`/`impact_pct`.
   book. Snapshot-dependent analytics return a `*_snapshot_unavailable` error;
   empty tuples/lists remain valid empty books.
 - VaR/CVaR assume the recent return distribution persists over the requested
-  `horizon_bars`; they are not a guarantee of maximum loss.
+  `horizon_bars` of the selected timeframe (default one bar); they are not a
+  guarantee of maximum loss.
 - Stress shocks are deterministic and linear in price; they do not model spread
-  widening, gaps, swaps, or correlation breaks.
+  widening, gaps, swaps, or correlation breaks. A `-100` percent shock is not
+  supported (exclusive minimum `-100`); use a near-total shock such as `-99.99`
+  when you want almost complete loss of the shocked price.
 - Kelly sizing is only as good as its inputs — estimate `win_rate` and normalized
   average win/loss returns from a sufficient out-of-sample track record.
 

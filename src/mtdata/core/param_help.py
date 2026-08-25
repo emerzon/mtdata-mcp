@@ -135,6 +135,14 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "Return transform: log_return (aliases log_returns/log) or pct "
         "(aliases pct_return/percent/simple_return)."
     ),
+    ("trade_var_cvar_calculate", "horizon_bars"): (
+        "Holding period in bars of the requested timeframe. Default 1 is a "
+        "one-bar VaR; pass 5 to match portfolio_risk_decompose's 5-bar horizon."
+    ),
+    ("trade_var_cvar_calculate", "include_incomplete"): (
+        "Include the current forming candle in return history. Defaults to false "
+        "so VaR/CVaR uses completed bars only."
+    ),
     ("data_fetch_candles", "indicators"): "Technical indicators. Catalog names come from indicators_list / indicators_describe (rsi, not rsi_14). On PowerShell, quote parenthesized specs such as --indicators \"rsi(14)\", or use shell-safe fetch specs rsi_14 / sma=20. JSON arrays like '[{\"name\":\"rsi\",\"params\":[14]}]' and named params like rsi(length=14) also work. Use params syntax, not sma,20. Output columns such as rsi_14 are backend-derived.",
     ("data_fetch_candles", "limit"): (
         "Maximum returned bars. Latest queries default to 20 most-recent bars. "
@@ -405,7 +413,8 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "Minimum eligible fills required for sufficient execution-quality evidence."
     ),
     ("trade_history", "column_style"): (
-        "Trade-history field naming: snake_case or humanized."
+        "Display labels for TOON/table output: snake_case or humanized. JSON "
+        "item keys, units, and output_fields paths stay snake_case."
     ),
     ("market_microstructure_analyze", "max_ticks"): (
         "Maximum raw ticks retained for microstructure analysis."
@@ -727,8 +736,10 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "Limit price activated by a BUY_STOP_LIMIT or SELL_STOP_LIMIT trigger."
     ),
     ("trade_stress_test", "shocks"): (
-        "JSON object mapping symbols to percentage shocks. Examples: "
-        "'{\"*\":-2}' or '{\"EURUSD\":-1,\"XAUUSD\":-3}'."
+        "JSON object mapping symbols to percentage shocks greater than -100. "
+        "Examples: '{\"*\":-2}' or '{\"EURUSD\":-1,\"XAUUSD\":-3}'. "
+        "-100 is rejected because it would imply a zero or negative price; "
+        "use a near-total shock such as -99.99 to model almost complete loss."
     ),
     ("trade_place", "require_sl_tp"): (
         "Require both stop_loss and take_profit for market and pending orders."
@@ -887,14 +898,15 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "Forecast horizons expressed in bars of the requested timeframe."
     ),
     ("portfolio_risk_decompose", "ewma_half_life"): (
-        "EWMA volatility half-life in bars of the requested timeframe."
+        "EWMA volatility half-life in bars of the requested timeframe. "
+        "Used only by method=filtered_historical; omit it for historical."
     ),
     ("portfolio_risk_decompose", "simulations"): (
         "Monte Carlo scenario count used for portfolio tail-risk estimates."
     ),
     ("portfolio_risk_decompose", "proposed_trade"): (
-        "Optional JSON trade object with symbol, buy/sell side, and volume in lots "
-        "for incremental-risk analysis."
+        "Optional JSON trade object with symbol, buy/sell (or long/short) side, "
+        "and volume in lots for incremental-risk analysis. Output side is buy/sell."
     ),
     ("portfolio_risk_decompose", "allow_partial"): (
         "Omit positions without safe marks or sufficient history and report them; "

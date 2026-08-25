@@ -2422,8 +2422,10 @@ class TestResolveParamKwargs:
         }
         kwargs, _ = _resolve_param_kwargs(param, None, cmd_name="trade_stress_test")
         assert kwargs["help"] == (
-            "JSON object mapping symbols to percentage shocks. Examples: "
-            "'{\"*\":-2}' or '{\"EURUSD\":-1,\"XAUUSD\":-3}'."
+            "JSON object mapping symbols to percentage shocks greater than -100. "
+            "Examples: '{\"*\":-2}' or '{\"EURUSD\":-1,\"XAUUSD\":-3}'. "
+            "-100 is rejected because it would imply a zero or negative price; "
+            "use a near-total shock such as -99.99 to model almost complete loss."
         )
 
     def test_trade_stress_test_requires_named_shocks_option(self):

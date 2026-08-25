@@ -396,12 +396,20 @@ class TradeHistoryRequest(_SideNormalizedRequest):
             "orders = order lifecycle events for audit/reconciliation."
         ),
     )
-    detail: DetailLiteral = "compact"
+    detail: DetailLiteral = Field(
+        default="compact",
+        description=(
+            "Response detail level. Compact returns a page of snake_case rows; "
+            "summary returns period aggregates without a row tape; full expands "
+            "raw MT5 attributes. JSON keys stay snake_case at every detail level."
+        ),
+    )
     column_style: Literal["snake_case", "humanized"] = Field(
         default="snake_case",
         description=(
-            "Primary history item key style. Defaults to snake_case to preserve "
-            "raw MT5-style history keys; use humanized for display labels."
+            "Display label style for TOON/table renderers. JSON and "
+            "output_fields paths stay canonical snake_case; humanized only "
+            "renames columns in display output."
         ),
     )
     start: Optional[str] = None
@@ -671,8 +679,17 @@ class TradeStressTestRequest(BaseModel):
         ...,
         description=(
             "Per-symbol percentage price shocks, for example {'EURUSD': -2.0}. "
-            "Use '*' as a fallback shock for symbols without an explicit entry."
+            "Use '*' as a fallback shock for symbols without an explicit entry. "
+            "Each shock must be finite and greater than -100. A total wipeout "
+            "is not representable at -100 because that would imply a zero or "
+            "negative price; use a near-total shock such as -99.99 instead."
         ),
+        json_schema_extra={
+            "additionalProperties": {
+                "type": "number",
+                "exclusiveMinimum": -100,
+            }
+        },
     )
     include_unshocked: bool = False
     detail: DetailLiteral = "compact"

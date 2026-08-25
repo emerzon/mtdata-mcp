@@ -225,6 +225,19 @@ def _patch_trade_history_schema(schema: Dict[str, Any]) -> None:
         )
 
 
+def _patch_trade_stress_test_schema(schema: Dict[str, Any]) -> None:
+    params, _required_params = _schema_params(schema)
+    shocks = params.get("shocks")
+    if not isinstance(shocks, dict):
+        return
+    additional = shocks.get("additionalProperties")
+    if not isinstance(additional, dict):
+        additional = {"type": "number"}
+        shocks["additionalProperties"] = additional
+    additional["type"] = "number"
+    additional["exclusiveMinimum"] = -100
+
+
 def _patch_forecast_barrier_prob_schema(schema: Dict[str, Any]) -> None:
     params, _required_params = _schema_params(schema)
     if "method" not in params:
@@ -334,6 +347,7 @@ _TOOL_SCHEMA_PATCHERS: Dict[str, tuple[_SchemaPatcher, ...]] = {
     "data_fetch_candles": (_patch_data_fetch_candles_schema,),
     "data_fetch_ticks": (_patch_data_fetch_ticks_schema,),
     "trade_history": (_patch_trade_history_schema,),
+    "trade_stress_test": (_patch_trade_stress_test_schema,),
     "forecast_barrier_prob": (_patch_forecast_barrier_prob_schema,),
     "forecast_barrier_optimize": (_patch_forecast_barrier_optimize_schema,),
     "trade_place": (_patch_trade_place_schema,),
