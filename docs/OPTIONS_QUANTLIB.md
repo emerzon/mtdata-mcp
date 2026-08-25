@@ -61,6 +61,10 @@ mtdata-cli options_expirations AAPL --json
 mtdata-cli options_expirations SPX --json
 ```
 
+Compact output returns the nearest 12 dates by default. Use `--limit` and
+`--offset` for bounded pages, or `--detail full` for the complete provider
+calendar.
+
 **Returns:** List of expiration dates available for the symbol. When an alias is
 used, the response includes `requested_symbol` and `provider_symbol`. An empty
 provider expiration snapshot fails with `options_expirations_unavailable`

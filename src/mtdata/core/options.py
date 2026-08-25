@@ -166,7 +166,7 @@ def _options_unsupported_venue_error(normalized: str, suffix: str) -> Dict[str, 
         "success": False,
         "error": (
             f"{normalized} is a venue-qualified non-US symbol. Options tools "
-            "do not rewrite exchange suffixes such as .{suffix} onto a different "
+            f"do not rewrite exchange suffixes such as .{suffix} onto a different "
             "country's listing."
         ),
         "error_code": "options_unsupported_symbol",
@@ -361,6 +361,7 @@ def _options_provider_no_data_error(symbol: str, exc: BaseException) -> Dict[str
         "success": False,
         "error": f"Failed to fetch options chain: {message}",
         "error_code": "options_data_not_found",
+        "retryable": False,
         "symbol": symbol,
         "classification": "unknown_symbol_or_no_listed_options",
         "remediation": (
@@ -692,6 +693,8 @@ def _apply_options_detail(
                 "provider_symbol",
                 "expirations",
                 "expiration_count",
+                "available_count",
+                "pagination",
                 "warnings",
                 "detail",
             )
@@ -708,25 +711,11 @@ def _apply_options_detail(
                 "cached",
                 "underlying_data_age_seconds",
                 "underlying_data_stale",
-                "underlying_stale_after_seconds",
                 "underlying_as_of",
                 "underlying_freshness",
-                "underlying_freshness_reason",
-                "underlying_price_source",
-                "underlying_price_session",
                 "underlying_quote",
-                "retrieved_at",
-                "pagination_scope",
-                "moneyness_formula",
-                "option_contract_stale_after_seconds",
                 "option_contract_count",
-                "option_contract_timestamped_count",
-                "option_contract_current_count",
-                "option_contract_stale_count",
                 "option_contract_quote_usable_count",
-                "option_contract_last_trade_proxy_count",
-                "option_contract_earliest_as_of",
-                "option_contract_latest_as_of",
                 "option_chain_data_stale",
                 "option_chain_freshness",
                 "option_chain_quality",
@@ -766,16 +755,10 @@ def _apply_options_detail(
         }
         options = out.get("options")
         if isinstance(options, list):
-            terms_summary = out.get("contract_terms_summary")
-            include_uniform_terms = True
-            if isinstance(terms_summary, dict) and terms_summary.get(
-                "mixed_or_unresolved_terms"
-            ) is False:
-                include_uniform_terms = False
             compact["options"] = [
                 _compact_option_contract(
                     row,
-                    include_uniform_terms=include_uniform_terms,
+                    include_uniform_terms=True,
                     include_freshness=False,
                 )
                 for row in options
@@ -930,6 +913,8 @@ def options_provider_status(
 @mcp.tool()
 def options_expirations(
     symbol: str,
+    limit: Annotated[Optional[int], Field(ge=1)] = None,
+    offset: Annotated[int, Field(ge=0)] = 0,
     detail: DetailLiteral = "compact",  # type: ignore
 ) -> Dict[str, Any]:
     """Fetch option expirations using the configured options-chain provider.
@@ -939,7 +924,9 @@ def options_expirations(
     `auto`, mtdata retries Yahoo if Tradier is unavailable or misconfigured. For
     reliable options-chain data, configure Tradier with
     MTDATA_OPTIONS_PROVIDER=tradier and MTDATA_OPTIONS_API_KEY. Tradier API
-    tokens: https://documentation.tradier.com/.
+    tokens: https://documentation.tradier.com/. Compact output defaults to the
+    nearest 12 expirations; full detail returns the complete calendar unless
+    ``limit`` is supplied. Use ``offset`` for subsequent live pages.
     """
     from ..services.options_service import get_options_expirations as _impl
 
@@ -960,18 +947,40 @@ def options_expirations(
             func=lambda: gate,
         )
     symbol_value = _resolve_options_provider_symbol(symbol_value)
+    detail_mode = _options_detail_mode(detail)
+    effective_limit = limit if limit is not None else (None if detail_mode == "full" else 12)
 
     def _fetch_expirations() -> Dict[str, Any]:
         try:
             payload = _impl(symbol=symbol_value)
         except ValueError as exc:
             payload = _options_provider_no_data_error(symbol_value, exc)
+        payload = _attach_options_symbol_mapping(
+            payload,
+            requested_symbol=symbol,
+            provider_symbol=symbol_value,
+        )
+        expirations = payload.get("expirations")
+        if payload.get("success") and isinstance(expirations, list):
+            available_count = len(expirations)
+            start_index = int(offset)
+            stop_index = (
+                available_count
+                if effective_limit is None
+                else start_index + int(effective_limit)
+            )
+            payload["expirations"] = expirations[start_index:stop_index]
+            payload["expiration_count"] = len(payload["expirations"])
+            payload["available_count"] = available_count
+            payload["pagination"] = {
+                "offset": start_index,
+                "limit": effective_limit,
+                "returned": len(payload["expirations"]),
+                "has_more": stop_index < available_count,
+                "next_offset": stop_index if stop_index < available_count else None,
+            }
         return _apply_options_detail(
-            _attach_options_symbol_mapping(
-                payload,
-                requested_symbol=symbol,
-                provider_symbol=symbol_value,
-            ),
+            payload,
             detail=detail,
             kind="expirations",
         )
@@ -979,6 +988,8 @@ def options_expirations(
     return _run_options_operation(
         "options_expirations",
         symbol=symbol_value,
+        limit=effective_limit,
+        offset=offset,
         detail=detail,
         func=_fetch_expirations,
     )

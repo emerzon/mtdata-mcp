@@ -444,7 +444,10 @@ PARAM_HINTS = {
     "strike": "Option strike price.",
     "max_contracts": "Maximum option contracts to use during calibration.",
     "barrier_type": "Barrier style: up_in, up_out, down_in, down_out.",
-    "rebate": "Barrier option rebate paid upon knock-in/out.",
+    "rebate": (
+        "Cash rebate: for knock-out options, paid when the barrier is hit; for "
+        "knock-in options, paid at expiry if the barrier is never hit."
+    ),
     "volatility": "Annualized volatility as a decimal fraction; 0.20 = 20% (default 0.2).",
     # Finviz parameters
     "news_type": "News type: 'news' or 'blogs'.",

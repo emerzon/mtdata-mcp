@@ -5604,12 +5604,16 @@ def test_options_tools_support_compact_and_full_detail(monkeypatch):
         "mixed_or_unresolved_terms"
     ] is False
     compact_option = compact_chain["options"][0]
-    assert "contract_size" not in compact_option
-    assert "contract_multiplier" not in compact_option
-    assert "multiplier_status" not in compact_option
-    assert "deliverable" not in compact_option
-    assert "deliverable_status" not in compact_option
-    assert "premium_quote_unit" not in compact_option
+    assert compact_option["contract_size"] == "REGULAR"
+    assert compact_option["contract_multiplier"] == 100
+    assert compact_option["multiplier_status"] == (
+        "standard_from_provider_classification"
+    )
+    assert compact_option["deliverable"] == "100 underlying units"
+    assert compact_option["deliverable_status"] == "standard"
+    assert compact_option["premium_quote_unit"] == (
+        "currency_per_underlying_unit"
+    )
     full_option = raw_chain("AAPL", detail="full")["options"][0]
     assert full_option["contract_size"] == "REGULAR"
     assert full_option["contract_multiplier"] == 100
