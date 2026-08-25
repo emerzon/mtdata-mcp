@@ -6,6 +6,7 @@ import {
   filterToolCatalog,
   formatToolResult,
   humanizeIdentifier,
+  invocationNeedsConfirmation,
   shapeInvokeArguments,
   schemaToToolFields,
   toolIsRunnable,
@@ -103,14 +104,22 @@ export function ToolsRunnerPanel({
       setRunError(getErrorMessage(error))
     } finally {
       setIsRunning(false)
+      setConfirm(false)
     }
   }, [selected, fields, values, confirm])
+
+  const onFieldChange = useCallback((name: string, value: string) => {
+    setValues((prev) => ({ ...prev, [name]: value }))
+    setConfirm(false)
+  }, [])
 
   if (!open) return null
 
   const panelClass = forecastPanelPlacementClass(layoutBreakpoint)
-  const needsConfirm = Boolean(selected?.safety?.requires_confirmation)
+  const needsConfirm = invocationNeedsConfirmation(selected, fields, values)
   const runnable = toolIsRunnable(selected)
+  const registeredCount =
+    catalogQuery.data?.pagination?.total ?? catalogQuery.data?.count ?? tools.length
 
   return (
     <>
@@ -139,7 +148,7 @@ export function ToolsRunnerPanel({
           <div>
             <h2 className="text-sm font-semibold text-slate-100">All tools</h2>
             <p className="text-[11px] text-slate-500">
-              {catalogQuery.data?.count ?? tools.length} registered · schema-driven runner
+              {registeredCount} registered · schema-driven runner
             </p>
           </div>
           <button
@@ -288,9 +297,7 @@ export function ToolsRunnerPanel({
                       <input
                         className="mt-0.5 w-full bg-slate-800 text-slate-200 text-xs rounded px-2 py-1.5 border border-slate-700"
                         value={values[field.name] ?? ''}
-                        onChange={(event) =>
-                          setValues((prev) => ({ ...prev, [field.name]: event.target.value }))
-                        }
+                        onChange={(event) => onFieldChange(field.name, event.target.value)}
                         placeholder={field.default !== undefined && field.default !== null ? String(field.default) : ''}
                         disabled={!runnable || isRunning}
                       />

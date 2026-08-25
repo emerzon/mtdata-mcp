@@ -102,8 +102,10 @@ fill the form, and run.
 - `trade_idea_compose` is a preview-only research idea (forecast, barriers, size, dry-run). It does not need confirm and cannot place an order.
 - Research tools (candles, news, forecasts, reports) do not need a confirm tick.
 - Order changes (`trade_place`, `trade_modify`, `trade_close`) and a few
-  destructive model/task tools require **confirm**. Preview still defaults to
-  dry-run (`dry_run=true`) unless you turn that off.
+  destructive model/task tools require **confirm** only for a live run
+  (`dry_run=false`, or a mutating tool with no preview). A dry-run preview
+  does not need the tick. Changing any parameter or running the tool clears
+  confirmation, so a later live submit needs a fresh acknowledgment.
 - Prefer a demo account. See [Trading safety](TRADING_SAFETY.md).
 
 ### Do not run these from the browser

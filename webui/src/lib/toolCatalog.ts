@@ -182,15 +182,57 @@ export function coerceParamValue(text: string, typeHint?: string): unknown {
   }
 
   if (t.includes('int') && !t.includes('float') && /^-?\d+$/.test(value)) {
-    return Number(value)
+    return coerceIntegerText(value)
   }
   if ((t.includes('float') || t.includes('number')) && /^-?\d+(\.\d+)?$/.test(value)) {
     return Number(value)
   }
-  if (!t && /^-?\d+$/.test(value)) return Number(value)
+  if (!t && /^-?\d+$/.test(value)) return coerceIntegerText(value)
   if (!t && /^-?\d+\.\d+$/.test(value)) return Number(value)
 
   return value
+}
+
+/** Keep integers outside MAX_SAFE_INTEGER as decimal strings for uint64 tickets/magic. */
+export function coerceIntegerText(value: string): number | string {
+  const asNumber = Number(value)
+  if (Number.isSafeInteger(asNumber)) return asNumber
+  return value
+}
+
+export function parseBoolLike(value: unknown): boolean | undefined {
+  if (typeof value === 'boolean') return value
+  if (value == null) return undefined
+  const text = String(value).trim().toLowerCase()
+  if (['true', '1', 'yes', 'on'].includes(text)) return true
+  if (['false', '0', 'no', 'off'].includes(text)) return false
+  return undefined
+}
+
+export function effectiveDryRun(
+  fields: ToolField[] | undefined | null,
+  values: ToolParamValues
+): boolean | undefined {
+  const args = shapeInvokeArguments(fields, values)
+  if ('dry_run' in args) {
+    const parsed = parseBoolLike(args.dry_run)
+    if (parsed !== undefined) return parsed
+  }
+  const field = (fields ?? []).find((item) => item.name === 'dry_run')
+  if (field && field.default !== undefined && field.default !== null) {
+    return parseBoolLike(field.default)
+  }
+  return undefined
+}
+
+/** Confirm only when the current arguments can mutate (live dry_run=false or no preview). */
+export function invocationNeedsConfirmation(
+  tool: ToolCatalogEntry | null | undefined,
+  fields: ToolField[] | undefined | null,
+  values: ToolParamValues
+): boolean {
+  if (!tool?.safety?.requires_confirmation) return false
+  return effectiveDryRun(fields, values) !== true
 }
 
 export function formatToolResult(result: unknown): string {

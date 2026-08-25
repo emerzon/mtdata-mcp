@@ -5,6 +5,7 @@ import {
   filterToolCatalog,
   formatToolResult,
   humanizeIdentifier,
+  invocationNeedsConfirmation,
   shapeInvokeArguments,
   toolIsRunnable,
   uniqueCategories,
@@ -108,6 +109,68 @@ describe('coerceParamValue', () => {
     expect(coerceParamValue('off', 'boolean')).toBe(false)
     expect(coerceParamValue('42', 'int')).toBe(42)
     expect(coerceParamValue('[1,2]', 'list')).toEqual([1, 2])
+  })
+
+  it('keeps uint64 identifiers outside MAX_SAFE_INTEGER as decimal strings', () => {
+    expect(coerceParamValue('9007199254740991', 'integer')).toBe(9007199254740991)
+    expect(coerceParamValue('9007199254740993', 'integer')).toBe('9007199254740993')
+    expect(coerceParamValue('18446744073709551615', 'int')).toBe('18446744073709551615')
+    expect(coerceParamValue('9007199254740993')).toBe('9007199254740993')
+    expect(
+      shapeInvokeArguments(
+        [{ name: 'ticket', required: true, type: 'integer' }],
+        { ticket: '9007199254740993' }
+      )
+    ).toEqual({ ticket: '9007199254740993' })
+    expect(
+      shapeInvokeArguments(
+        [{ name: 'magic', required: false, type: 'integer' }],
+        { magic: '18446744073709551615' }
+      )
+    ).toEqual({ magic: '18446744073709551615' })
+  })
+})
+
+describe('invocationNeedsConfirmation', () => {
+  const tradePlace: ToolCatalogEntry = {
+    name: 'trade_place',
+    safety: { requires_confirmation: true, is_live_trade_mutation: true },
+  }
+  const fields: ToolField[] = [
+    { name: 'symbol', required: true, type: 'str' },
+    { name: 'dry_run', required: false, default: true, type: 'bool' },
+  ]
+
+  it('does not require confirm for dry-run previews', () => {
+    expect(
+      invocationNeedsConfirmation(tradePlace, fields, { symbol: 'EURUSD', dry_run: 'true' })
+    ).toBe(false)
+    expect(
+      invocationNeedsConfirmation(tradePlace, fields, { symbol: 'EURUSD', dry_run: '' })
+    ).toBe(false)
+  })
+
+  it('requires confirm for live mutations and tools without dry_run', () => {
+    expect(
+      invocationNeedsConfirmation(tradePlace, fields, { symbol: 'EURUSD', dry_run: 'false' })
+    ).toBe(true)
+    expect(
+      invocationNeedsConfirmation(
+        { name: 'forecast_task_cancel', safety: { requires_confirmation: true } },
+        [{ name: 'task_id', required: true, type: 'str' }],
+        { task_id: 'task-1' }
+      )
+    ).toBe(true)
+  })
+
+  it('does not require confirm for non-mutating tools', () => {
+    expect(
+      invocationNeedsConfirmation(
+        { name: 'tools_list', safety: { requires_confirmation: false } },
+        [],
+        {}
+      )
+    ).toBe(false)
   })
 })
 

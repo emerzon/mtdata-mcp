@@ -344,13 +344,27 @@ export async function readyCheck(signal?: AbortSignal): Promise<{ ok: boolean; p
 // MCP tool catalog + generic invoke
 // ============================================================================
 
+export type ToolsListPagination = {
+  total?: number
+  returned?: number
+  offset?: number
+  limit?: number
+  has_more?: boolean
+  more_available?: number
+}
+
 export type ToolsListResponse = {
   success?: boolean
   count?: number
+  detail?: string
   categories?: Record<string, string[]>
   surfaces?: Record<string, number>
+  pagination?: ToolsListPagination
   tools: ToolCatalogEntry[]
 }
+
+/** Compact catalog page size used by the Tools runner index fetch. */
+export const TOOL_CATALOG_INDEX_LIMIT = 500
 
 export type ToolDetailResponse = {
   success?: boolean
@@ -365,22 +379,32 @@ export type ToolInvokeResponse = {
 }
 
 export async function listTools(
-  params?: { category?: string; search?: string; include_fields?: boolean },
+  params?: {
+    category?: string
+    search?: string
+    include_fields?: boolean
+    detail?: 'compact' | 'standard' | 'full'
+    limit?: number
+    offset?: number
+  },
   signal?: AbortSignal
 ): Promise<ToolsListResponse> {
   const { data } = await api.get<ToolsListResponse>('tools', {
     params: {
-      detail: 'standard',
+      detail: params?.detail ?? 'compact',
+      limit: params?.limit ?? TOOL_CATALOG_INDEX_LIMIT,
+      offset: params?.offset,
       category: params?.category || undefined,
       search: params?.search || undefined,
       include_fields: params?.include_fields || undefined,
     },
     signal,
   })
+  const tools = Array.isArray(data?.tools) ? data.tools : []
   return {
     ...data,
-    tools: Array.isArray(data?.tools) ? data.tools : [],
-    count: typeof data?.count === 'number' ? data.count : Array.isArray(data?.tools) ? data.tools.length : 0,
+    tools,
+    count: typeof data?.count === 'number' ? data.count : tools.length,
   }
 }
 

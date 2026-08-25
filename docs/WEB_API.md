@@ -342,8 +342,9 @@ richer volatility diagnostics supported by the selected method.
 #### `GET /api/tools`
 List registered MCP tools for the Web UI runner (bootstraps the full tool surface).
 
-- **Query Params:** `category`, `search`, `detail` (`compact`|`standard`|`full`), `include_fields` (bool)
-- **Response:** tools with `surface` (`dedicated_ui`|`generic_runner`|`intentional_omit`) and `safety` metadata (confirm flags, warnings)
+- **Query Params:** `category` (canonical catalog ID), `search`, `detail` (`compact`|`standard`|`full`, default `compact`), `include_fields` (bool), `limit` (default 20, max 1000), `offset` (default 0)
+- Unknown `category` or `detail` values return HTTP 422 with the parameter name and valid values. An empty `tools` array is reserved for a valid filter that matched nothing.
+- **Response:** a page of tools with `surface` (`dedicated_ui`|`generic_runner`|`intentional_omit`) and `safety` metadata, plus `pagination` (`total`, `returned`, `offset`, `limit`, `has_more`, `more_available`). `categories` and `surfaces` cover the full filtered set, not only the current page.
 
 #### `GET /api/tools/{tool_name}`
 Return one tool for the form runner.

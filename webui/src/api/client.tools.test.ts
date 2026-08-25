@@ -26,10 +26,12 @@ describe('tools client adapters', () => {
 
   it('listTools normalizes missing tools array and hits tools', async () => {
     getMock.mockResolvedValueOnce({ data: { success: true } })
-    const { listTools } = await import('./client')
+    const { listTools, TOOL_CATALOG_INDEX_LIMIT } = await import('./client')
     const result = await listTools({ search: 'regime' })
     expect(String(getMock.mock.calls[0][0])).toBe('tools')
     expect(getMock.mock.calls[0][1]?.params?.search).toBe('regime')
+    expect(getMock.mock.calls[0][1]?.params?.detail).toBe('compact')
+    expect(getMock.mock.calls[0][1]?.params?.limit).toBe(TOOL_CATALOG_INDEX_LIMIT)
     expect(result.tools).toEqual([])
     expect(result.count).toBe(0)
   })

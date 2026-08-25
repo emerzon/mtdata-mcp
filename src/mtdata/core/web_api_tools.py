@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import difflib
 import inspect
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional, Sequence, get_args
 
 from fastapi import HTTPException
 from pydantic import BaseModel, ValidationError
 
 from ..forecast.exceptions import ForecastError
+from ..shared.tool_categories import TOOL_CATEGORY_IDS
 from ..utils.coercion import UNPARSED_BOOL, parse_bool_like
 from ..utils.denoise import DenoiseCausalityError
 from ..utils.mt5 import MT5ConnectionError
@@ -23,12 +25,19 @@ from ._mcp_tools import (
 )
 from .cli.runtime.commands import LIVE_TRADE_MUTATION_TOOLS, LIVE_TRADE_MUTATION_WARNING
 from .execution_logging import infer_result_success
+from .output_contract import build_pagination_meta
 from .schema_attach import get_public_tool_schema
 from .tool_calling import resolve_sync_tool_result, unwrap_tool_callable
 from .web_api_handlers import _http_error, _http_status_for_error
 
 logger = logging.getLogger(__name__)
-_CATALOG_DETAILS = frozenset({"compact", "standard", "full"})
+
+ToolCatalogCategory = Literal[*TOOL_CATEGORY_IDS]
+ToolCatalogDetail = Literal["compact", "standard", "full"]
+TOOL_CATALOG_CATEGORIES = TOOL_CATEGORY_IDS
+TOOL_CATALOG_DETAILS = get_args(ToolCatalogDetail)
+TOOLS_CATALOG_DEFAULT_LIMIT = 20
+TOOLS_CATALOG_MAX_LIMIT = 1000
 
 # Account / store mutations that must never be one-click unguarded from the SPA.
 MUTATING_TOOLS: frozenset[str] = frozenset(
@@ -229,9 +238,114 @@ def tool_safety_meta(name: str) -> Dict[str, Any]:
     return meta
 
 
-def _catalog_detail_mode(detail: str, *, default: str) -> str:
+def _invalid_catalog_query_error(
+    *,
+    parameter: str,
+    value: str,
+    valid: Sequence[str],
+    operation: str,
+) -> HTTPException:
+    valid_values = [str(item) for item in valid]
+    requested = str(value or "").strip()
+    matches = difflib.get_close_matches(requested, valid_values, n=1, cutoff=0.5)
+    suggestion = matches[0] if matches else None
+    message = (
+        f"Invalid {parameter} '{requested}'. "
+        f"Valid values: {', '.join(valid_values)}."
+    )
+    if suggestion:
+        message += f" Did you mean '{suggestion}'?"
+    details: Dict[str, Any] = {
+        "parameter": parameter,
+        "value": requested,
+        "valid_values": valid_values,
+    }
+    if suggestion:
+        details["suggestion"] = suggestion
+    return _http_error(
+        422,
+        message,
+        code="tool_param_error",
+        operation=operation,
+        details=details,
+    )
+
+
+def _catalog_detail_mode(detail: str, *, default: str, operation: str) -> str:
     requested = str(detail or default).strip().lower()
-    return requested if requested in _CATALOG_DETAILS else default
+    if requested in TOOL_CATALOG_DETAILS:
+        return requested
+    raise _invalid_catalog_query_error(
+        parameter="detail",
+        value=str(detail or ""),
+        valid=TOOL_CATALOG_DETAILS,
+        operation=operation,
+    )
+
+
+def _catalog_category_filter(category: Optional[str], *, operation: str) -> Optional[str]:
+    requested = str(category or "").strip().lower()
+    if not requested:
+        return None
+    if requested in TOOL_CATALOG_CATEGORIES:
+        return requested
+    raise _invalid_catalog_query_error(
+        parameter="category",
+        value=str(category or ""),
+        valid=TOOL_CATALOG_CATEGORIES,
+        operation=operation,
+    )
+
+
+def _catalog_limit_value(limit: Any) -> int:
+    try:
+        value = int(limit)
+    except (TypeError, ValueError) as exc:
+        raise _http_error(
+            422,
+            "limit must be a positive integer.",
+            code="tool_param_error",
+            operation="tools_list",
+            details={"parameter": "limit", "value": limit},
+        ) from exc
+    if value < 1 or value > TOOLS_CATALOG_MAX_LIMIT:
+        raise _http_error(
+            422,
+            (
+                "limit must be between 1 and "
+                f"{TOOLS_CATALOG_MAX_LIMIT}."
+            ),
+            code="tool_param_error",
+            operation="tools_list",
+            details={
+                "parameter": "limit",
+                "value": value,
+                "valid_values": {"min": 1, "max": TOOLS_CATALOG_MAX_LIMIT},
+            },
+        )
+    return value
+
+
+def _catalog_offset_value(offset: Any) -> int:
+    try:
+        value = int(offset or 0)
+    except (TypeError, ValueError) as exc:
+        raise _http_error(
+            422,
+            "offset must be a non-negative integer.",
+            code="tool_param_error",
+            operation="tools_list",
+            details={"parameter": "offset", "value": offset},
+        ) from exc
+    if value < 0:
+        raise _http_error(
+            422,
+            "offset must be a non-negative integer.",
+            code="tool_param_error",
+            operation="tools_list",
+            details={"parameter": "offset", "value": value},
+        )
+    return value
 
 
 def _enrich_catalog_row(row: Dict[str, Any], *, include_fields: bool = False) -> Dict[str, Any]:
@@ -248,40 +362,50 @@ def list_tools_for_webapi(
     *,
     category: Optional[str] = None,
     search: Optional[str] = None,
-    detail: str = "standard",
+    detail: str = "compact",
     include_fields: bool = False,
+    limit: int = TOOLS_CATALOG_DEFAULT_LIMIT,
+    offset: int = 0,
 ) -> Dict[str, Any]:
     ensure_tools_bootstrapped()
-    detail_mode = _catalog_detail_mode(detail, default="standard")
+    detail_mode = _catalog_detail_mode(detail, default="compact", operation="tools_list")
+    category_filter = _catalog_category_filter(category, operation="tools_list")
+    limit_value = _catalog_limit_value(limit)
+    offset_value = _catalog_offset_value(offset)
     catalog = registered_tool_catalog(detail=detail_mode)
     tools = catalog.get("tools") if isinstance(catalog, dict) else []
     if not isinstance(tools, list):
         tools = []
 
-    enriched: List[Dict[str, Any]] = []
-    for row in filter_tool_catalog_rows(
+    filtered = filter_tool_catalog_rows(
         tools,
-        category=category,
+        category=category_filter,
         search=search,
-    ):
-        enriched.append(_enrich_catalog_row(row, include_fields=include_fields))
+    )
+    start = min(offset_value, len(filtered))
+    paged = filtered[start : start + limit_value]
+    enriched = [_enrich_catalog_row(row, include_fields=include_fields) for row in paged]
 
     categories: Dict[str, List[str]] = {}
-    for row in enriched:
-        categories.setdefault(str(row.get("category") or "other"), []).append(str(row.get("name") or ""))
-
     surfaces = {"dedicated_ui": 0, "generic_runner": 0, "intentional_omit": 0}
-    for row in enriched:
-        surfaces[str(row.get("surface") or "generic_runner")] = surfaces.get(
-            str(row.get("surface") or "generic_runner"), 0
-        ) + 1
+    for row in filtered:
+        name = str(row.get("name") or "")
+        categories.setdefault(str(row.get("category") or "other"), []).append(name)
+        surface = classify_tool_surface(name)
+        surfaces[surface] = surfaces.get(surface, 0) + 1
 
     return {
         "success": True,
-        "detail": catalog.get("detail") if isinstance(catalog, dict) else detail,
+        "detail": catalog.get("detail") if isinstance(catalog, dict) else detail_mode,
         "count": len(enriched),
         "categories": categories,
         "surfaces": surfaces,
+        "pagination": build_pagination_meta(
+            total=len(filtered),
+            returned=len(enriched),
+            offset=offset_value,
+            limit=limit_value,
+        ),
         "tools": enriched,
     }
 
@@ -302,7 +426,7 @@ def get_tool_for_webapi(
             operation="tools_get",
         )
 
-    detail_mode = _catalog_detail_mode(detail, default="compact")
+    detail_mode = _catalog_detail_mode(detail, default="compact", operation="tools_get")
     match = registered_tool_catalog_entry(name, detail=detail_mode)
     if match is None:
         raise _http_error(

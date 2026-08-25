@@ -14,12 +14,16 @@ from fastapi.testclient import TestClient
 
 from mtdata.core import web_api
 from mtdata.core.report.requests import ReportGenerateRequest
-from mtdata.core.trading.requests import TradePlaceRequest
+from mtdata.core.trading.requests import TradeModifyRequest, TradePlaceRequest
 from mtdata.core.web_api_tools import (
     DEDICATED_UI_TOOLS,
     MUTATING_TOOLS,
+    TOOL_CATALOG_CATEGORIES,
+    TOOL_CATALOG_DETAILS,
+    TOOLS_CATALOG_DEFAULT_LIMIT,
     classify_tool_surface,
     coverage_inventory_rows,
+    get_tool_for_webapi,
     invoke_tool_for_webapi,
     list_tools_for_webapi,
     tool_requires_confirmation,
@@ -165,6 +169,58 @@ class TestListAndInvoke:
         assert tool["name"] == "tools_list"
         assert tool["surface"] == "dedicated_ui"
         assert "safety" in tool
+        assert payload["detail"] == "compact"
+        assert payload["pagination"]["limit"] == TOOLS_CATALOG_DEFAULT_LIMIT
+
+    def test_list_tools_rejects_unknown_category(self):
+        with pytest.raises(HTTPException) as exc:
+            list_tools_for_webapi(category="tradng")
+        assert exc.value.status_code == 422
+        _assert_error_envelope(
+            exc.value.detail, error_code="tool_param_error", operation="tools_list"
+        )
+        details = exc.value.detail["details"]
+        assert details["parameter"] == "category"
+        assert "trading" in details["valid_values"]
+        assert details["suggestion"] == "trading"
+
+    def test_list_tools_rejects_unknown_detail(self):
+        with pytest.raises(HTTPException) as exc:
+            list_tools_for_webapi(detail="verbose")
+        assert exc.value.status_code == 422
+        details = exc.value.detail["details"]
+        assert details["parameter"] == "detail"
+        assert set(details["valid_values"]) == set(TOOL_CATALOG_DETAILS)
+
+    def test_list_tools_valid_filter_with_no_matches_is_empty(self):
+        payload = list_tools_for_webapi(category="trading", search="zzz_no_such_tool")
+        assert payload["success"] is True
+        assert payload["count"] == 0
+        assert payload["tools"] == []
+        assert payload["pagination"]["total"] == 0
+        assert payload["pagination"]["has_more"] is False
+
+    def test_get_tool_rejects_unknown_detail(self):
+        with pytest.raises(HTTPException) as exc:
+            get_tool_for_webapi("trade_place", detail="verbose")
+        assert exc.value.status_code == 422
+        details = exc.value.detail["details"]
+        assert details["parameter"] == "detail"
+        assert set(details["valid_values"]) == set(TOOL_CATALOG_DETAILS)
+
+    def test_list_tools_pages_compact_catalog(self):
+        first = list_tools_for_webapi(limit=2, offset=0)
+        second = list_tools_for_webapi(limit=2, offset=2)
+        unbounded = list_tools_for_webapi(limit=TOOLS_CATALOG_DEFAULT_LIMIT, offset=0)
+        assert first["count"] == 2
+        assert first["pagination"]["limit"] == 2
+        assert first["pagination"]["offset"] == 0
+        assert first["pagination"]["total"] >= 4
+        assert first["pagination"]["has_more"] is True
+        assert [row["name"] for row in first["tools"]] != [
+            row["name"] for row in second["tools"]
+        ]
+        assert unbounded["count"] <= TOOLS_CATALOG_DEFAULT_LIMIT
 
     def test_invoke_tools_list(self):
         result = invoke_tool_for_webapi(
@@ -406,7 +462,49 @@ class TestWebApiRoutes:
         assert res.status_code == 200
         body = res.json()
         assert body["count"] >= 1
+        assert body["detail"] == "compact"
         assert any(t["name"] == "tools_list" for t in body["tools"])
+        assert body["pagination"]["returned"] == body["count"]
+
+    def test_get_tools_default_is_bounded_compact(self):
+        res = self.client.get("/api/v1/tools")
+        assert res.status_code == 200
+        body = res.json()
+        assert body["detail"] == "compact"
+        assert body["count"] <= TOOLS_CATALOG_DEFAULT_LIMIT
+        assert body["pagination"]["limit"] == TOOLS_CATALOG_DEFAULT_LIMIT
+        assert body["pagination"]["offset"] == 0
+        assert "total" in body["pagination"]
+        assert body["pagination"]["returned"] == body["count"]
+        if body["pagination"]["total"] > TOOLS_CATALOG_DEFAULT_LIMIT:
+            assert body["pagination"]["has_more"] is True
+
+    def test_get_tools_rejects_invalid_category_and_detail(self):
+        category = self.client.get("/api/v1/tools", params={"category": "tradng"})
+        detail = self.client.get("/api/v1/tools", params={"detail": "verbose"})
+        tool_detail = self.client.get(
+            "/api/v1/tools/trade_place", params={"detail": "verbose"}
+        )
+        for res, parameter, known in (
+            (category, "category", "trading"),
+            (detail, "detail", "compact"),
+            (tool_detail, "detail", "compact"),
+        ):
+            assert res.status_code == 422
+            blob = json.dumps(res.json()).lower()
+            assert parameter in blob
+            assert known in blob
+
+    def test_get_tools_valid_category_empty_search_is_200(self):
+        res = self.client.get(
+            "/api/v1/tools",
+            params={"category": "trading", "search": "zzz_no_such_tool"},
+        )
+        assert res.status_code == 200
+        body = res.json()
+        assert body["count"] == 0
+        assert body["tools"] == []
+        assert "trading" in TOOL_CATALOG_CATEGORIES
 
     def test_get_tool_detail_route(self):
         res = self.client.get("/api/v1/tools/tools_list")
@@ -596,6 +694,41 @@ class TestWebApiRoutes:
         )
         assert "wait_event" in envelope["details"]["rationale"]
         assert res.headers.get("x-request-id") == envelope["request_id"]
+
+    def test_invoke_preserves_uint64_ticket_strings(self):
+        def _fake_trade_modify(request: TradeModifyRequest):
+            return {
+                "success": True,
+                "dry_run": request.dry_run,
+                "ticket": request.ticket,
+            }
+
+        tickets = (
+            "9007199254740991",
+            "9007199254740993",
+            "18446744073709551615",
+        )
+        with (
+            patch("mtdata.core.web_api_tools.ensure_tools_bootstrapped"),
+            patch(
+                "mtdata.core.web_api_tools.get_tool_functions",
+                return_value={"trade_modify": _fake_trade_modify},
+            ),
+        ):
+            for ticket in tickets:
+                res = self.client.post(
+                    "/api/v1/tools/trade_modify/invoke",
+                    json={
+                        "arguments": {
+                            "ticket": ticket,
+                            "stop_loss": 1.0,
+                            "dry_run": True,
+                        },
+                        "confirm": False,
+                    },
+                )
+                assert res.status_code == 200, res.text
+                assert res.json()["result"]["ticket"] == int(ticket)
 
     def test_invoke_extras_uses_error_envelope(self):
         with patch(

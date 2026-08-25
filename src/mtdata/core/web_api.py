@@ -129,6 +129,12 @@ from .web_api_runtime import (
     run_webapi,
 )
 from .web_api_tools import (
+    TOOLS_CATALOG_DEFAULT_LIMIT,
+    TOOLS_CATALOG_MAX_LIMIT,
+    ToolCatalogCategory,
+    ToolCatalogDetail,
+)
+from .web_api_tools import (
     get_tool_for_webapi as _get_tool_for_webapi,
 )
 from .web_api_tools import (
@@ -635,10 +641,12 @@ def ready() -> SafeJSONResponse:
 
 @api_router.get("/tools")
 def list_tools(
-    category: Optional[str] = Query(None),
-    search: Optional[str] = Query(None),
-    detail: str = Query("standard"),
+    category: Annotated[Optional[ToolCatalogCategory], Query()] = None,
+    search: Annotated[Optional[str], Query()] = None,
+    detail: ToolCatalogDetail = Query("compact"),
     include_fields: bool = Query(False),
+    limit: Annotated[int, Query(ge=1, le=TOOLS_CATALOG_MAX_LIMIT)] = TOOLS_CATALOG_DEFAULT_LIMIT,
+    offset: Annotated[int, Query(ge=0)] = 0,
 ) -> Dict[str, Any]:
     """List MCP tools with surface classification for the Web UI runner."""
     return _list_tools_for_webapi(
@@ -646,13 +654,15 @@ def list_tools(
         search=search,
         detail=detail,
         include_fields=include_fields,
+        limit=limit,
+        offset=offset,
     )
 
 
 @api_router.get("/tools/{tool_name}")
 def get_tool(
     tool_name: str,
-    detail: str = Query("compact"),
+    detail: ToolCatalogDetail = Query("compact"),
     include_fields: bool = Query(True),
 ) -> Dict[str, Any]:
     """Return one tool with parameter field descriptors for the form runner."""
