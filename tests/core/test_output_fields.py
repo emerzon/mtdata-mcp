@@ -192,6 +192,60 @@ def test_output_fields_does_not_inject_units_for_selected_values() -> None:
     assert result == {"success": True, "symbol": "EURUSD", "bid": 1.1, "ask": 1.2}
 
 
+def test_output_fields_keeps_row_positions_for_sparse_nested_fields() -> None:
+    payload = {
+        "success": True,
+        "count": 3,
+        "items": [
+            {
+                "event": "CPI",
+                "date": "2026-08-26T12:30:00Z",
+                "country_code": "US",
+                "country_attribution": "inferred",
+            },
+            {
+                "event": "GDP Growth Rate QoQ 2nd Est",
+                "date": "2026-08-26T12:30:00Z",
+                "country_attribution": "unknown",
+            },
+            {
+                "event": "ISM Manufacturing PMI",
+                "date": "2026-09-01T14:00:00Z",
+                "country_code": "US",
+                "country_attribution": "inferred",
+            },
+        ],
+    }
+
+    result = _select_output_fields(
+        payload,
+        "items.event,items.date,items.country_code,items.country_attribution",
+    )
+
+    assert result["success"] is True
+    assert result["count"] == 3
+    assert result["items"] == [
+        {
+            "event": "CPI",
+            "date": "2026-08-26T12:30:00Z",
+            "country_code": "US",
+            "country_attribution": "inferred",
+        },
+        {
+            "event": "GDP Growth Rate QoQ 2nd Est",
+            "date": "2026-08-26T12:30:00Z",
+            "country_attribution": "unknown",
+        },
+        {
+            "event": "ISM Manufacturing PMI",
+            "date": "2026-09-01T14:00:00Z",
+            "country_code": "US",
+            "country_attribution": "inferred",
+        },
+    ]
+    assert "unresolved_output_fields" not in result
+
+
 def test_output_fields_prefers_top_level_quote_values_over_nested_diagnostics() -> None:
     payload = {
         "success": True,

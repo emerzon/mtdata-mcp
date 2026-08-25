@@ -1247,6 +1247,7 @@ def _filter_output_path(
         if not value and ".".join((*prefix, *path)) in declared_paths:
             return [], True
         items = []
+        matched_any = False
         for item in value:
             filtered, matched = _filter_output_path(
                 item,
@@ -1256,11 +1257,15 @@ def _filter_output_path(
             )
             if matched:
                 items.append(filtered)
-        return items, bool(items)
+                matched_any = True
+            else:
+                items.append({} if isinstance(item, dict) else item)
+        return items, matched_any
     if isinstance(value, tuple):
         if not value and ".".join((*prefix, *path)) in declared_paths:
             return (), True
         items = []
+        matched_any = False
         for item in value:
             filtered, matched = _filter_output_path(
                 item,
@@ -1270,7 +1275,10 @@ def _filter_output_path(
             )
             if matched:
                 items.append(filtered)
-        return tuple(items), bool(items)
+                matched_any = True
+            else:
+                items.append({} if isinstance(item, dict) else item)
+        return tuple(items), matched_any
     return value, False
 
 
