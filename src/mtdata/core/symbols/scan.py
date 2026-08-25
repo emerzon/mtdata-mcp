@@ -61,6 +61,7 @@ from ...utils.symbol import (
 )
 from ...utils.time import (
     _format_time_explicit,
+    _format_time_second_explicit,
     bar_close_epoch,
 )
 from ...utils.utils import (
@@ -285,7 +286,7 @@ def _market_scan_quote_freshness_fields(
     if tick_time is None:
         return {}
     return {
-        "tick_time": _format_time_explicit(tick_time),
+        "tick_time": _format_time_second_explicit(tick_time),
         **_quote_staleness_fields(tick_time, symbol=symbol),
     }
 
@@ -366,7 +367,9 @@ def _build_market_scan_spread_row(
             "ask": _market_scan_round(ask, digits=digits),
             "mid": _market_scan_round(mid, digits=digits + 1),
             "quote_as_of": (
-                _format_time_explicit(tick_time) if tick_time is not None else None
+                _format_time_second_explicit(tick_time)
+                if tick_time is not None
+                else None
             ),
             **quote_source,
             **quote_freshness,

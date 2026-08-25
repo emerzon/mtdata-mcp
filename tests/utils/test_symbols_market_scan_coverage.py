@@ -240,6 +240,36 @@ def test_market_scan_spread_cost_uses_account_currency() -> None:
     assert row["spread_cost_currency"] == "USD"
 
 
+def test_market_scan_quote_as_of_keeps_seconds() -> None:
+    from mtdata.core.symbols import _build_market_scan_spread_row
+
+    symbol = SimpleNamespace(
+        name="EURUSD",
+        path="Forex",
+        digits=5,
+        point=0.00001,
+        trade_tick_size=0.00001,
+        trade_tick_value=1.0,
+        currency_profit="USD",
+    )
+    tick_time = 1_700_000_045.0
+    gateway = SimpleNamespace(
+        symbol_info_tick=lambda _symbol: SimpleNamespace(
+            bid=1.10000,
+            ask=1.10010,
+            time=tick_time,
+        ),
+        last_error=lambda: None,
+    )
+
+    with patch("mtdata.core.symbols.scan.time.time", return_value=tick_time + 1.0):
+        row, error = _build_market_scan_spread_row(symbol, gateway)
+
+    assert error is None
+    assert row["quote_as_of"] == "2023-11-14T22:14:05Z"
+    assert row["tick_time"] == "2023-11-14T22:14:05Z"
+
+
 def test_market_scan_midpoint_retains_half_tick_precision() -> None:
     from mtdata.core.symbols import _build_market_scan_spread_row
 
