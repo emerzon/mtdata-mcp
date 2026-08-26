@@ -809,13 +809,17 @@ def test_trade_var_cvar_marks_unresolved_high_confidence_sample() -> None:
     )
 
     assert out["success"] is True
-    assert out["sample_quality"]["status"] == "insufficient"
-    assert out["sample_quality"]["tail_observations"] == 1
+    assert out["summary"]["sample_quality"]["status"] == "insufficient"
+    assert out["summary"]["sample_quality"]["tail_observations"] == 1
     assert out["summary"]["tail_observations"] == 1
     assert out["scenario_generation"] == "empirical_observed_pnl"
-    assert out["data_start"]
-    assert out["data_end"]
-    assert out["as_of"] == out["data_end"]
+    assert "data_start" not in out
+    assert "data_end" not in out
+    assert "as_of" not in out
+    assert "sample_quality" not in out
+    assert out["window"]["data_start"]
+    assert out["window"]["data_end"]
+    assert out["window"]["as_of"] == out["window"]["data_end"]
     assert out["window"]["timezone"] == "UTC"
     assert any("insufficient" in str(item).lower() for item in out["warnings"])
 
@@ -859,7 +863,9 @@ def test_trade_var_cvar_compact_keeps_history_window() -> None:
     )
 
     assert out["success"] is True
-    assert out["data_start"].endswith("Z")
-    assert out["data_end"].endswith("Z")
-    assert out["as_of"] == out["data_end"]
+    assert "data_start" not in out
+    assert "sample_quality" not in out
+    assert out["window"]["data_start"].endswith("Z")
+    assert out["window"]["data_end"].endswith("Z")
+    assert out["window"]["as_of"] == out["window"]["data_end"]
     assert out["window"]["aligned_returns"] >= out["summary"]["observations"]
