@@ -4,6 +4,7 @@ from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 from ....utils.coercion import UNPARSED_BOOL, parse_bool_like, parse_strict_bool
 from ...param_help import COMMAND_PARAM_HELP_OVERRIDES as _COMMAND_PARAM_HELP_OVERRIDES
+from ..catalog import MULTI_VALUE_SYMBOL_POSITIONAL_COMMANDS
 
 ToolInfo = Dict[str, Any]
 
@@ -57,18 +58,6 @@ _SEARCH_ALIAS_COMMANDS = frozenset(
 )
 
 _OPTION_ALIAS_DEST_PREFIX = "_cli_option_"
-
-_MULTI_VALUE_SYMBOL_POSITIONAL_COMMANDS = frozenset(
-    {
-        "causal_discover_signals",
-        "correlation_matrix",
-        "cointegration_test",
-        "cross_correlation",
-        "market_radar",
-        "market_relative_strength",
-        "market_scan",
-    }
-)
 
 _COMMAND_REQUIRED_OPTIONS: set[tuple[str, str]] = {
     ("trade_modify", "ticket"),
@@ -655,7 +644,7 @@ def add_dynamic_arguments(  # noqa: C901
             positional_kwargs["nargs"] = (
                 "*"
                 if (
-                    str(cmd_name or "") in _MULTI_VALUE_SYMBOL_POSITIONAL_COMMANDS
+                    str(cmd_name or "") in MULTI_VALUE_SYMBOL_POSITIONAL_COMMANDS
                     and str(param["name"]) == "symbols"
                 )
                 else "?"
@@ -671,7 +660,7 @@ def add_dynamic_arguments(  # noqa: C901
             option_kwargs["default"] = argparse.SUPPRESS
             option_kwargs["required"] = False
             if (
-                str(cmd_name or "") in _MULTI_VALUE_SYMBOL_POSITIONAL_COMMANDS
+                str(cmd_name or "") in MULTI_VALUE_SYMBOL_POSITIONAL_COMMANDS
                 and str(param["name"]) == "symbols"
             ):
                 option_kwargs["nargs"] = "+"
@@ -689,7 +678,7 @@ def add_dynamic_arguments(  # noqa: C901
         ):
             positional_kwargs = {k: v for k, v in kwargs.items() if k in ("help", "type", "choices", "metavar")}
             if (
-                str(cmd_name or "") in _MULTI_VALUE_SYMBOL_POSITIONAL_COMMANDS
+                str(cmd_name or "") in MULTI_VALUE_SYMBOL_POSITIONAL_COMMANDS
                 and str(param["name"]) == "symbols"
             ):
                 positional_kwargs["nargs"] = "+"
@@ -700,7 +689,7 @@ def add_dynamic_arguments(  # noqa: C901
             positional_kwargs["nargs"] = (
                 "*"
                 if (
-                    str(cmd_name or "") in _MULTI_VALUE_SYMBOL_POSITIONAL_COMMANDS
+                    str(cmd_name or "") in MULTI_VALUE_SYMBOL_POSITIONAL_COMMANDS
                     and str(param["name"]) == "symbols"
                 )
                 else "?"
@@ -712,7 +701,7 @@ def add_dynamic_arguments(  # noqa: C901
             option_kwargs.setdefault("metavar", str(param["name"]).upper())
             option_kwargs["default"] = argparse.SUPPRESS
             if (
-                str(cmd_name or "") in _MULTI_VALUE_SYMBOL_POSITIONAL_COMMANDS
+                str(cmd_name or "") in MULTI_VALUE_SYMBOL_POSITIONAL_COMMANDS
                 and str(param["name"]) == "symbols"
             ):
                 option_kwargs["nargs"] = "+"

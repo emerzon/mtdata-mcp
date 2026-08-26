@@ -3085,3 +3085,29 @@ class TestNormalizeCliListParameterized:
     )
     def test_normalize(self, input_val, expected):
         assert _normalize_cli_list_value(input_val) == expected
+
+
+def test_multi_value_symbol_commands_parse_and_join_to_comma_string():
+    from mtdata.core.cli.catalog import MULTI_VALUE_SYMBOL_POSITIONAL_COMMANDS
+    from mtdata.core.cli.runtime.commands import join_cli_symbol_values
+
+    required = {"cross_correlation"}
+    for cmd_name in sorted(MULTI_VALUE_SYMBOL_POSITIONAL_COMMANDS):
+        parser = argparse.ArgumentParser()
+        add_dynamic_arguments(
+            parser,
+            {
+                "params": [
+                    {
+                        "name": "symbols",
+                        "type": str,
+                        "required": cmd_name in required,
+                        "default": None,
+                    }
+                ]
+            },
+            cmd_name=cmd_name,
+        )
+        parsed = parser.parse_args(["EURUSD", "GBPUSD"])
+        assert parsed.symbols == ["EURUSD", "GBPUSD"]
+        assert join_cli_symbol_values(cmd_name, parsed.symbols) == "EURUSD,GBPUSD"

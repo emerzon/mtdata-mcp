@@ -13,7 +13,18 @@ from ....utils.coercion import (
     split_top_level_csv,
 )
 from ...error_envelope import build_error_payload
-from ..catalog import display_program_name
+from ..catalog import MULTI_VALUE_SYMBOL_POSITIONAL_COMMANDS, display_program_name
+
+
+def join_cli_symbol_values(cmd_name: str, arg_value: Any) -> Any:
+    """Join multi-value CLI symbol positionals into the tool's comma-separated string."""
+    if cmd_name not in MULTI_VALUE_SYMBOL_POSITIONAL_COMMANDS:
+        return arg_value
+    if not isinstance(arg_value, (list, tuple)):
+        return arg_value
+    symbols = [str(value).strip() for value in arg_value if str(value).strip()]
+    return ",".join(symbols) or None
+
 
 LIVE_TRADE_MUTATION_TOOLS = frozenset({"trade_place", "trade_modify", "trade_close"})
 LIVE_TRADE_MUTATION_WARNING = (
@@ -511,22 +522,8 @@ def create_command_function(  # noqa: C901
                     else getattr(args, param_name, param["default"])
                 )
 
-            if (
-                param_name == "symbols"
-                and cmd_name
-                in {
-                    "causal_discover_signals",
-                    "correlation_matrix",
-                    "cointegration_test",
-                    "cross_correlation",
-                    "market_radar",
-                    "market_relative_strength",
-                    "market_scan",
-                }
-                and isinstance(arg_value, (list, tuple))
-            ):
-                symbols = [str(value).strip() for value in arg_value if str(value).strip()]
-                arg_value = ",".join(symbols) or None
+            if param_name == "symbols":
+                arg_value = join_cli_symbol_values(cmd_name, arg_value)
 
             try:
                 ptype = param.get("type")

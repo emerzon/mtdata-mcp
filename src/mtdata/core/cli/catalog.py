@@ -100,6 +100,18 @@ _OPTIONAL_COMMAND_ENV = {
     "market_depth_fetch": "MTDATA_ENABLE_MARKET_DEPTH_FETCH",
 }
 
+MULTI_VALUE_SYMBOL_POSITIONAL_COMMANDS = frozenset(
+    {
+        "causal_discover_signals",
+        "correlation_matrix",
+        "cointegration_test",
+        "cross_correlation",
+        "market_radar",
+        "market_relative_strength",
+        "market_scan",
+    }
+)
+
 def _env_enabled(name: str) -> bool:
     return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
@@ -212,6 +224,7 @@ def format_root_help(program: str) -> str:
 
 __all__ = [
     "CLI_COMMAND_NAMES",
+    "MULTI_VALUE_SYMBOL_POSITIONAL_COMMANDS",
     "known_command_names",
     "format_root_help",
 ]
