@@ -5,6 +5,8 @@ from __future__ import annotations
 from math import isfinite
 from typing import Any, Dict, List, Optional
 
+from scipy.stats import linregress, percentileofscore
+
 from ...utils.coercion import safe_float as _safe_float
 
 _TREND_COMPACT_LEGEND: Dict[str, str] = {
@@ -61,24 +63,12 @@ def _linreg_slope_r2(series: List[float]) -> Optional[tuple]:
         n = len(series)
         if n < 2:
             return None
-        x = list(range(n))
-        sx = sum(x)
-        sy = sum(series)
-        sxx = sum(i * i for i in x)
-        sxy = sum(i * y for i, y in zip(x, series))
-        denom = n * sxx - sx * sx
-        if denom == 0:
+        result = linregress(range(n), series)
+        slope = float(result.slope)
+        rvalue = float(result.rvalue)
+        if not isfinite(slope):
             return None
-        slope = (n * sxy - sx * sy) / denom
-        mean_x = sx / n
-        mean_y = sy / n
-        num = sum((i - mean_x) * (y - mean_y) for i, y in zip(x, series))
-        denx = sum((i - mean_x) ** 2 for i in x)
-        deny = sum((y - mean_y) ** 2 for y in series)
-        r2 = 0.0
-        if denx > 0 and deny > 0:
-            r = num / ((denx ** 0.5) * (deny ** 0.5))
-            r2 = float(r * r)
+        r2 = 0.0 if not isfinite(rvalue) else float(rvalue * rvalue)
         return slope, r2
     except Exception:
         return None
@@ -88,14 +78,10 @@ def _percentile_rank(values: List[float], current: float) -> int:
     try:
         if not values:
             return 0
-        sorted_vals = sorted(v for v in values if isfinite(v))
-        if not sorted_vals:
+        finite_vals = [v for v in values if isfinite(v)]
+        if not finite_vals:
             return 0
-        cnt = 0
-        for v in sorted_vals:
-            if v <= current:
-                cnt += 1
-        pct = int(round(100.0 * cnt / len(sorted_vals)))
+        pct = int(round(float(percentileofscore(finite_vals, current, kind="weak"))))
         return max(0, min(100, pct))
     except Exception:
         return 0
