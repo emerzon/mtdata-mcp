@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import logging
 from dataclasses import dataclass
 from importlib import metadata as importlib_metadata
@@ -241,11 +242,11 @@ def missing_webui_html(directory: str) -> str:
       <h1>Web UI is not built yet</h1>
       <p>
         The API is running, but the production SPA was not found at
-        <span class="path"><code>{_html_escape(directory)}</code></span>.
+        <span class="path"><code>{html.escape(directory, quote=True)}</code></span>.
         Build the frontend once, restart the server, then open
-        <code>{_html_escape(payload["enable"]["open"])}</code>.
+        <code>{html.escape(payload["enable"]["open"], quote=True)}</code>.
       </p>
-      <pre>{_html_escape(commands)}</pre>
+      <pre>{html.escape(commands, quote=True)}</pre>
       <ul>
         <li>Override the dist path with <code>WEBUI_DIST_DIR</code> if needed.</li>
         <li>For live frontend development: <code>cd webui && npm run dev</code> (proxies API on :8000).</li>
@@ -255,16 +256,6 @@ def missing_webui_html(directory: str) -> str:
   </body>
 </html>
 """
-
-
-def _html_escape(value: str) -> str:
-    return (
-        str(value)
-        .replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-        .replace('"', "&quot;")
-    )
 
 
 def build_missing_webui_response(request: Request | None, directory: str) -> Response:
