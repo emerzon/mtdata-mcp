@@ -27,6 +27,7 @@ from .safety import (
     _estimate_order_risk_currency,
     _resolve_existing_symbol_net,
     assess_margin_stress,
+    assess_new_exposure_allowed,
     evaluate_trade_guardrails,
     load_guardrail_book_snapshots,
 )
@@ -712,20 +713,12 @@ def _assess_order_account_state(
                 preflight = None
     if not isinstance(preflight, dict):
         preflight = {}
-    strict_execution_ready = preflight.get("execution_ready_strict")
-    if strict_execution_ready is None:
-        strict_execution_ready = preflight.get("execution_ready")
-    margin_allows_new_exposure = margin_stress.get("status") != "critical"
-    actionable_trade_allowed = bool(
-        broker_trade_allowed is True
-        and margin_allows_new_exposure
-        and strict_execution_ready is True
+    actionable_trade_allowed, trade_allowed_basis, _ = assess_new_exposure_allowed(
+        broker_trade_allowed=broker_trade_allowed,
+        margin_status=margin_stress.get("status"),
+        execution_ready_strict=preflight.get("execution_ready_strict"),
+        execution_ready_fallback=preflight.get("execution_ready"),
     )
-    trade_allowed_basis = [
-        "broker_trade_allowed",
-        "margin_not_critical",
-        "execution_ready_strict",
-    ]
     blockers: List[str] = []
     if broker_trade_allowed is False:
         blockers.append("account_trading_disabled")

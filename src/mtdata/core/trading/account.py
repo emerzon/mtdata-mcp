@@ -1259,20 +1259,16 @@ def trade_account_info(
         broker_trade_allowed = coerce_optional_bool(
             getattr(info, "trade_allowed", None)
         )
-        strict_execution_ready = preflight.get("execution_ready_strict")
-        if strict_execution_ready is None:
-            strict_execution_ready = preflight.get("execution_ready")
-        margin_allows_new_exposure = margin_stress.get("status") != "critical"
-        actionable_trade_allowed = bool(
-            broker_trade_allowed is True
-            and margin_allows_new_exposure
-            and strict_execution_ready is True
+        (
+            actionable_trade_allowed,
+            trade_allowed_basis,
+            strict_execution_ready,
+        ) = safety.assess_new_exposure_allowed(
+            broker_trade_allowed=broker_trade_allowed,
+            margin_status=margin_stress.get("status"),
+            execution_ready_strict=preflight.get("execution_ready_strict"),
+            execution_ready_fallback=preflight.get("execution_ready"),
         )
-        trade_allowed_basis = [
-            "broker_trade_allowed",
-            "margin_not_critical",
-            "execution_ready_strict",
-        ]
         login = preflight.get("login")
         if login is None:
             login = getattr(info, "login", None)

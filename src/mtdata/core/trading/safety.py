@@ -84,6 +84,32 @@ def _normalize_symbol(value: Any) -> str:
     return normalize_optional_symbol(value) or ""
 
 
+TRADE_ALLOWED_BASIS = (
+    "broker_trade_allowed",
+    "margin_not_critical",
+    "execution_ready_strict",
+)
+
+
+def assess_new_exposure_allowed(
+    *,
+    broker_trade_allowed: Any,
+    margin_status: Any,
+    execution_ready_strict: Any,
+    execution_ready_fallback: Any = None,
+) -> tuple[bool, list[str], Any]:
+    """Return whether new exposure is allowed, the canonical basis, and resolved readiness."""
+    resolved_execution_ready = execution_ready_strict
+    if resolved_execution_ready is None:
+        resolved_execution_ready = execution_ready_fallback
+    actionable = bool(
+        broker_trade_allowed is True
+        and margin_status != "critical"
+        and resolved_execution_ready is True
+    )
+    return actionable, list(TRADE_ALLOWED_BASIS), resolved_execution_ready
+
+
 def assess_margin_stress(account: Any) -> Dict[str, Any]:
     """Classify account margin pressure using conservative broker-agnostic bands."""
     getter = account.get if isinstance(account, dict) else lambda key, default=None: getattr(account, key, default)

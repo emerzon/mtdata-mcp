@@ -5,10 +5,12 @@ from types import SimpleNamespace
 import pytest
 
 from mtdata.core.trading.safety import (
+    TRADE_ALLOWED_BASIS,
     TradeSafetyPolicy,
     _estimate_order_risk_currency,
     _evaluate_safety_policy,
     assess_margin_stress,
+    assess_new_exposure_allowed,
 )
 
 
@@ -45,6 +47,39 @@ def test_breached_stop_overrun_is_counted_by_explicit_policy() -> None:
 
     assert error is None
     assert risk == 20.0
+
+
+@pytest.mark.parametrize(
+    ("broker_trade_allowed", "margin_status", "execution_ready_strict", "fallback", "expected"),
+    [
+        (True, "healthy", True, None, True),
+        (True, "elevated", True, None, True),
+        (True, "critical", True, None, False),
+        (False, "healthy", True, None, False),
+        (True, "healthy", False, None, False),
+        (True, "healthy", None, True, True),
+        (True, "healthy", None, False, False),
+        (None, "healthy", True, None, False),
+    ],
+)
+def test_new_exposure_allowed_uses_canonical_basis(
+    broker_trade_allowed,
+    margin_status,
+    execution_ready_strict,
+    fallback,
+    expected,
+) -> None:
+    allowed, basis, resolved = assess_new_exposure_allowed(
+        broker_trade_allowed=broker_trade_allowed,
+        margin_status=margin_status,
+        execution_ready_strict=execution_ready_strict,
+        execution_ready_fallback=fallback,
+    )
+    assert allowed is expected
+    assert basis == list(TRADE_ALLOWED_BASIS)
+    assert resolved is (
+        execution_ready_strict if execution_ready_strict is not None else fallback
+    )
 
 
 def test_stressed_margin_reports_triggering_thresholds() -> None:
