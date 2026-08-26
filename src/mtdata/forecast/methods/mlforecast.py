@@ -185,21 +185,15 @@ class MLForecastMethod(ForecastMethod):
         exog_future=None,
         **kwargs,
     ) -> ForecastResult:
-        from ..common import _create_training_dataframes, _extract_forecast_values
+        from ..common import _extract_forecast_values, _resolve_trained_forecast_frames
 
         p = dict(params or {})
-        exog_future_arr = kwargs.get('exog_future')
-        if exog_future_arr is None:
-            exog_future_arr = exog_future if exog_future is not None else p.get('exog_future')
-
-        exog_used = kwargs.get("exog_used")
-        if exog_used is None:
-            exog_used = p.get("exog_used")
-        Y_df, X_df, Xf_df = _create_training_dataframes(
-            series.values,
+        Y_df, X_df, Xf_df = _resolve_trained_forecast_frames(
+            series,
             horizon,
-            exog_used,
-            exog_future_arr,
+            p,
+            exog_future=exog_future,
+            **kwargs,
         )
 
         mlf = model  # deserialized MLForecast object

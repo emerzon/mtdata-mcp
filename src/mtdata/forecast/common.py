@@ -248,6 +248,30 @@ def _as_2d_exog_array(
     raise ValueError(f"{name} must be a 1D or 2D numpy array")
 
 
+def _resolve_trained_forecast_frames(
+    series: Any,
+    horizon: int,
+    params: Optional[Dict[str, Any]] = None,
+    *,
+    exog_future: Any = None,
+    **kwargs: Any,
+) -> Tuple[Any, Optional[Any], Optional[Any]]:
+    """Resolve live history and exogenous frames for a fitted forecast adapter."""
+    params_used = dict(params or {})
+    exog_future_arr = kwargs.get("exog_future")
+    if exog_future_arr is None:
+        exog_future_arr = exog_future if exog_future is not None else params_used.get("exog_future")
+    exog_used = kwargs.get("exog_used")
+    if exog_used is None:
+        exog_used = params_used.get("exog_used")
+    return _create_training_dataframes(
+        getattr(series, "values", series),
+        horizon,
+        exog_used,
+        exog_future_arr,
+    )
+
+
 def _create_training_dataframes(series: np.ndarray, fh: int, exog_used: Optional[np.ndarray] = None, exog_future: Optional[np.ndarray] = None) -> Tuple[Any, Optional[Any], Optional[Any]]:
     """Create standardized training DataFrames for forecast methods.
     
