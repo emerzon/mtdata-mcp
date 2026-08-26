@@ -744,6 +744,84 @@ def _invalid_output_format_status(argv: Sequence[str]) -> Optional[int]:
     return 2
 
 
+_CLI_NEAR_MISS_REMEDIATIONS: Dict[tuple[str, str], str] = {
+    ("trade_place", "--side"): (
+        "Use --order-type BUY or SELL for market orders "
+        "(or BUY_LIMIT, SELL_LIMIT, and other pending types)."
+    ),
+    ("patterns_detect", "--limit"): (
+        "patterns_detect does not take --limit. Use --lookback for history bars "
+        "and --top-k to cap result rows."
+    ),
+    ("regime_detect", "--limit"): (
+        "regime_detect does not take --limit. Use --fetch-limit for bars fetched "
+        "or the model-fit window, and --lookback for the summary window."
+    ),
+    ("trade_risk_analyze", "--volume"): (
+        "trade_risk_analyze computes suggested_volume from --sizing and --stop-loss. "
+        "Use trade_place --volume to preview a specific lot size."
+    ),
+    ("market_microstructure_analyze", "--timeframe"): (
+        "market_microstructure_analyze is a tick-window tool. Use --minutes-back "
+        "and --bucket-seconds, not a candle --timeframe."
+    ),
+}
+
+_CLI_MISSING_ARGUMENT_REMEDIATIONS: Dict[tuple[str, str], str] = {
+    ("labels_triple_barrier", "barriers"): (
+        "Provide --barriers as KV or JSON. Example: "
+        "'unit=pct take_profit=0.5 stop_loss=0.5'."
+    ),
+    ("trade_place", "order_type"): (
+        "Provide --order-type BUY or SELL for market orders "
+        "(--side buy/sell is also accepted), or a pending type such as BUY_LIMIT."
+    ),
+}
+
+
+def _option_tokens_from_text(text: str) -> List[str]:
+    tokens: List[str] = []
+    for token in str(text or "").split():
+        if token.startswith("--"):
+            tokens.append(token.split("=", 1)[0])
+    return tokens
+
+
+def _unrecognized_option_flags(message: str) -> List[str]:
+    text = str(message or "")
+    marker = "unrecognized arguments:"
+    idx = text.lower().find(marker)
+    if idx < 0:
+        return []
+    return _option_tokens_from_text(text[idx + len(marker) :])
+
+
+def _cli_parse_error_remediation(
+    *,
+    operation: str,
+    message: str,
+    missing_arguments: List[str],
+    missing_required: bool,
+    help_program: str,
+    argv: List[str],
+) -> str:
+    flags = _unrecognized_option_flags(message)
+    if missing_required and not flags:
+        flags = _option_tokens_from_text(" ".join(argv))
+    for flag in flags:
+        hint = _CLI_NEAR_MISS_REMEDIATIONS.get((operation, flag))
+        if hint:
+            return hint
+    if missing_required:
+        for name in missing_arguments:
+            hint = _CLI_MISSING_ARGUMENT_REMEDIATIONS.get((operation, name))
+            if hint:
+                return hint
+        if missing_arguments:
+            return "Provide: " + ", ".join(missing_arguments) + "."
+    return f"Run '{help_program} --help' to inspect valid arguments."
+
+
 class _CLIArgumentParser(argparse.ArgumentParser):
     """Emit parse failures in the selected CLI transport format."""
 
@@ -815,9 +893,14 @@ class _CLIArgumentParser(argparse.ArgumentParser):
                     "the CLI; the broker must provide Level 2/DOM data."
                 )
                 if market_depth_disabled
-                else "Provide: " + ", ".join(missing_arguments) + "."
-                if missing_required and missing_arguments
-                else f"Run '{help_program} --help' to inspect valid arguments."
+                else _cli_parse_error_remediation(
+                    operation=operation,
+                    message=message,
+                    missing_arguments=missing_arguments,
+                    missing_required=missing_required,
+                    help_program=help_program,
+                    argv=sys.argv[1:],
+                )
             ),
             details=(
                 {"missing_arguments": missing_arguments}
@@ -2122,8 +2205,10 @@ _GLOBAL_FLAG_HELP: Dict[str, str] = {
         "always full precision)."
     ),
     "output_fields": (
-        "--output-fields FIELD[,FIELD...]: return only selected output fields plus envelope metadata. "
-        "Use dotted paths for nested row columns, e.g. data.time,data.close."
+        "--output-fields FIELD[,FIELD...]: return only selected output fields plus "
+        "success/error, symbol/timeframe, pagination, and warnings. Does not keep "
+        "unselected freshness or source fields. Use dotted paths for nested row "
+        "columns, e.g. data.time,data.close."
     ),
     "json": (
         "--json: emit machine-readable JSON instead of TOON (always full precision)."

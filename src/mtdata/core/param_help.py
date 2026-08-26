@@ -830,6 +830,11 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "processes. Reusing the same key and payload within the retention window "
         "replays the prior live outcome. Dry-run previews are not stored."
     ),
+    ("trade_place", "order_type"): (
+        "Order type: BUY/SELL for market orders, or pending types such as "
+        "BUY_LIMIT and SELL_STOP. --side buy/sell is accepted as a market-order "
+        "alias for --order-type."
+    ),
     ("trade_place", "dry_run"): (
         "Preview the order without sending it to the broker."
     ),

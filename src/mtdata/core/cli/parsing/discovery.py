@@ -585,6 +585,8 @@ def add_dynamic_arguments(  # noqa: C901
             extras.append("--lookback")
         if cmd_name_value == "wait_event" and param_name == "max_wait_seconds":
             extras.append("--timeout")
+        if cmd_name_value == "trade_place" and param_name == "order_type":
+            extras.append("--side")
         return tuple(extras)
 
     for param in param_info["params"]:

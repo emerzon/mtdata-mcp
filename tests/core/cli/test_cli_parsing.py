@@ -290,6 +290,95 @@ def test_default_toon_parse_errors_use_structured_stdout_envelope(
     assert error_fragment in captured.out
 
 
+@pytest.mark.parametrize(
+    ("command", "message", "argv", "remediation_fragment"),
+    [
+        (
+            "patterns_detect",
+            "unrecognized arguments: --limit 100",
+            ["mtdata-cli", "patterns_detect", "--limit", "100"],
+            "Use --lookback for history bars",
+        ),
+        (
+            "regime_detect",
+            "unrecognized arguments: --limit 100",
+            ["mtdata-cli", "regime_detect", "--limit", "100"],
+            "Use --fetch-limit",
+        ),
+        (
+            "trade_risk_analyze",
+            "unrecognized arguments: --volume 0.1",
+            ["mtdata-cli", "trade_risk_analyze", "EURUSD", "--volume", "0.1"],
+            "computes suggested_volume",
+        ),
+        (
+            "market_microstructure_analyze",
+            "unrecognized arguments: --timeframe M5",
+            ["mtdata-cli", "market_microstructure_analyze", "EURUSD", "--timeframe", "M5"],
+            "Use --minutes-back",
+        ),
+    ],
+)
+def test_near_miss_flag_parse_errors_use_specific_remediation(
+    monkeypatch,
+    capsys,
+    command,
+    message,
+    argv,
+    remediation_fragment,
+):
+    from mtdata.core.cli import api as cli_api
+
+    monkeypatch.setattr(sys, "argv", argv)
+    parser = cli_api._CLIArgumentParser(prog=f"mtdata-cli {command}")
+
+    with pytest.raises(SystemExit, match="2"):
+        parser.error(message)
+
+    captured = capsys.readouterr()
+    assert captured.err == ""
+    assert "success: false" in captured.out
+    assert "error_code: cli_invalid_arguments" in captured.out
+    assert remediation_fragment in captured.out
+
+
+def test_missing_barriers_remediation_includes_example(monkeypatch, capsys):
+    from mtdata.core.cli import api as cli_api
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["mtdata-cli", "labels_triple_barrier", "EURUSD", "--timeframe", "H1"],
+    )
+    parser = cli_api._CLIArgumentParser(prog="mtdata-cli labels_triple_barrier")
+
+    with pytest.raises(SystemExit, match="2"):
+        parser.error("the following arguments are required: --barriers")
+
+    captured = capsys.readouterr()
+    assert "error_code: cli_missing_required" in captured.out
+    assert "unit=pct take_profit=0.5 stop_loss=0.5" in captured.out
+
+
+def test_missing_order_type_mentions_side_alias(monkeypatch, capsys):
+    from mtdata.core.cli import api as cli_api
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["mtdata-cli", "trade_place", "EURUSD", "--volume", "0.01"],
+    )
+    parser = cli_api._CLIArgumentParser(prog="mtdata-cli trade_place")
+
+    with pytest.raises(SystemExit, match="2"):
+        parser.error("the following arguments are required: --order-type")
+
+    captured = capsys.readouterr()
+    assert "error_code: cli_missing_required" in captured.out
+    assert "--order-type BUY or SELL" in captured.out
+    assert "--side buy/sell" in captured.out
+
+
 def test_dynamic_cli_help_has_no_placeholder_param_text():
     from mtdata.bootstrap.settings import load_environment
     from mtdata.core.cli import api as cli_api
@@ -673,8 +762,12 @@ class TestAddDynamicArguments:
         assert parser.parse_args(
             ["EURUSD", "--volume", "0.01", "--order-type", "BUY STOP"]
         ).order_type == "BUY_STOP"
+        assert parser.parse_args(
+            ["EURUSD", "--volume", "0.01", "--side", "buy"]
+        ).order_type == "BUY"
         help_text = parser.format_help()
         assert "volume" in help_text and "(required)" in help_text
+        assert "--side" in help_text
 
     def test_bool_param(self):
         parser = argparse.ArgumentParser()
@@ -1073,6 +1166,21 @@ class TestAddDynamicArguments:
             cmd_name="cointegration_test",
         )
         assert research.parse_args(["--lookback", "200"]).window_bars == 200
+
+    def test_trade_place_accepts_side_alias_for_order_type(self):
+        parser = argparse.ArgumentParser()
+
+        def tool(request: TradePlaceRequest):
+            pass
+
+        add_dynamic_arguments(
+            parser,
+            get_function_info(tool),
+            cmd_name="trade_place",
+        )
+        args = parser.parse_args(["EURUSD", "--side", "sell", "--volume", "0.02"])
+        assert args.order_type == "SELL"
+        assert args.volume == 0.02
 
     def test_news_accepts_optional_positional_symbol(self):
         parser = argparse.ArgumentParser()
