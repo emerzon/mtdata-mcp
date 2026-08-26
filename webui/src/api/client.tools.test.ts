@@ -36,6 +36,28 @@ describe('tools client adapters', () => {
     expect(result.count).toBe(0)
   })
 
+  it('getTool returns the named tool collection', async () => {
+    getMock.mockResolvedValueOnce({
+      data: { success: true, tool: { name: 'tools_list', surface: 'dedicated_ui' } },
+    })
+    const { getTool } = await import('./client')
+    const result = await getTool('tools_list')
+    expect(String(getMock.mock.calls[0][0])).toBe('tools/tools_list')
+    expect(result.tool).toEqual({ name: 'tools_list', surface: 'dedicated_ui' })
+  })
+
+  it('getTool fails when the required tool collection is omitted', async () => {
+    getMock.mockResolvedValueOnce({ data: { success: true } })
+    const { getTool } = await import('./client')
+    await expect(getTool('tools_list')).rejects.toThrow(/omitted the required tool collection/)
+  })
+
+  it('getTool fails when the tool collection is not a named entry', async () => {
+    getMock.mockResolvedValueOnce({ data: { success: true, tool: {} } })
+    const { getTool } = await import('./client')
+    await expect(getTool('tools_list')).rejects.toThrow(/omitted the required tool collection/)
+  })
+
   it('invokeTool posts arguments and confirm flag', async () => {
     postMock.mockResolvedValueOnce({
       data: { success: true, tool: 'tools_list', result: { count: 1 } },

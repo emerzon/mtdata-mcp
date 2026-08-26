@@ -408,13 +408,23 @@ export async function listTools(
   }
 }
 
+function isNamedToolEntry(value: unknown): value is ToolCatalogEntry {
+  if (!value || typeof value !== 'object') return false
+  const name = (value as { name?: unknown }).name
+  return typeof name === 'string' && Boolean(name.trim())
+}
+
 export async function getTool(toolName: string, signal?: AbortSignal): Promise<ToolDetailResponse> {
   const { data } = await api.get<ToolDetailResponse>(`tools/${encodeURIComponent(toolName)}`, {
     signal,
   })
+  const tool = data?.tool
+  if (!isNamedToolEntry(tool)) {
+    throw new Error(`Tool detail for '${toolName}' omitted the required tool collection`)
+  }
   return {
     ...data,
-    tool: data?.tool ?? { name: toolName },
+    tool,
   }
 }
 
