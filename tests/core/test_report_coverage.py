@@ -196,7 +196,7 @@ def test_report_generate_request_validates_runtime_budget():
 @pytest.mark.parametrize(
     ("kwargs", "message"),
     [
-        ({"start": "banana"}, "start must be a valid date"),
+        ({"start": "banana"}, "Could not parse historical datetime"),
         (
             {"start": "2026-08-15", "end": "2026-08-10"},
             "start must be before or equal to end",

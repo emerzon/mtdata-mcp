@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, model_validator
@@ -218,47 +217,16 @@ class ReportGenerateRequest(BaseModel):
 
     @model_validator(mode="after")
     def _validate_historical_window(self) -> "ReportGenerateRequest":
-        from ...utils.utils import _parse_end_datetime, _parse_start_datetime
+        from ...utils.utils import validate_historical_range
 
-        start_dt = _parse_start_datetime(self.start) if self.start else None
-        end_dt = _parse_end_datetime(self.end) if self.end else None
-        if self.start and start_dt is None:
-            raise ValueError(
-                "start must be a valid date or ISO 8601 timestamp"
-            )
-        if self.end and end_dt is None:
-            raise ValueError(
-                "end must be a valid date or ISO 8601 timestamp"
-            )
+        issue = validate_historical_range(self.start, self.end)
+        if issue is not None:
+            raise ValueError(str(issue.get("error") or "Invalid historical range."))
         if self.start and not self.end:
             raise ValueError(
                 "end is required when start is supplied so every report section "
                 "uses one historical cutoff"
             )
-        if start_dt is not None and end_dt is not None and start_dt > end_dt:
-            raise ValueError("start must be before or equal to end")
-        comparable_start = start_dt
-        if comparable_start is not None and comparable_start.tzinfo is None:
-            comparable_start = comparable_start.replace(tzinfo=timezone.utc)
-        if comparable_start is not None and comparable_start > datetime.now(timezone.utc):
-            raise ValueError(
-                "start is in the future; no historical report data is available"
-            )
-        comparable_end = end_dt
-        if comparable_end is not None and comparable_end.tzinfo is None:
-            comparable_end = comparable_end.replace(tzinfo=timezone.utc)
-        if comparable_end is not None:
-            now_utc = datetime.now(timezone.utc)
-            raw_end = str(self.end or "").strip()
-            end_is_future = (
-                comparable_end.date() > now_utc.date()
-                if re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw_end)
-                else comparable_end > now_utc
-            )
-            if end_is_future:
-                raise ValueError(
-                    "end must not be in the future; no historical report data is available"
-                )
         requested_methods = self.methods
         if requested_methods is None and isinstance(self.params, dict):
             requested_methods = self.params.get("methods")
