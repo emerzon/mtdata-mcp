@@ -175,7 +175,7 @@ Dependency caveats (NeuralForecast optional installs, Python 3.14 exclusions, op
 
 ### Naming
 
-The PyPI package is **`mtdata-mcp`**. The command-line entry is **`mtdata-cli`** (not `mtdata`). That avoids a clash with the unrelated [mtdata](https://pypi.org/project/mtdata/) machine-translation dataset package, which already owns the `mtdata` CLI. The importable Python package remains `mtdata` (`import mtdata`). IDE and assistant configs should still launch **`mtdata-stdio`**. A `mtdata-mcp` console-script alias points at the same stdio entry so Official MCP Registry clients that compose `uvx mtdata-mcp` start that server.
+The PyPI package is **`mtdata-mcp`**. The command-line entry is **`mtdata-cli`** (not `mtdata`). That avoids a clash with the unrelated [mtdata](https://pypi.org/project/mtdata/) machine-translation dataset package, which already owns the `mtdata` CLI. The importable Python package remains `mtdata` (`import mtdata`). If `mtdata-cli` is not on PATH after install, activate the same environment and use `python -m mtdata` instead. IDE and assistant configs should still launch **`mtdata-stdio`**. A `mtdata-mcp` console-script alias points at the same stdio entry so Official MCP Registry clients that compose `uvx mtdata-mcp` start that server.
 
 ---
 

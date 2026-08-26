@@ -58,7 +58,11 @@ def add_global_args_to_parser(
             "dest": "output_fields",
             "default": None,
             "metavar": "FIELD[,FIELD...]",
-            "help": "Return only the selected output fields, plus envelope metadata.",
+            "help": (
+                "Return only the selected output fields, plus success/error, "
+                "symbol/timeframe, pagination, and warnings. Does not keep "
+                "freshness, source, or other unselected trust fields."
+            ),
         }
         if suppress_defaults:
             fields_kwargs["default"] = argparse.SUPPRESS
