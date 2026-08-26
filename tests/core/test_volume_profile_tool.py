@@ -340,8 +340,11 @@ def test_historical_profile_anchors_freshness_to_observed_data(monkeypatch):
     assert result["fetched_at"] == "2026-08-12T02:02:43Z"
     assert result["as_of"] == result["data_as_of"]
     assert result["data_age_seconds"] > 86400.0
-    assert result["data_stale"] is True
+    assert result["observation_age_seconds"] == result["data_age_seconds"]
+    assert result["data_stale"] is None
     assert result["freshness_applicability"] == "historical_query"
+    assert result["query_type"] == "historical"
+    assert "stale_after_seconds" not in result
 
 
 def test_compute_volume_profile_payload_rejects_lookback_without_timeframe():
@@ -498,6 +501,30 @@ def test_default_profile_window_is_bounded_to_24_hours(monkeypatch):
         "start": "2026-07-13 16:30:00",
         "end": "2026-07-14 16:30:00",
     }
+
+
+def test_historical_freshness_meta_does_not_mark_data_stale(monkeypatch):
+    monkeypatch.setattr(
+        vp,
+        "_utc_now_naive",
+        lambda: vp.datetime(2026, 8, 20, 21, 30),
+    )
+    out = vp._profile_freshness_meta(
+        {},
+        data_as_of="2026-08-20T12:00:00Z",
+        historical_query=True,
+        timeframe=None,
+        window_seconds=43200.0,
+        profile_source="ticks",
+        symbol="EURUSD",
+    )
+
+    assert out["query_type"] == "historical"
+    assert out["data_stale"] is None
+    assert out["freshness_applicability"] == "historical_query"
+    assert out["freshness_basis"] == "historical_window_not_applicable"
+    assert "stale_after_seconds" not in out
+    assert out["observation_age_seconds"] == out["data_age_seconds"]
 
 
 def test_default_m1_profile_uses_fixed_observation_age_threshold(monkeypatch):

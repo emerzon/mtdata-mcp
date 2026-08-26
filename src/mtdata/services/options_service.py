@@ -55,6 +55,7 @@ _YAHOO_AUTH_LOCK = _threading.Lock()
 _YAHOO_RATE_LIMIT_LOCK = _threading.Lock()
 _YAHOO_LAST_REQUEST_MONOTONIC = 0.0
 _OPTIONS_PROVIDER_MODES = {"auto", "tradier", "yahoo"}
+_OPTIONS_PROVIDERS_WITH_QUOTE_TIMESTAMPS: frozenset[str] = frozenset()
 _OPTIONS_MONEYNESS_FORMULA = "(strike / underlying_price - 1) * 100"
 _CASH_SETTLED_INDEX_ROOTS = frozenset(
     {
@@ -763,6 +764,50 @@ def _options_provider_attempt_order() -> List[str]:
 
 def _configured_options_provider() -> str:
     return _options_provider_attempt_order()[0]
+
+
+def provider_has_option_quote_timestamps(provider: str) -> bool:
+    return str(provider or "").strip().lower() in _OPTIONS_PROVIDERS_WITH_QUOTE_TIMESTAMPS
+
+
+def quote_timestamp_filter_capability_error(
+    *,
+    quote_usable_only: bool = False,
+    max_quote_age_seconds: Optional[float] = None,
+    provider: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Reject live-quote filters when no attempted provider timestamps quotes."""
+    if not quote_usable_only and max_quote_age_seconds is None:
+        return None
+    providers = _options_provider_attempt_order()
+    if any(provider_has_option_quote_timestamps(name) for name in providers):
+        return None
+    effective = str(provider or (providers[0] if providers else "yahoo")).strip().lower()
+    requested = []
+    if quote_usable_only:
+        requested.append("quote_usable_only")
+    if max_quote_age_seconds is not None:
+        requested.append("max_quote_age_seconds")
+    return {
+        "success": False,
+        "error": (
+            "Quote usability filters require a provider option-quote timestamp. "
+            "Yahoo and Tradier currently supply last-trade time only, so "
+            + " and ".join(f"--{name.replace('_', '-')}" for name in requested)
+            + " cannot be applied."
+        ),
+        "error_code": "capability_unavailable",
+        "capability": "option_quote_timestamps",
+        "provider": effective,
+        "providers_used": list(providers),
+        "requested_filters": requested,
+        "remediation": (
+            "Omit --quote-usable-only and --max-quote-age-seconds. Use each "
+            "row's last_trade_recent_and_market_two_sided flag, or "
+            "options_heston_calibrate which applies a last-trade proxy policy."
+        ),
+        "related_tools": ["options_heston_calibrate", "options_provider_status"],
+    }
 
 
 def _provider_label(provider: str) -> str:
@@ -2221,6 +2266,12 @@ def get_options_chain(
             raise ValueError("limit must be greater than or equal to 1.")
         if start_index < 0:
             raise ValueError("offset must be greater than or equal to 0.")
+        capability_error = quote_timestamp_filter_capability_error(
+            quote_usable_only=bool(quote_usable_only),
+            max_quote_age_seconds=max_quote_age_seconds,
+        )
+        if capability_error is not None:
+            return capability_error
 
         chain_kwargs = {
             "symbol": symbol_norm,

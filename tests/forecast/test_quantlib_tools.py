@@ -142,11 +142,20 @@ def _make_fake_quantlib():  # noqa: C901
             return max(0.0, 0.01 * self._engine.process.spot + 0.1 * self._engine.process.vol)
 
     class _HestonProcess:
-        def __init__(self, *_args, **_kwargs):
-            pass
+        def __init__(self, *args, **_kwargs):
+            self.spot = 0.0
+            if len(args) >= 3:
+                spot_h = args[2]
+                try:
+                    self.spot = float(spot_h.quote.value)
+                except Exception:
+                    self.spot = 0.0
+            self.v0 = float(args[3]) if len(args) > 3 else 0.04
+            self.vol = self.v0 ** 0.5
 
     class _HestonModel:
-        def __init__(self, _process):
+        def __init__(self, process):
+            self.process = process
             self._kappa = 2.0
             self._theta = 0.04
             self._sigma = 0.30
@@ -172,8 +181,12 @@ def _make_fake_quantlib():  # noqa: C901
             return self._v0
 
     class _AnalyticHestonEngine:
-        def __init__(self, _model):
-            pass
+        def __init__(self, model):
+            self.process = getattr(model, "process", None)
+
+    class _FdHestonBarrierEngine:
+        def __init__(self, model, *_args, **_kwargs):
+            self.process = getattr(model, "process", None)
 
     class _Period:
         def __init__(self, length, unit):
@@ -222,6 +235,7 @@ def _make_fake_quantlib():  # noqa: C901
         HestonProcess=_HestonProcess,
         HestonModel=_HestonModel,
         AnalyticHestonEngine=_AnalyticHestonEngine,
+        FdHestonBarrierEngine=_FdHestonBarrierEngine,
         Period=_Period,
         Days="days",
         HestonModelHelper=_HestonModelHelper,
@@ -1010,3 +1024,200 @@ def test_unmapped_calendar_uses_utc_fallback_label():
     assert source == "default_calendar_local_date"
     assert warning is None
     assert day == _dt.date(2026, 8, 14)
+
+
+def _yahoo_proxy_contract(
+    strike: float,
+    *,
+    implied_volatility: float = 0.25,
+    side: str = "call",
+    observed_at: str = "2026-12-01T20:00:00Z",
+    exercise_style: str = "american",
+) -> dict:
+    contract = _qualified_contract(
+        strike,
+        implied_volatility=implied_volatility,
+        side=side,
+        observed_at=observed_at,
+    )
+    contract.update(
+        {
+            "quote_usable_for_live_analysis": False,
+            "last_trade_recent_and_market_two_sided": True,
+            "contract_freshness": "last_trade_proxy",
+            "exercise_style": exercise_style,
+        }
+    )
+    return contract
+
+
+def _yahoo_chain_payload(contracts, *, observed_at="2026-12-01T20:00:00Z"):
+    return {
+        "success": True,
+        "provider": "yahoo",
+        "providers_used": ["yahoo"],
+        "cached": False,
+        "retrieved_at": observed_at,
+        "symbol": "AAPL",
+        "expiration": "2026-12-19",
+        "underlying_price": 100.0,
+        **_current_chain_snapshot(observed_at),
+        "underlying_price_source": "yahoo_regular_market_price",
+        "underlying_price_session": "regular_market",
+        "option_chain_freshness": "unknown",
+        "option_chain_quality": "proxy_usable",
+        "underlying_quote": {
+            "scope": "underlying_quote",
+            "exchange": "NMS",
+            "market_state": "POSTPOST",
+        },
+        "options": contracts,
+    }
+
+
+def test_calibrate_heston_keeps_last_trade_proxy_contracts_quote_usable(monkeypatch):
+    monkeypatch.setitem(__import__("sys").modules, "QuantLib", _make_fake_quantlib())
+    monkeypatch.setattr(
+        qtools,
+        "get_options_chain",
+        lambda **_kwargs: _yahoo_chain_payload(
+            [
+                _yahoo_proxy_contract(90.0, implied_volatility=0.35),
+                _yahoo_proxy_contract(95.0, implied_volatility=0.30),
+                _yahoo_proxy_contract(100.0, implied_volatility=0.28),
+                _yahoo_proxy_contract(105.0, implied_volatility=0.29),
+                _yahoo_proxy_contract(110.0, implied_volatility=0.33),
+                _yahoo_proxy_contract(115.0, implied_volatility=0.37),
+                _yahoo_proxy_contract(120.0, implied_volatility=0.40),
+            ]
+        ),
+    )
+
+    out = qtools.calibrate_heston_quantlib_from_options(
+        symbol="AAPL",
+        expiration="2026-12-19",
+        max_contracts=7,
+    )
+
+    assert out["success"] is True
+    assert out["contracts_used"] == 7
+    assert out["selected_contracts_current_count"] == 7
+    assert out["selected_contracts_quote_usable_count"] == 7
+    assert out["calibration_data_status"] == "current"
+    assert out["quote_freshness_policy"] == "last_trade_proxy"
+    assert out["usable_for_pricing"] is True
+    assert out["sample_contracts"][0]["last_trade_recent_and_market_two_sided"] is True
+    assert out["sample_contracts"][0]["quote_usable_for_live_analysis"] is False
+
+
+def test_calibrate_heston_labels_american_surface_as_european_approximation(
+    monkeypatch,
+):
+    monkeypatch.setitem(__import__("sys").modules, "QuantLib", _make_fake_quantlib())
+    monkeypatch.setattr(
+        qtools,
+        "get_options_chain",
+        lambda **_kwargs: _yahoo_chain_payload(
+            [
+                _yahoo_proxy_contract(strike, implied_volatility=iv)
+                for strike, iv in (
+                    (90, 0.35),
+                    (95, 0.30),
+                    (100, 0.28),
+                    (105, 0.29),
+                    (110, 0.33),
+                )
+            ]
+        ),
+    )
+
+    out = qtools.calibrate_heston_quantlib_from_options(
+        symbol="AAPL",
+        expiration="2026-12-19",
+    )
+
+    assert out["american_surface_approximated_as_european"] is True
+    assert out["selected_exercise_styles"] == ["american"]
+    assert out["pricing_assumptions"]["american_surface_approximated_as_european"] == "true"
+    assert any("American-exercise" in warning for warning in out["warnings"])
+    assert any(
+        "american_surface_approximated_as_european" in item
+        for item in out["identification_limitations"]
+    )
+    assert out["sample_contracts"][0]["exercise_style"] == "american"
+    assert out["usable_for_pricing"] is True
+
+
+def test_calibrate_heston_rejection_keeps_provider_provenance(monkeypatch):
+    fake = _make_fake_quantlib()
+    monkeypatch.setitem(__import__("sys").modules, "QuantLib", fake)
+    stale_contracts = []
+    for strike in (90, 95, 100, 105, 110):
+        contract = _yahoo_proxy_contract(strike)
+        contract.update(
+            {
+                "contract_as_of": "2026-11-30T20:00:00Z",
+                "contract_data_stale": True,
+                "last_trade_recent_and_market_two_sided": False,
+            }
+        )
+        stale_contracts.append(contract)
+    monkeypatch.setattr(
+        qtools,
+        "get_options_chain",
+        lambda **_kwargs: _yahoo_chain_payload(stale_contracts),
+    )
+
+    out = qtools.calibrate_heston_quantlib_from_options(
+        symbol="AAPL",
+        expiration="2026-12-19",
+    )
+
+    assert out["error_code"] == "heston_contract_inputs_rejected"
+    assert out["provider"] == "yahoo"
+    assert out["providers_used"] == ["yahoo"]
+    assert out["cached"] is False
+    assert out["retrieved_at"] == "2026-12-01T20:00:00Z"
+    assert out["market_state"] == "POSTPOST"
+    assert out["underlying_quote"]["market_state"] == "POSTPOST"
+
+
+def test_price_barrier_option_quantlib_heston_mode(monkeypatch):
+    monkeypatch.setitem(__import__("sys").modules, "QuantLib", _make_fake_quantlib())
+    out = qtools.price_barrier_option_quantlib(
+        spot=100.0,
+        strike=100.0,
+        barrier=120.0,
+        maturity_days=30,
+        option_type="call",
+        barrier_type="up_out",
+        model="heston",
+        heston_v0=0.04,
+        heston_kappa=1.5,
+        heston_theta=0.04,
+        heston_sigma=0.3,
+        heston_rho=-0.5,
+        valuation_date="2026-07-03",
+    )
+
+    assert out["success"] is True
+    assert out["price"] > 0.0
+    assert "FdHestonBarrierEngine" in out["pricing_assumptions"]["model"]
+    assert out["params_used"]["model"] == "heston"
+    assert out["params_used"]["heston_v0"] == 0.04
+    assert "volatility" not in out["params_used"]
+    assert out["vega"] is None
+    assert out["greeks_status"] == "complete"
+
+
+def test_price_barrier_option_quantlib_rejects_heston_params_without_model():
+    out = qtools.price_barrier_option_quantlib(
+        spot=100.0,
+        strike=100.0,
+        barrier=120.0,
+        maturity_days=30,
+        heston_v0=0.04,
+    )
+
+    assert out["error_code"] == "invalid_parameter"
+    assert out["parameter"] == "model"

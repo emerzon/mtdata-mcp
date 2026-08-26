@@ -63,6 +63,19 @@ _HESTON_SINGLE_EXPIRY_LIMITATIONS = [
     "single_expiry_fit: kappa and theta are weakly identified from one smile slice",
     "do not treat fitted parameters as a general Heston term-structure calibration",
 ]
+_HESTON_CHAIN_PROVENANCE_KEYS = (
+    "provider",
+    "configured_provider",
+    "provider_effective",
+    "cached",
+    "retrieved_at",
+    "provider_attempts",
+    "underlying_quote",
+)
+_HESTON_BARRIER_T_GRID = 100
+_HESTON_BARRIER_X_GRID = 100
+_HESTON_BARRIER_V_GRID = 50
+_BARRIER_MODELS = ("black_scholes_merton", "heston")
 
 
 def _build_bs_merton_process(
@@ -82,6 +95,34 @@ def _build_bs_merton_process(
         ql.BlackConstantVol(ql_today, calendar_obj, float(vol), day_count)
     )
     return ql.BlackScholesMertonProcess(spot_h, div_ts, rf_ts, vol_ts)
+
+
+def _build_heston_process(
+    ql: Any,
+    ql_today: Any,
+    spot: float,
+    rf: float,
+    div: float,
+    v0: float,
+    kappa: float,
+    theta: float,
+    sigma: float,
+    rho: float,
+    day_count: Any,
+) -> Any:
+    spot_h = ql.QuoteHandle(ql.SimpleQuote(float(spot)))
+    rf_ts = ql.YieldTermStructureHandle(ql.FlatForward(ql_today, float(rf), day_count))
+    div_ts = ql.YieldTermStructureHandle(ql.FlatForward(ql_today, float(div), day_count))
+    return ql.HestonProcess(
+        rf_ts,
+        div_ts,
+        spot_h,
+        float(v0),
+        float(kappa),
+        float(theta),
+        float(sigma),
+        float(rho),
+    )
 
 
 def _quantlib_pricing_assumptions(
@@ -216,7 +257,7 @@ def _days_to_expiry(
     return int((expiry_date - valuation_day).days)
 
 
-def price_barrier_option_quantlib(
+def price_barrier_option_quantlib(  # noqa: C901
     *,
     spot: float,
     strike: float,
@@ -231,8 +272,57 @@ def price_barrier_option_quantlib(
     valuation_date: Optional[str] = None,
     calendar: str = _DEFAULT_QUANTLIB_CALENDAR,
     maturity_basis: str = _DEFAULT_MATURITY_BASIS,
+    model: str = "black_scholes_merton",
+    heston_v0: Optional[float] = None,
+    heston_kappa: Optional[float] = None,
+    heston_theta: Optional[float] = None,
+    heston_sigma: Optional[float] = None,
+    heston_rho: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Price a European barrier option with QuantLib."""
+    try:
+        model_norm = _normalize_barrier_model(model)
+    except ValueError as ex:
+        return {
+            "error": str(ex),
+            "error_code": "invalid_parameter",
+            "parameter": "model",
+            "value": model,
+            "valid_values": list(_BARRIER_MODELS),
+        }
+    heston_values = (heston_v0, heston_kappa, heston_theta, heston_sigma, heston_rho)
+    heston_provided = any(value is not None for value in heston_values)
+    if model_norm == "black_scholes_merton" and heston_provided:
+        return {
+            "error": (
+                "Heston parameters require --model heston. "
+                "Omit heston_* or switch the pricing model."
+            ),
+            "error_code": "invalid_parameter",
+            "parameter": "model",
+            "remediation": (
+                "Pass --model heston with heston_v0/kappa/theta/sigma/rho, or "
+                "omit Heston parameters to keep Black-Scholes-Merton flat vol."
+            ),
+        }
+    heston_params: Optional[Dict[str, float]] = None
+    if model_norm == "heston":
+        validated = _validate_heston_barrier_params(
+            heston_v0=heston_v0,
+            heston_kappa=heston_kappa,
+            heston_theta=heston_theta,
+            heston_sigma=heston_sigma,
+            heston_rho=heston_rho,
+        )
+        if validated.get("error"):
+            return validated
+        heston_params = {
+            "v0": float(validated["v0"]),
+            "kappa": float(validated["kappa"]),
+            "theta": float(validated["theta"]),
+            "sigma": float(validated["sigma"]),
+            "rho": float(validated["rho"]),
+        }
     try:
         spot_val = float(spot)
         strike_val = float(strike)
@@ -240,13 +330,24 @@ def price_barrier_option_quantlib(
         maturity_val = int(maturity_days)
         rf = float(risk_free_rate)
         div = float(dividend_yield)
-        vol = float(volatility)
+        vol = float(volatility) if heston_params is None else 0.0
         rebate_val = float(rebate)
     except Exception:
         return {"error": "Invalid numeric input for barrier pricing"}
 
-    if not (spot_val > 0 and strike_val > 0 and barrier_val > 0 and maturity_val > 0 and vol > 0):
-        return {"error": "spot/strike/barrier/maturity_days/volatility must be positive"}
+    positive_ok = (
+        spot_val > 0
+        and strike_val > 0
+        and barrier_val > 0
+        and maturity_val > 0
+        and (heston_params is not None or vol > 0)
+    )
+    if not positive_ok:
+        if heston_params is None:
+            return {
+                "error": "spot/strike/barrier/maturity_days/volatility must be positive"
+            }
+        return {"error": "spot/strike/barrier/maturity_days must be positive"}
     if not math.isfinite(rebate_val) or rebate_val < 0:
         return {
             "error": "rebate must be finite and nonnegative",
@@ -322,6 +423,8 @@ def price_barrier_option_quantlib(
             calendar=calendar_name,
             maturity_basis=maturity_basis_norm,
             valuation_date=valuation_day.isoformat(),
+            model=model_norm,
+            heston_params=heston_params,
         )
         knocked_out: Dict[str, Any] = {
             "success": True,
@@ -337,7 +440,11 @@ def price_barrier_option_quantlib(
             "greeks_status": "complete",
             "greeks_method": "knocked_out_boundary",
             "pricing_assumptions": _quantlib_pricing_assumptions(
-                "already-breached knock-out (rebate)",
+                _barrier_model_label(
+                    model=model_norm,
+                    heston_params=heston_params,
+                    knocked_status="knocked_out",
+                ),
                 calendar=calendar_name,
                 maturity_basis=maturity_basis_norm,
             ),
@@ -366,6 +473,8 @@ def price_barrier_option_quantlib(
             valuation_day=valuation_day,
             valuation_timezone=valuation_timezone,
             valuation_date_source=valuation_date_source,
+            model_norm=model_norm,
+            heston_params=heston_params,
         )
         if (
             valuation_warning
@@ -374,6 +483,20 @@ def price_barrier_option_quantlib(
         ):
             knocked_in["warnings"] = [valuation_warning]
         return knocked_in
+
+    if heston_params is not None and not hasattr(ql, "FdHestonBarrierEngine"):
+        return {
+            "error": (
+                "QuantLib FdHestonBarrierEngine is required for --model heston "
+                "barrier pricing."
+            ),
+            "error_code": "capability_unavailable",
+            "capability": "FdHestonBarrierEngine",
+            "remediation": (
+                "Upgrade QuantLib, or price with --model black_scholes_merton "
+                "and a strike-specific --volatility."
+            ),
+        }
 
     opt_map = {"call": ql.Option.Call, "put": ql.Option.Put}
     barrier_map = {
@@ -407,6 +530,30 @@ def price_barrier_option_quantlib(
     )
 
     def _price_with(spot_local: float, vol_local: float) -> float:
+        if heston_params is not None:
+            process = _build_heston_process(
+                ql,
+                ql_today,
+                spot_local,
+                rf,
+                div,
+                heston_params["v0"],
+                heston_params["kappa"],
+                heston_params["theta"],
+                heston_params["sigma"],
+                heston_params["rho"],
+                day_count,
+            )
+            heston_model = ql.HestonModel(process)
+            barrier_opt.setPricingEngine(
+                ql.FdHestonBarrierEngine(
+                    heston_model,
+                    _HESTON_BARRIER_T_GRID,
+                    _HESTON_BARRIER_X_GRID,
+                    _HESTON_BARRIER_V_GRID,
+                )
+            )
+            return float(barrier_opt.NPV())
         process = _build_bs_merton_process(
             ql,
             ql_today,
@@ -464,19 +611,34 @@ def price_barrier_option_quantlib(
                 f"({one_sided_exc})."
             )
 
-    try:
-        eps_v = max(1e-4, abs(vol) * 5e-2)
-        pv_up = _price_with(spot_val, vol + eps_v)
-        pv_dn = _price_with(spot_val, max(1e-6, vol - eps_v))
-        vega = (pv_up - pv_dn) / (2.0 * eps_v)
-    except Exception as ex:
-        greeks_warnings.append(f"Vega unavailable: volatility differences failed ({ex}).")
+    if heston_params is None:
+        try:
+            eps_v = max(1e-4, abs(vol) * 5e-2)
+            pv_up = _price_with(spot_val, vol + eps_v)
+            pv_dn = _price_with(spot_val, max(1e-6, vol - eps_v))
+            vega = (pv_up - pv_dn) / (2.0 * eps_v)
+        except Exception as ex:
+            greeks_warnings.append(
+                f"Vega unavailable: volatility differences failed ({ex})."
+            )
+    else:
+        greeks_warnings.append(
+            "Vega is omitted for Heston barrier pricing; it is not a Black "
+            "implied-volatility derivative. Spot delta/gamma use finite differences."
+        )
 
     finite_greeks = sum(
         value is not None and math.isfinite(value)
         for value in (delta, gamma, vega)
     )
-    greeks_status = "complete" if finite_greeks == 3 else "partial" if finite_greeks else "unavailable"
+    expected_greeks = 2 if heston_params is not None else 3
+    greeks_status = (
+        "complete"
+        if finite_greeks == expected_greeks
+        else "partial"
+        if finite_greeks
+        else "unavailable"
+    )
 
     return {
         "success": True,
@@ -494,11 +656,27 @@ def price_barrier_option_quantlib(
         "greeks_spot_step": float(eps_s),
         **({"greeks_warnings": greeks_warnings} if greeks_warnings else {}),
         **({"warnings": [valuation_warning]} if valuation_warning else {}),
-        "pricing_assumptions": _quantlib_pricing_assumptions(
-            "BlackScholesMerton analytic barrier",
-            calendar=calendar_name,
-            maturity_basis=maturity_basis_norm,
-        ),
+        "pricing_assumptions": {
+            **_quantlib_pricing_assumptions(
+                _barrier_model_label(
+                    model=model_norm,
+                    heston_params=heston_params,
+                ),
+                calendar=calendar_name,
+                maturity_basis=maturity_basis_norm,
+            ),
+            **(
+                {
+                    "heston_fd_grid": (
+                        f"t={_HESTON_BARRIER_T_GRID},"
+                        f"x={_HESTON_BARRIER_X_GRID},"
+                        f"v={_HESTON_BARRIER_V_GRID}"
+                    )
+                }
+                if heston_params is not None
+                else {}
+            ),
+        },
         "params_used": _barrier_option_params(
             spot=spot_val,
             strike=strike_val,
@@ -513,6 +691,8 @@ def price_barrier_option_quantlib(
             calendar=calendar_name,
             maturity_basis=maturity_basis_norm,
             valuation_date=valuation_day.isoformat(),
+            model=model_norm,
+            heston_params=heston_params,
         ),
     }
 
@@ -536,6 +716,8 @@ def _price_knocked_in_as_vanilla(
     valuation_day: Any,
     valuation_timezone: str,
     valuation_date_source: str,
+    model_norm: str = "black_scholes_merton",
+    heston_params: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Any]:
     """Price a barrier that has already knocked in as the equivalent vanilla."""
     ql_today = _quantlib_date(ql, valuation_day)
@@ -556,24 +738,52 @@ def _price_knocked_in_as_vanilla(
     )
     exercise = ql.EuropeanExercise(maturity)
     option = ql.VanillaOption(payoff, exercise)
-    process = _build_bs_merton_process(
-        ql,
-        ql_today,
-        calendar_obj,
-        spot_val,
-        rf,
-        div,
-        vol,
-        day_count,
-    )
-    option.setPricingEngine(ql.AnalyticEuropeanEngine(process))
+    if heston_params is not None:
+        process = _build_heston_process(
+            ql,
+            ql_today,
+            spot_val,
+            rf,
+            div,
+            heston_params["v0"],
+            heston_params["kappa"],
+            heston_params["theta"],
+            heston_params["sigma"],
+            heston_params["rho"],
+            day_count,
+        )
+        option.setPricingEngine(ql.AnalyticHestonEngine(ql.HestonModel(process)))
+    else:
+        process = _build_bs_merton_process(
+            ql,
+            ql_today,
+            calendar_obj,
+            spot_val,
+            rf,
+            div,
+            vol,
+            day_count,
+        )
+        option.setPricingEngine(ql.AnalyticEuropeanEngine(process))
     try:
         npv = float(option.NPV())
         delta = float(option.delta())
         gamma = float(option.gamma())
-        vega = float(option.vega())
+        vega = float(option.vega()) if heston_params is None else None
     except Exception as ex:
         return {"error": f"QuantLib pricing failed: {ex}"}
+    finite_greeks = sum(
+        value is not None and math.isfinite(value)
+        for value in (delta, gamma, vega)
+    )
+    expected_greeks = 2 if heston_params is not None else 3
+    greeks_status = (
+        "complete"
+        if finite_greeks == expected_greeks
+        else "partial"
+        if finite_greeks
+        else "unavailable"
+    )
     return {
         "success": True,
         "price": npv,
@@ -587,10 +797,18 @@ def _price_knocked_in_as_vanilla(
         "delta": delta,
         "gamma": gamma,
         "vega": vega,
-        "greeks_status": "complete",
-        "greeks_method": "knocked_in_vanilla",
+        "greeks_status": greeks_status,
+        "greeks_method": (
+            "knocked_in_heston_vanilla"
+            if heston_params is not None
+            else "knocked_in_vanilla"
+        ),
         "pricing_assumptions": _quantlib_pricing_assumptions(
-            "already-breached knock-in priced as European vanilla",
+            _barrier_model_label(
+                model=model_norm,
+                heston_params=heston_params,
+                knocked_status="knocked_in",
+            ),
             calendar=calendar_name,
             maturity_basis=maturity_basis_norm,
         ),
@@ -608,6 +826,8 @@ def _price_knocked_in_as_vanilla(
             calendar=calendar_name,
             maturity_basis=maturity_basis_norm,
             valuation_date=valuation_day.isoformat(),
+            model=model_norm,
+            heston_params=heston_params,
         ),
     }
 
@@ -641,8 +861,10 @@ def _barrier_option_params(
     calendar: str,
     maturity_basis: str,
     valuation_date: Optional[str] = None,
+    model: str = "black_scholes_merton",
+    heston_params: Optional[Dict[str, float]] = None,
 ) -> Dict[str, Any]:
-    return {
+    out: Dict[str, Any] = {
         "spot": float(spot),
         "strike": float(strike),
         "barrier": float(barrier),
@@ -651,18 +873,45 @@ def _barrier_option_params(
         "barrier_type": str(barrier_type),
         "risk_free_rate": float(risk_free_rate),
         "dividend_yield": float(dividend_yield),
-        "volatility": float(volatility),
         "rebate": float(rebate),
         "calendar": str(calendar),
         "maturity_basis": str(maturity_basis),
+        "model": str(model),
         **({"valuation_date": valuation_date} if valuation_date else {}),
     }
+    if heston_params:
+        out["heston_v0"] = float(heston_params["v0"])
+        out["heston_kappa"] = float(heston_params["kappa"])
+        out["heston_theta"] = float(heston_params["theta"])
+        out["heston_sigma"] = float(heston_params["sigma"])
+        out["heston_rho"] = float(heston_params["rho"])
+    else:
+        out["volatility"] = float(volatility)
+    return out
+
+
+def _barrier_model_label(
+    *,
+    model: str,
+    heston_params: Optional[Dict[str, float]],
+    knocked_status: Optional[str] = None,
+) -> str:
+    if knocked_status == "knocked_out":
+        return "already-breached knock-out (rebate)"
+    if knocked_status == "knocked_in":
+        if heston_params:
+            return "already-breached knock-in priced as Heston European vanilla"
+        return "already-breached knock-in priced as European vanilla"
+    if heston_params or model == "heston":
+        return "Heston finite-difference barrier (FdHestonBarrierEngine)"
+    return "BlackScholesMerton analytic barrier"
 
 
 def _heston_pricing_assumptions(
     *,
     calendar: str,
     days_to_expiry_basis: str,
+    american_surface_approximated_as_european: bool = False,
 ) -> Dict[str, str]:
     assumptions = _quantlib_pricing_assumptions(
         "Heston analytic calibration",
@@ -672,7 +921,144 @@ def _heston_pricing_assumptions(
     assumptions.pop("maturity_basis", None)
     assumptions["maturity_convention"] = "calendar_days_to_contract_expiry"
     assumptions["days_to_expiry_basis"] = days_to_expiry_basis
+    if american_surface_approximated_as_european:
+        assumptions["exercise_style"] = "american_approximated_as_european"
+        assumptions["american_surface_approximated_as_european"] = "true"
+        assumptions["pricing_engine"] = "AnalyticHestonEngine/HestonModelHelper (European)"
+    else:
+        assumptions["exercise_style"] = "european"
     return assumptions
+
+
+def _heston_chain_provenance(source: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Copy provider/cache/retrieval envelope from a chain or catalog payload."""
+    if not isinstance(source, dict):
+        return {}
+    out: Dict[str, Any] = {}
+    for key in _HESTON_CHAIN_PROVENANCE_KEYS:
+        if key not in source:
+            continue
+        value = source.get(key)
+        if value in ("", [], {}):
+            continue
+        out[key] = value
+    providers_used = source.get("providers_used")
+    derived: List[str] = []
+    if isinstance(providers_used, list):
+        for item in providers_used:
+            name = str(item or "").strip()
+            if name and name not in derived:
+                derived.append(name)
+    if not derived:
+        attempts = source.get("provider_attempts")
+        if isinstance(attempts, list):
+            for attempt in attempts:
+                if not isinstance(attempt, dict):
+                    continue
+                name = str(attempt.get("provider") or "").strip()
+                if name and name not in derived:
+                    derived.append(name)
+        provider = str(source.get("provider") or "").strip()
+        if provider and provider not in derived:
+            derived.append(provider)
+    if derived:
+        out["providers_used"] = derived
+    envelope = out.get("underlying_quote")
+    if not isinstance(envelope, dict):
+        envelope = source.get("underlying_quote")
+    if isinstance(envelope, dict):
+        market_state = envelope.get("market_state")
+        if market_state not in (None, ""):
+            out["market_state"] = market_state
+    return out
+
+
+def _normalize_barrier_model(model: Any) -> str:
+    value = str(model or "black_scholes_merton").strip().lower()
+    aliases = {
+        "bsm": "black_scholes_merton",
+        "black_scholes": "black_scholes_merton",
+        "black-scholes-merton": "black_scholes_merton",
+        "black_scholes_merton": "black_scholes_merton",
+        "heston": "heston",
+    }
+    normalized = aliases.get(value)
+    if normalized is None:
+        raise ValueError(
+            f"Invalid model: {model}. Use black_scholes_merton|heston."
+        )
+    return normalized
+
+
+def _validate_heston_barrier_params(
+    *,
+    heston_v0: Any,
+    heston_kappa: Any,
+    heston_theta: Any,
+    heston_sigma: Any,
+    heston_rho: Any,
+) -> Dict[str, Any]:
+    missing = [
+        name
+        for name, value in (
+            ("heston_v0", heston_v0),
+            ("heston_kappa", heston_kappa),
+            ("heston_theta", heston_theta),
+            ("heston_sigma", heston_sigma),
+            ("heston_rho", heston_rho),
+        )
+        if value is None
+    ]
+    if missing:
+        return {
+            "error": (
+                "Heston barrier pricing requires heston_v0, heston_kappa, "
+                "heston_theta, heston_sigma, and heston_rho."
+            ),
+            "error_code": "invalid_parameter",
+            "parameter": ",".join(missing),
+            "missing_parameters": missing,
+            "remediation": (
+                "Pass the five calibrated Heston parameters from "
+                "options_heston_calibrate, or use --model black_scholes_merton "
+                "with --volatility."
+            ),
+        }
+    try:
+        v0 = float(heston_v0)
+        kappa = float(heston_kappa)
+        theta = float(heston_theta)
+        sigma = float(heston_sigma)
+        rho = float(heston_rho)
+    except (TypeError, ValueError):
+        return {
+            "error": "Heston parameters must be numeric.",
+            "error_code": "invalid_parameter",
+            "parameter": "heston_v0,heston_kappa,heston_theta,heston_sigma,heston_rho",
+        }
+    if not all(math.isfinite(value) for value in (v0, kappa, theta, sigma, rho)):
+        return {
+            "error": "Heston parameters must be finite.",
+            "error_code": "invalid_parameter",
+        }
+    if not (v0 > 0 and kappa > 0 and theta > 0 and sigma > 0):
+        return {
+            "error": "heston_v0, heston_kappa, heston_theta, and heston_sigma must be positive.",
+            "error_code": "invalid_parameter",
+        }
+    if not -1.0 <= rho <= 1.0:
+        return {
+            "error": "heston_rho must be between -1 and 1.",
+            "error_code": "invalid_parameter",
+            "parameter": "heston_rho",
+        }
+    return {
+        "v0": v0,
+        "kappa": kappa,
+        "theta": theta,
+        "sigma": sigma,
+        "rho": rho,
+    }
 
 
 def _chain_observation_date(
@@ -836,6 +1222,9 @@ def calibrate_heston_quantlib_from_options(  # noqa: C901
                     "default Heston expiration."
                 ),
                 "error_code": "expiration_observation_time_unavailable",
+                **_heston_chain_provenance(
+                    expirations_result if isinstance(expirations_result, dict) else None
+                ),
                 "remediation": (
                     "Pass --expiration explicitly, or retry with a provider response "
                     "that includes a timezone-qualified underlying_as_of timestamp."
@@ -853,6 +1242,9 @@ def calibrate_heston_quantlib_from_options(  # noqa: C901
                     "after the provider observation date."
                 ),
                 "error_code": "heston_no_eligible_expiration",
+                **_heston_chain_provenance(
+                    expirations_result if isinstance(expirations_result, dict) else None
+                ),
                 "valuation_date": selection_day.isoformat(),
                 "minimum_calendar_days": 7,
                 "listed_expirations": [
@@ -892,10 +1284,14 @@ def calibrate_heston_quantlib_from_options(  # noqa: C901
     contracts = chain.get("options", []) if isinstance(chain, dict) else []
     if not isinstance(contracts, list):
         contracts = []
+    chain_provenance = _heston_chain_provenance(chain if isinstance(chain, dict) else None)
 
     spot_val = float(chain.get("underlying_price", float("nan")))
     if not (spot_val == spot_val and spot_val > 0):
-        return {"error": "Underlying spot price unavailable from options provider."}
+        return {
+            "error": "Underlying spot price unavailable from options provider.",
+            **chain_provenance,
+        }
 
     spot_as_of = chain.get("underlying_as_of")
     spot_epoch = _timezone_qualified_epoch(spot_as_of)
@@ -906,6 +1302,7 @@ def calibrate_heston_quantlib_from_options(  # noqa: C901
                 "calibration to a single market snapshot."
             ),
             "error_code": "chain_observation_time_unavailable",
+            **chain_provenance,
             "spot_as_of": spot_as_of,
             "remediation": (
                 "Retry with a provider response that includes a timezone-qualified "
@@ -926,6 +1323,7 @@ def calibrate_heston_quantlib_from_options(  # noqa: C901
                 "calibration to a single market snapshot."
             ),
             "error_code": "chain_observation_time_unavailable",
+            **chain_provenance,
             "spot_as_of": spot_as_of,
             "valuation_timezone": valuation_timezone,
             "remediation": (
@@ -944,6 +1342,7 @@ def calibrate_heston_quantlib_from_options(  # noqa: C901
         except (TypeError, ValueError):
             return {
                 "error": f"Invalid valuation_date: {valuation_date}. Use YYYY-MM-DD.",
+                **chain_provenance,
                 "symbol": symbol,
                 "expiration": expiration,
                 "valuation_date": valuation_date,
@@ -956,6 +1355,7 @@ def calibrate_heston_quantlib_from_options(  # noqa: C901
                     f"chain_observation_date={observation_day.isoformat()}."
                 ),
                 "error_code": "valuation_date_chain_mismatch",
+                **chain_provenance,
                 "symbol": symbol,
                 "expiration": expiration,
                 "valuation_date": valuation_day.isoformat(),
@@ -1001,31 +1401,35 @@ def calibrate_heston_quantlib_from_options(  # noqa: C901
                     contract_quality_rejections.get(failure, 0) + 1
                 )
             continue
-        rows.append(
-            {
-                "contract": row.get("contract"),
-                "strike": strike,
-                "iv": iv,
-                "side": row.get("side"),
-                "bid": row.get("bid"),
-                "ask": row.get("ask"),
-                "contract_as_of": row.get("contract_as_of"),
-                "contract_data_age_seconds": row.get(
-                    "contract_data_age_seconds"
-                ),
-                "contract_data_stale": row.get("contract_data_stale"),
-                "contract_freshness": row.get("contract_freshness"),
-                "quote_quality": row.get("quote_quality"),
-                "quote_usable_for_live_analysis": row.get(
-                    "quote_usable_for_live_analysis"
-                ),
-                "spot_contract_skew_seconds": (
-                    round(float(skew_seconds), 3)
-                    if skew_seconds is not None
-                    else None
-                ),
-            }
-        )
+        selected_row = {
+            "contract": row.get("contract"),
+            "strike": strike,
+            "iv": iv,
+            "side": row.get("side"),
+            "bid": row.get("bid"),
+            "ask": row.get("ask"),
+            "contract_as_of": row.get("contract_as_of"),
+            "contract_data_age_seconds": row.get(
+                "contract_data_age_seconds"
+            ),
+            "contract_data_stale": row.get("contract_data_stale"),
+            "contract_freshness": row.get("contract_freshness"),
+            "quote_quality": row.get("quote_quality"),
+            "quote_usable_for_live_analysis": row.get(
+                "quote_usable_for_live_analysis"
+            ),
+            "last_trade_recent_and_market_two_sided": row.get(
+                "last_trade_recent_and_market_two_sided"
+            ),
+            "spot_contract_skew_seconds": (
+                round(float(skew_seconds), 3)
+                if skew_seconds is not None
+                else None
+            ),
+        }
+        if row.get("exercise_style") not in (None, ""):
+            selected_row["exercise_style"] = row.get("exercise_style")
+        rows.append(selected_row)
 
     if len(rows) < 5:
         return {
@@ -1035,6 +1439,7 @@ def calibrate_heston_quantlib_from_options(  # noqa: C901
                 "two-sided option contracts from the same market snapshot."
             ),
             "error_code": "heston_contract_inputs_rejected",
+            **chain_provenance,
             "calibration_status": "rejected",
             "calibration_data_status": "unusable_contracts",
             "usable_for_pricing": False,
@@ -1071,6 +1476,7 @@ def calibrate_heston_quantlib_from_options(  # noqa: C901
                     "option_type=both requires valid implied-volatility contracts "
                     "from both calls and puts."
                 ),
+                **chain_provenance,
                 "side_coverage": "call_only" if calls else "put_only" if puts else "none",
             }
         rows = []
@@ -1085,11 +1491,17 @@ def calibrate_heston_quantlib_from_options(  # noqa: C901
         rows = rows[:contract_limit]
     expiry_text = str(chain.get("expiration") or "")
     if not expiry_text:
-        return {"error": "Options expiration date missing from chain output."}
+        return {
+            "error": "Options expiration date missing from chain output.",
+            **chain_provenance,
+        }
     try:
         expiry_date = _dt.datetime.strptime(expiry_text, "%Y-%m-%d").date()
     except Exception:
-        return {"error": f"Invalid expiration format: {expiry_text}"}
+        return {
+            "error": f"Invalid expiration format: {expiry_text}",
+            **chain_provenance,
+        }
     if valuation_day >= expiry_date:
         return {
             "error": (
@@ -1098,6 +1510,7 @@ def calibrate_heston_quantlib_from_options(  # noqa: C901
                 f"expiration={expiry_date.isoformat()}."
             ),
             "error_code": "invalid_expiration_date_range",
+            **chain_provenance,
             "valuation_date": valuation_day.isoformat(),
             "expiration": expiry_date.isoformat(),
         }
@@ -1115,6 +1528,7 @@ def calibrate_heston_quantlib_from_options(  # noqa: C901
                 "time to expiration."
             ),
             "error_code": "invalid_expiration_maturity",
+            **chain_provenance,
             "valuation_date": valuation_day.isoformat(),
             "expiration": expiry_date.isoformat(),
             "days_to_expiry_basis": maturity_basis_norm,
@@ -1128,6 +1542,7 @@ def calibrate_heston_quantlib_from_options(  # noqa: C901
                 f"{maturity_calendar_days} day(s)."
             ),
             "error_code": "heston_maturity_too_short",
+            **chain_provenance,
             "expiration": expiry_date.isoformat(),
             "valuation_date": valuation_day.isoformat(),
             "days_to_expiry": int(days_to_expiry),
@@ -1138,6 +1553,17 @@ def calibrate_heston_quantlib_from_options(  # noqa: C901
                 "days after the chain observation date."
             ),
         }
+
+    selected_exercise_styles = sorted(
+        {
+            str(row.get("exercise_style")).strip().lower()
+            for row in rows
+            if row.get("exercise_style") not in (None, "")
+        }
+    )
+    american_surface_approximated_as_european = (
+        "american" in selected_exercise_styles
+    )
 
     ql_today = _quantlib_date(ql, valuation_day)
     ql.Settings.instance().evaluationDate = ql_today
@@ -1181,7 +1607,10 @@ def calibrate_heston_quantlib_from_options(  # noqa: C901
         end_criteria = ql.EndCriteria(500, 100, 1e-8, 1e-8, 1e-8)
         model.calibrate(helpers, method, end_criteria)
     except Exception as ex:
-        return {"error": f"QuantLib Heston calibration failed: {ex}"}
+        return {
+            "error": f"QuantLib Heston calibration failed: {ex}",
+            **chain_provenance,
+        }
 
     errors = [float(h.calibrationError()) for h in helpers]
     rmse = float(np.sqrt(np.mean(np.square(errors)))) if errors else float("nan")
@@ -1219,12 +1648,27 @@ def calibrate_heston_quantlib_from_options(  # noqa: C901
         if spot_data_stale is False and selected_contracts_qualified
         else "unqualified"
     )
-    warnings = [
-        "Calibration mode is single_expiry_fit; kappa and theta are weakly "
-        "identified from one expiration and are not a term-structure surface.",
-        "Contract selection uses last-trade recency as a quote-freshness "
-        "proxy because providers do not supply option quote timestamps.",
-    ]
+    identification_limitations = list(_HESTON_SINGLE_EXPIRY_LIMITATIONS)
+    warnings = []
+    if american_surface_approximated_as_european:
+        identification_limitations.append(
+            "american_surface_approximated_as_european: AnalyticHestonEngine "
+            "and HestonModelHelper ignore early exercise"
+        )
+        warnings.append(
+            "Selected contracts include American-exercise options. Calibration "
+            "uses QuantLib AnalyticHestonEngine / HestonModelHelper, which are "
+            "European. american_surface_approximated_as_european=true; "
+            "early-exercise premium is not modeled."
+        )
+    warnings.extend(
+        [
+            "Calibration mode is single_expiry_fit; kappa and theta are weakly "
+            "identified from one expiration and are not a term-structure surface.",
+            "Contract selection uses last-trade recency as a quote-freshness "
+            "proxy because providers do not supply option quote timestamps.",
+        ]
+    )
     if calibration_data_stale:
         warnings.append(
             "Heston calibration used a stale underlying quote; the "
@@ -1294,9 +1738,14 @@ def calibrate_heston_quantlib_from_options(  # noqa: C901
             else {}
         ),
         "symbol": str(symbol).upper().strip(),
+        **chain_provenance,
         "expiration": expiry_text,
         "calibration_mode": "single_expiry_fit",
-        "identification_limitations": list(_HESTON_SINGLE_EXPIRY_LIMITATIONS),
+        "identification_limitations": identification_limitations,
+        "american_surface_approximated_as_european": (
+            american_surface_approximated_as_european
+        ),
+        "selected_exercise_styles": selected_exercise_styles,
         "quote_freshness_policy": "last_trade_proxy",
         **(
             {"expiration_selection": expiration_selection}
@@ -1350,6 +1799,9 @@ def calibrate_heston_quantlib_from_options(  # noqa: C901
         "pricing_assumptions": _heston_pricing_assumptions(
             calendar=calendar_name,
             days_to_expiry_basis=maturity_basis_norm,
+            american_surface_approximated_as_european=(
+                american_surface_approximated_as_european
+            ),
         ),
         "risk_free_rate": float(risk_free_rate),
         "dividend_yield": float(dividend_yield),

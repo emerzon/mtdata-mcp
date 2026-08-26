@@ -624,10 +624,16 @@ def _barrier_pricing_inputs(payload: Dict[str, Any]) -> Dict[str, Any]:
     inputs = {
         key: source[key]
         for key in (
+            "model",
             "risk_free_rate",
             "dividend_yield",
             "volatility",
             "rebate",
+            "heston_v0",
+            "heston_kappa",
+            "heston_theta",
+            "heston_sigma",
+            "heston_rho",
         )
         if source.get(key) is not None
     }
@@ -815,6 +821,16 @@ def _apply_options_detail(
                 "calibration_mode",
                 "identification_limitations",
                 "quote_freshness_policy",
+                "provider",
+                "providers_used",
+                "configured_provider",
+                "provider_effective",
+                "cached",
+                "retrieved_at",
+                "underlying_quote",
+                "market_state",
+                "american_surface_approximated_as_european",
+                "selected_exercise_styles",
                 "valuation_date",
                 "valuation_timezone",
                 "valuation_date_source",
@@ -1017,7 +1033,9 @@ def options_chain(
         Field(
             description=(
                 "Keep only contracts with a two-sided quote and a provider quote "
-                "timestamp within the live age threshold."
+                "timestamp within the live age threshold. Yahoo and Tradier do "
+                "not supply option-quote timestamps, so this filter is rejected "
+                "as capability_unavailable."
             )
         ),
     ] = False,
@@ -1027,7 +1045,9 @@ def options_chain(
             ge=1,
             description=(
                 "Maximum age in seconds for a provider quote timestamp. Unknown "
-                "quote timestamps are excluded."
+                "quote timestamps are excluded. Yahoo and Tradier do not supply "
+                "option-quote timestamps, so this filter is rejected as "
+                "capability_unavailable."
             ),
         ),
     ] = None,
@@ -1254,9 +1274,21 @@ def options_barrier_price(
     valuation_date: Optional[str] = None,
     calendar: str = "UnitedStates.NYSE",
     maturity_basis: Literal["calendar_days", "business_days"] = "calendar_days",  # type: ignore
+    model: Literal["black_scholes_merton", "heston"] = "black_scholes_merton",  # type: ignore
+    heston_v0: Optional[float] = None,
+    heston_kappa: Optional[float] = None,
+    heston_theta: Optional[float] = None,
+    heston_sigma: Optional[float] = None,
+    heston_rho: Optional[float] = None,
     detail: DetailLiteral = "compact",  # type: ignore
 ) -> Dict[str, Any]:
-    """Price a barrier option using QuantLib with optional calendar overrides."""
+    """Price a barrier option using QuantLib with optional calendar overrides.
+
+    Default ``model=black_scholes_merton`` uses a single flat ``volatility``
+    with QuantLib's analytic barrier engine. ``model=heston`` prices with
+    QuantLib ``FdHestonBarrierEngine`` and requires the five calibrated
+    Heston parameters from ``options_heston_calibrate``.
+    """
     date_error = _validate_options_valuation_date(valuation_date)
     if date_error is not None:
         return _run_options_operation(
@@ -1303,6 +1335,12 @@ def options_barrier_price(
             valuation_date=valuation_date,
             calendar=calendar,
             maturity_basis=maturity_basis,
+            model=model,
+            heston_v0=heston_v0,
+            heston_kappa=heston_kappa,
+            heston_theta=heston_theta,
+            heston_sigma=heston_sigma,
+            heston_rho=heston_rho,
         )
         if isinstance(payload, dict) and payload.get("success"):
             warnings_out = list(payload.get("warnings") or [])
@@ -1310,7 +1348,7 @@ def options_barrier_price(
                 warnings_out.append(
                     "risk_free_rate is a decimal fraction; 5 means 500%, not 5%. Use 0.05 for 5%."
                 )
-            if vol_value >= 5.0:
+            if str(model).strip().lower() != "heston" and vol_value >= 5.0:
                 warnings_out.append(
                     "volatility is a decimal fraction; 20 means 2000%, not 20%. Use 0.20 for 20%."
                 )

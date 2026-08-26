@@ -94,8 +94,8 @@ mtdata-cli options_chain TSLA --min-open-interest 100 --min-volume 50 --json
 | `--min-volume` | 0 | Minimum volume filter; must be at least 0 |
 | `--min-strike` / `--max-strike` | (none) | Inclusive strike bounds, applied before pagination |
 | `--min-moneyness-pct` / `--max-moneyness-pct` | (none) | Inclusive moneyness bounds. Formula: `(strike / underlying_price - 1) * 100` |
-| `--quote-usable-only` | false | Keep only rows with a provider quote timestamp and a two-sided live quote. Unknown quote timestamps are excluded |
-| `--max-quote-age-seconds` | (none) | Maximum option-quote age. Rows without a quote timestamp are excluded |
+| `--quote-usable-only` | false | Requires a provider option-quote timestamp. Yahoo and Tradier do not supply one, so this filter is rejected with `capability_unavailable` before the chain is queried. Use `last_trade_recent_and_market_two_sided` or `options_heston_calibrate` instead |
+| `--max-quote-age-seconds` | (none) | Maximum option-quote age. Yahoo and Tradier do not supply quote timestamps, so this filter is rejected with `capability_unavailable` before the chain is queried |
 | `--sort-by` | `nearest_strike` | `nearest_strike`, `strike`, `open_interest`, `volume`, or `moneyness_pct` |
 | `--limit` | 20 compact; 200 full | Maximum contracts to return; must be at least 1 |
 | `--offset` | 0 | Zero-based index of the first contract in this live page |
@@ -138,7 +138,9 @@ A recent last trade plus a two-sided market is reported as
 `last_trade_recent_and_market_two_sided` and is **not** treated as a current
 quote. Compact JSON always keeps `contract_data_stale`,
 `quote_usable_for_live_analysis`, `last_trade_recent_and_market_two_sided`,
-and `quote_freshness` on each row.
+and `quote_freshness` on each row. `--quote-usable-only` and
+`--max-quote-age-seconds` are live-quote filters; they are not last-trade
+proxies and are rejected for the current Yahoo/Tradier providers.
 
 Greeks are a stable nullable contract: `greeks_available`, `greeks_source`,
 and `greeks_unavailable_reason`. Tradier may supply delta/gamma/theta/vega/rho.
@@ -155,7 +157,12 @@ Larger future skew is treated as stale.
 
 ### `options_barrier_price`
 
-Price a European barrier option with QuantLib's analytic continuous-monitoring engine (`AnalyticBarrierEngine`, Reiner–Rubinstein). This is not the discrete-bar TP/SL first-hit tool; use [BARRIER_FUNCTIONS.md](BARRIER_FUNCTIONS.md) for that.
+Price a European barrier option with QuantLib. The default is the analytic
+continuous-monitoring Black–Scholes–Merton engine (`AnalyticBarrierEngine`,
+Reiner–Rubinstein) with a single flat `--volatility`. Pass `--model heston`
+plus the five calibrated Heston parameters to price with QuantLib's
+`FdHestonBarrierEngine` instead. This is not the discrete-bar TP/SL first-hit
+tool; use [BARRIER_FUNCTIONS.md](BARRIER_FUNCTIONS.md) for that.
 
 By default, QuantLib pricing assumes the `UnitedStates.NYSE` calendar and interprets `maturity_days` as calendar days. Override `--calendar` and `--maturity-basis` for non-US or non-equity workflows.
 When `--valuation-date` is omitted, mtdata uses the selected calendar's local
@@ -173,6 +180,9 @@ mtdata-cli options_barrier_price 150 --strike 155 --barrier 140 --maturity-days 
 
 # Up-and-in put (activates if price rises to barrier)
 mtdata-cli options_barrier_price 150 --strike 145 --barrier 160 --maturity-days 60 --option-type put --barrier-type up_in --volatility 0.3 --json
+
+# Heston finite-difference barrier using calibrated parameters
+mtdata-cli options_barrier_price 150 --strike 155 --barrier 140 --maturity-days 30 --barrier-type down_out --model heston --heston-v0 0.04 --heston-kappa 1.5 --heston-theta 0.04 --heston-sigma 0.3 --heston-rho -0.5 --json
 ```
 
 | Parameter | Default | Description |
@@ -185,7 +195,9 @@ mtdata-cli options_barrier_price 150 --strike 145 --barrier 160 --maturity-days 
 | `--barrier-type` | `up_out` | `up_in`, `up_out`, `down_in`, `down_out` |
 | `--risk-free-rate` | 0.02 | Risk-free rate (decimal) |
 | `--dividend-yield` | 0.0 | Dividend yield (decimal) |
-| `--volatility` | 0.2 | Implied volatility (decimal, e.g., 0.2 = 20%) |
+| `--volatility` | 0.2 | Black implied volatility (decimal, e.g., 0.2 = 20%). Used only with `--model black_scholes_merton` |
+| `--model` | `black_scholes_merton` | `black_scholes_merton` (analytic flat-vol barrier) or `heston` (`FdHestonBarrierEngine`) |
+| `--heston-v0` / `--heston-kappa` / `--heston-theta` / `--heston-sigma` / `--heston-rho` | (required with `--model heston`) | The five Heston parameters from `options_heston_calibrate` |
 | `--rebate` | 0.0 | Knock-out: paid if the barrier is hit. Knock-in: paid at expiry only if the barrier is never hit |
 | `--valuation-date` | mapped calendar local date | Valuation date in `YYYY-MM-DD`; omitted uses the calendar's IANA local date, or UTC with `utc_fallback` when unmapped |
 | `--calendar` | `UnitedStates.NYSE` | QuantLib calendar name (for example `UnitedStates.NYSE` or `NullCalendar`) |
@@ -235,7 +247,7 @@ mtdata-cli options_heston_calibrate TSLA --option-type both --min-open-interest 
 | `--min-open-interest` | 0 | Min open interest for contract selection; must be at least 0 |
 | `--min-volume` | 0 | Min volume for contract selection; must be at least 0 |
 | `--max-contracts` | 25 | Max contracts used in calibration; must be at least 5 |
-| `--calendar` | `UnitedStates.NYSE` | QuantLib calendar name used for maturity assumptions |
+| `--calendar` | `UnitedStates.NYSE` | QuantLib calendar for valuation timezone and the reported business-day `days_to_expiry` diagnostic. Calibration helper maturity is fixed to calendar days ending on the contract expiry (`NullCalendar`); this flag does not change helper dates |
 | `--maturity-basis` | `calendar_days` | Basis for the reported `days_to_expiry` diagnostic. The Heston helper maturity is always anchored to the contract's calendar expiry date. |
 
 Calibration requires a timezone-qualified `underlying_as_of` timestamp and at
@@ -257,6 +269,22 @@ option. Omit `--valuation-date` to derive it from the underlying observation.
 When `--expiration` is omitted, calibration skips same-day and short-dated
 contracts that do not meet its seven-calendar-day minimum.
 
+US equity options such as AAPL and TSLA are American. Calibration still uses
+QuantLib `HestonModelHelper` / `AnalyticHestonEngine` (European). When selected
+contracts have `exercise_style=american`, the result sets
+`american_surface_approximated_as_european=true` and warns that early exercise
+is not modeled. Prefer cash-settled European index options (SPX/SPXW) when you
+need a European surface. `usable_for_pricing` does not mean the American
+premium was priced.
+
+Every success and failure copies the chain's provider envelope: `provider`,
+`providers_used`, `cached`, `retrieved_at`, and `underlying_quote` (including
+market state). Use those fields to diagnose timestamp quality.
+
+To price a barrier with the fitted smile, pass `--model heston` and the five
+`params` values to `options_barrier_price`. That path uses a finite-difference
+Heston barrier engine, not the analytic Black–Scholes barrier.
+
 **Heston parameters returned:**
 
 | Parameter | Symbol | Description |
@@ -268,9 +296,9 @@ contracts that do not meet its seven-calendar-day minimum.
 | `rho` | ρ | Correlation between asset and volatility processes |
 
 **Use cases:**
-- More accurate barrier option pricing (using calibrated vol surface instead of flat vol)
+- Smile-consistent barrier pricing via `options_barrier_price --model heston` and the five returned parameters
 - Volatility smile/skew analysis
-- Exotic option valuation inputs
+- European exotic option valuation inputs, with the American-to-European approximation labeled when it applies
 
 ---
 

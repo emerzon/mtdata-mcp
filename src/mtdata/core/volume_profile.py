@@ -48,6 +48,35 @@ _MIN_TICK_PRICE_COVERAGE_RATIO = 0.5
 _TICK_WINDOW_TOLERANCE_SECONDS = 1.0
 
 
+def _m1_tick_count_unsupported_error(source: str) -> Dict[str, Any]:
+    return {
+        "success": False,
+        "error": (
+            "volume_source=tick_count is not available with source=m1_bars. "
+            "M1 approximation creates three synthetic low/close/high rows per "
+            "bar; counting those rows is not a market tick count."
+        ),
+        "error_code": "volume_profile_tick_count_unavailable_for_m1_bars",
+        "parameter": "volume_source",
+        "source": source,
+        "volume_source": "tick_count",
+        "remediation": (
+            "Use volume_source=tick_volume with source=m1_bars, or source=ticks "
+            "with volume_source=tick_count."
+        ),
+        "valid_values": {
+            "volume_source": [
+                "auto",
+                "real_volume",
+                "tick_volume",
+                "volume_real",
+                "volume",
+            ],
+            "source": ["ticks", "auto"],
+        },
+    }
+
+
 def _utc_now_naive() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
@@ -804,6 +833,7 @@ def _profile_detail_payload(profile: Dict[str, Any], detail: str) -> Dict[str, A
         "fetched_at",
         "timezone",
         "data_age_seconds",
+        "observation_age_seconds",
         "data_stale",
         "stale_after_seconds",
         "freshness_basis",
@@ -891,8 +921,20 @@ def _profile_freshness_meta(
                 0.0,
                 (_utc_now_naive() - observed_at).total_seconds(),
             )
-            data_stale = age_seconds > stale_after_seconds
-            if not historical_query:
+            out.update(
+                {
+                    "as_of": data_as_of,
+                    "data_age_seconds": round(age_seconds, 3),
+                    "query_type": "historical" if historical_query else "latest",
+                }
+            )
+            if historical_query:
+                out["data_stale"] = None
+                out["observation_age_seconds"] = round(age_seconds, 3)
+                out["freshness_basis"] = "historical_window_not_applicable"
+                out["freshness_applicability"] = "historical_query"
+            else:
+                data_stale = age_seconds > stale_after_seconds
                 session = closed_session_context(
                     symbol or fetch_payload.get("symbol") or out.get("symbol"),
                     now_epoch=_utc_now_naive().replace(tzinfo=timezone.utc).timestamp(),
@@ -907,18 +949,9 @@ def _profile_freshness_meta(
                     note = session.get("note")
                     if note:
                         out["note"] = note
-            out.update(
-                {
-                    "as_of": data_as_of,
-                    "data_age_seconds": round(age_seconds, 3),
-                    "data_stale": data_stale,
-                    "stale_after_seconds": stale_after_seconds,
-                    "freshness_basis": freshness_basis,
-                    "query_type": "historical" if historical_query else "latest",
-                }
-            )
-            if historical_query:
-                out["freshness_applicability"] = "historical_query"
+                out["data_stale"] = data_stale
+                out["stale_after_seconds"] = stale_after_seconds
+                out["freshness_basis"] = freshness_basis
         return out
     for target, source_names in (
         ("as_of", ("as_of", "data_fetched_at")),
@@ -1049,6 +1082,10 @@ def compute_volume_profile_payload(  # noqa: C901
     range_error = validate_historical_range(start, end)
     if range_error is not None:
         return range_error
+    source_value = str(source or "auto").strip().lower()
+    volume_source_value = str(volume_source or "auto").strip().lower()
+    if source_value == "m1_bars" and volume_source_value == "tick_count":
+        return _m1_tick_count_unsupported_error(source_value)
     try:
         value_area_value = float(value_area_pct)
     except (TypeError, ValueError):
@@ -1119,6 +1156,8 @@ def compute_volume_profile_payload(  # noqa: C901
     if selected.get("error"):
         return selected
     selected_source = str(selected.get("source") or "").strip().lower()
+    if selected_source == "m1_bars" and volume_source_value == "tick_count":
+        return _m1_tick_count_unsupported_error(selected_source)
     requested_price_source = str(price_source or "mid").strip().lower()
     config = VolumeProfileConfig(
         price_source="mid" if selected_source == "m1_bars" else price_source,

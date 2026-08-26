@@ -151,7 +151,7 @@ Choose one window mode. A calendar `start` cannot be combined with
 | `lookback` | — | Completed `timeframe` bars to include. The window follows actual market bars, so closures and weekend gaps do not consume the lookback. |
 | `source` | `auto` | `auto` uses bounded ticks for short windows and M1 bars for larger ones; force with `ticks` or `m1_bars`. |
 | `price_source` | `mid` | Price used per tick: `mid`, `last`, `bid`, or `ask`. M1 input cannot preserve quote sides and reports `lch_equal_weight_proxy` (volume split equally across each bar's low, close, and high; open omitted). |
-| `volume_source` | `auto` | `auto`, candle `real_volume`/`tick_volume`, tick-snapshot `volume_real`/`volume`, or `tick_count`. Snapshot volume is counted only on MT5 trade-change flags. |
+| `volume_source` | `auto` | `auto`, candle `real_volume`/`tick_volume`, tick-snapshot `volume_real`/`volume`, or `tick_count`. `tick_count` is broker/provider tick rows and is rejected with `--source m1_bars` (use `tick_volume` or `--source ticks`). Snapshot volume is counted only on MT5 trade-change flags. |
 | `bucket_size` / `bucket_points` / `bucket_count` | — | Choose exactly one price-bucket control (absolute size, points, or a target bucket count). |
 | `max_buckets` | `120` | Upper bound on buckets. |
 | `value_area_pct` | `70.0` | Percentage of volume that defines the value area (`70` = 70%, the standard setting). |
@@ -167,8 +167,10 @@ whether `auto` used ticks or the M1 approximation and why. The top-level
 `source` remains the standard structured MT5 broker-provenance object.
 For latest timeframe-derived profiles, `data_stale` compares the completed
 window endpoint with one requested bar period (and exposes that threshold as
-`stale_after_seconds`); non-timeframe windows retain the five-minute
-observation-age threshold.
+`stale_after_seconds`); non-timeframe latest windows retain the five-minute
+observation-age threshold. Explicit historical `start`/`end` queries set
+`data_stale` to `null` (`freshness_applicability=historical_query`); judge
+those windows by coverage, gaps, and truncation instead of wall-clock age.
 `--detail full` adds the full `levels`
 histogram. To request a week of ticks, explicitly set
 `--max-tick-window-days 7` and an appropriate `--max-ticks` cap.

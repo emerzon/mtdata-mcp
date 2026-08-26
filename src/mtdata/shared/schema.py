@@ -305,11 +305,14 @@ PARAM_HINTS = {
     ),
     "quote_usable_only": (
         "Keep only contracts with a two-sided quote and a provider quote "
-        "timestamp within the live age threshold."
+        "timestamp within the live age threshold. Yahoo and Tradier do not "
+        "supply option-quote timestamps, so this filter is rejected as "
+        "capability_unavailable."
     ),
     "max_quote_age_seconds": (
         "Maximum age in seconds for a provider quote timestamp. Unknown quote "
-        "timestamps are excluded."
+        "timestamps are excluded. Yahoo and Tradier do not supply option-quote "
+        "timestamps, so this filter is rejected as capability_unavailable."
     ),
     "sort_by": (
         "Option-chain sort: nearest_strike, strike, open_interest, volume, or "
@@ -479,7 +482,11 @@ PARAM_HINTS = {
     "spread": "Compute and include bid/ask spread metrics from returned market data.",
     "venue": "Static major-equity venue calendar identifier.",
     "price_source": "Volume-profile price source: mid, last, bid, or ask.",
-    "volume_source": "Volume-profile volume source: auto, real_volume, tick_volume, or tick_count.",
+    "volume_source": (
+        "Volume-profile volume source: auto, real_volume, tick_volume, "
+        "volume_real, volume, or tick_count. tick_count is rejected with "
+        "source=m1_bars; use tick_volume or source=ticks."
+    ),
     "bucket_size": "Volume-profile bucket width in symbol price units.",
     "bucket_points": "Volume-profile bucket width in MT5 points.",
     "bucket_count": "Target number of volume-profile price buckets.",

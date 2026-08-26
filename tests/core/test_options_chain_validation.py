@@ -1,6 +1,60 @@
 from mtdata.core import options as options_mod
 
 
+def test_heston_compact_keeps_provider_and_american_limitation():
+    payload = {
+        "success": True,
+        "symbol": "AAPL",
+        "provider": "yahoo",
+        "providers_used": ["yahoo"],
+        "cached": False,
+        "retrieved_at": "2026-08-25T20:00:00Z",
+        "market_state": "POSTPOST",
+        "american_surface_approximated_as_european": True,
+        "selected_exercise_styles": ["american"],
+        "usable_for_pricing": True,
+        "params": {"v0": 0.04},
+    }
+
+    result = options_mod._apply_options_detail(
+        payload,
+        detail="compact",
+        kind="heston_calibrate",
+    )
+
+    assert result["provider"] == "yahoo"
+    assert result["providers_used"] == ["yahoo"]
+    assert result["cached"] is False
+    assert result["retrieved_at"] == "2026-08-25T20:00:00Z"
+    assert result["market_state"] == "POSTPOST"
+    assert result["american_surface_approximated_as_european"] is True
+    assert result["selected_exercise_styles"] == ["american"]
+
+
+def test_options_chain_rejects_quote_usable_only_before_provider_query(monkeypatch):
+    monkeypatch.setattr(options_mod, "_options_chain_provider_gate", lambda _: None)
+    queried = {"called": False}
+
+    def fail_query(**_kwargs):
+        queried["called"] = True
+        raise AssertionError("quote filters must not query the provider")
+
+    monkeypatch.setattr(
+        "mtdata.services.options_service._run_options_provider_query",
+        fail_query,
+    )
+    raw = options_mod.options_chain
+    while hasattr(raw, "__wrapped__"):
+        raw = raw.__wrapped__
+
+    result = raw("AAPL", quote_usable_only=True)
+
+    assert result["success"] is False
+    assert result["error_code"] == "capability_unavailable"
+    assert result["capability"] == "option_quote_timestamps"
+    assert queried["called"] is False
+
+
 def test_options_chain_rejects_reversed_strike_bounds():
     raw = options_mod.options_chain
     while hasattr(raw, "__wrapped__"):

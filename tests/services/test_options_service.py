@@ -1301,33 +1301,8 @@ def test_get_options_chain_propagates_underlying_quote_envelope(monkeypatch):
 def test_get_options_chain_quote_usable_only_excludes_unknown_quote_timestamps(
     monkeypatch,
 ):
-    expiry = osvc._ymd_to_epoch("2026-04-17")
-
     def fake_fetch(_symbol, expiry_epoch=None):
-        if expiry_epoch is None:
-            return {"expirationDates": [expiry]}
-        return {
-            "expirationDates": [expiry],
-            "quote": {"regularMarketPrice": 100.0, "currency": "USD"},
-            "options": [
-                {
-                    "calls": [
-                        {
-                            "contractSymbol": "AAPL260417C00100000",
-                            "strike": 100.0,
-                            "bid": 1.0,
-                            "ask": 1.1,
-                            "volume": 10,
-                            "openInterest": 20,
-                            "impliedVolatility": 0.2,
-                            "lastTradeDate": 1_700_000_000,
-                            "contractSize": "REGULAR",
-                        }
-                    ],
-                    "puts": [],
-                }
-            ],
-        }
+        raise AssertionError("quote filters must not query the provider")
 
     monkeypatch.setattr(osvc, "_fetch_yahoo_options_payload", fake_fetch)
 
@@ -1338,8 +1313,28 @@ def test_get_options_chain_quote_usable_only_excludes_unknown_quote_timestamps(
         quote_usable_only=True,
     )
 
-    assert out["success"] is True
-    assert out["count"] == 0
-    assert out["available_count"] == 0
-    assert out["quote_usable_only"] is True
-    assert any("quote timestamp" in warning.lower() for warning in out["warnings"])
+    assert out["success"] is False
+    assert out["error_code"] == "capability_unavailable"
+    assert out["capability"] == "option_quote_timestamps"
+    assert "quote_usable_only" in out["requested_filters"]
+    assert "last_trade_recent_and_market_two_sided" in out["remediation"]
+    assert "options_heston_calibrate" in out["related_tools"]
+
+
+def test_get_options_chain_max_quote_age_is_unavailable_without_quote_timestamps(
+    monkeypatch,
+):
+    def fail_fetch(*_args, **_kwargs):
+        raise AssertionError("quote filters must not query the provider")
+
+    monkeypatch.setattr(osvc, "_fetch_yahoo_options_payload", fail_fetch)
+    monkeypatch.setattr(osvc, "_run_options_provider_query", fail_fetch)
+
+    out = osvc.get_options_chain(
+        "AAPL",
+        expiration="2026-04-17",
+        max_quote_age_seconds=900,
+    )
+
+    assert out["error_code"] == "capability_unavailable"
+    assert "max_quote_age_seconds" in out["requested_filters"]
