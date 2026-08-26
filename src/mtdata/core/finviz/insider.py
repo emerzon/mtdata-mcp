@@ -324,20 +324,22 @@ def _dedupe_finviz_insider_rows(rows: List[Any]) -> tuple[List[Any], int]:
     return unique, len(rows) - len(unique)
 
 
-def _compact_finviz_insider_payload(
+def _prepare_finviz_insider_payload(
     result: Dict[str, Any],
     *,
     detail: str,
-    limit: int = 20,
-    page: int = 1,
-) -> Dict[str, Any]:
-    error = _validate_finviz_detail(detail, operation="finviz_insider")
+    operation: str,
+    limit: int,
+    page: int,
+) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], List[Any], int, bool]:
+    """Shared validation, normalization, and full-detail setup for insider payloads."""
+    error = _validate_finviz_detail(detail, operation=operation)
     if error is not None or not result.get("success"):
-        return error or result
+        return error or result, None, [], 0, False
     detail_mode = normalize_output_verbosity_detail(detail, default="compact")
     rows = result.get("insider_trades")
     if not isinstance(rows, list):
-        return result
+        return result, None, [], 0, False
     normalized_rows, duplicates_removed = _dedupe_finviz_insider_rows(
         _normalize_finviz_insider_rows(rows)
     )
@@ -366,7 +368,26 @@ def _compact_finviz_insider_payload(
             total_lower_bound=result.get("total_lower_bound"),
             has_more=has_more,
         )
-        return out
+        return out, None, [], 0, False
+    return None, out, normalized_rows, page_value, has_more
+
+
+def _compact_finviz_insider_payload(
+    result: Dict[str, Any],
+    *,
+    detail: str,
+    limit: int = 20,
+    page: int = 1,
+) -> Dict[str, Any]:
+    early, out, normalized_rows, page_value, has_more = _prepare_finviz_insider_payload(
+        result,
+        detail=detail,
+        operation="finviz_insider",
+        limit=limit,
+        page=page,
+    )
+    if early is not None or out is None:
+        return early or result
     compact_rows = [
         _compact_finviz_insider_row(row, include_symbol=False)
         for row in normalized_rows
@@ -398,43 +419,15 @@ def _compact_finviz_insider_activity_payload(
     limit: int = 50,
     page: int = 1,
 ) -> Dict[str, Any]:
-    error = _validate_finviz_detail(detail, operation="finviz_insider_activity")
-    if error is not None or not result.get("success"):
-        return error or result
-    rows = result.get("insider_trades")
-    if not isinstance(rows, list):
-        return result
-
-    detail_mode = normalize_output_verbosity_detail(detail, default="compact")
-    normalized_rows, duplicates_removed = _dedupe_finviz_insider_rows(
-        _normalize_finviz_insider_rows(rows)
+    early, out, normalized_rows, page_value, has_more = _prepare_finviz_insider_payload(
+        result,
+        detail=detail,
+        operation="finviz_insider_activity",
+        limit=limit,
+        page=page,
     )
-    out = {key: value for key, value in result.items() if key != "insider_trades"}
-    if duplicates_removed:
-        out["duplicates_removed"] = int(out.get("duplicates_removed") or 0) + int(
-            duplicates_removed
-        )
-    out["detail"] = detail_mode
-    page_value = int(result.get("page") or page or 1)
-    pages = result.get("pages")
-    has_more = bool(
-        result.get("has_more")
-        or (pages not in (None, "") and page_value < int(pages))
-    )
-    if detail_mode == "full":
-        out["items"] = normalized_rows
-        out["row_key"] = "items"
-        out["count"] = len(normalized_rows)
-        _apply_finviz_pagination_contract(
-            out,
-            returned=len(normalized_rows),
-            limit=limit,
-            page=page_value,
-            total=result.get("total"),
-            total_lower_bound=result.get("total_lower_bound"),
-            has_more=has_more,
-        )
-        return out
+    if early is not None or out is None:
+        return early or result
 
     compact_rows: List[Any] = []
     for row in normalized_rows:
