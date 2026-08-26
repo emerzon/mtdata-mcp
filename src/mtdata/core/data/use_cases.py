@@ -193,7 +193,7 @@ def run_wait_event(
     payload = result
     if not _wait_event_needs_gateway(request):
         return payload
-    return attach_mt5_source(payload, gateway=gateway)
+    return attach_mt5_source(payload, gateway=gateway, include_errors=True)
 
 
 def _run_data_fetch_candles_impl(
@@ -329,6 +329,7 @@ def _run_data_fetch_candles_impl(
         )
         _attach_forming_indicator_warning(result, request=request)
         _attach_candle_data_as_of(result, timeframe=request.timeframe)
+        _reconcile_returned_query_end_gap(result)
         result = attach_mt5_source(result, gateway=gateway)
     if isinstance(result, dict) and isinstance(result.get("data"), list):
         out = attach_collection_contract(
@@ -349,6 +350,9 @@ def _attach_candle_data_as_of(payload: Dict[str, Any], *, timeframe: str) -> Non
         return
     data = payload.get("data")
     if not isinstance(data, list) or not data:
+        latest = payload.get("latest_candle")
+        data = [latest] if isinstance(latest, dict) else []
+    if not data:
         return
     last = data[-1]
     if not isinstance(last, dict):
@@ -384,6 +388,57 @@ def _attach_candle_data_as_of(payload: Dict[str, Any], *, timeframe: str) -> Non
         payload["data_as_of_basis"] = "completed_bar_close"
     if payload.get("as_of") not in (None, ""):
         payload.setdefault("as_of_basis", "retrieval_time")
+
+
+def _epoch_from_public_timestamp(value: Any) -> Optional[float]:
+    if value in (None, "") or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        epoch = float(value)
+        return epoch if np.isfinite(epoch) else None
+    text = str(value).strip()
+    if not text:
+        return None
+    parsed = _parse_start_datetime(text)
+    if parsed is None:
+        try:
+            parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc).timestamp()
+
+
+def _reconcile_returned_query_end_gap(payload: Dict[str, Any]) -> None:
+    """Compute coverage gap from the retained page, not the pre-truncation fetch."""
+    if not isinstance(payload, dict) or payload.get("error"):
+        return
+    if payload.get("data_as_of_basis") not in (None, "", "completed_bar_close"):
+        return
+    query_applied = payload.get("query_applied")
+    if not isinstance(query_applied, dict):
+        return
+    resolved_end = query_applied.get("resolved_end")
+    data_as_of = payload.get("data_as_of")
+    end_epoch = _epoch_from_public_timestamp(resolved_end)
+    as_of_epoch = _epoch_from_public_timestamp(data_as_of)
+    if end_epoch is None or as_of_epoch is None:
+        return
+    seconds = round(max(0.0, end_epoch - as_of_epoch), 3)
+    payload["query_end_gap_seconds"] = seconds
+    gap_text = _format_age_seconds(seconds)
+    if gap_text is not None:
+        payload["query_end_gap"] = gap_text
+    if "query_end_gap_anchor" in payload:
+        payload["query_end_gap_anchor"] = FRESHNESS_ANCHOR_QUERY_EXPECTED_END
+    if "query_end_gap_metric" in payload:
+        payload["query_end_gap_metric"] = FRESHNESS_METRIC_REQUESTED_RANGE_END_GAP
+    meta = payload.get("meta")
+    diagnostics = meta.get("diagnostics") if isinstance(meta, dict) else None
+    freshness = diagnostics.get("freshness") if isinstance(diagnostics, dict) else None
+    if isinstance(freshness, dict):
+        freshness["query_end_gap_seconds"] = seconds
 
 
 def _attach_forming_indicator_warning(
@@ -564,8 +619,10 @@ def _normalize_candle_query_error(  # noqa: C901
             "timeframe": request.timeframe,
             "count": 0,
             "data": [],
+            "row_key": "data",
             "empty": True,
             "empty_reason": empty_reason,
+            "timezone": "UTC",
         }
         if details.get("no_data_reason") is not None:
             payload["no_data_reason"] = details["no_data_reason"]
@@ -641,6 +698,15 @@ def _normalize_candle_query_error(  # noqa: C901
         remediation = (
             "Confirm the market session and broker feed, or set allow_stale=true "
             "when historical data is intentionally acceptable."
+        )
+    elif (
+        "data_shape_invalid" in normalized
+        or ("keyerror" in normalized and "'time'" in normalized)
+    ):
+        error_code = "data_shape_invalid"
+        remediation = (
+            "Retry the request. If it persists, the broker history payload is "
+            "not in the expected MT5 rate shape."
         )
     elif "invalid ohlcv token" in normalized:
         error_code = "invalid_ohlcv_selector"
@@ -744,6 +810,43 @@ def _annotate_empty_candle_result(
         start=request.start,
         end=request.end,
         item="candles",
+    )
+    _attach_empty_candle_schema(result, request=request)
+
+
+def _attach_empty_candle_schema(
+    result: Dict[str, Any], *, request: DataFetchCandlesRequest
+) -> None:
+    """Keep empty candle successes schema-compatible with nonempty results."""
+    result.setdefault("row_key", "data")
+    result.setdefault("timezone", "UTC")
+    if str(request.timestamp_format or "iso").strip().lower() == "epoch":
+        result.setdefault("timestamp_format", "epoch_seconds")
+    else:
+        result.setdefault("timestamp_format", "iso_utc")
+    if result.get("price_basis") in (None, ""):
+        try:
+            from ...utils.mt5 import symbol_candle_price_basis_for
+
+            result["price_basis"] = symbol_candle_price_basis_for(request.symbol)
+        except Exception:
+            pass
+    if not (request.start or request.end):
+        return
+    try:
+        limit_value = max(1, int(request.limit))
+    except Exception:
+        limit_value = DATA_FETCH_CANDLES_DEFAULT_LIMIT
+    result.setdefault(
+        "pagination",
+        {
+            "total": 0,
+            "returned": 0,
+            "offset": 0,
+            "limit": limit_value,
+            "has_more": False,
+            "more_available": 0,
+        },
     )
 
 
@@ -1625,6 +1728,7 @@ def _summary_candles_payload(result: Dict[str, Any]) -> Dict[str, Any]:
             summary["summary_statistics"] = statistics
         _attach_candle_timestamp_metadata(summary)
     summary.pop("data", None)
+    summary.pop("row_key", None)
     summary.pop("session_gaps", None)
     for key in (
         "candles_requested",
@@ -2501,6 +2605,7 @@ def _compact_tick_rows_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     coherent_spread = _tick_coherent_spread_sample_pct(payload)
     if coherent_spread is not None:
         compact["coherent_spread_sample_pct"] = coherent_spread
+        compact["spread_quality_basis"] = "coherent_bid_ask_updates"
     quality = _compact_tick_quality(payload)
     if quality:
         compact["quality"] = quality
@@ -2600,9 +2705,10 @@ def _compact_tick_row(
         and ask > bid
         and numeric_spread > 0.0
     )
-    compact["spread_valid"] = spread_valid
-    if "spread_sample_eligible" in row:
-        compact["spread_sample_eligible"] = bool(row.get("spread_sample_eligible"))
+    compact["spread_snapshot_valid"] = spread_valid
+    eligible = _tick_row_spread_sample_eligible(row, snapshot_valid=spread_valid)
+    if eligible is not None and eligible != spread_valid:
+        compact["spread_sample_eligible"] = eligible
     if spread_valid:
         compact["spread"] = numeric_spread
     if spread_valid:
@@ -2640,6 +2746,29 @@ def _compact_tick_row(
     } and (not spread_valid or row.get("quote_update_type") != "bid_ask_update"):
         compact["quote_update_type"] = row["quote_update_type"]
     return compact, numeric_spread if spread_valid else None
+
+
+def _tick_row_spread_sample_eligible(
+    row: Dict[str, Any],
+    *,
+    snapshot_valid: bool,
+) -> Optional[bool]:
+    """Return coherent-sample eligibility, distinct from snapshot bid/ask validity."""
+    if "spread_sample_eligible" in row:
+        return bool(row.get("spread_sample_eligible"))
+    decoded = row.get("flags_decoded")
+    if isinstance(decoded, list) and decoded:
+        quote_flags = {str(value).strip().lower() for value in decoded}
+        bid_updated = "bid" in quote_flags
+        ask_updated = "ask" in quote_flags
+        if bid_updated or ask_updated:
+            return bool(snapshot_valid and bid_updated and ask_updated)
+    update_type = str(row.get("quote_update_type") or "").strip().lower()
+    if update_type == "bid_ask_update":
+        return bool(snapshot_valid)
+    if update_type in {"bid_only_update", "ask_only_update"}:
+        return False
+    return bool(snapshot_valid)
 
 
 def _tick_row_spread(bid: Any, ask: Any) -> Optional[float]:
@@ -2688,12 +2817,11 @@ def _run_wait_event_impl(
 
 
 def _wait_event_needs_gateway(request: WaitEventRequest) -> bool:
-    if request.max_wait_seconds is not None and not request.watch_for:
-        return False
-    if request.watch_for is None:
-        return request.symbol is not None or bool(request.symbols)
     if request.watch_for:
         return True
-    if request.symbol is not None or request.symbols:
+    if request.symbol is not None or bool(request.symbols):
         return True
-    return any(getattr(item, "type", None) != "candle_close" for item in (request.end_on or ()))
+    return any(
+        getattr(item, "type", None) != "candle_close"
+        for item in (request.end_on or ())
+    )

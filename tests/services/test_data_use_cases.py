@@ -228,6 +228,12 @@ def test_run_data_fetch_candles_returns_empty_envelope_for_no_rows():
     assert result["empty"] is True
     assert result["empty_reason"] == "market_closed_weekend"
     assert result["no_data_reason"] == "market_closed_weekend"
+    assert result["row_key"] == "data"
+    assert result[result["row_key"]] == []
+    assert result["timezone"] == "UTC"
+    assert result["timestamp_format"] == "iso_utc"
+    assert result["pagination"]["returned"] == 0
+    assert result["pagination"]["has_more"] is False
 
 
 def test_data_fetch_symbol_errors_use_canonical_structured_suggestions() -> None:
@@ -1877,6 +1883,7 @@ def test_run_data_fetch_candles_summary_omits_rows_and_keeps_metadata():
     assert result["data_age"] == "1m 0s"
     assert result["data_stale"] is False
     assert "data" not in result
+    assert "row_key" not in result
     assert result["latest_candle"] == {
         "time": "2026-05-14T12:00Z",
         "open": 1.1,
@@ -2676,7 +2683,9 @@ def test_compact_tick_row_marks_locked_quote_spread_unavailable():
     )
 
     assert "spread" not in row
-    assert row["spread_valid"] is False
+    assert row["spread_snapshot_valid"] is False
+    assert "spread_sample_eligible" not in row
+    assert "spread_valid" not in row
     assert "spread_basis" not in row
     assert "mid" not in row
     assert spread_sample is None
@@ -2692,8 +2701,9 @@ def test_compact_tick_row_exposes_coherent_spread_eligibility():
         },
     )
 
-    assert row["spread_valid"] is True
+    assert row["spread_snapshot_valid"] is True
     assert row["spread_sample_eligible"] is False
+    assert "spread_valid" not in row
     assert row["spread"] == pytest.approx(0.00004)
     assert spread_sample == pytest.approx(0.00004)
 
@@ -2774,7 +2784,8 @@ def test_run_data_fetch_ticks_compact_prunes_row_diagnostics():
                 "time": "2026-05-29T20:56Z",
                 "bid": 1.1659,
                 "ask": 1.16596,
-                "spread_valid": True,
+                "spread_snapshot_valid": True,
+                "spread_sample_eligible": False,
                 "spread": 0.00006,
                 "mid": 1.16593,
                 "volume": 3.0,
@@ -2785,7 +2796,7 @@ def test_run_data_fetch_ticks_compact_prunes_row_diagnostics():
                 "time": "2026-05-29T20:57Z",
                 "bid": 1.16591,
                 "ask": 1.16599,
-                "spread_valid": True,
+                "spread_snapshot_valid": True,
                 "spread": 0.00008,
                 "mid": 1.16595,
                 "volume": 4.0,
@@ -3127,8 +3138,15 @@ def test_run_data_fetch_ticks_compact_quality_uses_valid_spreads_not_field_prese
 
     assert result["quote_completeness_pct"] == 100.0
     assert result["coherent_spread_sample_pct"] == 25.0
+    assert result["spread_quality_basis"] == "coherent_bid_ask_updates"
     assert result["quality"] == "coherent_spreads=1/4"
     assert result["quality"] != "ok"
+    eligible = sum(
+        1
+        for row in result["data"]
+        if row.get("spread_sample_eligible", row.get("spread_snapshot_valid"))
+    )
+    assert round((eligible / len(result["data"])) * 100.0, 2) == result["coherent_spread_sample_pct"]
 
 
 def test_run_data_fetch_ticks_summary_keeps_live_usability_verdicts():

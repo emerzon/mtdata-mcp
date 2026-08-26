@@ -958,6 +958,97 @@ class TestFetchRatesWithWarmup(unittest.TestCase):
         self.assertTrue(freshness['last_bar_within_policy_window'])
         self.assertEqual(freshness['data_freshness_anchor'], 'query_expected_end')
 
+    @patch(_RATES_FROM)
+    def test_bounded_last_n_accepts_numpy_structured_array(self, mock_from):
+        """copy_rates_from structured arrays must not KeyError on row['time']."""
+        end_open = datetime(2025, 1, 2, 23, 0, tzinfo=_UTC)
+        rates = _make_rates_array(24, base_ts=end_open.timestamp(), step=3600)
+        mock_from.return_value = rates
+
+        result, err = _fetch_rates_with_warmup(
+            'EURUSD', 16385, 'H1', 3, 0, '2025-01-01', '2025-01-02',
+            range_selection='last_n',
+            retry=False,
+            sanity_check=False,
+        )
+
+        self.assertIsNone(err)
+        self.assertIsNotNone(result)
+        self.assertGreaterEqual(len(result), 1)
+        for row in result:
+            self.assertIn('time', row)
+            self.assertGreaterEqual(
+                float(row['time']),
+                datetime(2024, 12, 31, 23, tzinfo=_UTC).timestamp(),
+            )
+        mock_from.assert_called_once()
+
+    @patch(_RATES_FROM)
+    def test_bounded_last_n_accepts_tuple_and_dict_rows(self, mock_from):
+        end_open = datetime(2025, 1, 2, 23, 0, tzinfo=_UTC)
+        dict_rows = _make_rates(8, base_ts=end_open.timestamp(), step=3600)
+        tuple_rows = [
+            (
+                row['time'],
+                row['open'],
+                row['high'],
+                row['low'],
+                row['close'],
+                row['tick_volume'],
+                row['spread'],
+                row['real_volume'],
+            )
+            for row in dict_rows
+        ]
+
+        mock_from.return_value = tuple_rows
+        tuple_result, tuple_err = _fetch_rates_with_warmup(
+            'EURUSD', 16385, 'H1', 3, 0, '2025-01-01T00:00:00Z', '2025-01-02T23:59:59Z',
+            range_selection='last_n',
+            retry=False,
+            sanity_check=False,
+        )
+        self.assertIsNone(tuple_err)
+        self.assertGreaterEqual(len(tuple_result), 1)
+        self.assertIn('time', tuple_result[-1])
+
+        mock_from.return_value = dict_rows
+        dict_result, dict_err = _fetch_rates_with_warmup(
+            'EURUSD', 16385, 'H1', 20, 0, '2025-01-01', '2025-01-02',
+            range_selection='last_n',
+            retry=False,
+            sanity_check=False,
+        )
+        self.assertIsNone(dict_err)
+        self.assertGreaterEqual(len(dict_result), 1)
+        self.assertIn('time', dict_result[0])
+
+    @patch(_RATES_FROM)
+    def test_bounded_last_n_empty_provider_rows_do_not_crash(self, mock_from):
+        mock_from.return_value = []
+        result, err = _fetch_rates_with_warmup(
+            'EURUSD', 16385, 'H1', 3, 0, '2025-01-01', '2025-01-02',
+            range_selection='last_n',
+            retry=False,
+            sanity_check=False,
+        )
+        self.assertIsNone(err)
+        self.assertEqual(list(result), [])
+
+    @patch(_RATES_FROM)
+    def test_bounded_last_n_missing_time_returns_data_shape_invalid(self, mock_from):
+        mock_from.return_value = [{'open': 1.1, 'close': 1.2}]
+        result, err = _fetch_rates_with_warmup(
+            'EURUSD', 16385, 'H1', 3, 0, '2025-01-01', '2025-01-02',
+            range_selection='last_n',
+            retry=False,
+            sanity_check=False,
+        )
+        self.assertIsNone(result)
+        self.assertIsInstance(err, dict)
+        self.assertEqual(err['error_code'], 'data_shape_invalid')
+        self.assertIn('time', err['error'])
+
 
 # ============================================================================
 # TestBuildRatesDf

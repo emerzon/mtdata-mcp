@@ -157,3 +157,25 @@ def test_mt5_source_discloses_unavailable_account_context() -> None:
         "provider": "mt5",
         "context_available": False,
     }
+
+
+def test_mt5_source_skips_error_payloads_unless_requested() -> None:
+    gateway = SimpleNamespace(
+        account_info=lambda: SimpleNamespace(
+            company="Raw Trading Ltd",
+            server="ICMarketsSC-Demo",
+        )
+    )
+    timeout = {
+        "success": False,
+        "error": "Wait timed out",
+        "error_code": "wait_event_timeout",
+    }
+
+    skipped = attach_mt5_source(timeout, gateway=gateway)
+    attached = attach_mt5_source(timeout, gateway=gateway, include_errors=True)
+
+    assert "source" not in skipped
+    assert attached["source"] == build_mt5_source_provenance(gateway)
+    assert attached["error_code"] == "wait_event_timeout"
+    assert "login" not in attached["source"]

@@ -49,9 +49,21 @@ def build_mt5_source_provenance(gateway: Any = None) -> Dict[str, Any]:
     return source
 
 
-def attach_mt5_source(payload: Any, *, gateway: Any = None) -> Any:
-    """Attach MT5 provenance to a successful canonical payload."""
-    if not isinstance(payload, dict) or payload.get("error"):
+def attach_mt5_source(
+    payload: Any,
+    *,
+    gateway: Any = None,
+    include_errors: bool = False,
+) -> Any:
+    """Attach MT5 provenance to a canonical payload.
+
+    Successful payloads always receive a non-secret ``source`` object. Error
+    payloads keep their original shape unless ``include_errors`` is true, which
+    is used for terminal-backed wait_event timeouts and budget failures.
+    """
+    if not isinstance(payload, dict):
+        return payload
+    if payload.get("error") and not include_errors:
         return payload
     out = dict(payload)
     if not isinstance(out.get("source"), dict):

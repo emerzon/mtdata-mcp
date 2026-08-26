@@ -115,6 +115,105 @@ from .query import (
 logger = logging.getLogger(__name__)
 
 _MT5_HISTORY_QUERY_MIN = datetime(1970, 1, 1, tzinfo=dt_timezone.utc)
+_MT5_RATE_FIELD_ORDER = (
+    "time",
+    "open",
+    "high",
+    "low",
+    "close",
+    "tick_volume",
+    "spread",
+    "real_volume",
+)
+
+
+class _RateDataShapeError(ValueError):
+    """Provider rates are missing the fields required to filter or display them."""
+
+    def __init__(self, payload: Dict[str, Any]) -> None:
+        super().__init__(str(payload.get("error") or "data_shape_invalid"))
+        self.payload = payload
+
+
+def _provider_rates_missing_time_error() -> Dict[str, Any]:
+    return build_error_payload(
+        "Provider candle rows are missing the required 'time' field.",
+        code="data_shape_invalid",
+        operation="data_fetch_candles",
+        remediation=(
+            "Retry the request. If it persists, the broker history payload is "
+            "not in the expected MT5 rate shape."
+        ),
+        details={"missing_fields": ["time"], "required_fields": ["time"]},
+    )
+
+
+def _rate_row_as_mapping(row: Any) -> Optional[Dict[str, Any]]:
+    """Normalize one copy_rates_* row to a mapping with named MT5 fields."""
+    if isinstance(row, dict):
+        return dict(row)
+    names = getattr(getattr(row, "dtype", None), "names", None)
+    if names:
+        try:
+            return {str(name): row[name] for name in names}
+        except Exception:
+            return None
+    if isinstance(row, (tuple, list)):
+        if not row:
+            return None
+        return {
+            name: row[index]
+            for index, name in enumerate(_MT5_RATE_FIELD_ORDER)
+            if index < len(row)
+        }
+    try:
+        return {"time": row["time"]}
+    except Exception:
+        return None
+
+
+def _rate_row_epoch(row: Any) -> Optional[float]:
+    mapped = row if isinstance(row, dict) else _rate_row_as_mapping(row)
+    if not mapped or "time" not in mapped:
+        return None
+    try:
+        epoch = float(mapped["time"])
+    except (TypeError, ValueError):
+        return None
+    return epoch if math.isfinite(epoch) else None
+
+
+def _normalize_provider_rate_rows(
+    rates: Any,
+) -> tuple[Optional[List[Dict[str, Any]]], Optional[Dict[str, Any]]]:
+    """Convert provider rates to validated mappings before time filtering."""
+    if rates is None:
+        return None, None
+    try:
+        if len(rates) == 0:
+            return [], None
+    except TypeError:
+        return None, _provider_rates_missing_time_error()
+
+    names = getattr(getattr(rates, "dtype", None), "names", None)
+    if names:
+        if "time" not in names:
+            return None, _provider_rates_missing_time_error()
+        try:
+            frame = _rates_to_df(rates)
+        except Exception:
+            return None, _provider_rates_missing_time_error()
+        if "time" not in frame.columns:
+            return None, _provider_rates_missing_time_error()
+        return frame.to_dict("records"), None
+
+    rows: List[Dict[str, Any]] = []
+    for row in rates:
+        mapped = _rate_row_as_mapping(row)
+        if mapped is None or "time" not in mapped:
+            return None, _provider_rates_missing_time_error()
+        rows.append(mapped)
+    return rows, None
 
 
 _MT5_INVALID_DATE_RANGE_ERROR = (
@@ -469,9 +568,15 @@ def _fetch_rates_with_warmup(  # noqa: C901
                 )
                 if trailing is None:
                     return None
+                normalized, shape_error = _normalize_provider_rate_rows(trailing)
+                if shape_error:
+                    raise _RateDataShapeError(shape_error)
                 start_epoch = _utc_epoch_seconds(from_date_internal)
                 filtered = [
-                    row for row in trailing if float(row["time"]) >= start_epoch
+                    row
+                    for row in (normalized or [])
+                    if (epoch := _rate_row_epoch(row)) is not None
+                    and epoch >= start_epoch
                 ]
                 if diagnostics is not None:
                     diagnostics["range_fetch"].update(
@@ -498,8 +603,10 @@ def _fetch_rates_with_warmup(  # noqa: C901
                 if result is None:
                     return None
                 qualifying = sum(
-                    float(row["time"]) >= _utc_epoch_seconds(from_date)
+                    1
                     for row in result
+                    if (epoch := _rate_row_epoch(row)) is not None
+                    and epoch >= _utc_epoch_seconds(from_date)
                 )
                 if qualifying >= candles + extra_bars or candidate_end >= to_date:
                     if diagnostics is not None:
@@ -583,8 +690,10 @@ def _fetch_rates_with_warmup(  # noqa: C901
                 if result is None:
                     return None
                 qualifying = sum(
-                    float(row["time"]) >= _utc_epoch_seconds(from_date)
+                    1
                     for row in result
+                    if (epoch := _rate_row_epoch(row)) is not None
+                    and epoch >= _utc_epoch_seconds(from_date)
                 )
                 if qualifying >= candles or candidate_end >= now_utc:
                     if diagnostics is not None:
@@ -667,6 +776,8 @@ def _fetch_rates_with_warmup(  # noqa: C901
     for idx in range(attempts):
         try:
             rates = _fetch()
+        except _RateDataShapeError as exc:
+            return None, exc.payload
         except OSError as exc:
             if exc.errno == errno.EINVAL:
                 return None, _MT5_INVALID_DATE_RANGE_ERROR
@@ -1840,6 +1951,8 @@ def fetch_history_frame(
             sanity_check=False,
         )
     if rates_error:
+        if isinstance(rates_error, dict):
+            raise RuntimeError(str(rates_error.get("error") or "data_shape_invalid"))
         raise RuntimeError(rates_error)
     if rates is None:
         raise RuntimeError(
@@ -2050,6 +2163,8 @@ def fetch_candles(  # noqa: C901
             freshness_diagnostics = rate_fetch_diagnostics.get("freshness")
             time_normalization = describe_mt5_time_normalization(symbol=symbol)
             if rates_error:
+                if isinstance(rates_error, dict):
+                    return rates_error
                 error_payload: Dict[str, Any] = {"error": rates_error}
                 if isinstance(freshness_diagnostics, dict):
                     error_payload["details"] = {
@@ -2228,6 +2343,8 @@ def fetch_candles(  # noqa: C901
                         "raw_bars_fetched": int(len(rates_retry)) if rates_retry is not None else 0,
                     }
                     if rates_retry_error:
+                        if isinstance(rates_retry_error, dict):
+                            return rates_retry_error
                         warmup_retry_meta["error"] = str(rates_retry_error)
                         ti_warnings.append(
                             "Indicator warmup retry failed: "

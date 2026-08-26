@@ -11,6 +11,7 @@ from mtdata.core import data as core_data
 from mtdata.core.data import wait_events as wait_events_mod
 from mtdata.core.data.requests import WaitEventRequest
 from mtdata.core.data.use_cases import _wait_event_needs_gateway, run_wait_event
+from mtdata.core.runtime_metadata import build_mt5_source_provenance
 
 
 class FakeClock:
@@ -1828,3 +1829,130 @@ def test_collect_snapshot_uses_precomputed_market_specs(monkeypatch) -> None:
         "EURUSD": {"last_epoch": observed_at_utc.timestamp(), "ticks": []}
     }
     assert captured["market_specs"] == market_specs
+
+
+def _gateway_with_broker_source(**kwargs) -> SequenceGateway:
+    gateway = SequenceGateway(**kwargs)
+    gateway.account_info = lambda: SimpleNamespace(
+        company="Raw Trading Ltd",
+        server="ICMarketsSC-Demo",
+        login=123456,
+        password="secret",
+    )
+    return gateway
+
+
+def _assert_wait_event_source(result: dict, gateway) -> None:
+    source = result["source"]
+    assert source == build_mt5_source_provenance(gateway)
+    assert source["provider"] == "mt5"
+    assert source["broker_company"] == "Raw Trading Ltd"
+    assert source["server"] == "ICMarketsSC-Demo"
+    assert source["context_available"] is True
+    assert source["source_context_id"]
+    assert "login" not in source
+    assert "password" not in source
+    assert "account" not in source
+
+
+def test_wait_event_symbol_boundary_needs_gateway() -> None:
+    request = WaitEventRequest(
+        watch_for=[],
+        symbol="EURUSD",
+        timeframe="H1",
+        max_wait_seconds=0.5,
+    )
+    assert _wait_event_needs_gateway(request) is True
+
+
+def test_wait_event_timeout_includes_broker_source_context() -> None:
+    clock = FakeClock(datetime(2026, 8, 19, 15, 0, tzinfo=timezone.utc))
+    gateway = _gateway_with_broker_source()
+    result = run_wait_event(
+        WaitEventRequest(
+            symbol="EURUSD",
+            watch_for=[{"type": "order_filled", "symbol": "EURUSD"}],
+            poll_interval_seconds=0.5,
+            max_wait_seconds=0.0,
+        ),
+        gateway=gateway,
+        sleep_impl=clock.sleep,
+        monotonic_impl=clock.monotonic,
+        now_utc_impl=clock.now_utc,
+    )
+
+    assert result["error_code"] == "wait_event_timeout"
+    assert result["success"] is False
+    _assert_wait_event_source(result, gateway)
+
+
+def test_wait_event_budget_failure_includes_broker_source_context(monkeypatch) -> None:
+    started = datetime(2026, 3, 15, 12, 0, 0, tzinfo=timezone.utc)
+    monkeypatch.setattr(
+        "mtdata.core.data.wait_events.compile._next_candle_wait_payload",
+        lambda timeframe, buffer_seconds, now_utc, **_kwargs: {
+            "timeframe": timeframe,
+            "buffer_seconds": buffer_seconds,
+            "sleep_seconds": 60.0,
+            "started_at_utc": now_utc.isoformat(),
+            "next_candle_close_utc": (now_utc + timedelta(seconds=60)).isoformat(),
+            "next_candle_close_server": "2026-03-15T12:01:00",
+            "server_timezone": "UTC",
+        },
+    )
+    clock = FakeClock(started)
+    gateway = _gateway_with_broker_source()
+
+    result = run_wait_event(
+        WaitEventRequest(
+            watch_for=[],
+            symbol="EURUSD",
+            timeframe="H1",
+            max_wait_seconds=0,
+        ),
+        gateway=gateway,
+        sleep_impl=clock.sleep,
+        monotonic_impl=clock.monotonic,
+        now_utc_impl=clock.now_utc,
+    )
+
+    assert result["error_code"] == "wait_budget_exceeded"
+    assert result["success"] is False
+    _assert_wait_event_source(result, gateway)
+
+
+def test_wait_event_matched_result_includes_broker_source_context() -> None:
+    gateway = _gateway_with_broker_source(
+        orders_seq=[
+            [],
+            [{"ticket": 123, "symbol": "EURUSD", "type": "buy"}],
+        ],
+        ticks_by_symbol={
+            "EURUSD": [
+                {
+                    "time": 1_773_942_001.0,
+                    "time_msc": 1_773_942_001_000,
+                    "bid": 1.101,
+                    "ask": 1.1012,
+                    "last": 1.1011,
+                }
+            ]
+        },
+    )
+    clock = FakeClock(datetime(2026, 3, 15, 12, 0, 0, tzinfo=timezone.utc))
+
+    result = run_wait_event(
+        WaitEventRequest(
+            watch_for=[{"type": "order_created", "symbol": "EURUSD"}],
+            poll_interval_seconds=1.0,
+            max_wait_seconds=10.0,
+        ),
+        gateway=gateway,
+        sleep_impl=clock.sleep,
+        monotonic_impl=clock.monotonic,
+        now_utc_impl=clock.now_utc,
+    )
+
+    assert result["matched"] is True
+    assert result["success"] is True
+    _assert_wait_event_source(result, gateway)
