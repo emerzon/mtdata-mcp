@@ -1,15 +1,16 @@
 """HTTP client and session management for Finviz service."""
 import math
-import os
 import threading
 from typing import Any, Dict, Optional
 
 import requests
 
+from ...bootstrap.env import get_float_env, get_int_env
+
 # Configuration constants
-_FINVIZ_HTTP_TIMEOUT = float(os.getenv("FINVIZ_HTTP_TIMEOUT", "15"))
-_FINVIZ_SCREENER_MAX_ROWS = int(os.getenv("FINVIZ_SCREENER_MAX_ROWS", "5000"))
-_FINVIZ_PAGE_LIMIT_MAX = int(os.getenv("FINVIZ_PAGE_LIMIT_MAX", "500"))
+_FINVIZ_HTTP_TIMEOUT = get_float_env("FINVIZ_HTTP_TIMEOUT", 15)
+_FINVIZ_SCREENER_MAX_ROWS = get_int_env("FINVIZ_SCREENER_MAX_ROWS", 5000)
+_FINVIZ_PAGE_LIMIT_MAX = get_int_env("FINVIZ_PAGE_LIMIT_MAX", 500)
 
 # Thread-safe HTTP session
 _FINVIZ_HTTP_SESSION: Optional[requests.Session] = None
@@ -89,10 +90,6 @@ def finviz_http_get(
 ) -> Any:
     """HTTP GET helper with centralized timeout and pooled connections."""
     timeout_value = _normalize_timeout_value(timeout)
-    # Testability: when requests.get is monkeypatched, honor that hook.
-    if requests.get is not requests.api.get:
-        return requests.get(url, headers=headers, params=params, timeout=timeout_value)
-
     global _FINVIZ_HTTP_SESSION
     if _FINVIZ_HTTP_SESSION is None:
         with _FINVIZ_HTTP_SESSION_LOCK:

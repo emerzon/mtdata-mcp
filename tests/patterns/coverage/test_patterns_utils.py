@@ -96,7 +96,7 @@ class TestTimestampToLabel:
 class TestToFloatSafe:
 
     def _call(self, value, default=0.6):
-        from mtdata.core.patterns import _to_float_safe
+        from mtdata.core.patterns_support import _to_float_safe
         return _to_float_safe(value, default=default)
 
     def test_valid_float(self):
@@ -177,8 +177,8 @@ class TestParseNativeScaleFactors:
 class TestIntervalOverlapRatio:
 
     def _call(self, a_start, a_end, b_start, b_end):
-        from mtdata.core.patterns import _interval_overlap_ratio
-        return _interval_overlap_ratio(a_start, a_end, b_start, b_end)
+        from mtdata.patterns.common import interval_overlap_ratio
+        return interval_overlap_ratio(a_start, a_end, b_start, b_end)
 
     def test_full_overlap(self):
         assert self._call(0, 10, 0, 10) == pytest.approx(1.0)

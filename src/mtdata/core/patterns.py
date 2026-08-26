@@ -60,7 +60,6 @@ from .mt5_gateway import create_mt5_gateway, mt5_connection_error
 from .output_contract import attach_completed_bar_input_policy
 from .patterns_requests import PatternsDetailLiteral, PatternsDetectRequest
 from .patterns_support import (
-    _STOCK_PATTERN_UTILS_CACHE,  # noqa: F401
     _build_stock_pattern_frame,
     _compact_patterns_payload,
     _count_patterns_with_status,
@@ -75,7 +74,6 @@ from .patterns_support import (
     _format_pattern_dates,
     _index_pos_for_timestamp,
     _infer_stock_pattern_confidence,
-    _interval_overlap_ratio,  # noqa: F401
     _load_stock_pattern_utils,
     _map_stock_pattern_name,
     _merge_classic_ensemble,
@@ -87,7 +85,6 @@ from .patterns_support import (
     _summarize_engine_findings,
     _summarize_pattern_bias,
     _timestamp_to_label,
-    _to_float_safe,  # noqa: F401
     _to_jsonable,
     _visible_pattern_rows,
 )
@@ -104,15 +101,6 @@ ClassicEngineRunner = Callable[
     Tuple[List[Dict[str, Any]], Optional[str]],
 ]
 _CLASSIC_ENGINE_REGISTRY: Dict[str, ClassicEngineRunner] = {}
-
-
-def _patterns_connection_error() -> Optional[Dict[str, Any]]:
-    return mt5_connection_error(
-        create_mt5_gateway(
-            adapter=mt5,
-            ensure_connection_impl=ensure_mt5_connection_or_raise,
-        )
-    )
 
 
 def _should_drop_last_pattern_bar(

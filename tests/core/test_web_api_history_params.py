@@ -5,6 +5,7 @@ import os
 from unittest.mock import MagicMock, patch
 
 from mtdata.core import web_api
+from mtdata.utils.mt5 import mt5_connection
 
 
 def test_history_timestamp_format_defaults_to_iso() -> None:
@@ -25,7 +26,7 @@ def test_history_uses_start_end_ohlcv_and_preserves_canonical_compact_shape() ->
         "forming_candle_status": "included",
         "forming_candle_included": True,
     }
-    with patch.object(web_api.mt5_connection, "_ensure_connection", return_value=True), patch(
+    with patch.object(mt5_connection, "_ensure_connection", return_value=True), patch(
         "mtdata.core.web_api._fetch_candles_impl", return_value=payload
     ) as mock_fetch:
         res = web_api.get_history(
@@ -82,7 +83,7 @@ def test_history_forwards_indicators_and_keeps_compact_columns() -> None:
             }
         },
     }
-    with patch.object(web_api.mt5_connection, "_ensure_connection", return_value=True), patch(
+    with patch.object(mt5_connection, "_ensure_connection", return_value=True), patch(
         "mtdata.core.web_api._fetch_candles_impl", return_value=payload
     ) as mock_fetch:
         res = web_api.get_history(
@@ -115,7 +116,7 @@ def test_history_passes_include_spread() -> None:
         "forming_candle_status": "none",
         "forming_candle_included": False,
     }
-    with patch.object(web_api.mt5_connection, "_ensure_connection", return_value=True), patch(
+    with patch.object(mt5_connection, "_ensure_connection", return_value=True), patch(
         "mtdata.core.web_api._fetch_candles_impl", return_value=payload
     ) as mock_fetch:
         res = web_api.get_history(
@@ -141,7 +142,7 @@ def test_history_accepts_iso_timestamp_format() -> None:
         "forming_candle_status": "none",
         "forming_candle_included": False,
     }
-    with patch.object(web_api.mt5_connection, "_ensure_connection", return_value=True), patch(
+    with patch.object(mt5_connection, "_ensure_connection", return_value=True), patch(
         "mtdata.core.web_api._fetch_candles_impl", return_value=payload
     ) as mock_fetch:
         res = web_api.get_history(
@@ -162,7 +163,7 @@ def test_history_labels_explicit_epoch_timestamps_as_utc_seconds() -> None:
         "success": True,
         "data": [{"time": 1735689600.0, "close": 1.1}],
     }
-    with patch.object(web_api.mt5_connection, "_ensure_connection", return_value=True), patch(
+    with patch.object(mt5_connection, "_ensure_connection", return_value=True), patch(
         "mtdata.core.web_api._fetch_candles_impl",
         return_value=payload,
     ) as mock_fetch:
@@ -182,7 +183,7 @@ def test_history_non_causal_denoise_without_opt_in_returns_400() -> None:
     """l1_trend (and peers) must not 500 when causality opt-in is missing."""
     from fastapi import HTTPException
 
-    with patch.object(web_api.mt5_connection, "_ensure_connection", return_value=True), patch(
+    with patch.object(mt5_connection, "_ensure_connection", return_value=True), patch(
         "mtdata.core.web_api._get_denoise_methods",
         return_value={
             "methods": [
@@ -225,7 +226,7 @@ def test_history_non_causal_denoise_with_zero_phase_reaches_fetch() -> None:
         "success": True,
         "data": [{"time": 1735689600.0, "close": 1.1, "close_dn": 1.05}],
     }
-    with patch.object(web_api.mt5_connection, "_ensure_connection", return_value=True), patch(
+    with patch.object(mt5_connection, "_ensure_connection", return_value=True), patch(
         "mtdata.core.web_api._get_denoise_methods",
         return_value={"methods": [{"method": "l1_trend", "available": True, "requires": ""}]},
     ), patch(

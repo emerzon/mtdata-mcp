@@ -134,13 +134,6 @@ _LOADED_FORECAST_METHOD_MODULES: set[str] = set()
 _FAILED_OPTIONAL_FORECAST_MODULES: Dict[str, str] = {}
 
 
-def _package_available(name: str) -> bool:
-    try:
-        return _importlib_util.find_spec(name) is not None
-    except Exception:
-        return False
-
-
 def _find_method_definition(
     method: str,
     method_data: Dict[str, Any] | None = None,

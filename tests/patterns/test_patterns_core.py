@@ -325,7 +325,7 @@ def test_patterns_detect_public_default_is_compact_for_classic_mode(monkeypatch)
         }
     )
 
-    monkeypatch.setattr(core_patterns, "_patterns_connection_error", lambda: None)
+    monkeypatch.setattr(core_patterns, "mt5_connection_error", lambda *args, **kwargs: None)
     monkeypatch.setattr(core_patterns, "_fetch_pattern_data", lambda *args, **kwargs: (df, None))
     monkeypatch.setattr(
         core_patterns,
@@ -399,7 +399,7 @@ def test_patterns_detect_historical_end_keeps_observation_window(monkeypatch):
         }
     )
 
-    monkeypatch.setattr(core_patterns, "_patterns_connection_error", lambda: None)
+    monkeypatch.setattr(core_patterns, "mt5_connection_error", lambda *args, **kwargs: None)
     monkeypatch.setattr(core_patterns, "_fetch_pattern_data", lambda *args, **kwargs: (df, None))
     monkeypatch.setattr(
         core_patterns,
@@ -454,7 +454,7 @@ def test_patterns_detect_standard_detail_preserves_full_payload(monkeypatch):
         }
     )
 
-    monkeypatch.setattr(core_patterns, "_patterns_connection_error", lambda: None)
+    monkeypatch.setattr(core_patterns, "mt5_connection_error", lambda *args, **kwargs: None)
     monkeypatch.setattr(core_patterns, "_fetch_pattern_data", lambda *args, **kwargs: (df, None))
     monkeypatch.setattr(core_patterns, "_select_classic_engines", lambda engine, ensemble: (["native"], []))
     monkeypatch.setattr(core_patterns, "_enrich_classic_patterns", lambda rows, *_: rows)

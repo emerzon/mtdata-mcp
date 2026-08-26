@@ -171,12 +171,6 @@ def _regime_params_for_method(params: Dict[str, Any], method: str) -> Dict[str, 
     return {key: value for key, value in params.items() if key in allowed}
 
 
-def _regime_connection_error() -> Optional[Dict[str, Any]]:
-    return mt5_connection_error(
-        create_mt5_gateway(ensure_connection_impl=ensure_mt5_connection_or_raise),
-    )
-
-
 def _method_min_fetch_limit(method: str) -> int:
     if method == "rule_based":
         return 20

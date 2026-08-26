@@ -34,7 +34,7 @@ def test_health_available_on_root_route() -> None:
 
 
 def test_ready_available_on_versioned_route() -> None:
-    with patch("mtdata.core.web_api.mt5_connection._ensure_connection", return_value=True):
+    with patch("mtdata.utils.mt5.mt5_connection._ensure_connection", return_value=True):
         response = client.get("/api/v1/ready")
 
     assert response.status_code == 200
@@ -47,7 +47,7 @@ def test_ready_available_on_versioned_route() -> None:
 
 
 def test_ready_available_on_root_route() -> None:
-    with patch("mtdata.core.web_api.mt5_connection._ensure_connection", return_value=True):
+    with patch("mtdata.utils.mt5.mt5_connection._ensure_connection", return_value=True):
         response = client.get("/ready")
 
     assert response.status_code == 200
@@ -71,7 +71,7 @@ def test_history_available_on_versioned_route() -> None:
         "forming_candle_included": False,
     }
 
-    with patch("mtdata.core.web_api.mt5_connection._ensure_connection", return_value=True), patch(
+    with patch("mtdata.utils.mt5.mt5_connection._ensure_connection", return_value=True), patch(
         "mtdata.core.web_api._fetch_candles_impl", return_value=payload
     ), patch("mtdata.core.web_api.mt5_config") as mock_cfg:
         mock_cfg.server_tz_name = "Europe/Nicosia"

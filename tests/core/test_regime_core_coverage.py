@@ -434,7 +434,7 @@ _FMT = "mtdata.core.regime.api._format_time_minimal"
 
 
 def test_regime_rejects_future_range_before_connection() -> None:
-    with patch.object(regime_mod, "_regime_connection_error") as connection:
+    with patch.object(regime_mod, "mt5_connection_error") as connection:
         result = _get_regime_detect()(
             "EURUSD",
             start="2100-01-01",

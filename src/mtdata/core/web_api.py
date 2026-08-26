@@ -30,7 +30,6 @@ from ..utils.dimred import list_dimred_methods as _list_dimred_methods
 from ..utils.mt5 import (
     ensure_mt5_connection_or_raise,
     mt5,
-    mt5_connection,  # noqa: F401
 )
 from ..utils.volume_profile import (
     VolumeProfilePriceSourceLiteral,

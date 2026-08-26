@@ -159,7 +159,7 @@ def test_build_all_method_comparison_uses_semantic_signals() -> None:
 def test_regime_detect_all_respects_full_and_summary_detail(monkeypatch) -> None:
     real = _unwrap(regime_api.regime_detect)
     monkeypatch.setattr(regime_api, "_fetch_history", lambda *args, **kwargs: _downtrend_df(120))
-    monkeypatch.setattr(regime_api, "_regime_connection_error", lambda: None)
+    monkeypatch.setattr(regime_api, "mt5_connection_error", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         regime_detect_mod,
         "_build_all_method_comparison",
@@ -242,7 +242,7 @@ def test_regime_detect_all_respects_full_and_summary_detail(monkeypatch) -> None
 def test_regime_detect_all_reports_runtime_diagnostics_for_partial_results(monkeypatch) -> None:
     real = _unwrap(regime_api.regime_detect)
     monkeypatch.setattr(regime_api, "_fetch_history", lambda *args, **kwargs: _downtrend_df(120))
-    monkeypatch.setattr(regime_api, "_regime_connection_error", lambda: None)
+    monkeypatch.setattr(regime_api, "mt5_connection_error", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         regime_detect_mod,
         "_build_all_method_comparison",
@@ -298,7 +298,7 @@ def test_regime_detect_all_promotes_excluded_successful_voter(monkeypatch) -> No
         "_fetch_history",
         lambda *args, **kwargs: _downtrend_df(120),
     )
-    monkeypatch.setattr(regime_api, "_regime_connection_error", lambda: None)
+    monkeypatch.setattr(regime_api, "mt5_connection_error", lambda *args, **kwargs: None)
     monkeypatch.setattr(
         regime_detect_mod,
         "_build_all_method_comparison",
@@ -940,7 +940,7 @@ def test_regime_detect_all_uses_same_rule_based_window_as_standalone() -> None:
 
     with (
         patch("mtdata.core.regime.api._fetch_history", return_value=history),
-        patch("mtdata.core.regime.api._regime_connection_error", return_value=None),
+        patch("mtdata.core.regime.api.mt5_connection_error", return_value=None),
         patch("mtdata.core.regime.detect._run_regime_method", side_effect=fake_recursive),
     ):
         all_out = real(

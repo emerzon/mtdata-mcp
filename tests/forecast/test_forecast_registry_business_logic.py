@@ -36,19 +36,6 @@ print(json.dumps({
     assert result["umap"] is False
 
 
-def test_package_availability_failures_are_isolated(monkeypatch) -> None:
-    def fake_find_spec(name: str):
-        if name == "mlforecast":
-            raise ImportError("broken package metadata")
-        return object()
-
-    monkeypatch.setattr(fr._importlib_util, "find_spec", fake_find_spec)
-
-    assert fr._package_available("neuralforecast") is True
-    assert fr._package_available("mlforecast") is False
-    assert fr._package_available("statsforecast") is True
-
-
 def test_check_chronos_runtime_support_does_not_import_runtime(monkeypatch):
     fr._check_chronos_runtime_support.cache_clear()
 

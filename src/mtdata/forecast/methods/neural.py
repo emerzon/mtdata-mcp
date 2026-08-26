@@ -14,7 +14,6 @@ from ..common import (
     nf_create_and_fit,
     nf_predict_from_fitted,
 )
-from ..common import edge_pad_to_length as _edge_pad_to_length  # noqa: F401
 from ..forecast_registry import ForecastRegistry
 from ..interface import (
     CancelToken,

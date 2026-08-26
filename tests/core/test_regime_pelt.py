@@ -57,7 +57,7 @@ def test_pelt_detects_structural_break(monkeypatch):
             "real_volume": 0,
         }
     )
-    monkeypatch.setattr(regime, "_regime_connection_error", lambda: None)
+    monkeypatch.setattr(regime, "mt5_connection_error", lambda *args, **kwargs: None)
     monkeypatch.setattr(regime, "_fetch_history", lambda *args, **kwargs: frame)
 
     result = _raw_regime_detect()(
@@ -92,7 +92,7 @@ def test_pelt_lookback_bounds_analyzed_window(monkeypatch):
             "real_volume": 0,
         }
     )
-    monkeypatch.setattr(regime, "_regime_connection_error", lambda: None)
+    monkeypatch.setattr(regime, "mt5_connection_error", lambda *args, **kwargs: None)
     monkeypatch.setattr(regime, "_fetch_history", lambda *args, **kwargs: frame)
 
     result = _raw_regime_detect()(
@@ -128,7 +128,7 @@ def test_pelt_explicit_range_without_cap_analyzes_full_window(monkeypatch):
             "close": close,
         }
     )
-    monkeypatch.setattr(regime, "_regime_connection_error", lambda: None)
+    monkeypatch.setattr(regime, "mt5_connection_error", lambda *args, **kwargs: None)
     monkeypatch.setattr(regime, "_fetch_history", lambda *args, **kwargs: frame)
 
     result = _raw_regime_detect()(

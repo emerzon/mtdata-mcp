@@ -90,10 +90,8 @@ class TestMapStockPatternName:
 class TestLoadStockPatternUtils:
 
     def _call(self, config=None):
-        from mtdata.core.patterns import (
-            _STOCK_PATTERN_UTILS_CACHE,
-            _load_stock_pattern_utils,
-        )
+        from mtdata.core.patterns import _load_stock_pattern_utils
+        from mtdata.core.patterns_support import _STOCK_PATTERN_UTILS_CACHE
         _STOCK_PATTERN_UTILS_CACHE.clear()
         return _load_stock_pattern_utils(config)
 
@@ -124,10 +122,8 @@ class TestLoadStockPatternUtils:
 
     @patch("importlib.import_module")
     def test_concurrent_calls_import_once(self, mock_import):
-        from mtdata.core.patterns import (
-            _STOCK_PATTERN_UTILS_CACHE,
-            _load_stock_pattern_utils,
-        )
+        from mtdata.core.patterns import _load_stock_pattern_utils
+        from mtdata.core.patterns_support import _STOCK_PATTERN_UTILS_CACHE
 
         _STOCK_PATTERN_UTILS_CACHE.clear()
         try:

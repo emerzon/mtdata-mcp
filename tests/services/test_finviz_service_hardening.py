@@ -82,10 +82,12 @@ def test_finviz_http_get_applies_default_timeout(monkeypatch):
         calls["timeout"] = timeout
         return DummyResp()
 
-    import requests
+    class DummySession:
+        def get(self, url, headers=None, params=None, timeout=None):
+            return _fake_get(url, headers=headers, params=params, timeout=timeout)
 
     monkeypatch.setattr(svc, "_FINVIZ_HTTP_TIMEOUT", 7.5)
-    monkeypatch.setattr(requests, "get", _fake_get)
+    monkeypatch.setattr(finviz_client, "_FINVIZ_HTTP_SESSION", DummySession())
     _ = svc._finviz_http_get("https://example.test", headers={"A": "B"}, params={"x": 1})
 
     assert calls["url"] == "https://example.test"
@@ -102,9 +104,11 @@ def test_finviz_http_get_accepts_requests_timeout_tuple(monkeypatch):
         calls["timeout"] = timeout
         return DummyResp()
 
-    import requests
+    class DummySession:
+        def get(self, url, headers=None, params=None, timeout=None):
+            return _fake_get(url, headers=headers, params=params, timeout=timeout)
 
-    monkeypatch.setattr(requests, "get", _fake_get)
+    monkeypatch.setattr(finviz_client, "_FINVIZ_HTTP_SESSION", DummySession())
     _ = finviz_client.finviz_http_get(
         "https://example.test",
         headers={"A": "B"},
@@ -125,9 +129,11 @@ def test_finviz_http_get_invalid_timeout_override_falls_back(monkeypatch):
         calls["timeout"] = timeout
         return DummyResp()
 
-    import requests
+    class DummySession:
+        def get(self, url, headers=None, params=None, timeout=None):
+            return _fake_get(url, headers=headers, params=params, timeout=timeout)
 
-    monkeypatch.setattr(requests, "get", _fake_get)
+    monkeypatch.setattr(finviz_client, "_FINVIZ_HTTP_SESSION", DummySession())
     monkeypatch.setattr(finviz_client, "_FINVIZ_HTTP_TIMEOUT", 7.5)
     _ = finviz_client.finviz_http_get(
         "https://example.test",
@@ -527,7 +533,7 @@ def test_reset_finviz_session_tolerates_already_none():
 
 
 def test_finviz_http_get_uses_build_session(monkeypatch):
-    """When the session is None and requests.get is not patched, _build_finviz_session is called."""
+    """When the session is None, _build_finviz_session is called."""
     calls = {"built": 0, "get": []}
 
     class FakeSession:
@@ -549,9 +555,6 @@ def test_finviz_http_get_uses_build_session(monkeypatch):
 
     monkeypatch.setattr(finviz_client, "_FINVIZ_HTTP_SESSION", None)
     monkeypatch.setattr(finviz_client, "_build_finviz_session", fake_build)
-    # Ensure the monkeypatch hook is NOT triggered:
-    import requests as _req
-    monkeypatch.setattr(_req, "get", _req.api.get)
 
     result = finviz_client.finviz_http_get(
         "https://example.test", headers={}, params={}, timeout=5.0

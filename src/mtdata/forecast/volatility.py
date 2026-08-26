@@ -21,7 +21,6 @@ from ..utils.denoise import normalize_denoise_spec as _normalize_denoise_spec
 from ..utils.freshness import (
     completed_bar_freshness_fields,
 )
-from ..utils.mt5 import mt5  # noqa: F401 - retained for test patch compatibility
 from ..utils.time import _format_time_minimal, bar_close_epoch
 from ..utils.utils import _parse_end_datetime, _parse_start_datetime, parse_kv_or_json
 from .common import (
