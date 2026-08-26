@@ -17,6 +17,29 @@ def _ci_from_sims(paths: np.ndarray, alpha: float) -> Tuple[np.ndarray, np.ndarr
     return np.asarray(lo, dtype=float), np.asarray(hi, dtype=float)
 
 
+def _prepare_monte_carlo_target(
+    series: pd.Series,
+    params: Dict[str, Any],
+    kwargs: Dict[str, Any],
+) -> Tuple[np.ndarray, bool]:
+    values = np.asarray(series.values, dtype=float)
+    values = values[np.isfinite(values)]
+    if values.size < 5:
+        raise ValueError("Not enough history for Monte Carlo simulation")
+
+    quantity = kwargs.get("quantity", params.get("quantity"))
+    treat_as_price = None
+    if isinstance(quantity, str):
+        quantity_label = quantity.strip().lower()
+        if quantity_label == "price":
+            treat_as_price = True
+        elif quantity_label == "return":
+            treat_as_price = False
+    if treat_as_price is None:
+        treat_as_price = _series_looks_like_prices(series)
+    return values, bool(treat_as_price)
+
+
 def _series_looks_like_prices(series: pd.Series) -> bool:
     x = np.asarray(series.values, dtype=float)
     x = x[np.isfinite(x)]
@@ -70,22 +93,7 @@ class MonteCarloGBMMethod(ForecastMethod):
         seed_source = "params" if seed_provided else "default"
         ci_alpha = kwargs.get("ci_alpha", params.get("ci_alpha", None))
 
-        x = np.asarray(series.values, dtype=float)
-        x = x[np.isfinite(x)]
-        if x.size < 5:
-            raise ValueError("Not enough history for Monte Carlo simulation")
-
-        quantity = kwargs.get("quantity", params.get("quantity"))
-        treat_as_price = None
-        if isinstance(quantity, str):
-            ql = quantity.strip().lower()
-            if ql == "price":
-                treat_as_price = True
-            elif ql == "return":
-                treat_as_price = False
-
-        if treat_as_price is None:
-            treat_as_price = _series_looks_like_prices(series)
+        x, treat_as_price = _prepare_monte_carlo_target(series, params, kwargs)
 
         if treat_as_price:
             prices = x
@@ -185,22 +193,7 @@ class MonteCarloHMMMethod(ForecastMethod):
         n_states = int(params.get("n_states", 2))
         ci_alpha = kwargs.get("ci_alpha", params.get("ci_alpha", None))
 
-        x = np.asarray(series.values, dtype=float)
-        x = x[np.isfinite(x)]
-        if x.size < 5:
-            raise ValueError("Not enough history for Monte Carlo simulation")
-
-        quantity = kwargs.get("quantity", params.get("quantity"))
-        treat_as_price = None
-        if isinstance(quantity, str):
-            ql = quantity.strip().lower()
-            if ql == "price":
-                treat_as_price = True
-            elif ql == "return":
-                treat_as_price = False
-
-        if treat_as_price is None:
-            treat_as_price = _series_looks_like_prices(series)
+        x, treat_as_price = _prepare_monte_carlo_target(series, params, kwargs)
 
         if treat_as_price:
             sim = simulate_hmm_mc(prices=x, horizon=fh, n_states=n_states, n_sims=n_sims, seed=seed)
