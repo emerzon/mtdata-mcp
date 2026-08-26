@@ -57,7 +57,7 @@ def _coerce_tool_kwargs(target: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
                 and isinstance(request_type, type)
                 and issubclass(request_type, BaseModel)
             ):
-                model_fields, _ = _get_pydantic_model_fields(request_type)
+                model_fields = _get_pydantic_model_fields(request_type)
                 field_names = set(model_fields.keys())
                 alias_map: dict[str, str] = {}
                 for name, info in model_fields.items():
@@ -74,10 +74,7 @@ def _coerce_tool_kwargs(target: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
                     if key in field_names or key in alias_map:
                         payload[alias_map.get(key, key)] = coerced.pop(key)
                 if payload:
-                    model_validate = getattr(request_type, "model_validate", None)
-                    coerced[request_param.name] = (
-                        model_validate(payload) if callable(model_validate) else request_type.parse_obj(payload)
-                    )
+                    coerced[request_param.name] = request_type.model_validate(payload)
     except ValidationError:
         raise
     except Exception:

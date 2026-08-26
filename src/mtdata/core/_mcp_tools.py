@@ -872,20 +872,19 @@ def _coerce_float(value: Any, *, allow_none: bool, name: str) -> Any:
     raise ValueError(f"Invalid value for '{name}': expected number, got {value!r}")
 
 
-def _get_pydantic_model_fields(model_type: Any) -> tuple[Dict[str, Any], bool]:
+def _get_pydantic_model_fields(model_type: Any) -> Dict[str, Any]:
     if not isinstance(model_type, type):
-        return {}, False
+        return {}
     try:
         if not issubclass(model_type, BaseModel):
-            return {}, False
+            return {}
     except TypeError:
-        return {}, False
+        return {}
 
     model_fields = getattr(model_type, "model_fields", None)
     if isinstance(model_fields, dict):
-        return model_fields, True
-
-    return {}, False
+        return model_fields
+    return {}
 
 
 def _coerce_kwargs_for_callable(func: Any, kwargs: Dict[str, Any]) -> Dict[str, Any]:
@@ -902,7 +901,7 @@ def _coerce_kwargs_for_callable(func: Any, kwargs: Dict[str, Any]) -> Dict[str, 
         if not (isinstance(base_ann, type) and issubclass(base_ann, BaseModel)):
             continue
         try:
-            model_fields, _ = _get_pydantic_model_fields(base_ann)
+            model_fields = _get_pydantic_model_fields(base_ann)
             field_names = set(model_fields.keys())
         except Exception:
             field_names = set()
@@ -913,11 +912,7 @@ def _coerce_kwargs_for_callable(func: Any, kwargs: Dict[str, Any]) -> Dict[str, 
             continue
         if not payload and param.default is not inspect._empty:
             continue
-        model_validate = getattr(base_ann, "model_validate", None)
-        if callable(model_validate):
-            kwargs[param_name] = model_validate(payload)
-        else:
-            kwargs[param_name] = base_ann.parse_obj(payload)
+        kwargs[param_name] = base_ann.model_validate(payload)
     for param_name, param in sig.parameters.items():
         if param_name not in kwargs:
             continue
@@ -938,11 +933,7 @@ def _coerce_kwargs_for_callable(func: Any, kwargs: Dict[str, Any]) -> Dict[str, 
             if isinstance(value, base_ann):
                 continue
             if isinstance(value, dict):
-                model_validate = getattr(base_ann, "model_validate", None)
-                if callable(model_validate):
-                    kwargs[param_name] = model_validate(value)
-                else:
-                    kwargs[param_name] = base_ann.parse_obj(value)
+                kwargs[param_name] = base_ann.model_validate(value)
     return kwargs
 
 
@@ -962,8 +953,8 @@ def _request_model_signature_fields(func: Any) -> List[inspect.Parameter]:
     if not (isinstance(base_ann, type) and issubclass(base_ann, BaseModel)):
         return []
 
-    model_fields, modern_fields = _get_pydantic_model_fields(base_ann)
-    if model_fields and modern_fields:
+    model_fields = _get_pydantic_model_fields(base_ann)
+    if model_fields:
         flattened: List[inspect.Parameter] = []
         for field_name, field in model_fields.items():
             annotation = inspect._empty
@@ -1571,7 +1562,7 @@ def _update_supplied_request_model_field(
         if param_name not in kwargs:
             continue
         base_ann, _ = _unwrap_optional_annotation(param.annotation)
-        model_fields, _ = _get_pydantic_model_fields(base_ann)
+        model_fields = _get_pydantic_model_fields(base_ann)
         if name not in model_fields:
             continue
         request = kwargs[param_name]

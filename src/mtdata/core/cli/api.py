@@ -347,46 +347,32 @@ def _is_pydantic_model_type(value: Any) -> bool:
 
 
 def _iter_request_model_params(model_type: type[BaseModel]) -> List[Dict[str, Any]]:
-    fields, modern_fields = _get_pydantic_model_fields(model_type)
-    if modern_fields:
-        params: List[Dict[str, Any]] = []
-        for name, field in fields.items():
-            required = (
-                bool(field.is_required())
-                if callable(getattr(field, "is_required", None))
-                else False
-            )
-            default = None if required else getattr(field, "default", None)
-            default_class = getattr(default, "__class__", None)
-            if (
-                default_class is not None
-                and getattr(default_class, "__name__", "") == "PydanticUndefinedType"
-            ):
-                default = None
-            params.append(
-                {
-                    "name": name,
-                    "required": required,
-                    "default": default,
-                    "type": getattr(field, "annotation", Any) or Any,
-                }
-            )
-        return params
-
-    if fields:
-        return [
+    fields = _get_pydantic_model_fields(model_type)
+    if not fields:
+        return []
+    params: List[Dict[str, Any]] = []
+    for name, field in fields.items():
+        required = (
+            bool(field.is_required())
+            if callable(getattr(field, "is_required", None))
+            else False
+        )
+        default = None if required else getattr(field, "default", None)
+        default_class = getattr(default, "__class__", None)
+        if (
+            default_class is not None
+            and getattr(default_class, "__name__", "") == "PydanticUndefinedType"
+        ):
+            default = None
+        params.append(
             {
                 "name": name,
-                "required": bool(getattr(field, "required", False)),
-                "default": None
-                if getattr(field, "required", False)
-                else getattr(field, "default", None),
-                "type": getattr(field, "outer_type_", Any) or Any,
+                "required": required,
+                "default": default,
+                "type": getattr(field, "annotation", Any) or Any,
             }
-            for name, field in fields.items()
-        ]
-
-    return []
+        )
+    return params
 
 
 def _flatten_request_model_param(info: Dict[str, Any]) -> Dict[str, Any]:

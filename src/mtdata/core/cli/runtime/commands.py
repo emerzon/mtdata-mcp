@@ -341,10 +341,7 @@ def create_command_function(  # noqa: C901
     """Build a CLI command callable for a tool function."""
 
     def _is_model_type(value: Any) -> bool:
-        return isinstance(value, type) and (
-            callable(getattr(value, "model_validate", None))
-            or callable(getattr(value, "parse_obj", None))
-        )
+        return isinstance(value, type) and callable(getattr(value, "model_validate", None))
 
     def _build_cli_error(
         message: str,
@@ -652,12 +649,7 @@ def create_command_function(  # noqa: C901
 
                 if _is_model_type(base_type) and arg_value is not None:
                     try:
-                        validator = getattr(base_type, "model_validate", None)
-                        arg_value = (
-                            validator(arg_value)
-                            if callable(validator)
-                            else base_type.parse_obj(arg_value)
-                        )
+                        arg_value = base_type.model_validate(arg_value)
                     except ValidationError as exc:
                         render_cli_result(
                             _build_cli_error(_friendly_validation_error(exc)),

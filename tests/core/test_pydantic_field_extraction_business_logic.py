@@ -11,9 +11,8 @@ class _RequestModel(BaseModel):
 
 
 def test_get_pydantic_model_fields_reads_model_fields() -> None:
-    fields, modern = _get_pydantic_model_fields(_RequestModel)
+    fields = _get_pydantic_model_fields(_RequestModel)
 
-    assert modern is True
     assert set(fields) == {"symbol", "limit"}
 
 
@@ -28,7 +27,6 @@ class _LegacyRequestModel:
 
 
 def test_get_pydantic_model_fields_ignores_legacy_fields() -> None:
-    fields, modern = _get_pydantic_model_fields(_LegacyRequestModel)
+    fields = _get_pydantic_model_fields(_LegacyRequestModel)
 
-    assert modern is False
     assert fields == {}
