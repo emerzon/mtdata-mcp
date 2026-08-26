@@ -73,7 +73,6 @@ export default function App() {
           onToggleLast={workspace.toggleLast}
           onToggleLive={workspace.toggleLive}
           onTimezoneChange={workspace.setTimezoneMode}
-          onAuthChange={workspace.reload}
           layoutBreakpoint={layoutBreakpoint}
           pivotMethod={workspace.pivotMethod}
           onPivotMethodChange={workspace.handlePivotMethodChange}
@@ -136,6 +135,7 @@ export default function App() {
             />
           </div>
         )}
+
 
         <ForecastPanel
           open={activePanel === 'forecast'}

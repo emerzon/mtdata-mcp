@@ -1,11 +1,9 @@
 import { FormEvent, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { setApiToken } from '../api/client'
 
-type Props = {
-  onChange: () => void
-}
-
-export function ApiAuthControl({ onChange }: Props) {
+export function ApiAuthControl() {
+  const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
   const [token, setToken] = useState('')
   const [configured, setConfigured] = useState(false)
@@ -13,17 +11,17 @@ export function ApiAuthControl({ onChange }: Props) {
   const apply = (event: FormEvent) => {
     event.preventDefault()
     setApiToken(token)
+    queryClient.clear()
     setConfigured(Boolean(token.trim()))
     setOpen(false)
-    onChange()
   }
 
   const clear = () => {
     setToken('')
     setApiToken('')
+    queryClient.clear()
     setConfigured(false)
     setOpen(false)
-    onChange()
   }
 
   if (!open) {

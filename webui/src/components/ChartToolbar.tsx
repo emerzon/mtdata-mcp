@@ -51,7 +51,6 @@ type Props = {
   timezoneMode: 'utc' | 'local' | 'server'
   displayTimeZone: string
   onTimezoneChange: (value: 'utc' | 'local' | 'server') => void
-  onAuthChange: () => void
   layoutBreakpoint: LayoutBreakpoint
   pivotMethod: PivotMethod
   onPivotMethodChange: (method: string) => void
@@ -103,7 +102,6 @@ export function ChartToolbar({
   timezoneMode,
   displayTimeZone,
   onTimezoneChange,
-  onAuthChange,
   layoutBreakpoint,
   pivotMethod,
   onPivotMethodChange,
@@ -127,7 +125,7 @@ export function ChartToolbar({
 
   const analysisGroup = (
     <>
-      <ApiAuthControl onChange={onAuthChange} />
+      <ApiAuthControl />
       <div className="w-px h-5 bg-slate-700 hidden sm:block" />
       <OverlayControls
         disabled={!symbol}

@@ -42,4 +42,18 @@ describe('API auth token memory-only contract', () => {
     expect(clientSrc).not.toMatch(/localStorage|sessionStorage/)
     expect(authSrc).not.toMatch(/localStorage|sessionStorage/)
   })
+
+  it('clears the query cache after setApiToken instead of a reload callback', async () => {
+    const fs = await import('node:fs')
+    const path = await import('node:path')
+    const authSrc = fs.readFileSync(path.join(__dirname, '../components/ApiAuthControl.tsx'), 'utf8')
+    const toolbarSrc = fs.readFileSync(path.join(__dirname, '../components/ChartToolbar.tsx'), 'utf8')
+    const appSrc = fs.readFileSync(path.join(__dirname, '../App.tsx'), 'utf8')
+    expect(authSrc).toMatch(/useQueryClient\(\)/)
+    expect(authSrc).toMatch(/setApiToken\(token\)[\s\S]*?queryClient\.clear\(\)/)
+    expect(authSrc).toMatch(/setApiToken\(''\)[\s\S]*?queryClient\.clear\(\)/)
+    expect(authSrc).not.toMatch(/onChange:\s*\(\)\s*=>/)
+    expect(toolbarSrc).not.toMatch(/onAuthChange/)
+    expect(appSrc).not.toMatch(/onAuthChange/)
+  })
 })
