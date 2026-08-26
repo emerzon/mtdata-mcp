@@ -9,7 +9,7 @@ from scipy.signal import find_peaks
 
 from ..services.data_service.candles import _is_last_bar_forming
 from ..shared.symbols import is_probably_crypto_symbol
-from ..utils.time import bar_close_epoch
+from ..utils.time import bar_close_epoch, coerce_time_epoch_seconds
 from ..utils.utils import _utc_epoch_seconds, to_float_np
 
 
@@ -197,45 +197,13 @@ def detect_pivots(
 
 
 def _coerce_pattern_time_epoch(values: Any, expected_size: int) -> np.ndarray:
-    """Convert a time column to UTC epoch seconds.
-
-    Datetime64 / timezone-aware values become seconds, not nanoseconds.
-    Numeric values larger than 1e12 are treated as milliseconds or
-    nanoseconds and scaled down.
-    """
-    try:
-        series = values if isinstance(values, pd.Series) else pd.Series(values)
-    except Exception:
-        return np.asarray([], dtype=float)
-    if pd.api.types.is_datetime64_any_dtype(series) or isinstance(
-        getattr(series, "dtype", None), pd.DatetimeTZDtype
-    ):
-        try:
-            dt = pd.to_datetime(series, utc=True, errors="coerce")
-            ns = dt.astype("int64", copy=False).to_numpy(dtype=float)
-            seconds = ns / 1e9
-            valid = dt.notna().to_numpy()
-            seconds = np.where(valid, seconds, np.nan)
-            return np.asarray(seconds, dtype=float)
-        except Exception:
-            return np.asarray([], dtype=float)
-    try:
-        times = to_float_np(series)
-    except (TypeError, ValueError):
-        try:
-            dt = pd.to_datetime(series, utc=True, errors="coerce")
-            ns = dt.astype("int64", copy=False).to_numpy(dtype=float)
-            return np.asarray(ns / 1e9, dtype=float)
-        except Exception:
-            return np.asarray([], dtype=float)
+    """Convert a time column to UTC epoch seconds."""
+    times = np.asarray(coerce_time_epoch_seconds(values), dtype=float)
+    if times.size == 0:
+        return times
     finite = times[np.isfinite(times)]
     if finite.size == 0:
         return times if times.size == expected_size else np.asarray([], dtype=float)
-    typical = float(np.nanmedian(np.abs(finite)))
-    if typical > 1e16:
-        times = times / 1e9
-    elif typical > 1e12:
-        times = times / 1e3
     return times
 
 

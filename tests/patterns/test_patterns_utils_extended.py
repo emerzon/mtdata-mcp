@@ -173,16 +173,6 @@ class TestPatternIndexAccessors:
         vals = pi.get_match_values(0, include_future=False)
         assert len(vals) == pi.window_size
 
-    def test_bars_per_symbol(self):
-        pi = _make_index()
-        bps = pi.bars_per_symbol()
-        assert bps["TEST"] == 100
-
-    def test_windows_per_symbol(self):
-        pi = _make_index()
-        wps = pi.windows_per_symbol()
-        assert wps["TEST"] > 0
-
     def test_get_symbol_series_found(self):
         pi = _make_index()
         arr = pi.get_symbol_series("TEST")
@@ -192,35 +182,6 @@ class TestPatternIndexAccessors:
     def test_get_symbol_series_missing(self):
         pi = _make_index()
         assert pi.get_symbol_series("NOEXIST") is None
-
-# ===================================================================
-# PatternIndex.get_symbol_returns
-# ===================================================================
-class TestGetSymbolReturns:
-    def test_basic_returns(self):
-        pi = _make_index()
-        r = pi.get_symbol_returns("TEST")
-        assert r is not None
-        assert r.size > 0
-
-    def test_returns_with_lookback(self):
-        pi = _make_index(n_bars=200)
-        r = pi.get_symbol_returns("TEST", lookback=50)
-        assert r is not None
-        assert r.size <= 50
-
-    def test_returns_missing_symbol(self):
-        pi = _make_index()
-        assert pi.get_symbol_returns("MISSING") is None
-
-    def test_returns_short_series(self):
-        ser = _SeriesStore(symbol="X", time_epoch=np.array([0.0, 1.0]), close=np.array([100.0, 101.0]))
-        pi = PatternIndex(
-            timeframe="H1", window_size=2, future_size=0, symbols=["X"],
-            tree=None, X=np.zeros((1, 2)), start_end_idx=np.array([[0, 1]]),
-            labels=np.array([0]), series=[ser],
-        )
-        assert pi.get_symbol_returns("X") is None  # size < 3
 
 # ===================================================================
 # PatternIndex._ncc_max

@@ -186,6 +186,51 @@ def _format_datetime_explicit(dt: datetime, *, timespec: str) -> str:
     return f"{text[:-6]}Z" if text.endswith("+00:00") else text
 
 
+def coerce_time_epoch_seconds(values: Any) -> Any:
+    """Convert datetime or numeric time values to UTC epoch seconds.
+
+    Numeric magnitudes above ``1e16`` are treated as nanoseconds and above
+    ``1e12`` as milliseconds. Returns an empty float array when conversion
+    fails.
+    """
+    import numpy as np
+    import pandas as pd
+
+    try:
+        series = values if isinstance(values, pd.Series) else pd.Series(values)
+    except Exception:
+        return np.asarray([], dtype=float)
+    if pd.api.types.is_datetime64_any_dtype(series) or isinstance(
+        getattr(series, "dtype", None), pd.DatetimeTZDtype
+    ):
+        try:
+            dt = pd.to_datetime(series, utc=True, errors="coerce")
+            ns = dt.astype("int64", copy=False).to_numpy(dtype=float)
+            seconds = ns / 1e9
+            valid = dt.notna().to_numpy()
+            return np.asarray(np.where(valid, seconds, np.nan), dtype=float)
+        except Exception:
+            return np.asarray([], dtype=float)
+    try:
+        times = pd.to_numeric(series, errors="coerce").to_numpy(dtype=float)
+    except (TypeError, ValueError):
+        try:
+            dt = pd.to_datetime(series, utc=True, errors="coerce")
+            ns = dt.astype("int64", copy=False).to_numpy(dtype=float)
+            return np.asarray(ns / 1e9, dtype=float)
+        except Exception:
+            return np.asarray([], dtype=float)
+    finite = times[np.isfinite(times)]
+    if finite.size == 0:
+        return times
+    typical = float(np.nanmedian(np.abs(finite)))
+    if typical > 1e16:
+        times = times / 1e9
+    elif typical > 1e12:
+        times = times / 1e3
+    return times
+
+
 def timezone_label(tz: Any, default: str = "UTC") -> str:
     if tz is None:
         return default

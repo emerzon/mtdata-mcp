@@ -11,7 +11,7 @@ from mtdata.utils.patterns import (
     PatternIndex,
     _apply_metric_vector,
     _apply_scale_vector,
-    _minmax_scale_row,
+    _coerce_time_epoch,
     _SeriesStore,
 )
 
@@ -112,74 +112,6 @@ def _build_test_index(
 
 
 # ===================================================================
-# _minmax_scale_row tests
-# ===================================================================
-
-class TestMinmaxScaleRow:
-    def test_basic_scaling(self):
-        row = np.array([2.0, 4.0, 6.0, 8.0, 10.0])
-        result = _minmax_scale_row(row)
-        assert result.dtype == np.float32
-        assert float(np.min(result)) == pytest.approx(0.0)
-        assert float(np.max(result)) == pytest.approx(1.0)
-
-    def test_linear_values(self):
-        row = np.array([0.0, 5.0, 10.0])
-        result = _minmax_scale_row(row)
-        np.testing.assert_allclose(result, [0.0, 0.5, 1.0], atol=1e-6)
-
-    def test_empty_array(self):
-        result = _minmax_scale_row(np.array([]))
-        assert result.size == 0
-
-    def test_constant_array(self):
-        result = _minmax_scale_row(np.array([5.0, 5.0, 5.0]))
-        np.testing.assert_array_equal(result, [0.0, 0.0, 0.0])
-
-    def test_single_element(self):
-        result = _minmax_scale_row(np.array([42.0]))
-        assert result.shape == (1,)
-        assert float(result[0]) == 0.0
-
-    def test_negative_values(self):
-        row = np.array([-10.0, -5.0, 0.0, 5.0, 10.0])
-        result = _minmax_scale_row(row)
-        assert float(result[0]) == pytest.approx(0.0)
-        assert float(result[-1]) == pytest.approx(1.0)
-
-    def test_nan_in_input(self):
-        row = np.array([1.0, np.nan, 3.0])
-        result = _minmax_scale_row(row)
-        assert result.shape == (3,)
-        # nanmin/nanmax ignore NaN so scaling should still work
-        assert float(result[0]) == pytest.approx(0.0)
-        assert float(result[2]) == pytest.approx(1.0)
-
-    def test_inf_in_input(self):
-        row = np.array([1.0, np.inf, 3.0])
-        result = _minmax_scale_row(row)
-        # inf range -> returns zeros
-        np.testing.assert_array_equal(result, [0.0, 0.0, 0.0])
-
-    def test_large_array(self):
-        row = RS.randn(1000)
-        result = _minmax_scale_row(row)
-        assert result.shape == (1000,)
-        assert float(np.nanmin(result)) == pytest.approx(0.0, abs=1e-6)
-        assert float(np.nanmax(result)) == pytest.approx(1.0, abs=1e-6)
-
-    def test_list_input(self):
-        result = _minmax_scale_row([1, 2, 3])
-        assert isinstance(result, np.ndarray)
-        np.testing.assert_allclose(result, [0.0, 0.5, 1.0], atol=1e-6)
-
-    def test_preserves_order(self):
-        row = np.array([10.0, 5.0, 20.0, 1.0])
-        result = _minmax_scale_row(row)
-        assert result[2] > result[0] > result[1] > result[3]
-
-
-# ===================================================================
 # _apply_scale_vector tests
 # ===================================================================
 
@@ -205,6 +137,10 @@ class TestApplyScaleVector:
     def test_minmax_constant(self):
         result = _apply_scale_vector(np.array([7.0, 7.0, 7.0]), "minmax")
         np.testing.assert_array_equal(result, [0.0, 0.0, 0.0])
+
+    def test_minmax_empty_array(self):
+        result = _apply_scale_vector(np.array([]), "minmax")
+        assert result.size == 0
 
     def test_zscore_constant(self):
         result = _apply_scale_vector(np.array([3.0, 3.0, 3.0]), "zscore")
@@ -633,29 +569,6 @@ class TestScaledWindow:
 
 
 # ===================================================================
-# PatternIndex count helpers
-# ===================================================================
-
-class TestCountHelpers:
-    def test_bars_per_symbol(self):
-        pi = _build_test_index()
-        bps = pi.bars_per_symbol()
-        assert bps["EURUSD"] == 200
-        assert bps["GBPUSD"] == 180
-
-    def test_windows_per_symbol(self):
-        pi = _build_test_index(window_size=20, future_size=5)
-        wps = pi.windows_per_symbol()
-        assert wps["EURUSD"] == 200 - (20 + 5) + 1
-        assert wps["GBPUSD"] == 180 - (20 + 5) + 1
-
-    def test_windows_per_symbol_zero_future(self):
-        pi = _build_test_index(window_size=20, future_size=0)
-        wps = pi.windows_per_symbol()
-        assert wps["EURUSD"] == 200 - 20 + 1
-
-
-# ===================================================================
 # PatternIndex data access
 # ===================================================================
 
@@ -670,33 +583,6 @@ class TestDataAccess:
 
     def test_get_symbol_series_missing(self):
         assert self.pi.get_symbol_series("XYZABC") is None
-
-    def test_get_symbol_returns(self):
-        ret = self.pi.get_symbol_returns("EURUSD")
-        assert ret is not None
-        assert ret.dtype == np.float32
-        assert len(ret) == 199  # diff reduces length by 1
-
-    def test_get_symbol_returns_missing(self):
-        assert self.pi.get_symbol_returns("XYZABC") is None
-
-    def test_get_symbol_returns_lookback(self):
-        ret = self.pi.get_symbol_returns("EURUSD", lookback=50)
-        assert ret is not None
-        assert len(ret) == 50
-
-    def test_get_symbol_returns_short_series(self):
-        short = {"SYM": np.array([100.0, 101.0])}
-        pi = _build_test_index(symbols=short, window_size=2, future_size=0)
-        assert pi.get_symbol_returns("SYM") is None
-
-    def test_get_symbol_returns_negative_prices(self):
-        # Log of negative -> NaN -> filtered out, possibly None
-        neg = {"SYM": np.array([-1.0, -2.0, -3.0, -4.0, -5.0, -6.0, -7.0, -8.0, -9.0, -10.0])}
-        pi = _build_test_index(symbols=neg, window_size=3, future_size=0, scale="none")
-        ret = pi.get_symbol_returns("SYM")
-        # All log-returns are nan from negative prices
-        assert ret is None
 
 
 # ===================================================================
@@ -723,3 +609,32 @@ class TestPatternIndexInit:
     def test_x_dimension(self):
         pi = _build_test_index(window_size=15)
         assert pi.X.shape[1] == 15
+
+
+class TestCoerceTimeEpoch:
+    def test_seconds_passthrough(self):
+        seconds = np.array([1_700_000_000.0, 1_700_003_600.0])
+        result = _coerce_time_epoch(seconds)
+        np.testing.assert_allclose(result, seconds)
+
+    def test_milliseconds_rescale(self):
+        millis = np.array([1_700_000_000_000.0, 1_700_003_600_000.0])
+        result = _coerce_time_epoch(millis)
+        np.testing.assert_allclose(result, millis / 1e3)
+
+    def test_nanoseconds_rescale(self):
+        nanos = np.array([1_700_000_000_000_000_000.0, 1_700_003_600_000_000_000.0])
+        result = _coerce_time_epoch(nanos)
+        np.testing.assert_allclose(result, nanos / 1e9)
+
+    def test_timezone_aware_datetime(self):
+        import pandas as pd
+
+        times = pd.date_range("2024-01-01", periods=3, freq="h", tz="UTC")
+        result = _coerce_time_epoch(times)
+        assert result[0] == pytest.approx(times[0].timestamp(), abs=1.0)
+        assert float(np.nanmax(result)) < 1e12
+
+    def test_mixed_invalid_raises(self):
+        with pytest.raises(ValueError, match="numeric or datetime-convertible"):
+            _coerce_time_epoch(["not-a-time", "also-bad"])

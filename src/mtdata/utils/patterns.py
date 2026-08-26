@@ -49,19 +49,6 @@ def _get_ts_soft_dtw():
     return _ts_soft_dtw
 
 
-def _minmax_scale_row(x: np.ndarray) -> np.ndarray:
-    x = np.asarray(x, dtype=float)
-    if x.size == 0:
-        return x
-    mn = np.nanmin(x)
-    mx = np.nanmax(x)
-    rng = float(mx - mn)
-    if not np.isfinite(rng) or rng <= 1e-12:
-        return np.zeros_like(x, dtype=np.float32)
-    y = (x - mn) / rng
-    return y.astype(np.float32, copy=False)
-
-
 def _mass_distance_profile(query: np.ndarray, series: np.ndarray, *, eps: float = 1e-12) -> np.ndarray:
     """Compute z-normalized sliding distances using stumpy MASS.
 
@@ -388,40 +375,11 @@ class PatternIndex:
         new_scores = np.array([s for s, _ in scores[:take]], dtype=float)
         return new_idxs, new_scores
 
-    def bars_per_symbol(self) -> Dict[str, int]:
-        out: Dict[str, int] = {}
-        for ser in self._series:
-            out[ser.symbol] = int(len(ser.close))
-        return out
-
-    def windows_per_symbol(self) -> Dict[str, int]:
-        out: Dict[str, int] = {}
-        for ser in self._series:
-            n = int(len(ser.close))
-            w = max(0, n - (self.window_size + self.future_size) + 1)
-            out[ser.symbol] = w
-        return out
-
     def get_symbol_series(self, symbol: str) -> Optional[np.ndarray]:
         for ser in self._series:
             if ser.symbol == symbol:
                 return ser.close
         return None
-
-    def get_symbol_returns(self, symbol: str, lookback: int = 1000) -> Optional[np.ndarray]:
-        arr = self.get_symbol_series(symbol)
-        if arr is None or len(arr) < 3:
-            return None
-        # Simple log returns to stabilize scale
-        x = np.asarray(arr, dtype=float)
-        with np.errstate(divide='ignore', invalid='ignore'):
-            ret = np.diff(np.log(x))
-        ret = ret[np.isfinite(ret)]
-        if ret.size <= 0:
-            return None
-        if lookback and lookback > 0 and ret.size > lookback:
-            ret = ret[-int(lookback):]
-        return ret.astype(np.float32, copy=False)
 
 
 def _fetch_symbol_df(
@@ -461,14 +419,22 @@ def _fetch_symbol_df(
 
 
 def _coerce_time_epoch(values: Any) -> np.ndarray:
+    from .time import coerce_time_epoch_seconds
+
     ser = pd.Series(values)
     numeric = pd.to_numeric(ser, errors='coerce')
-    if numeric.notna().all():
-        return numeric.to_numpy(dtype=float)
-    dt = pd.to_datetime(ser, utc=True, errors='coerce')
-    if dt.isna().any():
-        raise ValueError("history DataFrame must provide numeric or datetime-convertible 'time' values")
-    return (dt.astype('int64') / 1_000_000_000.0).to_numpy(dtype=float)
+    if not numeric.notna().all():
+        dt = pd.to_datetime(ser, utc=True, errors='coerce')
+        if dt.isna().any():
+            raise ValueError(
+                "history DataFrame must provide numeric or datetime-convertible 'time' values"
+            )
+    times = np.asarray(coerce_time_epoch_seconds(values), dtype=float)
+    if times.size == 0:
+        raise ValueError(
+            "history DataFrame must provide numeric or datetime-convertible 'time' values"
+        )
+    return times
 
 
 def _denoise_method_available(method: str) -> Tuple[bool, str]:
@@ -750,6 +716,8 @@ def build_index(
 def _apply_scale_vector(x: np.ndarray, scale: str) -> np.ndarray:
     s = (scale or "minmax").lower()
     x = np.asarray(x, dtype=float)
+    if x.size == 0:
+        return x.astype(np.float32, copy=False)
     if s == "zscore":
         mu = float(np.nanmean(x))
         sd = float(np.nanstd(x))
