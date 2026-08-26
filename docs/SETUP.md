@@ -134,7 +134,6 @@ Feature notes:
 - Bayesian hyperparameter optimization: `optuna`
 - Neural network forecasters (`nhits`, `tft`, `patchtst`, `nbeatsx`): manual/nonstandard setup only; not included in `requirements.txt` or a package extra (blocked on Windows 3.14 by missing `ray` wheels)
 - TA-Lib: optional `pandas-ta` oracle backend. Indicators work without it; install `TA-Lib` if you want the C implementations
-- Matplotlib: only for `scripts/backtest_plot.py` (`pip install matplotlib`)
 
 ### 5. HNSW Source-Build Path for Lean Installs
 

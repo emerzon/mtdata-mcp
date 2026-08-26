@@ -16,7 +16,7 @@ unresolvable or where a dependent framework has not migrated yet.
 |------|----------|-------------|--------------|
 | MCP SDK | 1.28.1 | 1.29.0 (`<2`) | Server and Web API import smoke; MCP 2 dropped `mcp.server.fastmcp` |
 | Unused direct pins | Prefect FastMCP, PyYAML, h5py | Removed | No remaining imports; Prefect FastMCP is distinct from MCP SDK FastMCP |
-| Over-declared pins | matplotlib, TA-Lib, torchvision, extra hmmlearn | Demoted | matplotlib is script-only; TA-Lib is pandas-ta's optional oracle; torchvision unused; hmmlearn already core |
+| Over-declared pins | matplotlib, TA-Lib, torchvision, extra hmmlearn | Demoted | matplotlib unused; TA-Lib is pandas-ta's optional oracle; torchvision unused; hmmlearn already core |
 | Patch floors | dotenv 1.2.2, holidays 0.102, SciPy 1.18.0, Uvicorn 0.52.1, Transformers 5.15.0, Hub 1.27, numba 0.66 | 1.2.3 / 0.103 / 1.18.1 / 0.52.4 / 5.15.1 / 1.28 / 0.67 | PyPI latest within existing upper bounds; numba 0.67 has a Windows cp314 wheel |
 | StatsForecast | 1.7.6 | 2.1.1 | Windows cp314 wheel resolution plus a real `Naive` forecast |
 | sktime | 1.0.1 | 1.1.0 | Resolver check plus a real `NaiveForecaster` forecast |
