@@ -11,12 +11,13 @@ import json
 import os
 import re
 import sys
-import tempfile
 import time
 from functools import lru_cache
 from importlib import metadata
 from pathlib import Path
 from typing import Sequence
+
+from mtdata.utils.atomic_io import atomic_write_text
 
 CATALOG_CACHE_SCHEMA_VERSION = 1
 CACHEABLE_CATALOG_COMMANDS = frozenset(
@@ -157,28 +158,13 @@ def store_catalog_output(
         "created_at_epoch": time.time(),
         "output": _cached_source_output(output),
     }
-    temporary_path: Path | None = None
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        handle, temporary_name = tempfile.mkstemp(
-            prefix=f".{path.stem}-",
-            suffix=".tmp",
-            dir=str(path.parent),
-            text=True,
+        atomic_write_text(
+            path,
+            json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
         )
-        temporary_path = Path(temporary_name)
-        with os.fdopen(handle, "w", encoding="utf-8", newline="") as stream:
-            json.dump(payload, stream, ensure_ascii=False, separators=(",", ":"))
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary_path, path)
         return True
-    except OSError, TypeError, ValueError:
-        if temporary_path is not None:
-            try:
-                temporary_path.unlink(missing_ok=True)
-            except OSError:
-                pass
+    except (OSError, TypeError, ValueError):
         return False
 
 

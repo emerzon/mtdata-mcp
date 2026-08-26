@@ -38,13 +38,11 @@ Usage::
 
 from __future__ import annotations
 
-import errno
 import hashlib
 import json
 import logging
 import os
 import shutil
-import tempfile
 import threading
 import time
 from contextlib import contextmanager
@@ -52,6 +50,8 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 from urllib.parse import quote
 
+from ..bootstrap.env import get_float_env
+from ..utils.atomic_io import atomic_write_bytes, atomic_write_text
 from .interface import TrainedModelHandle
 
 logger = logging.getLogger(__name__)
@@ -75,10 +75,7 @@ def _env_root() -> str:
 
 
 def _env_ttl_seconds() -> float:
-    try:
-        days = float(os.environ.get("MTDATA_MODEL_TTL_DAYS", _DEFAULT_TTL_DAYS))
-    except (TypeError, ValueError):
-        days = _DEFAULT_TTL_DAYS
+    days = get_float_env("MTDATA_MODEL_TTL_DAYS", _DEFAULT_TTL_DAYS)
     return max(0.0, days * 86400.0)
 
 
@@ -746,57 +743,14 @@ class ModelStore:
             os.close(fd)
 
     @staticmethod
-    def _replace_with_retry(tmp_path: str, target: Path, *, attempts: int = 16) -> None:
-        """``os.replace`` with brief retries for Windows file-lock races."""
-        last_exc: Optional[OSError] = None
-        max_attempts = max(1, int(attempts))
-        for attempt in range(max_attempts):
-            try:
-                os.replace(tmp_path, str(target))
-                return
-            except PermissionError as exc:
-                # Antivirus / concurrent handle release can briefly deny replace on Windows.
-                last_exc = exc
-            except OSError as exc:
-                # Only retry transient sharing/permission failures.
-                if getattr(exc, "winerror", None) not in {5, 32} and exc.errno not in {
-                    getattr(errno, "EACCES", 13),
-                    getattr(errno, "EPERM", 1),
-                }:
-                    raise
-                last_exc = exc
-            if attempt + 1 >= max_attempts:
-                break
-            # Exponential-ish backoff capped at 50ms; total wait stays under ~0.5s.
-            time.sleep(min(0.05, 0.005 * (2 ** attempt)))
-        if last_exc is not None:
-            raise last_exc
-        raise PermissionError(f"Failed to replace {target}")
-
-    @staticmethod
     def _atomic_write_bytes(target: Path, data: bytes) -> None:
         """Write *data* atomically via temp file + ``os.replace``."""
-        fd, tmp_path = tempfile.mkstemp(
-            dir=str(target.parent), suffix=".tmp",
-        )
-        try:
-            os.write(fd, data)
-            os.close(fd)
-            fd = -1
-            ModelStore._replace_with_retry(tmp_path, target)
-        except BaseException:
-            if fd >= 0:
-                os.close(fd)
-            try:
-                os.unlink(tmp_path)
-            except OSError:
-                pass
-            raise
+        atomic_write_bytes(target, data)
 
     @staticmethod
     def _atomic_write_text(target: Path, text: str) -> None:
         """Write *text* atomically via temp file + ``os.replace``."""
-        ModelStore._atomic_write_bytes(target, text.encode("utf-8"))
+        atomic_write_text(target, text)
 
     def _remove_dir(self, path: Path) -> bool:
         try:

@@ -5,7 +5,6 @@ import inspect
 import json
 import os
 import sys
-import tempfile
 import warnings
 from functools import lru_cache
 from importlib import metadata
@@ -13,6 +12,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from mtdata.forecast.forecast_registry import ForecastRegistry
+from mtdata.utils.atomic_io import atomic_write_text
 
 _SKTIME_INDEX_SCHEMA_VERSION = 1
 
@@ -77,36 +77,21 @@ def _store_sktime_forecaster_index(mapping: Dict[str, Tuple[str, str]]) -> None:
     path = _sktime_forecaster_index_path()
     if path is None or not mapping:
         return
-    temporary_path: Optional[Path] = None
     try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        handle, temporary_name = tempfile.mkstemp(
-            prefix=f".{path.stem}-",
-            suffix=".tmp",
-            dir=str(path.parent),
-            text=True,
-        )
-        temporary_path = Path(temporary_name)
-        with os.fdopen(handle, "w", encoding="utf-8", newline="") as stream:
-            json.dump(
+        atomic_write_text(
+            path,
+            json.dumps(
                 {
                     "schema_version": _SKTIME_INDEX_SCHEMA_VERSION,
                     "forecasters": mapping,
                 },
-                stream,
                 ensure_ascii=True,
                 separators=(",", ":"),
                 sort_keys=True,
-            )
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary_path, path)
+            ),
+        )
     except (OSError, TypeError, ValueError):
-        if temporary_path is not None:
-            try:
-                temporary_path.unlink(missing_ok=True)
-            except OSError:
-                pass
+        return
 
 
 def _registered_sktime_forecasters() -> Dict[str, Tuple[str, str]]:
