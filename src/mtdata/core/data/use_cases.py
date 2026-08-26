@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import base64
-import json
 import logging
 import time
 from datetime import datetime, timedelta, timezone
@@ -30,6 +28,10 @@ from ...utils.quote import (
 from ...utils.symbol import (
     find_live_extended_session_symbols,
     symbol_suggestions_from_gateway,
+)
+from ...utils.continuation import (
+    decode_continuation_cursor,
+    encode_continuation_cursor,
 )
 from ...utils.time import bar_close_epoch, format_datetime_utc
 from ...utils.utils import (
@@ -1203,21 +1205,19 @@ def _encode_candle_cursor(
         "resume_start": resume_start,
         "offset": int(offset),
     }
-    raw = json.dumps(cursor_payload, separators=(",", ":"), sort_keys=True).encode()
-    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+    return encode_continuation_cursor(cursor_payload)
 
 
 def _decode_candle_cursor(
     cursor: str,
     request: DataFetchCandlesRequest,
 ) -> tuple[str, int]:
-    try:
-        padding = "=" * (-len(cursor) % 4)
-        decoded = json.loads(base64.urlsafe_b64decode(cursor + padding).decode())
-    except Exception as exc:
-        raise ValueError("cursor is not a valid candle continuation token") from exc
-    if not isinstance(decoded, dict) or decoded.get("v") != 1:
-        raise ValueError("cursor uses an unsupported candle continuation version")
+    decoded = decode_continuation_cursor(
+        cursor,
+        invalid_message="cursor is not a valid candle continuation token",
+        unsupported_version_message="cursor uses an unsupported candle continuation version",
+        expected_versions=1,
+    )
     for key, expected in (
         ("symbol", request.symbol),
         ("timeframe", request.timeframe),
@@ -2077,21 +2077,19 @@ def _encode_tick_cursor(
         "selection": selection,
         "offset": int(offset),
     }
-    raw = json.dumps(cursor_payload, separators=(",", ":"), sort_keys=True).encode()
-    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+    return encode_continuation_cursor(cursor_payload)
 
 
 def _decode_tick_cursor(
     cursor: str,
     request: DataFetchTicksRequest,
 ) -> tuple[str, int, Optional[str], Optional[str]]:
-    try:
-        padding = "=" * (-len(cursor) % 4)
-        decoded = json.loads(base64.urlsafe_b64decode(cursor + padding).decode())
-    except Exception as exc:
-        raise ValueError("cursor is not a valid tick continuation token") from exc
-    if not isinstance(decoded, dict) or decoded.get("v") not in {1, 2}:
-        raise ValueError("cursor uses an unsupported tick continuation version")
+    decoded = decode_continuation_cursor(
+        cursor,
+        invalid_message="cursor is not a valid tick continuation token",
+        unsupported_version_message="cursor uses an unsupported tick continuation version",
+        expected_versions={1, 2},
+    )
     for key, expected in (
         ("symbol", request.symbol),
         ("start", request.start),

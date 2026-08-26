@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import base64
-import json
 import math
 import time
 from datetime import datetime, timezone
@@ -17,6 +15,11 @@ from mtdata.core.trading.use_cases.common import (
     _epoch_series_to_utc_and_text,
     _trade_rows_to_dataframe,
     logger,
+)
+from mtdata.utils.continuation import (
+    check_cursor_issued_at,
+    decode_continuation_cursor,
+    encode_continuation_cursor,
 )
 from mtdata.utils.mt5 import MT5ConnectionError, _ensure_symbol_ready
 from mtdata.utils.time import _format_datetime_second_explicit
@@ -131,8 +134,7 @@ def _encode_trade_query_cursor(
         "last_ticket": str(int(last_ticket)),
         "issued_at": int(time.time() if issued_at is None else issued_at),
     }
-    raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
-    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+    return encode_continuation_cursor(payload)
 
 
 def _decode_trade_query_cursor(
@@ -141,13 +143,12 @@ def _decode_trade_query_cursor(
     *,
     snapshot: str,
 ) -> Dict[str, Any]:
-    try:
-        padding = "=" * (-len(cursor) % 4)
-        payload = json.loads(base64.urlsafe_b64decode(cursor + padding).decode())
-    except Exception as exc:
-        raise ValueError("cursor is not a valid trade-query continuation token") from exc
-    if not isinstance(payload, dict) or payload.get("v") != 1:
-        raise ValueError("cursor uses an unsupported trade-query continuation version")
+    payload = decode_continuation_cursor(
+        cursor,
+        invalid_message="cursor is not a valid trade-query continuation token",
+        unsupported_version_message="cursor uses an unsupported trade-query continuation version",
+        expected_versions=1,
+    )
     if payload.get("scope") != _trade_query_cursor_scope(request, snapshot=snapshot):
         raise ValueError("cursor does not match the requested filters")
     try:
@@ -158,11 +159,13 @@ def _decode_trade_query_cursor(
         raise ValueError("cursor contains invalid trade-query continuation state") from exc
     if not math.isfinite(last_milliseconds):
         raise ValueError("cursor contains invalid trade-query keyset state")
-    age_seconds = time.time() - issued_at
-    if age_seconds < -300 or age_seconds > _TRADE_QUERY_CURSOR_MAX_AGE_SECONDS:
-        raise TimeoutError(
+    check_cursor_issued_at(
+        issued_at,
+        max_age_seconds=_TRADE_QUERY_CURSOR_MAX_AGE_SECONDS,
+        expired_message=(
             "trade-query cursor expired; start a new query to create a fresh snapshot"
-        )
+        ),
+    )
     return {
         "last_milliseconds": last_milliseconds,
         "last_ticket": last_ticket,

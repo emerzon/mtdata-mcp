@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import base64
-import json
 import math
 import re
 import time
@@ -23,6 +21,11 @@ from mtdata.core.trading.use_cases.common import (
     _trade_rows_to_dataframe,
     _validate_trading_symbol,
     logger,
+)
+from mtdata.utils.continuation import (
+    check_cursor_issued_at,
+    decode_continuation_cursor,
+    encode_continuation_cursor,
 )
 from mtdata.utils.mt5 import MT5ConnectionError
 from mtdata.utils.time import _format_datetime_second_explicit
@@ -147,21 +150,19 @@ def _encode_trade_history_cursor(
         "position": int(position),
         "issued_at": int(time.time() if issued_at is None else issued_at),
     }
-    raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
-    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+    return encode_continuation_cursor(payload)
 
 
 def _decode_trade_history_cursor(
     cursor: str,
     request: TradeHistoryRequest,
 ) -> Dict[str, Any]:
-    try:
-        padding = "=" * (-len(cursor) % 4)
-        payload = json.loads(base64.urlsafe_b64decode(cursor + padding).decode())
-    except Exception as exc:
-        raise ValueError("cursor is not a valid trade-history continuation token") from exc
-    if not isinstance(payload, dict) or payload.get("v") != 1:
-        raise ValueError("cursor uses an unsupported trade-history continuation version")
+    payload = decode_continuation_cursor(
+        cursor,
+        invalid_message="cursor is not a valid trade-history continuation token",
+        unsupported_version_message="cursor uses an unsupported trade-history continuation version",
+        expected_versions=1,
+    )
     if payload.get("scope") != _trade_history_cursor_scope(request):
         raise ValueError(
             "cursor does not match the requested history kind, filters, time controls, or order"
@@ -177,11 +178,13 @@ def _decode_trade_history_cursor(
         raise ValueError("cursor contains invalid trade-history continuation state") from exc
     if position < 1 or not math.isfinite(last_milliseconds):
         raise ValueError("cursor contains invalid trade-history keyset state")
-    age_seconds = time.time() - issued_at
-    if age_seconds < -300 or age_seconds > _TRADE_HISTORY_CURSOR_MAX_AGE_SECONDS:
-        raise TimeoutError(
+    check_cursor_issued_at(
+        issued_at,
+        max_age_seconds=_TRADE_HISTORY_CURSOR_MAX_AGE_SECONDS,
+        expired_message=(
             "trade-history cursor expired; start a new query to create a fresh snapshot"
-        )
+        ),
+    )
     return {
         "from_dt": from_dt,
         "to_dt": to_dt,
