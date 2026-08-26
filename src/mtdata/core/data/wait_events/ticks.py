@@ -891,33 +891,8 @@ def _coerce_rows(rows: Any) -> List[Any]:
     except Exception:
         return []
 
-def _row_value(row: Any, key: str) -> Any:
-    if isinstance(row, dict):
-        return row.get(key)
-    if hasattr(row, "_asdict"):
-        try:
-            return row._asdict().get(key)
-        except Exception:
-            pass
-    dtype_names = getattr(getattr(row, "dtype", None), "names", None)
-    if dtype_names and key in dtype_names:
-        try:
-            value = row[key]
-            return value.item() if hasattr(value, "item") else value
-        except Exception:
-            return None
-    if hasattr(row, key):
-        return getattr(row, key)
-    return None
-
-def _row_int(row: Any, key: str) -> Optional[int]:
-    value = _row_value(row, key)
-    if value is None:
-        return None
-    try:
-        return int(value)
-    except Exception:
-        return None
+_row_value = _tick_value
+_row_int = _tick_int
 
 def _row_float(row: Any, key: str) -> Optional[float]:
     return _finite_number(_row_value(row, key))
