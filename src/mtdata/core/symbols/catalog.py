@@ -43,6 +43,7 @@ from ...utils.quote import (
 from ...utils.symbol import _extract_group_path as _extract_group_path_util
 from ...utils.symbol import (
     _normalize_group_path_query,
+    symbol_suggestions_from_gateway,
 )
 from ...utils.time import (
     _format_time_second_explicit,
@@ -73,7 +74,6 @@ from .classify import (
     _case_insensitive_sort_key,
     _clean_broker_text,
     _currency_filter_basis_summary,
-    _find_symbol_suggestions,
     _invalid_symbol_category_error,
     _match_symbols_for_search,
     _normalize_symbol_category_filter,
@@ -1086,7 +1086,7 @@ def symbols_describe(  # noqa: C901
             _ensure_symbol_ready(resolved_symbol)
             symbol_info = mt5_gateway.symbol_info(resolved_symbol)
             if symbol_info is None:
-                suggestions = _find_symbol_suggestions(mt5_gateway, symbol)
+                suggestions = symbol_suggestions_from_gateway(mt5_gateway, symbol)
                 details: Dict[str, Any] = {
                     "symbol": symbol,
                     "search_hint": f"Use symbols_list(search_term='{symbol}') to browse matching broker symbols.",

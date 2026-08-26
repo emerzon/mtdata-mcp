@@ -15,7 +15,6 @@ from ...utils.symbol import _extract_group_path as _extract_group_path_util
 from ...utils.symbol import (
     _normalize_group_path_query,
     symbol_shorthand_rank,
-    symbol_suggestions_from_gateway,
 )
 from ..error_envelope import build_error_payload
 
@@ -654,15 +653,3 @@ def _symbol_suggestion_from_info(symbol_info: Any) -> Dict[str, Any]:
     if session_type is not None:
         suggestion["session_type"] = session_type
     return {key: value for key, value in suggestion.items() if value not in (None, "")}
-
-def _find_symbol_suggestions(
-    mt5_gateway: Any,
-    query: str,
-    *,
-    limit: int = 5,
-) -> List[Dict[str, Any]]:
-    return symbol_suggestions_from_gateway(
-        mt5_gateway,
-        query,
-        limit=limit,
-    )

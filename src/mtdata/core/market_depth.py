@@ -306,15 +306,6 @@ def _market_ticker_error(
     return payload
 
 
-def _market_ticker_symbol_suggestions(
-    mt5_gateway: Any,
-    query: str,
-    *,
-    limit: int = 5,
-) -> list[Dict[str, str]]:
-    return symbol_suggestions_from_gateway(mt5_gateway, query, limit=limit)
-
-
 def _market_ticker_live_symbol_recovery(
     mt5_gateway: Any,
     symbol: str,
@@ -754,7 +745,7 @@ def market_ticker(  # noqa: C901
                 else None
             )
             if not mt5_gateway.symbol_select(resolved_symbol, True):
-                suggestions = _market_ticker_symbol_suggestions(mt5_gateway, symbol)
+                suggestions = symbol_suggestions_from_gateway(mt5_gateway, symbol)
                 return _finalize(
                     _market_ticker_error(
                         _describe_symbol_select_error(
@@ -774,7 +765,7 @@ def market_ticker(  # noqa: C901
 
             symbol_info = mt5_gateway.symbol_info(resolved_symbol)
             if symbol_info is None:
-                suggestions = _market_ticker_symbol_suggestions(mt5_gateway, symbol)
+                suggestions = symbol_suggestions_from_gateway(mt5_gateway, symbol)
                 return _finalize(
                     _market_ticker_error(
                         f"Symbol {resolved_symbol} not found",
