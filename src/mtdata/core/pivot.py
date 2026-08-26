@@ -79,6 +79,17 @@ from .volume_profile import compute_volume_profile_payload
 logger = logging.getLogger(__name__)
 
 
+def _has_field(row: Any, name: str) -> bool:
+    try:
+        if isinstance(row, dict):
+            return name in row
+        dtype = getattr(row, "dtype", None)
+        names = getattr(dtype, "names", None) if dtype is not None else None
+        return bool(names and name in names)
+    except Exception:
+        return False
+
+
 _LEVEL_PRICE_FIELD_NAMES = frozenset(
     {
         "value",
@@ -478,16 +489,6 @@ def pivot_compute_points(  # noqa: C901
             if src is None:
                 return {"error": "No completed bars available to compute pivot points"}
 
-            def _has_field(row, name: str) -> bool:
-                try:
-                    if isinstance(row, dict):
-                        return name in row
-                    dt = getattr(row, 'dtype', None)
-                    names = getattr(dt, 'names', None) if dt is not None else None
-                    return bool(names and name in names)
-                except Exception:
-                    return False
-
             H = float(src["high"]) if _has_field(src, "high") else float("nan")
             L = float(src["low"]) if _has_field(src, "low") else float("nan")
             C = float(src["close"]) if _has_field(src, "close") else float("nan")
@@ -860,16 +861,6 @@ def confluence_levels(  # noqa: C901
             historical_cutoff = _parse_end_datetime(end) if end else None
             if end and historical_cutoff is None:
                 return {"error": "Invalid end time."}
-
-            def _has_field(row, name: str) -> bool:
-                try:
-                    if isinstance(row, dict):
-                        return name in row
-                    dt = getattr(row, "dtype", None)
-                    names = getattr(dt, "names", None) if dt is not None else None
-                    return bool(names and name in names)
-                except Exception:
-                    return False
 
             with _symbol_ready_guard(symbol) as (err, info_before):
                 if err:
