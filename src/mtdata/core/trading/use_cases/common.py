@@ -14,8 +14,7 @@ from mtdata.core.execution_logging import infer_result_success
 from mtdata.core.output_contract import resolve_output_contract
 from mtdata.core.trading import safety, validation
 from mtdata.core.trading.idempotency import (
-    IdempotencyStore,
-    SQLiteIdempotencyStore,
+    TradeIdempotencyStoreProtocol,
     create_default_idempotency_store,
 )
 from mtdata.core.trading.requests import TradePlaceRequest
@@ -23,7 +22,7 @@ from mtdata.utils.coercion import round_finite
 from mtdata.utils.mt5 import mt5_adapter
 
 logger = logging.getLogger("mtdata.core.trading.use_cases")
-TradeIdempotencyStore = IdempotencyStore | SQLiteIdempotencyStore
+TradeIdempotencyStore = TradeIdempotencyStoreProtocol
 _TRADE_IDEMPOTENCY_STORE = create_default_idempotency_store()
 
 

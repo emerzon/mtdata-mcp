@@ -1,7 +1,7 @@
 import threading
 from unittest.mock import MagicMock
 
-from mtdata.core.trading.idempotency import IdempotencyStore, SQLiteIdempotencyStore
+from mtdata.core.trading.idempotency import SQLiteIdempotencyStore
 from mtdata.core.trading.requests import (
     TradeCloseRequest,
     TradeModifyRequest,
@@ -14,8 +14,12 @@ from mtdata.core.trading.use_cases import (
 )
 
 
-def test_run_trade_place_idempotency_does_not_sticky_cache_connection_errors():
-    store = IdempotencyStore()
+def _store(tmp_path) -> SQLiteIdempotencyStore:
+    return SQLiteIdempotencyStore(tmp_path / "idempotency.sqlite3")
+
+
+def test_run_trade_place_idempotency_does_not_sticky_cache_connection_errors(tmp_path):
+    store = _store(tmp_path)
     request = TradePlaceRequest(
         symbol="EURUSD",
         volume=0.1,
@@ -60,8 +64,8 @@ def test_run_trade_place_idempotency_does_not_sticky_cache_connection_errors():
     assert place_market_order.call_count == 2
 
 
-def test_run_trade_place_replays_duplicate_result_without_resending():
-    store = IdempotencyStore()
+def test_run_trade_place_replays_duplicate_result_without_resending(tmp_path):
+    store = _store(tmp_path)
     place_market_order = MagicMock(return_value={"success": True, "order_id": 7})
     request = TradePlaceRequest(
         symbol="EURUSD",
@@ -108,8 +112,8 @@ def test_run_trade_place_replays_duplicate_result_without_resending():
             "risk limits to enable pre-trade protection."
         ],
         "idempotency_key": "place-1",
-        "idempotency_scope": "process_memory",
-        "idempotency_durable": False,
+        "idempotency_scope": "sqlite",
+        "idempotency_durable": True,
     }
     assert second["duplicate"] is True
     assert second["success"] is True
@@ -156,8 +160,8 @@ def test_run_trade_place_replays_result_after_store_restart(tmp_path):
     place_market_order.assert_called_once()
 
 
-def test_run_trade_place_rejects_idempotency_key_reuse_for_different_payload():
-    store = IdempotencyStore()
+def test_run_trade_place_rejects_idempotency_key_reuse_for_different_payload(tmp_path):
+    store = _store(tmp_path)
     place_market_order = MagicMock(return_value={"success": True, "order_id": 7})
 
     first_request = TradePlaceRequest(
@@ -201,8 +205,8 @@ def test_run_trade_place_rejects_idempotency_key_reuse_for_different_payload():
     )
 
     assert first["order_id"] == 7
-    assert first["idempotency_scope"] == "process_memory"
-    assert first["idempotency_durable"] is False
+    assert first["idempotency_scope"] == "sqlite"
+    assert first["idempotency_durable"] is True
     assert "error" in second
     assert second["idempotency_conflict"] is True
     assert "different trade request" in second["error"]
@@ -252,8 +256,8 @@ def test_run_trade_place_dry_run_does_not_claim_durable_idempotency(tmp_path):
     kwargs["place_market_order"].assert_not_called()
 
 
-def test_run_trade_modify_replays_duplicate_result_without_resending():
-    store = IdempotencyStore()
+def test_run_trade_modify_replays_duplicate_result_without_resending(tmp_path):
+    store = _store(tmp_path)
     modify_position = MagicMock(return_value={"success": True, "ticket": 123})
     modify_pending_order = MagicMock()
     request = TradeModifyRequest(
@@ -291,8 +295,8 @@ def test_run_trade_modify_replays_duplicate_result_without_resending():
             "risk limits to enable pre-trade protection."
         ],
         "idempotency_key": "modify-1",
-        "idempotency_scope": "process_memory",
-        "idempotency_durable": False,
+        "idempotency_scope": "sqlite",
+        "idempotency_durable": True,
     }
     assert second["duplicate"] is True
     assert second["success"] is True
@@ -301,8 +305,8 @@ def test_run_trade_modify_replays_duplicate_result_without_resending():
     modify_pending_order.assert_not_called()
 
 
-def test_run_trade_modify_persists_ambiguous_broker_outcome() -> None:
-    store = IdempotencyStore()
+def test_run_trade_modify_persists_ambiguous_broker_outcome(tmp_path) -> None:
+    store = _store(tmp_path)
     modify_position = MagicMock(
         return_value={
             "error": "Position modification outcome is unknown",
@@ -334,8 +338,8 @@ def test_run_trade_modify_persists_ambiguous_broker_outcome() -> None:
     modify_position.assert_called_once()
 
 
-def test_run_trade_close_replays_success_without_resending() -> None:
-    store = IdempotencyStore()
+def test_run_trade_close_replays_success_without_resending(tmp_path) -> None:
+    store = _store(tmp_path)
     close_positions = MagicMock(
         return_value={"success": True, "ticket": 123, "deal": 456}
     )
@@ -359,8 +363,8 @@ def test_run_trade_close_replays_success_without_resending() -> None:
     close_positions.assert_called_once()
 
 
-def test_run_trade_close_persists_ambiguous_broker_outcome() -> None:
-    store = IdempotencyStore()
+def test_run_trade_close_persists_ambiguous_broker_outcome(tmp_path) -> None:
+    store = _store(tmp_path)
     close_positions = MagicMock(
         return_value={
             "ticket": 123,
@@ -389,8 +393,8 @@ def test_run_trade_close_persists_ambiguous_broker_outcome() -> None:
     close_positions.assert_called_once()
 
 
-def test_run_trade_close_releases_preflight_failure_for_retry() -> None:
-    store = IdempotencyStore()
+def test_run_trade_close_releases_preflight_failure_for_retry(tmp_path) -> None:
+    store = _store(tmp_path)
     close_positions = MagicMock(
         side_effect=[
             {"error": "Position 123 not found"},
@@ -419,8 +423,8 @@ def test_run_trade_close_releases_preflight_failure_for_retry() -> None:
     assert close_positions.call_count == 2
 
 
-def test_run_trade_place_replays_inflight_duplicate_after_first_request_finishes():
-    store = IdempotencyStore()
+def test_run_trade_place_suppresses_inflight_duplicate_while_first_request_runs(tmp_path):
+    store = _store(tmp_path)
     release_first_call = threading.Event()
     first_call_started = threading.Event()
     call_count = 0
@@ -465,19 +469,19 @@ def test_run_trade_place_replays_inflight_duplicate_after_first_request_finishes
     first_thread.start()
     assert first_call_started.wait(timeout=1.0)
     second_thread.start()
+    second_thread.join(timeout=1.0)
     release_first_call.set()
     first_thread.join(timeout=1.0)
-    second_thread.join(timeout=1.0)
 
     assert results[0]["order_id"] == 7
-    assert results[0]["idempotency_scope"] == "process_memory"
-    assert results[1]["duplicate"] is True
-    assert results[1]["original_outcome"] == results[0]
+    assert results[0]["idempotency_scope"] == "sqlite"
+    assert results[1]["error_code"] == "idempotency_request_in_progress"
+    assert results[1]["idempotency_in_progress"] is True
     assert call_count == 1
 
 
-def test_run_trade_place_rejects_inflight_key_reuse_for_different_payload():
-    store = IdempotencyStore()
+def test_run_trade_place_rejects_inflight_key_reuse_for_different_payload(tmp_path):
+    store = _store(tmp_path)
     release_first_call = threading.Event()
     first_call_started = threading.Event()
     call_count = 0
@@ -535,7 +539,7 @@ def test_run_trade_place_rejects_inflight_key_reuse_for_different_payload():
     first_thread.join(timeout=1.0)
 
     assert results[0]["order_id"] == 7
-    assert results[0]["idempotency_scope"] == "process_memory"
+    assert results[0]["idempotency_scope"] == "sqlite"
     assert "error" in results[1]
     assert results[1]["idempotency_conflict"] is True
     assert call_count == 1

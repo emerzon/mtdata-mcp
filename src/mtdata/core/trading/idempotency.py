@@ -5,35 +5,46 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-import threading
 import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, Iterator, Optional
+from typing import Any, Dict, Iterator, Optional, Protocol
 
 _DEFAULT_TTL_SECONDS = 86_400.0  # 24 hours
 _DEFAULT_DATABASE_PATH = Path.home() / ".mtdata" / "trade_idempotency.sqlite3"
 
 
-class _IdempotencyEntry:
-    __slots__ = ("key", "outcome", "request_signature", "created_at", "ready_event")
+class TradeIdempotencyStoreProtocol(Protocol):
+    """Reserve/record/release contract used by live trade use cases."""
 
-    def __init__(
+    scope: str
+    durable: bool
+
+    def reserve(
         self,
-        key: str,
-        outcome: Optional[Dict[str, Any]] = None,
-        request_signature: Optional[str] = None,
+        key: Optional[str],
         *,
-        ready: bool = True,
+        request_signature: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        ...
+
+    def record(
+        self,
+        key: Optional[str],
+        outcome: Dict[str, Any],
+        *,
+        request_signature: Optional[str] = None,
     ) -> None:
-        self.key = key
-        self.outcome = outcome
-        self.request_signature = request_signature
-        self.created_at = time.monotonic()
-        self.ready_event = threading.Event()
-        if ready:
-            self.ready_event.set()
+        ...
+
+    def release(
+        self,
+        key: Optional[str],
+        *,
+        request_signature: Optional[str] = None,
+    ) -> None:
+        ...
 
 
 def _build_duplicate_payload(
@@ -53,153 +64,6 @@ def _build_duplicate_payload(
     else:
         payload["original_outcome"] = original_outcome
     return payload
-
-
-def _entry_duplicate_payload(entry: _IdempotencyEntry) -> Dict[str, Any]:
-    return _build_duplicate_payload(
-        entry.key,
-        entry.request_signature,
-        in_progress=not entry.ready_event.is_set(),
-        original_outcome=entry.outcome,
-    )
-
-
-class IdempotencyStore:
-    """Thread-safe in-memory dedupe store with TTL expiry."""
-
-    def __init__(self, ttl_seconds: float = _DEFAULT_TTL_SECONDS) -> None:
-        self._ttl = ttl_seconds
-        self._entries: Dict[str, _IdempotencyEntry] = {}
-        self._lock = threading.Lock()
-        self._gc_interval = min(max(float(ttl_seconds) / 4.0, 0.05), 30.0)
-        self._last_gc_at = time.monotonic()
-        self.scope = "process_memory"
-        self.durable = False
-
-    def check(self, key: Optional[str]) -> Optional[Dict[str, Any]]:
-        """Return prior outcome if *key* exists and is not expired; else ``None``."""
-        if key is None:
-            return None
-        with self._lock:
-            entry = self._entries.get(key)
-            if entry is None:
-                return None
-            if self._is_expired(entry):
-                del self._entries[key]
-                return None
-            return _entry_duplicate_payload(entry)
-
-    def reserve(
-        self,
-        key: Optional[str],
-        *,
-        request_signature: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
-        """Atomically reserve *key* or return the stored duplicate outcome."""
-        if key is None:
-            return None
-        while True:
-            wait_timeout = None
-            with self._lock:
-                entry = self._entries.get(key)
-                if entry is None:
-                    self._entries[key] = _IdempotencyEntry(
-                        key,
-                        request_signature=request_signature,
-                        ready=False,
-                    )
-                    return None
-                if self._is_expired(entry):
-                    del self._entries[key]
-                    self._entries[key] = _IdempotencyEntry(
-                        key,
-                        request_signature=request_signature,
-                        ready=False,
-                    )
-                    return None
-                stored_signature = entry.request_signature
-                if (
-                    stored_signature is not None
-                    and request_signature is not None
-                    and stored_signature != request_signature
-                ):
-                    return _entry_duplicate_payload(entry)
-                if entry.ready_event.is_set():
-                    return _entry_duplicate_payload(entry)
-                wait_event = entry.ready_event
-                # Never expire a live reservation: doing so can admit a second
-                # broker submission while the first call is still running.
-                wait_timeout = 1.0
-            wait_event.wait(timeout=wait_timeout)
-
-    def record(
-        self,
-        key: Optional[str],
-        outcome: Dict[str, Any],
-        *,
-        request_signature: Optional[str] = None,
-    ) -> None:
-        """Record *outcome* for *key*.  No-op when key is ``None``."""
-        if key is None:
-            return
-        should_gc = False
-        now = time.monotonic()
-        with self._lock:
-            entry = self._entries.get(key)
-            if entry is None:
-                entry = _IdempotencyEntry(key, ready=False)
-                self._entries[key] = entry
-            entry.outcome = outcome
-            if request_signature is not None or entry.request_signature is None:
-                entry.request_signature = request_signature
-            entry.created_at = now
-            entry.ready_event.set()
-            should_gc = len(self._entries) > 1 and (now - self._last_gc_at) >= self._gc_interval
-        if should_gc:
-            self._gc(now=now)
-
-    def release(self, key: Optional[str], *, request_signature: Optional[str] = None) -> None:
-        """Drop an in-progress reservation so another caller can retry it."""
-        if key is None:
-            return
-        with self._lock:
-            entry = self._entries.get(key)
-            if entry is None or entry.ready_event.is_set():
-                return
-            if (
-                request_signature is not None
-                and entry.request_signature is not None
-                and entry.request_signature != request_signature
-            ):
-                return
-            del self._entries[key]
-            entry.ready_event.set()
-
-    def _is_expired(self, entry: _IdempotencyEntry, *, now: Optional[float] = None) -> bool:
-        observed_now = time.monotonic() if now is None else now
-        return entry.ready_event.is_set() and (observed_now - entry.created_at) > self._ttl
-
-    def _gc(self, *, now: Optional[float] = None) -> None:
-        """Remove expired entries."""
-        observed_now = time.monotonic() if now is None else now
-        with self._lock:
-            expired = [
-                k for k, v in self._entries.items()
-                if self._is_expired(v, now=observed_now)
-            ]
-            for k in expired:
-                del self._entries[k]
-            self._last_gc_at = observed_now
-
-    def clear(self) -> None:
-        """Clear all entries."""
-        with self._lock:
-            self._entries.clear()
-            self._last_gc_at = time.monotonic()
-
-    def __len__(self) -> int:
-        with self._lock:
-            return len(self._entries)
 
 
 class SQLiteIdempotencyStore:

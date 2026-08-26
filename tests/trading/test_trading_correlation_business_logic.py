@@ -1,8 +1,8 @@
 import re
+from typing import Any, Dict, Optional
 from unittest.mock import MagicMock, patch
 
 from mtdata.core.trading import trade_place
-from mtdata.core.trading.idempotency import IdempotencyStore
 from mtdata.core.trading.requests import (
     TradeCloseRequest,
     TradeModifyRequest,
@@ -13,6 +13,56 @@ from mtdata.core.trading.use_cases import (
     run_trade_modify,
     run_trade_place,
 )
+
+
+class _FakeIdempotencyStore:
+    """Test-local reserve/record/release stand-in for sequential use-case tests."""
+
+    scope = "test"
+    durable = False
+
+    def __init__(self) -> None:
+        self._complete: Dict[str, Dict[str, Any]] = {}
+
+    def reserve(
+        self,
+        key: Optional[str],
+        *,
+        request_signature: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        if key is None:
+            return None
+        stored = self._complete.get(key)
+        if stored is None:
+            return None
+        return {
+            "duplicate": True,
+            "idempotency_key": key,
+            "request_signature": stored.get("request_signature"),
+            "original_outcome": stored["outcome"],
+        }
+
+    def record(
+        self,
+        key: Optional[str],
+        outcome: Dict[str, Any],
+        *,
+        request_signature: Optional[str] = None,
+    ) -> None:
+        if key is None:
+            return
+        self._complete[key] = {
+            "outcome": outcome,
+            "request_signature": request_signature,
+        }
+
+    def release(
+        self,
+        key: Optional[str],
+        *,
+        request_signature: Optional[str] = None,
+    ) -> None:
+        return
 
 
 def _place_kwargs(*, place_market_order, store):
@@ -56,7 +106,7 @@ def test_public_trade_place_generates_and_logs_correlation_id(caplog):
 
 
 def test_trade_place_replay_links_current_original_and_mt5_ids(caplog):
-    store = IdempotencyStore()
+    store = _FakeIdempotencyStore()
     place_market_order = MagicMock(
         return_value={
             "success": True,
@@ -115,7 +165,7 @@ def test_trade_modify_success_includes_correlation_and_mt5_log(caplog):
             normalize_pending_expiration=lambda value: (value, False),
             modify_pending_order=MagicMock(),
             modify_position=modify_position,
-            idempotency_store=IdempotencyStore(),
+            idempotency_store=_FakeIdempotencyStore(),
             correlation_id="modify-call",
         )
 
