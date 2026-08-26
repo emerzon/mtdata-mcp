@@ -107,7 +107,6 @@ Large modules use subdirectories for organization:
 
 2026-08-12: Satellite fold (no coverage cut)
 - Deleted `test_forecast_helpers_coverage.py` (strict subset of `test_forecast_common_coverage.py` / `test_forecast_common_business_logic.py`)
-- Moved live runner `tests/forecast/test_forecast_methods.py` to `scripts/run_forecast_methods.py` so pytest no longer imports `forecast_generate` at collection time
 - Folded leftover satellite files into domain homes (wait-event, wait-candle, market_status, ticker, job_store, minimal_output, finviz symbols, CLI help/list/typed-args, remaining_logic_fixes, volume_validation_fix)
 - Kept every unique assertion; dropped only literal duplicates (select-simplify ticks, selectkbest wrapper without y)
 - Total: 269 test files (was 285)
