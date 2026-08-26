@@ -4398,6 +4398,8 @@ def test_forecast_barrier_prob_compact_keeps_confidence_and_history():
         "prob_sl_first_ci95": {"low": 0.25, "high": 0.35},
         "prob_no_hit_ci95": {"low": 0.1, "high": 0.2},
         "history_bars_used": 2000,
+        "data_as_of": "2026-08-25T14:00Z",
+        "timezone": "UTC",
         "history_window": {
             "start": "2026-04-30T06:00Z",
             "end": "2026-08-25T14:00Z",
@@ -4437,10 +4439,13 @@ def test_forecast_barrier_prob_compact_keeps_confidence_and_history():
     assert out["prob_sl_first_se"] == 0.0102
     assert out["prob_no_hit_se"] == 0.008
     assert out["history_bars_used"] == 2000
+    assert out["timezone"] == "UTC"
+    assert out["data_as_of"] == "2026-08-25T14:00Z"
     assert out["history_window"] == {
         "start": "2026-04-30T06:00Z",
         "end": "2026-08-25T14:00Z",
         "bars_used": 2000,
+        "timezone": "UTC",
     }
     assert out["intra_bar_hit_detection"] == "brownian_bridge"
     assert out["bridge_correction"] is True

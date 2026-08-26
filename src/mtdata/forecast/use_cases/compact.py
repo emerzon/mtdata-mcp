@@ -1717,6 +1717,7 @@ def _apply_barrier_prob_detail(
             "data_as_of",
             "data_stale",
             "freshness",
+            "timezone",
         ):
             _set_if_present(closed_form, key, payload.get(key))
         if detail_value == "standard":
@@ -1792,6 +1793,7 @@ def _apply_barrier_prob_detail(
         "as_of",
         "data_as_of",
         "last_bar_open",
+        "timezone",
         "execution_blockers",
         "remediation",
         "verdict",
@@ -1808,7 +1810,7 @@ def _apply_barrier_prob_detail(
     if isinstance(history_window, dict):
         concise_window = {
             key: history_window.get(key)
-            for key in ("start", "end", "bars_used")
+            for key in ("start", "end", "bars_used", "timezone")
             if history_window.get(key) not in (None, "", [], {})
         }
         if concise_window:
