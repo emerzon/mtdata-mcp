@@ -14,6 +14,7 @@ from ..core.analytics_requests import (
     StrategyValidateRequest,
 )
 from ..utils.barriers import normalize_same_bar_policy
+from ..utils.quote import quote_spread_bps, symbol_info_spread_bps
 from ..utils.time import bar_close_epoch, format_epoch_utc
 from .engine_common import (
     _bootstrap_mean_ci,
@@ -302,6 +303,7 @@ def _position_reversal_returns(
     exit_indices: List[int] = []
     outcomes: List[float] = []
     current_direction = 0
+    max_hold_reentry_block = 0
     entry_idx: Optional[int] = None
     entry_price: Optional[float] = None
     signals = signal.to_numpy(dtype=float)
@@ -314,6 +316,10 @@ def _position_reversal_returns(
         if action_price is None:
             continue
         if current_direction == 0:
+            if max_hold_reentry_block != 0:
+                if desired_direction == max_hold_reentry_block:
+                    continue
+                max_hold_reentry_block = 0
             if desired_direction != 0:
                 current_direction = desired_direction
                 entry_idx = action_idx
@@ -329,14 +335,16 @@ def _position_reversal_returns(
         entry_indices.append(int(entry_idx) - 1)
         exit_indices.append(int(action_idx))
         outcomes.append(result)
+        exited_direction = current_direction
         current_direction = 0
-        if desired_direction != 0:
+        entry_idx = None
+        entry_price = None
+        if hit_max_hold and desired_direction == exited_direction:
+            max_hold_reentry_block = exited_direction
+        elif desired_direction != 0:
             current_direction = desired_direction
             entry_idx = action_idx
             entry_price = float(action_price)
-        else:
-            entry_idx = None
-            entry_price = None
     if current_direction != 0 and entry_idx is not None and entry_price is not None:
         final_exit_idx = len(df) - 1
         final_exit_price = float(df["close"].iloc[final_exit_idx])
@@ -361,16 +369,9 @@ _MIN_HISTORICAL_SPREAD_COVERAGE = 0.9
 def _current_spread_bps(gateway: Any, symbol: str) -> Optional[float]:
     try:
         tick = gateway.symbol_info_tick(symbol)
-        bid = float(getattr(tick, "bid", 0.0) or 0.0)
-        ask = float(getattr(tick, "ask", 0.0) or 0.0)
-        mid = (bid + ask) / 2.0
+        return quote_spread_bps(getattr(tick, "bid", 0.0), getattr(tick, "ask", 0.0))
     except Exception:
         return None
-    if not all(math.isfinite(value) for value in (bid, ask, mid)):
-        return None
-    if bid <= 0.0 or ask <= bid or mid <= 0.0:
-        return None
-    return round((ask - bid) / mid * 10_000.0, 4)
 
 
 def _symbol_info_spread_bps(
@@ -380,27 +381,18 @@ def _symbol_info_spread_bps(
 ) -> Optional[float]:
     try:
         info = gateway.symbol_info(symbol)
-        spread_points = float(getattr(info, "spread", 0.0) or 0.0)
-        point = float(getattr(info, "point", 0.0) or 0.0)
-        bid = float(getattr(info, "bid", 0.0) or 0.0)
-        ask = float(getattr(info, "ask", 0.0) or 0.0)
+        fallback = None
+        if "close" in frame.columns and len(frame):
+            fallback = frame["close"].iloc[-1]
+        return symbol_info_spread_bps(
+            spread_points=getattr(info, "spread", 0.0),
+            point=getattr(info, "point", 0.0),
+            bid=getattr(info, "bid", 0.0),
+            ask=getattr(info, "ask", 0.0),
+            fallback_mid=fallback,
+        )
     except Exception:
         return None
-    if not math.isfinite(spread_points) or spread_points <= 0.0:
-        return None
-    if not math.isfinite(point) or point <= 0.0:
-        return None
-    mid = (bid + ask) / 2.0 if bid > 0.0 and ask > bid else 0.0
-    if mid <= 0.0 and "close" in frame.columns and len(frame):
-        try:
-            close = float(frame["close"].iloc[-1])
-        except Exception:
-            close = 0.0
-        if math.isfinite(close) and close > 0.0:
-            mid = close
-    if mid <= 0.0:
-        return None
-    return round(spread_points * point / mid * 10_000.0, 4)
 
 
 def _conservative_spread_bps(

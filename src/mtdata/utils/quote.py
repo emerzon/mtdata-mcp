@@ -236,6 +236,54 @@ def canonical_quote_spread(bid: Any, ask: Any) -> Optional[float]:
     return float(spread) if spread.is_finite() else None
 
 
+def quote_spread_bps(bid: Any, ask: Any) -> Optional[float]:
+    """Return two-sided quoted spread in basis points, or None if invalid."""
+    try:
+        bid_value = float(bid or 0.0)
+        ask_value = float(ask or 0.0)
+        mid = (bid_value + ask_value) / 2.0
+    except (TypeError, ValueError):
+        return None
+    if not all(math.isfinite(value) for value in (bid_value, ask_value, mid)):
+        return None
+    if bid_value <= 0.0 or ask_value <= bid_value or mid <= 0.0:
+        return None
+    return round((ask_value - bid_value) / mid * 10_000.0, 4)
+
+
+def symbol_info_spread_bps(
+    *,
+    spread_points: Any,
+    point: Any,
+    bid: Any,
+    ask: Any,
+    fallback_mid: Any = None,
+) -> Optional[float]:
+    """Convert MT5 spread-point metadata to basis points using quote or close mid."""
+    try:
+        spread_pts = float(spread_points or 0.0)
+        point_value = float(point or 0.0)
+        bid_value = float(bid or 0.0)
+        ask_value = float(ask or 0.0)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(spread_pts) or spread_pts <= 0.0:
+        return None
+    if not math.isfinite(point_value) or point_value <= 0.0:
+        return None
+    mid = (bid_value + ask_value) / 2.0 if bid_value > 0.0 and ask_value > bid_value else 0.0
+    if mid <= 0.0:
+        try:
+            close = float(fallback_mid or 0.0)
+        except (TypeError, ValueError):
+            close = 0.0
+        if math.isfinite(close) and close > 0.0:
+            mid = close
+    if mid <= 0.0:
+        return None
+    return round(spread_pts * point_value / mid * 10_000.0, 4)
+
+
 def compute_spread_metrics(
     bid: Any,
     ask: Any,

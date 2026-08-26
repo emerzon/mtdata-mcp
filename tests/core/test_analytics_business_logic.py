@@ -33,6 +33,7 @@ from mtdata.analytics.strategy_validate import (
     _barrier_returns,
     _builtin_signal,
     _observed_spread_bps,
+    _position_reversal_returns,
 )
 from mtdata.core.analytics_requests import (
     MarketMicrostructureRequest,
@@ -4047,6 +4048,16 @@ def test_relative_strength_reports_factor_alignment_empty_reason() -> None:
     assert "60 are required" in result["message"]
     assert "quote/volume" not in result["message"]
     assert "--volatility-lookback" in result["remediation"]
+
+
+def test_position_reversal_waits_for_fresh_signal_after_max_hold() -> None:
+    n = 15
+    prices = [1.0 + value / 100.0 for value in range(n)]
+    frame = pd.DataFrame({"open": prices, "close": prices})
+    signal = pd.Series([1.0] * n)
+    entries, exits, _ = _position_reversal_returns(frame, signal, max_hold_bars=3)
+    assert len(entries) == 1
+    assert int(exits[0] - (entries[0] + 1)) == 3
 
 
 def test_strategy_validate_ema_cross_shortcut_uses_horizon_only_barrier() -> None:

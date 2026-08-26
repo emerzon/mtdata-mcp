@@ -12,6 +12,7 @@ from ..shared.validators import invalid_timeframe_error
 from ..utils.coercion import coerce_finite_float
 from ..utils.denoise import normalize_denoise_spec as _normalize_denoise_spec
 from ..utils.mt5 import mt5, symbol_candle_price_basis_for
+from ..utils.quote import quote_spread_bps, symbol_info_spread_bps
 from ..utils.time import _format_time_minimal, bar_close_epoch
 from .common import (
     annualization_context as _annualization_context,
@@ -1197,16 +1198,9 @@ def _current_spread_bps_suggestion(symbol: str) -> Optional[float]:
     """Return a current quoted spread only as explicit fixed-cost guidance."""
     try:
         tick = mt5.symbol_info_tick(symbol)
-        bid = float(getattr(tick, "bid", 0.0) or 0.0)
-        ask = float(getattr(tick, "ask", 0.0) or 0.0)
-        mid = (bid + ask) / 2.0
+        return quote_spread_bps(getattr(tick, "bid", 0.0), getattr(tick, "ask", 0.0))
     except Exception:
         return None
-    if not all(math.isfinite(value) for value in (bid, ask, mid)):
-        return None
-    if bid <= 0.0 or ask <= bid or mid <= 0.0:
-        return None
-    return round((ask - bid) / mid * 10_000.0, 4)
 
 
 def _historical_spread_bps_sample(
@@ -1233,27 +1227,18 @@ def _historical_spread_bps_sample(
 def _symbol_info_spread_bps(symbol: str, frame: Any) -> Optional[float]:
     try:
         info = mt5.symbol_info(symbol)
-        spread_points = float(getattr(info, "spread", 0.0) or 0.0)
-        point = float(getattr(info, "point", 0.0) or 0.0)
-        bid = float(getattr(info, "bid", 0.0) or 0.0)
-        ask = float(getattr(info, "ask", 0.0) or 0.0)
+        fallback = None
+        if "close" in getattr(frame, "columns", []) and len(frame):
+            fallback = frame["close"].iloc[-1]
+        return symbol_info_spread_bps(
+            spread_points=getattr(info, "spread", 0.0),
+            point=getattr(info, "point", 0.0),
+            bid=getattr(info, "bid", 0.0),
+            ask=getattr(info, "ask", 0.0),
+            fallback_mid=fallback,
+        )
     except Exception:
         return None
-    if not math.isfinite(spread_points) or spread_points <= 0.0:
-        return None
-    if not math.isfinite(point) or point <= 0.0:
-        return None
-    mid = (bid + ask) / 2.0 if bid > 0.0 and ask > bid else 0.0
-    if mid <= 0.0 and "close" in getattr(frame, "columns", []) and len(frame):
-        try:
-            close = float(frame["close"].iloc[-1])
-        except Exception:
-            close = 0.0
-        if math.isfinite(close) and close > 0.0:
-            mid = close
-    if mid <= 0.0:
-        return None
-    return round(spread_points * point / mid * 10_000.0, 4)
 
 
 def _auto_fixed_spread_bps(

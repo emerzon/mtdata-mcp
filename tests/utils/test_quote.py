@@ -10,10 +10,41 @@ from mtdata.utils.quote import (
     canonical_quote_midpoint,
     compute_spread_metrics,
     enforce_quote_execution_readiness,
+    quote_spread_bps,
     resolve_quote_tick,
+    symbol_info_spread_bps,
     tick_epoch,
     tick_value,
 )
+
+
+def test_quote_spread_bps_rejects_locked_and_invalid_quotes() -> None:
+    assert quote_spread_bps(1.1, 1.1002) == pytest.approx(1.818, abs=1e-4)
+    assert quote_spread_bps(1.1, 1.1) is None
+    assert quote_spread_bps(0.0, 1.1) is None
+    assert quote_spread_bps(1.2, 1.1) is None
+
+
+def test_symbol_info_spread_bps_uses_quote_or_fallback_close() -> None:
+    assert symbol_info_spread_bps(
+        spread_points=20,
+        point=0.00001,
+        bid=1.1,
+        ask=1.1002,
+    ) == pytest.approx(1.818, abs=1e-4)
+    assert symbol_info_spread_bps(
+        spread_points=20,
+        point=0.00001,
+        bid=0.0,
+        ask=0.0,
+        fallback_mid=1.1,
+    ) == pytest.approx(1.8182, abs=1e-4)
+    assert symbol_info_spread_bps(
+        spread_points=0,
+        point=0.00001,
+        bid=1.1,
+        ask=1.1002,
+    ) is None
 
 
 def test_quote_execution_readiness_requires_positive_two_sided_spread() -> None:
