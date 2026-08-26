@@ -26,7 +26,6 @@ from typing import (
     cast,
     get_args,
     get_origin,
-    is_typeddict,
 )
 
 from pydantic import BaseModel, TypeAdapter, ValidationError
@@ -34,6 +33,7 @@ from pydantic import BaseModel, TypeAdapter, ValidationError
 from ...bootstrap.settings import load_environment
 from ...bootstrap.tools import bootstrap_tools, cli_tool_module_names
 from ...forecast.requests import ForecastGenerateRequest
+from ...shared.schema import _is_typed_dict_type
 from ...utils.coercion import UNPARSED_BOOL, parse_bool_like
 from .._mcp_instance import mcp
 from .._mcp_tools import (
@@ -148,19 +148,6 @@ class _CLIHelpFormatter(
                 help_text = help_text.rstrip() + " (default: true for one-shot CLI)"
             return help_text
         return super()._get_help_string(action)
-
-def _is_typed_dict_type(value: Any) -> bool:
-    try:
-        if is_typeddict(value):
-            return True
-    except Exception:
-        pass
-    annotations = getattr(value, "__annotations__", None)
-    return isinstance(annotations, dict) and (
-        getattr(value, "__required_keys__", None) is not None
-        or getattr(value, "__optional_keys__", None) is not None
-    )
-
 
 def _annotation_is_mapping_type(ptype: Any) -> bool:
     """Return whether an annotation accepts an object-shaped CLI value."""
