@@ -27,7 +27,7 @@ class TestUnifiedForecast(unittest.TestCase):
         
     def test_registry_registration(self):
         """Test that methods are registered correctly."""
-        methods = ForecastRegistry.list_available()
+        methods = ForecastRegistry.get_all_method_names()
         print(f"Registered methods: {methods}")
         self.assertIn('naive', methods)
         self.assertIn('theta', methods)

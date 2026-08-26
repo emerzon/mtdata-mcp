@@ -66,23 +66,30 @@ def test_check_chronos_runtime_support_does_not_import_runtime(monkeypatch):
 
 
 def test_check_requirements_marks_mlf_rf_unavailable_and_normalizes_sklearn(monkeypatch):
+    class FakeMlfRf:
+        required_packages = ["mlforecast", "scikit-learn>=1.6"]
+
     checked_names = []
 
     def fake_find_spec(name):
         checked_names.append(name)
         return object() if name == "sklearn" else None
 
-    monkeypatch.setattr(fr, "_MLF_AVAILABLE", False)
     monkeypatch.setattr(fr._importlib_util, "find_spec", fake_find_spec)
 
-    available, reqs = fr._check_requirements("mlf_rf", ["scikit-learn>=1.6"])
+    available, reqs = fr._check_requirements("mlf_rf", FakeMlfRf.required_packages)
 
     assert available is False
-    assert "mlforecast, scikit-learn" in reqs
+    assert reqs == ["mlforecast", "scikit-learn>=1.6"]
+    assert all("," not in item for item in reqs)
+    assert "mlforecast" in checked_names
     assert "sklearn" in checked_names
 
 
 def test_check_requirements_strips_versions_and_maps_python_dotenv(monkeypatch):
+    class FakeCustomMethod:
+        required_packages = ["python-dotenv>=1.0.0", "numpy==2.0.0", "numpy==2.0.0"]
+
     checked_names = []
 
     def fake_find_spec(name):
@@ -93,7 +100,7 @@ def test_check_requirements_strips_versions_and_maps_python_dotenv(monkeypatch):
 
     available, reqs = fr._check_requirements(
         "custom_method",
-        ["python-dotenv>=1.0.0", "numpy==2.0.0"],
+        FakeCustomMethod.required_packages,
     )
 
     assert available is True
@@ -103,7 +110,9 @@ def test_check_requirements_strips_versions_and_maps_python_dotenv(monkeypatch):
 
 
 def test_check_requirements_marks_chronos_unavailable_on_runtime_mismatch(monkeypatch):
-    monkeypatch.setattr(fr, "_CHRONOS_AVAILABLE", True)
+    class FakeChronos2:
+        required_packages = ["chronos", "torch"]
+
     monkeypatch.setattr(
         fr,
         "_check_chronos_runtime_support",
@@ -111,10 +120,10 @@ def test_check_requirements_marks_chronos_unavailable_on_runtime_mismatch(monkey
     )
     monkeypatch.setattr(fr._importlib_util, "find_spec", lambda _name: object())
 
-    available, reqs = fr._check_requirements("chronos2", ["chronos"])
+    available, reqs = fr._check_requirements("chronos2", FakeChronos2.required_packages)
 
     assert available is False
-    assert "chronos-forecasting>=2.0.0" in reqs
+    assert reqs == ["chronos", "torch", "chronos-forecasting>=2.0.0"]
 
 
 def test_registry_get_method_info_loads_methods_on_demand():

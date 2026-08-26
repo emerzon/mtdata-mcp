@@ -29,7 +29,7 @@ def _make_series(n: int = 200) -> pd.Series:
 
 
 class TestRegistryTrainableDiscovery(unittest.TestCase):
-    """list_trainable() and get_method_info() should surface training metadata."""
+    """get_method_info() should surface training metadata for registered methods."""
 
     @classmethod
     def setUpClass(cls):
@@ -43,7 +43,11 @@ class TestRegistryTrainableDiscovery(unittest.TestCase):
         )
 
     def test_list_trainable_non_empty(self):
-        trainable = ForecastRegistry.list_trainable()
+        trainable = [
+            name
+            for name in ForecastRegistry.get_all_method_names()
+            if ForecastRegistry.get_method_info(name)["supports_training"]
+        ]
         self.assertGreater(len(trainable), 0)
 
     def test_neural_methods_are_trainable(self):

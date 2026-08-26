@@ -14,7 +14,6 @@ RequestSurface = Literal[
     "forecast_optimize_hints",
 ]
 ForecastQuantity = Literal["price", "return", "volatility"]
-ForecastInputMode = Literal["univariate", "multivariate"]
 StrategyDirection = Literal["long", "short", "flat"]
 ForecastArtifactKind = Literal["price_path", "return_path", "volatility_path"]
 StrategySignal = Literal["expected_return", "forecast_sum", "forecast_last"]
@@ -312,9 +311,6 @@ class ForecastExecutionContract(BaseModel):
     evaluation: BacktestEvaluationContract
     capabilities: Optional[ForecastMethodCapabilities] = None
 
-    def inferred_input_mode(self) -> ForecastInputMode:
-        return "multivariate" if self.data_preparation.uses_feature_inputs() else "univariate"
-
     @model_validator(mode="after")
     def _validate_capabilities(self) -> "ForecastExecutionContract":
         capabilities = self.capabilities
@@ -556,16 +552,6 @@ class ForecastEvaluationContext(BaseModel):
     prepared_inputs: CuratedPreparedInputs = Field(default_factory=CuratedPreparedInputs)
     model: ForecastModelContract
     evaluation: BacktestEvaluationContract
-
-    @classmethod
-    def top_level_context_keys(cls) -> tuple[str, ...]:
-        return ("anchor", "forecast", "realized", "prepared_inputs", "model", "evaluation")
-
-    def visible_prepared_input_names(self) -> List[str]:
-        names = set(self.prepared_inputs.scalars)
-        names.update(self.prepared_inputs.series)
-        names.update(self.prepared_inputs.feature_names)
-        return sorted(names)
 
 
 __all__ = [

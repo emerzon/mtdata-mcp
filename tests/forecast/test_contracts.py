@@ -78,7 +78,7 @@ def test_execution_contract_inferrs_multivariate_mode_and_validates_capabilities
         ),
     )
 
-    assert execution.inferred_input_mode() == "multivariate"
+    assert execution.data_preparation.uses_feature_inputs() is True
 
 
 def test_backtest_evaluation_contract_accepts_standard_detail_alias() -> None:
@@ -225,15 +225,17 @@ def test_evaluation_context_reports_visible_input_names() -> None:
         evaluation=BacktestEvaluationContract(horizon=3, steps=1, spacing=3),
     )
 
-    assert context.top_level_context_keys() == (
+    assert set(ForecastEvaluationContext.model_fields) == {
         "anchor",
         "forecast",
         "realized",
         "prepared_inputs",
         "model",
         "evaluation",
-    )
-    assert context.visible_prepared_input_names() == ["close_dn", "rsi_14"]
+    }
+    assert context.prepared_inputs.scalars == {"rsi_14": 48.2}
+    assert context.prepared_inputs.series == {"close_dn": [1.0, 1.1, 1.2]}
+    assert context.prepared_inputs.feature_names == ["rsi_14", "close_dn"]
 
 
 def test_strategy_trade_intent_validates_flat_position_size() -> None:

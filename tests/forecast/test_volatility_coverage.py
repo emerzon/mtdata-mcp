@@ -1694,9 +1694,12 @@ class TestHarRvBlock:
             }
         )
 
-        daily, returns_used = vol_mod._daily_realized_variance(frame)
+        _values, finite = vol_mod._realized_variance_rows(frame)
+        daily, returns_used, metadata = vol_mod._har_daily_realized_variance(frame)
 
+        assert int(len(finite)) == 2
         assert returns_used == 2
+        assert metadata["complete"] is True
         assert daily.to_list() == pytest.approx(
             [math.log(1.01) ** 2, math.log(1.01) ** 2]
         )

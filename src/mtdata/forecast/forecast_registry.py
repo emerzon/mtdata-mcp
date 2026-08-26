@@ -52,12 +52,6 @@ class ForecastRegistry:
         return cls._methods[name]()
 
     @classmethod
-    def list_available(cls) -> List[str]:
-        """List names of all registered methods."""
-        _ensure_registry_loaded()
-        return list(cls._methods)
-
-    @classmethod
     def get_class(cls, name: str) -> Type[ForecastMethod]:
         """Get the class of a registered forecast method."""
         _ensure_registry_loaded()
@@ -83,15 +77,6 @@ class ForecastRegistry:
             "train_supports_progress": inst.train_supports_progress,
             "training_category": inst.training_category,
         }
-
-    @classmethod
-    def list_trainable(cls) -> List[str]:
-        """Return names of methods that support the train/predict lifecycle."""
-        _ensure_registry_loaded()
-        return [
-            name for name in cls._methods
-            if cls._methods[name]().supports_training
-        ]
 
 DEFAULT_METHOD_SUPPORTS: Dict[str, bool] = {
     "price": True,
@@ -154,18 +139,6 @@ def _package_available(name: str) -> bool:
         return _importlib_util.find_spec(name) is not None
     except Exception:
         return False
-
-
-# Import availability checkers
-_SM_ETS_AVAILABLE = _package_available("statsmodels.tsa.holtwinters")
-_SM_SARIMAX_AVAILABLE = _package_available("statsmodels.tsa.statespace.sarimax")
-_NF_AVAILABLE = _package_available("neuralforecast")
-_MLF_AVAILABLE = _package_available("mlforecast")
-_SF_AVAILABLE = _package_available("statsforecast")
-_LGB_AVAILABLE = _package_available("lightgbm")
-_CHRONOS_AVAILABLE = _package_available("chronos")
-_TIMESFM_AVAILABLE = _package_available("timesfm")
-_SKTIME_AVAILABLE = _package_available("sktime")
 
 
 def _find_method_definition(
@@ -257,7 +230,6 @@ def get_forecast_method_availability_snapshot() -> Dict[str, bool]:
 
 
 
-
 def _extract_description(cls: Any, fallback: str) -> str:
     doc = getattr(cls, "__doc__", None)
     if isinstance(doc, str):
@@ -311,38 +283,14 @@ def _check_neuralforecast_runtime_support() -> Tuple[bool, List[str]]:
 
 def _check_requirements(method: str, requires: List[str]) -> Tuple[bool, List[str]]:
     available = True
-    reqs = list(requires or [])
-
-    # Check availability based on method type and runtime flags.
-    if method in ("ses", "holt", "holt_winters_add", "holt_winters_mul", "ets") and not _SM_ETS_AVAILABLE:
-        available = False; reqs.append("statsmodels")
-    if method in ("arima", "sarima") and not _SM_SARIMAX_AVAILABLE:
-        available = False; reqs.append("statsmodels")
-    if method == "statsforecast" and not _SF_AVAILABLE:
-        available = False; reqs.append("statsforecast")
-    if method == "mlforecast" and not _MLF_AVAILABLE:
-        available = False; reqs.append("mlforecast")
-    if method == "mlf_rf" and not _MLF_AVAILABLE:
-        available = False; reqs.append("mlforecast, scikit-learn")
-    if method == "mlf_lightgbm" and (not _MLF_AVAILABLE or not _LGB_AVAILABLE):
-        available = False; reqs.append("mlforecast, lightgbm")
-    if method in ("chronos_bolt", "chronos2"):
-        if not _CHRONOS_AVAILABLE:
-            available = False; reqs.append("chronos-forecasting")
-        else:
-            chronos_ok, chronos_reqs = _check_chronos_runtime_support()
-            if not chronos_ok:
-                available = False
-                reqs.extend(chronos_reqs)
-    if method == "timesfm" and not _TIMESFM_AVAILABLE:
-        available = False; reqs.append("timesfm")
-    if method in ("nhits", "nbeatsx", "tft", "patchtst"):
-        neural_ok, neural_reqs = _check_neuralforecast_runtime_support()
-        if not neural_ok:
-            available = False
-            reqs.extend(neural_reqs)
-    if method == "sktime" and not _SKTIME_AVAILABLE:
-        available = False; reqs.append("sktime")
+    reqs: List[str] = []
+    seen: set[str] = set()
+    for req in list(requires or []):
+        name = str(req).strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        reqs.append(name)
 
     module_name_overrides = {
         "scikit-learn": "sklearn",
@@ -366,6 +314,24 @@ def _check_requirements(method: str, requires: List[str]) -> Tuple[bool, List[st
                 available = False
         except Exception:
             available = False
+
+    extra_reqs: List[str] = []
+    if method in ("chronos_bolt", "chronos2"):
+        chronos_ok, chronos_reqs = _check_chronos_runtime_support()
+        if not chronos_ok:
+            available = False
+            extra_reqs.extend(chronos_reqs)
+    if method in ("nhits", "nbeatsx", "tft", "patchtst"):
+        neural_ok, neural_reqs = _check_neuralforecast_runtime_support()
+        if not neural_ok:
+            available = False
+            extra_reqs.extend(neural_reqs)
+    for extra in extra_reqs:
+        name = str(extra).strip()
+        if not name or name in seen:
+            continue
+        seen.add(name)
+        reqs.append(name)
 
     return available, reqs
 
@@ -413,17 +379,8 @@ def _ensemble_metadata() -> Dict[str, Any]:
     }
 
 
-# Availability flags that can be imported by other modules
 __all__ = [
     'ForecastRegistry',
     'get_forecast_methods_data',
     'get_forecast_method_availability_snapshot',
-    '_SM_ETS_AVAILABLE',
-    '_SM_SARIMAX_AVAILABLE',
-    '_NF_AVAILABLE',
-    '_MLF_AVAILABLE',
-    '_SF_AVAILABLE',
-    '_LGB_AVAILABLE',
-    '_CHRONOS_AVAILABLE',
-    '_TIMESFM_AVAILABLE',
 ]

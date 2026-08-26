@@ -577,16 +577,6 @@ def _realized_variance_rows(
     return values, finite
 
 
-def _daily_realized_variance(
-    frame: pd.DataFrame,
-    *,
-    close_col: str = "close",
-) -> tuple[pd.Series, int]:
-    """Calculate intraday RV without treating an overnight gap as an intraday return."""
-    _, finite = _realized_variance_rows(frame, close_col=close_col)
-    return finite.groupby("day", sort=True)["r2"].sum().astype(float), int(len(finite))
-
-
 def _har_daily_realized_variance(
     frame: pd.DataFrame,
     *,
