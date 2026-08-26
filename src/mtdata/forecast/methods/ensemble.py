@@ -15,13 +15,13 @@ from ..ensemble_dispatch import (
     dispatch_callback_with_error as _dispatch_callback_with_error,
 )
 from ..ensemble_dispatch import (
-    dispatch_registered_forecast as _ensemble_dispatch_method_default_impl,
+    dispatch_registered_forecast,
 )
 from ..forecast_registry import (
     ForecastRegistry,
     get_forecast_method_availability_snapshot,
 )
-from ..interface import ForecastCallContext, ForecastMethod, ForecastResult
+from ..interface import ForecastMethod, ForecastResult
 
 # Canonical type for component dispatch callables.  Every ensemble dispatch
 # route (engine-injected or standalone default) must conform to this
@@ -57,7 +57,7 @@ def _ensemble_dispatch_method_default(
     seasonality: Optional[int],
     params: Optional[Dict[str, Any]],
 ) -> Optional[np.ndarray]:
-    forecast, _ = _ensemble_dispatch_method_default_impl(
+    forecast, _ = dispatch_registered_forecast(
         method_name,
         series,
         horizon,
@@ -77,7 +77,7 @@ def _ensemble_dispatch_method_default_with_error(
     seasonality: Optional[int],
     params: Optional[Dict[str, Any]],
 ) -> Tuple[Optional[np.ndarray], Optional[Dict[str, Any]]]:
-    return _ensemble_dispatch_method_default_impl(
+    return dispatch_registered_forecast(
         method_name,
         series,
         horizon,
@@ -201,22 +201,6 @@ class EnsembleMethod(ForecastMethod):
     @property
     def supports_features(self) -> Dict[str, bool]:
         return {"price": True, "return": True, "volatility": True, "ci": False}
-
-    def prepare_forecast_call(
-        self,
-        params: Dict[str, Any],
-        call_kwargs: Dict[str, Any],
-        context: ForecastCallContext,
-    ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        from .. import forecast_engine as _forecast_engine
-
-        call_kwargs_out = dict(call_kwargs)
-        call_kwargs_out["ensemble_dispatch_method"] = _forecast_engine._ensemble_dispatch_method
-        call_kwargs_out["ensemble_dispatch_with_error"] = _forecast_engine._ensemble_dispatch_with_error
-        call_kwargs_out["prepare_ensemble_cv"] = _forecast_engine._prepare_ensemble_cv
-        call_kwargs_out["normalize_weights"] = _forecast_engine._normalize_weights
-        call_kwargs_out["get_available_methods"] = _forecast_engine._get_available_methods
-        return dict(params), call_kwargs_out
 
     def forecast(  # noqa: C901
         self,

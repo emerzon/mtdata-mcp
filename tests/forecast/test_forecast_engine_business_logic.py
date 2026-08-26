@@ -10,7 +10,10 @@ import pytest
 
 from mtdata.forecast import forecast_engine as fe
 from mtdata.forecast import forecast_preprocessing as fp
+from mtdata.forecast.ensemble_dispatch import dispatch_registered_forecast
 from mtdata.forecast.interface import ForecastResult
+from mtdata.forecast.methods import ensemble as em
+from mtdata.forecast.methods.ensemble import _prepare_ensemble_cv_default
 from mtdata.forecast.use_cases import _forecast_anchor_freshness
 from mtdata.utils.time import _format_time_minimal
 
@@ -29,14 +32,6 @@ def _df(n: int = 20) -> pd.DataFrame:
             "volume": np.linspace(1000.0, 1200.0, n),
         }
     )
-
-
-def test_normalize_weights_and_lookback_helpers():
-    assert fe._normalize_weights(None, 2) is None
-    assert fe._normalize_weights([1, 1], 2).tolist() == [0.5, 0.5]
-    assert fe._normalize_weights("1,3", 2).tolist() == [0.25, 0.75]
-    assert fe._normalize_weights([1], 2) is None
-    assert fe._normalize_weights([-1, 0], 2) is None
 
 
 def test_training_context_versions_return_value_policy():
@@ -705,7 +700,7 @@ def test_last_price_freshness_keeps_absolute_weekend_staleness():
     assert _forecast_anchor_freshness(result).startswith("closed weekend, anchor ")
 
 
-def test_prepare_ensemble_cv_uses_valid_rows_only(monkeypatch):
+def test_prepare_ensemble_cv_uses_valid_rows_only():
     series = pd.Series(np.arange(1.0, 21.0))
 
     def fake_dispatch_with_error(method_name, train, horizon, seasonality, params):
@@ -713,9 +708,7 @@ def test_prepare_ensemble_cv_uses_valid_rows_only(monkeypatch):
             return None, {"method": "broken", "error": "unsupported", "error_type": "ValueError"}
         return np.array([float(train.iloc[-1] + 1.0)], dtype=float), None
 
-    monkeypatch.setattr(fe, "_ensemble_dispatch_with_error", fake_dispatch_with_error)
-
-    x, y = fe._prepare_ensemble_cv(
+    x, y = _prepare_ensemble_cv_default(
         series=series,
         methods=["naive", "broken"],
         horizon=1,
@@ -723,6 +716,7 @@ def test_prepare_ensemble_cv_uses_valid_rows_only(monkeypatch):
         params_map={},
         cv_points=4,
         min_train=3,
+        dispatch_with_error=fake_dispatch_with_error,
     )
     # Sparse rows: "naive" column is valid, "broken" column is NaN
     assert x.shape[0] == 4
@@ -731,7 +725,7 @@ def test_prepare_ensemble_cv_uses_valid_rows_only(monkeypatch):
     assert np.all(np.isnan(x[:, 1]))       # broken column all NaN
     assert y.shape[0] == 4
 
-    x, y = fe._prepare_ensemble_cv(
+    x, y = _prepare_ensemble_cv_default(
         series=series,
         methods=["naive", "theta"],
         horizon=1,
@@ -739,22 +733,21 @@ def test_prepare_ensemble_cv_uses_valid_rows_only(monkeypatch):
         params_map={},
         cv_points=3,
         min_train=3,
+        dispatch_with_error=fake_dispatch_with_error,
     )
     assert x.shape[0] == 3
     assert x.shape[1] == 2
     assert y.shape[0] == 3
 
 
-def test_prepare_ensemble_cv_uses_all_horizon_steps(monkeypatch):
+def test_prepare_ensemble_cv_uses_all_horizon_steps():
     series = pd.Series(np.arange(1.0, 11.0))
 
     def fake_dispatch_with_error(method_name, train, horizon, seasonality, params):
         base = float(train.iloc[-1])
         return np.array([base + 1.0, base + 2.0], dtype=float), None
 
-    monkeypatch.setattr(fe, "_ensemble_dispatch_with_error", fake_dispatch_with_error)
-
-    x, y = fe._prepare_ensemble_cv(
+    x, y = _prepare_ensemble_cv_default(
         series=series,
         methods=["naive", "theta"],
         horizon=2,
@@ -762,13 +755,14 @@ def test_prepare_ensemble_cv_uses_all_horizon_steps(monkeypatch):
         params_map={},
         cv_points=2,
         min_train=3,
+        dispatch_with_error=fake_dispatch_with_error,
     )
 
     assert x.shape == (4, 2)
     assert y.tolist() == [7.0, 8.0, 8.0, 9.0]
 
 
-def test_prepare_ensemble_cv_records_dispatch_errors_without_function_state(monkeypatch):
+def test_prepare_ensemble_cv_records_dispatch_errors_without_function_state():
     class GoodForecaster:
         def forecast(self, series, horizon, seasonality, params):
             return ForecastResult(
@@ -788,10 +782,18 @@ def test_prepare_ensemble_cv_records_dispatch_errors_without_function_state(monk
                 return BadForecaster()
             return GoodForecaster()
 
-    monkeypatch.setattr(fe, "ForecastRegistry", FakeRegistry)
+    def dispatch_with_error(method_name, series, horizon, seasonality, params):
+        return dispatch_registered_forecast(
+            method_name,
+            series,
+            horizon,
+            seasonality,
+            params,
+            registry=FakeRegistry,
+        )
 
     failures = []
-    x, y = fe._prepare_ensemble_cv(
+    x, y = _prepare_ensemble_cv_default(
         series=pd.Series(np.arange(1.0, 10.0)),
         methods=["bad", "naive"],
         horizon=1,
@@ -799,6 +801,7 @@ def test_prepare_ensemble_cv_records_dispatch_errors_without_function_state(monk
         params_map={},
         cv_points=1,
         min_train=3,
+        dispatch_with_error=dispatch_with_error,
         failure_sink=failures,
     )
 
@@ -810,10 +813,10 @@ def test_prepare_ensemble_cv_records_dispatch_errors_without_function_state(monk
     assert failures[0]["method"] == "bad"
     assert failures[0]["error"] == "boom"
     assert failures[0]["error_type"] == "RuntimeError"
-    assert getattr(fe._ensemble_dispatch_with_error, "_last_error", None) is None
+    assert getattr(dispatch_registered_forecast, "_last_error", None) is None
 
 
-def test_prepare_ensemble_cv_sparse_failure_preserves_valid_methods(monkeypatch):
+def test_prepare_ensemble_cv_sparse_failure_preserves_valid_methods():
     """When one method fails intermittently, the CV matrix keeps valid entries
     and marks failures as NaN, instead of discarding the entire anchor."""
     series = pd.Series(np.arange(1.0, 21.0))
@@ -826,10 +829,8 @@ def test_prepare_ensemble_cv_sparse_failure_preserves_valid_methods(monkeypatch)
                 return None, {"error": "intermittent", "error_type": "RuntimeError"}
         return np.array([float(train.iloc[-1] + 1.0)], dtype=float), None
 
-    monkeypatch.setattr(fe, "_ensemble_dispatch_with_error", fake_dispatch_with_error)
-
     failures: list = []
-    x, y = fe._prepare_ensemble_cv(
+    x, y = _prepare_ensemble_cv_default(
         series=series,
         methods=["good", "flaky"],
         horizon=1,
@@ -837,6 +838,7 @@ def test_prepare_ensemble_cv_sparse_failure_preserves_valid_methods(monkeypatch)
         params_map={},
         cv_points=4,
         min_train=3,
+        dispatch_with_error=fake_dispatch_with_error,
         failure_sink=failures,
     )
 
@@ -859,7 +861,6 @@ def test_prepare_ensemble_cv_all_methods_fail_returns_empty():
     def always_fail(method_name, train, horizon, seasonality, params):
         return None, {"error": "fail", "error_type": "ValueError"}
 
-    from mtdata.forecast.methods.ensemble import _prepare_ensemble_cv_default
     x, y = _prepare_ensemble_cv_default(
         series, ["a", "b"], 1, 1, {}, 4, 3, always_fail,
     )
@@ -1999,22 +2000,19 @@ def test_forecast_engine_ensemble_paths(monkeypatch):
     monkeypatch.setattr(fe, "_parse_kv_or_json", lambda v: dict(v or {}))
     monkeypatch.setattr(fe, "get_symbol_info_cached", lambda symbol: None)
 
-    def fake_dispatch(name, series, horizon, seasonality, params):
-        if name == "naive":
-            return np.array([1.0, 2.0], dtype=float)
-        if name == "theta":
-            return np.array([2.0, 4.0], dtype=float)
-        return None
-
     def fake_dispatch_with_error(name, series, horizon, seasonality, params):
-        fc = fake_dispatch(name, series, horizon, seasonality, params)
-        if fc is None:
-            return None, {"method": name, "error": "unsupported", "error_type": "ValueError"}
-        return fc, None
+        if name == "naive":
+            return np.array([1.0, 2.0], dtype=float), None
+        if name == "theta":
+            return np.array([2.0, 4.0], dtype=float), None
+        return None, {"method": name, "error": "unsupported", "error_type": "ValueError"}
 
-    monkeypatch.setattr(fe, "_ensemble_dispatch_method", fake_dispatch)
-    monkeypatch.setattr(fe, "_ensemble_dispatch_with_error", fake_dispatch_with_error)
-    monkeypatch.setattr(fe, "_prepare_ensemble_cv", lambda *args, **kwargs: (np.empty((0, 2)), np.empty((0,))))
+    monkeypatch.setattr(em, "dispatch_registered_forecast", fake_dispatch_with_error)
+    monkeypatch.setattr(
+        em,
+        "_prepare_ensemble_cv_default",
+        lambda *args, **kwargs: (np.empty((0, 2)), np.empty((0,))),
+    )
 
     out = fe.forecast_engine(
         symbol="EURUSD",
@@ -2029,8 +2027,11 @@ def test_forecast_engine_ensemble_paths(monkeypatch):
     assert out["ensemble"]["mode_used"] == "average"
     assert out["ensemble"]["methods"] == ["naive", "theta"]
 
-    monkeypatch.setattr(fe, "_ensemble_dispatch_method", lambda *args, **kwargs: None)
-    monkeypatch.setattr(fe, "_ensemble_dispatch_with_error", lambda name, *args, **kwargs: (None, {"method": name, "error": "unsupported", "error_type": "ValueError"}))
+    monkeypatch.setattr(
+        em,
+        "dispatch_registered_forecast",
+        lambda name, *args, **kwargs: (None, {"method": name, "error": "unsupported", "error_type": "ValueError"}),
+    )
     out = fe.forecast_engine(
         symbol="EURUSD",
         timeframe="H1",

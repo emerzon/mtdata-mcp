@@ -6,8 +6,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from mtdata.forecast import forecast_engine as fe
-from mtdata.forecast.interface import ForecastCallContext
+from mtdata.forecast.common import _normalize_weights
+from mtdata.forecast.ensemble_dispatch import dispatch_registered_forecast
+from mtdata.forecast.interface import ForecastMethod
 from mtdata.forecast.methods import ensemble as em
 
 
@@ -192,37 +193,61 @@ def test_ensemble_rejects_component_dispatch_exceptions():
         )
 
 
-def test_ensemble_prepare_forecast_call_injects_engine_helpers():
-    method = em.EnsembleMethod()
-    context = ForecastCallContext(
-        method="ensemble",
-        symbol="EURUSD",
-        timeframe="H1",
-        quantity="price",
-        horizon=2,
-        seasonality=24,
-        base_col="close",
-        ci_alpha=0.05,
-        as_of=None,
-        denoise_spec_used=None,
-        history_df=pd.DataFrame({"time": [1.0], "close": [100.0]}),
-        target_series=pd.Series([100.0], name="close"),
-        exog_used=None,
-        future_exog=None,
+def test_ensemble_uses_local_helpers_without_engine_injection():
+    assert "prepare_forecast_call" not in em.EnsembleMethod.__dict__
+    assert em.EnsembleMethod.prepare_forecast_call is ForecastMethod.prepare_forecast_call
+    assert em._normalize_weights_default is _normalize_weights
+    assert em.dispatch_registered_forecast is dispatch_registered_forecast
+
+
+def test_ensemble_forecast_uses_local_dispatch_when_kwargs_omitted(monkeypatch):
+    calls: list[str] = []
+
+    def fake_dispatch(method_name, series, horizon, seasonality, params):
+        calls.append(method_name)
+        return np.array([1.0, 2.0], dtype=float), None
+
+    monkeypatch.setattr(em, "dispatch_registered_forecast", fake_dispatch)
+    monkeypatch.setattr(
+        em,
+        "get_forecast_method_availability_snapshot",
+        lambda: {"naive": True, "theta": True},
+    )
+    monkeypatch.setattr(
+        em.ForecastRegistry,
+        "get_all_method_names",
+        lambda: ("naive", "theta"),
     )
 
-    params, kwargs = method.prepare_forecast_call({"methods": ["naive"]}, {}, context)
+    out = em.EnsembleMethod().forecast(
+        pd.Series(np.linspace(1.0, 20.0, 20)),
+        horizon=2,
+        seasonality=1,
+        params={"methods": ["naive", "theta"], "mode": "average"},
+    )
 
-    assert params == {"methods": ["naive"]}
-    assert kwargs["ensemble_dispatch_method"] is fe._ensemble_dispatch_method
-    assert kwargs["ensemble_dispatch_with_error"] is fe._ensemble_dispatch_with_error
-    assert kwargs["prepare_ensemble_cv"] is fe._prepare_ensemble_cv
-    assert kwargs["normalize_weights"] is fe._normalize_weights
-    assert kwargs["get_available_methods"] is fe._get_available_methods
+    assert calls == ["naive", "theta"]
+    assert out.forecast.tolist() == [1.0, 2.0]
 
 
-def test_ensemble_default_normalize_weights_reuses_shared_helper():
-    assert em._normalize_weights_default is fe._normalize_weights
+def test_ensemble_forecast_kwargs_seam_overrides_local_dispatch():
+    calls: list[str] = []
+
+    def dispatch(method_name, series_in, horizon, seasonality, params):
+        calls.append(method_name)
+        return np.array([3.0, 4.0], dtype=float)
+
+    out = em.EnsembleMethod().forecast(
+        pd.Series(np.linspace(1.0, 20.0, 20)),
+        horizon=2,
+        seasonality=1,
+        params={"methods": ["naive", "theta"], "mode": "average"},
+        ensemble_dispatch_method=dispatch,
+        get_available_methods=lambda: ("naive", "theta"),
+    )
+
+    assert calls == ["naive", "theta"]
+    assert out.forecast.tolist() == [3.0, 4.0]
 
 
 @pytest.mark.parametrize("weights", ([0.25], [0.2, 0.3, 0.5]))

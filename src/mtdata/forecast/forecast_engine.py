@@ -49,7 +49,6 @@ from ..utils.utils import (
     parse_kv_or_json as _parse_kv_or_json,
 )
 from . import forecast_preprocessing as _forecast_preprocessing
-from .common import _normalize_weights as _normalize_weights_impl
 from .common import (
     _parse_as_of_bound,
     default_seasonality,
@@ -62,9 +61,6 @@ from .common import (
 )
 from .common import (
     fetch_history as _fetch_history,
-)
-from .ensemble_dispatch import (
-    dispatch_registered_forecast as _ensemble_dispatch_method_impl,
 )
 from .exceptions import ModelCompatibilityError, UnknownFeatureColumnError
 from .forecast_validation import (
@@ -97,7 +93,7 @@ from .forecast_registry import (
 from .target_builder import build_target_series, resolve_alias_base
 
 logger = logging.getLogger(__name__)
-_normalize_weights = _normalize_weights_impl
+
 
 def _count_weekend_forecast_times(times: List[str]) -> int:
     weekend_count = 0
@@ -160,73 +156,6 @@ class TrainingExecutionContext:
     method_params: Dict[str, Any]
     timeframe: str
     exog_used: Optional[np.ndarray]
-
-
-def _ensemble_dispatch_method(
-    method_name: str,
-    series: pd.Series,
-    horizon: int,
-    seasonality: Optional[int],
-    params: Optional[Dict[str, Any]],
-) -> Optional[np.ndarray]:
-    forecast, _ = _ensemble_dispatch_method_impl(
-        method_name,
-        series,
-        horizon,
-        seasonality,
-        params,
-        registry=ForecastRegistry,
-    )
-    return forecast
-
-
-
-
-def _ensemble_dispatch_with_error(
-    method_name: str,
-    series: pd.Series,
-    horizon: int,
-    seasonality: Optional[int],
-    params: Optional[Dict[str, Any]],
-) -> Tuple[Optional[np.ndarray], Optional[Dict[str, Any]]]:
-    return _ensemble_dispatch_method_impl(
-        method_name,
-        series,
-        horizon,
-        seasonality,
-        params,
-        registry=ForecastRegistry,
-    )
-
-
-def _prepare_ensemble_cv(
-    series: pd.Series,
-    methods: List[str],
-    horizon: int,
-    seasonality: Optional[int],
-    params_map: Dict[str, Dict[str, Any]],
-    cv_points: int,
-    min_train: int,
-    failure_sink: Optional[List[Dict[str, Any]]] = None,
-) -> Tuple[np.ndarray, np.ndarray]:
-    """Collect walk-forward one-step predictions for ensemble weighting.
-
-    Delegates to the shared implementation in
-    ``methods.ensemble._prepare_ensemble_cv_default``.
-    """
-    from .methods.ensemble import _prepare_ensemble_cv_default
-
-    return _prepare_ensemble_cv_default(
-        series,
-        methods,
-        horizon,
-        seasonality,
-        params_map,
-        cv_points,
-        min_train,
-        dispatch_with_error=_ensemble_dispatch_with_error,
-        failure_sink=failure_sink,
-    )
 
 
 # Supported forecast methods - dynamically fetch from registry
