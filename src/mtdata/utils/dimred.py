@@ -1,11 +1,92 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from functools import lru_cache
 from importlib import import_module
 from importlib.util import find_spec
 from typing import Any, Dict, Optional, Tuple
 
 import numpy as np
+
+_REQUIRED_N_COMPONENTS = {
+    "name": "n_components",
+    "type": "int",
+    "required": True,
+    "aliases": ["components"],
+    "description": "Target components (1..features). Required; there is no default.",
+}
+
+_DIMRED_METHOD_CATALOG: Dict[str, Dict[str, Any]] = {
+    "none": {
+        "description": "No reduction; pass-through.",
+        "dependency": None,
+        "params": [],
+    },
+    "pca": {
+        "description": "Principal Component Analysis (sklearn).",
+        "dependency": "sklearn",
+        "params": [_REQUIRED_N_COMPONENTS],
+    },
+    "svd": {
+        "description": "Truncated SVD (sklearn).",
+        "dependency": "sklearn",
+        "params": [_REQUIRED_N_COMPONENTS],
+    },
+    "spca": {
+        "description": "Sparse PCA (sklearn).",
+        "dependency": "sklearn",
+        "params": [
+            {"name": "n_components", "type": "int", "default": 2},
+            {"name": "alpha", "type": "float", "default": 1.0},
+        ],
+    },
+    "kpca": {
+        "description": "Kernel PCA (sklearn).",
+        "dependency": "sklearn",
+        "params": [
+            {"name": "n_components", "type": "int", "default": 2},
+            {"name": "kernel", "type": "str", "default": "rbf"},
+            {"name": "gamma", "type": "float|null", "default": None},
+            {"name": "degree", "type": "int", "default": 3},
+            {"name": "coef0", "type": "float", "default": 1.0},
+        ],
+    },
+    "isomap": {
+        "description": "Isomap manifold learning (sklearn).",
+        "dependency": "sklearn",
+        "params": [
+            {"name": "n_components", "type": "int", "default": 2},
+            {"name": "n_neighbors", "type": "int", "default": 5},
+        ],
+    },
+    "laplacian": {
+        "description": "Laplacian Eigenmaps / Spectral Embedding (sklearn).",
+        "dependency": "sklearn",
+        "params": [
+            {"name": "n_components", "type": "int", "default": 2},
+            {"name": "n_neighbors", "type": "int", "default": 10},
+        ],
+    },
+    "umap": {
+        "description": "UMAP dimensionality reduction (umap-learn).",
+        "dependency": "umap",
+        "params": [
+            {"name": "n_components", "type": "int", "default": 2},
+            {"name": "n_neighbors", "type": "int", "default": 15},
+            {"name": "min_dist", "type": "float", "default": 0.1},
+        ],
+    },
+    "tsne": {
+        "description": "t-SNE (sklearn); no transform for new samples.",
+        "dependency": "sklearn",
+        "params": [
+            {"name": "n_components", "type": "int", "default": 2},
+            {"name": "perplexity", "type": "float", "default": 30.0},
+            {"name": "learning_rate", "type": "float", "default": 200.0},
+            {"name": "n_iter", "type": "int", "default": 1000},
+        ],
+    },
+}
 
 
 class _SkModelMixin:
@@ -352,16 +433,13 @@ def create_reducer(method: Optional[str], params: Optional[Dict[str, Any]] = Non
 
 
 def list_dimred_methods() -> Dict[str, Dict[str, Any]]:
-    """Return available dimension reduction methods and availability flags."""
-    sklearn_available = _dependency_available("sklearn")
-    return {
-        "none": {"available": True, "description": "No reduction; pass-through."},
-        "pca": {"available": sklearn_available, "description": "Principal Component Analysis (sklearn)."},
-        "svd": {"available": sklearn_available, "description": "Truncated SVD (sklearn)."},
-        "spca": {"available": sklearn_available, "description": "Sparse PCA (sklearn)."},
-        "kpca": {"available": sklearn_available, "description": "Kernel PCA (sklearn)."},
-        "isomap": {"available": sklearn_available, "description": "Isomap manifold learning (sklearn)."},
-        "laplacian": {"available": sklearn_available, "description": "Laplacian Eigenmaps / Spectral Embedding (sklearn)."},
-        "umap": {"available": _dependency_available("umap"), "description": "UMAP dimensionality reduction (umap-learn)."},
-        "tsne": {"available": sklearn_available, "description": "t-SNE (sklearn); no transform for new samples."},
-    }
+    """Return available dimension reduction methods, descriptions, and parameters."""
+    catalog: Dict[str, Dict[str, Any]] = {}
+    for name, spec in _DIMRED_METHOD_CATALOG.items():
+        dependency = spec.get("dependency")
+        catalog[name] = {
+            "available": True if dependency is None else _dependency_available(str(dependency)),
+            "description": spec.get("description"),
+            "params": deepcopy(spec.get("params") or []),
+        }
+    return catalog

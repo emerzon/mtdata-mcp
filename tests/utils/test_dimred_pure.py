@@ -130,3 +130,21 @@ class TestListDimredMethods:
         for info in methods.values():
             assert "description" in info
             assert "available" in info
+            assert isinstance(info.get("params"), list)
+
+    def test_catalog_matches_factory_contract(self):
+        methods = list_dimred_methods()
+        pca_names = {item["name"] for item in methods["pca"]["params"]}
+        assert pca_names == {"n_components"}
+        assert methods["pca"]["params"][0].get("required") is True
+        assert "default" not in methods["pca"]["params"][0]
+
+        spca_params = {item["name"]: item for item in methods["spca"]["params"]}
+        assert spca_params["n_components"]["default"] == 2
+        assert "alpha" in spca_params
+
+        isomap_params = {item["name"]: item for item in methods["isomap"]["params"]}
+        assert isomap_params["n_neighbors"]["default"] == 5
+
+        kpca_names = {item["name"] for item in methods["kpca"]["params"]}
+        assert {"degree", "coef0"} <= kpca_names

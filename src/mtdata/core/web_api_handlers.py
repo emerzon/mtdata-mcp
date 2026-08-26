@@ -369,50 +369,17 @@ def get_denoise_methods_response(*, get_denoise_methods: Callable[[], Any]) -> D
 
 def get_dimred_methods_response(*, list_dimred_methods: Callable[[], Dict[str, Any]]) -> Dict[str, Any]:
     base = list_dimred_methods()
-    param_suggestions: Dict[str, Any] = {
-        "pca": [
-            {"name": "n_components", "type": "int", "default": 5, "description": "Target components (1..features)."},
-        ],
-        "svd": [
-            {"name": "n_components", "type": "int", "default": 5, "description": "Target components for TruncatedSVD."},
-        ],
-        "spca": [{"name": "n_components", "type": "int", "default": 5}],
-        "kpca": [
-            {"name": "n_components", "type": "int", "default": 5},
-            {"name": "kernel", "type": "str", "default": "rbf"},
-            {"name": "gamma", "type": "float|null", "default": None},
-        ],
-        "isomap": [
-            {"name": "n_components", "type": "int", "default": 2},
-            {"name": "n_neighbors", "type": "int", "default": 10},
-        ],
-        "laplacian": [
-            {"name": "n_components", "type": "int", "default": 2},
-            {"name": "n_neighbors", "type": "int", "default": 10},
-        ],
-        "umap": [
-            {"name": "n_components", "type": "int", "default": 2},
-            {"name": "n_neighbors", "type": "int", "default": 15},
-            {"name": "min_dist", "type": "float", "default": 0.1},
-        ],
-        "tsne": [
-            {"name": "n_components", "type": "int", "default": 2},
-            {"name": "perplexity", "type": "float", "default": 30.0},
-            {"name": "learning_rate", "type": "float", "default": 200.0},
-            {"name": "n_iter", "type": "int", "default": 1000},
-        ],
-    }
-    items = []
-    for name, info in base.items():
-        items.append(
+    return {
+        "methods": [
             {
                 "method": name,
                 "available": bool(info.get("available")),
                 "description": info.get("description"),
-                "params": param_suggestions.get(name, []),
+                "params": list(info.get("params") or []),
             }
-        )
-    return {"methods": items}
+            for name, info in base.items()
+        ]
+    }
 
 
 def get_wavelets_response() -> Dict[str, Any]:

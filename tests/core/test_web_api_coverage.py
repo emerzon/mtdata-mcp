@@ -676,14 +676,18 @@ class TestGetDenoiseMethods:
 class TestGetDimredMethods:
     def test_returns_items_with_params(self):
         base = {
-            "pca": {"available": True, "description": "PCA"},
-            "umap": {"available": False, "description": "UMAP"},
+            "pca": {
+                "available": True,
+                "description": "PCA",
+                "params": [{"name": "n_components", "required": True}],
+            },
+            "umap": {"available": False, "description": "UMAP", "params": []},
         }
         with patch("mtdata.core.web_api._list_dimred_methods", return_value=base):
             res = web_api.get_dimred_methods()
         methods = {m["method"]: m for m in res["methods"]}
         assert methods["pca"]["available"] is True
-        assert len(methods["pca"]["params"]) > 0
+        assert methods["pca"]["params"] == [{"name": "n_components", "required": True}]
         assert methods["umap"]["available"] is False
 
     def test_unknown_method_gets_empty_params(self):
