@@ -11,6 +11,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Iterator, Optional, Protocol
 
+from mtdata.bootstrap.env import get_float_env
+
 _DEFAULT_TTL_SECONDS = 86_400.0  # 24 hours
 _DEFAULT_DATABASE_PATH = Path.home() / ".mtdata" / "trade_idempotency.sqlite3"
 
@@ -248,9 +250,8 @@ class SQLiteIdempotencyStore:
 def create_default_idempotency_store() -> SQLiteIdempotencyStore:
     """Create the durable store configured for all trading transports."""
     path = os.getenv("MTDATA_TRADE_IDEMPOTENCY_DB") or str(_DEFAULT_DATABASE_PATH)
-    raw_ttl = os.getenv("MTDATA_TRADE_IDEMPOTENCY_TTL_SECONDS", "")
-    try:
-        ttl_seconds = float(raw_ttl) if raw_ttl else _DEFAULT_TTL_SECONDS
-    except ValueError:
-        ttl_seconds = _DEFAULT_TTL_SECONDS
+    ttl_seconds = get_float_env(
+        "MTDATA_TRADE_IDEMPOTENCY_TTL_SECONDS",
+        _DEFAULT_TTL_SECONDS,
+    )
     return SQLiteIdempotencyStore(path, ttl_seconds=max(ttl_seconds, 1.0))

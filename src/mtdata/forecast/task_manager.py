@@ -30,6 +30,7 @@ _LIVE_TASK_MANAGERS: weakref.WeakSet = weakref.WeakSet()
 import numpy as np
 import pandas as pd
 
+from ..bootstrap.env import get_float_env, get_int_env
 from .forecast_registry import ForecastRegistry
 from .interface import (
     CancelToken,
@@ -81,32 +82,17 @@ _POSIX_SIGNAL_NAMES = {
 
 
 def _configured_task_ttl_seconds() -> float:
-    raw = os.environ.get("MTDATA_FORECAST_TASK_TTL_SECONDS", _TASK_TTL_DEFAULT)
-    try:
-        return max(60.0, float(raw))
-    except (TypeError, ValueError):
-        logger.warning(
-            "Invalid MTDATA_FORECAST_TASK_TTL_SECONDS=%r; using %.0f seconds",
-            raw,
-            _TASK_TTL_DEFAULT,
-        )
-        return _TASK_TTL_DEFAULT
+    return max(60.0, get_float_env("MTDATA_FORECAST_TASK_TTL_SECONDS", _TASK_TTL_DEFAULT))
 
 
 def _configured_orphan_stale_seconds() -> float:
-    raw = os.environ.get(
-        "MTDATA_FORECAST_ORPHAN_STALE_SECONDS",
-        _ORPHAN_STALE_SECONDS_DEFAULT,
-    )
-    try:
-        return max(5.0, float(raw))
-    except (TypeError, ValueError):
-        logger.warning(
-            "Invalid MTDATA_FORECAST_ORPHAN_STALE_SECONDS=%r; using %.0f seconds",
-            raw,
+    return max(
+        5.0,
+        get_float_env(
+            "MTDATA_FORECAST_ORPHAN_STALE_SECONDS",
             _ORPHAN_STALE_SECONDS_DEFAULT,
-        )
-        return _ORPHAN_STALE_SECONDS_DEFAULT
+        ),
+    )
 
 
 def _pid_is_alive(pid: Optional[int]) -> bool:
@@ -613,8 +599,8 @@ class TaskManager:
         store: ModelStore | None = None,
         job_store: JobStore | None = None,
     ) -> None:
-        workers = max_workers or int(os.environ.get("MTDATA_TRAIN_WORKERS", _MAX_WORKERS_DEFAULT))
-        heavy_workers = heavy_limit or int(os.environ.get("MTDATA_HEAVY_LIMIT", _HEAVY_WORKERS_DEFAULT))
+        workers = max_workers or get_int_env("MTDATA_TRAIN_WORKERS", _MAX_WORKERS_DEFAULT)
+        heavy_workers = heavy_limit or get_int_env("MTDATA_HEAVY_LIMIT", _HEAVY_WORKERS_DEFAULT)
 
         self._light_worker_limit = workers
         self._heavy_worker_limit = heavy_workers
@@ -653,22 +639,22 @@ class TaskManager:
         normalized = str(category or "moderate").lower()
         env_key = f"MTDATA_TRAIN_TIMEOUT_{normalized.upper()}_SECONDS"
         fallback = _TIMEOUT_DEFAULTS.get(normalized, _TIMEOUT_DEFAULTS["moderate"])
-        try:
-            return max(1.0, float(os.environ.get(env_key, fallback)))
-        except (TypeError, ValueError):
-            return fallback
+        return max(1.0, get_float_env(env_key, fallback))
 
     def _heartbeat_interval(self) -> float:
-        try:
-            return max(0.5, float(os.environ.get("MTDATA_FORECAST_HEARTBEAT_SECONDS", _HEARTBEAT_INTERVAL_DEFAULT)))
-        except (TypeError, ValueError):
-            return _HEARTBEAT_INTERVAL_DEFAULT
+        return max(
+            0.5,
+            get_float_env("MTDATA_FORECAST_HEARTBEAT_SECONDS", _HEARTBEAT_INTERVAL_DEFAULT),
+        )
 
     def _cancel_grace_seconds(self) -> float:
-        try:
-            return max(0.1, float(os.environ.get("MTDATA_FORECAST_CANCEL_GRACE_SECONDS", _CANCEL_GRACE_SECONDS_DEFAULT)))
-        except (TypeError, ValueError):
-            return _CANCEL_GRACE_SECONDS_DEFAULT
+        return max(
+            0.1,
+            get_float_env(
+                "MTDATA_FORECAST_CANCEL_GRACE_SECONDS",
+                _CANCEL_GRACE_SECONDS_DEFAULT,
+            ),
+        )
 
     def _cache_task(self, task: TrainingTask) -> None:
         self._tasks[task.task_id] = task
@@ -1561,13 +1547,10 @@ class TaskManager:
         return len(removed_ids)
 
     def _sweeper_loop(self) -> None:
-        try:
-            interval = max(
-                5.0,
-                float(os.environ.get("MTDATA_FORECAST_SWEEPER_SECONDS", _SWEEPER_INTERVAL_DEFAULT)),
-            )
-        except (TypeError, ValueError):
-            interval = _SWEEPER_INTERVAL_DEFAULT
+        interval = max(
+            5.0,
+            get_float_env("MTDATA_FORECAST_SWEEPER_SECONDS", _SWEEPER_INTERVAL_DEFAULT),
+        )
 
         while not self._sweeper_stop.wait(interval):
             try:
