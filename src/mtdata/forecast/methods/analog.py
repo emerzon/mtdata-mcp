@@ -1,3 +1,4 @@
+import warnings
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -30,27 +31,6 @@ def _normalize_engine_metric_scale(
         )
         return metric, "zscore"
     return requested_metric, requested_scale
-
-
-def _weighted_quantile(values: np.ndarray, weights: np.ndarray, quantile: float) -> float:
-    vals = np.asarray(values, dtype=float).ravel()
-    w = np.asarray(weights, dtype=float).ravel()
-    mask = np.isfinite(vals) & np.isfinite(w) & (w > 0)
-    if not np.any(mask):
-        return float("nan")
-    vals = vals[mask]
-    w = w[mask]
-    order = np.argsort(vals)
-    vals = vals[order]
-    w = w[order]
-    cum = np.cumsum(w)
-    total = float(cum[-1])
-    if total <= 0:
-        return float("nan")
-    cutoff = float(max(0.0, min(1.0, quantile))) * total
-    idx = int(np.searchsorted(cum, cutoff, side="left"))
-    idx = max(0, min(idx, len(vals) - 1))
-    return float(vals[idx])
 
 
 def _weighted_nanstd(values: np.ndarray, weights: np.ndarray) -> float:
@@ -1216,11 +1196,26 @@ class AnalogMethod(ForecastMethod):
             raise RuntimeError(self._format_timeframe_failure(symbol, primary_tf, "Analog ensemble rejected"))
 
         quality_gate_state["status"] = "passed" if quality_gate_thresholds else "not_configured"
-        p50 = np.asarray([_weighted_quantile(futures_matrix[:, col], path_weights, 0.5) for col in range(futures_matrix.shape[1])], dtype=float)
         lower_q = max(0.0, min(1.0, ci_alpha / 2.0))
         upper_q = max(0.0, min(1.0, 1.0 - ci_alpha / 2.0))
-        p_lower = np.asarray([_weighted_quantile(futures_matrix[:, col], path_weights, lower_q) for col in range(futures_matrix.shape[1])], dtype=float)
-        p_upper = np.asarray([_weighted_quantile(futures_matrix[:, col], path_weights, upper_q) for col in range(futures_matrix.shape[1])], dtype=float)
+        weight_row = np.asarray(path_weights, dtype=float)
+        weight_row = np.where(np.isfinite(weight_row) & (weight_row > 0), weight_row, 0.0)
+        broadcast_path_weights = np.broadcast_to(
+            weight_row.reshape(-1, 1),
+            futures_matrix.shape,
+        )
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", message="All-NaN slice encountered")
+            p_lower, p50, p_upper = (
+                np.asarray(values, dtype=float)
+                for values in np.nanquantile(
+                    futures_matrix,
+                    [lower_q, 0.5, upper_q],
+                    axis=0,
+                    method="inverted_cdf",
+                    weights=broadcast_path_weights,
+                )
+            )
         spread = float(np.nanmean([_weighted_nanstd(futures_matrix[:, col], path_weights) for col in range(futures_matrix.shape[1])]))
         stdev = spread
         self._update_timeframe_diagnostic(
