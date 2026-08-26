@@ -348,7 +348,7 @@ def _resolve_method_search_space(
     if not method_scoped:
         space = dict(raw)
         space.pop("method", None)
-        return space
+        return {key: _normalize_param_space(spec) for key, spec in space.items()}
 
     resolved: Dict[str, Any] = {}
     shared = raw.get(_SEARCH_SPACE_SHARED_KEY)
@@ -356,45 +356,100 @@ def _resolve_method_search_space(
         resolved.update(shared)
     if method_name and isinstance(raw.get(method_name), dict):
         resolved.update(raw[method_name])
-    return resolved
+    return {key: _normalize_param_space(spec) for key, spec in resolved.items()}
+
+
+def _try_int_bound(value: Any) -> Optional[int]:
+    try:
+        return int(value)
+    except Exception:
+        return None
+
+
+def _try_float_bound(value: Any) -> Optional[float]:
+    try:
+        return float(value)
+    except Exception:
+        return None
+
+
+def _normalize_param_space(space: Any) -> Dict[str, Any]:
+    """Coerce one search-space mapping into a stable typed structure."""
+    spec = dict(space or {}) if isinstance(space, dict) else {}
+    kind = str(spec.get("type", "float")).lower()
+    if kind == "categorical":
+        return {"type": "categorical", "choices": list(spec.get("choices") or [])}
+    if kind in {"int", "float"} and "has_min" in spec and "has_max" in spec:
+        return spec
+    if kind == "int":
+        return {
+            "type": "int",
+            "min": _try_int_bound(spec["min"]) if "min" in spec else None,
+            "max": _try_int_bound(spec["max"]) if "max" in spec else None,
+            "has_min": "min" in spec,
+            "has_max": "max" in spec,
+        }
+    return {
+        "type": "float",
+        "min": _try_float_bound(spec["min"]) if "min" in spec else None,
+        "max": _try_float_bound(spec["max"]) if "max" in spec else None,
+        "has_min": "min" in spec,
+        "has_max": "max" in spec,
+        "log": bool(spec.get("log", False)),
+    }
+
+
+def _resolved_int_bound(
+    space: Dict[str, Any],
+    key: str,
+    *,
+    present_key: str,
+    fallback: int,
+    invalid: int,
+) -> int:
+    if space.get(key) is not None:
+        return int(space[key])
+    if space.get(present_key):
+        return int(invalid)
+    return int(fallback)
+
+
+def _resolved_float_bound(
+    space: Dict[str, Any],
+    key: str,
+    *,
+    present_key: str,
+    fallback: float,
+    invalid: float,
+) -> float:
+    if space.get(key) is not None:
+        return float(space[key])
+    if space.get(present_key):
+        return float(invalid)
+    return float(fallback)
 
 
 def _suggest_optuna_param(trial: Any, name: str, space: Dict[str, Any]) -> Any:
-    t = str(space.get('type', 'float')).lower()
-    if t == 'categorical':
-        choices = list(space.get('choices') or [])
+    space = _normalize_param_space(space)
+    kind = str(space.get("type", "float")).lower()
+    if kind == "categorical":
+        choices = list(space.get("choices") or [])
         if not choices:
             return None
         return trial.suggest_categorical(name, choices)
-    if t == 'int':
-        lo_raw = space.get('min', 0)
-        hi_raw = space.get('max', lo_raw)
-        try:
-            lo = int(lo_raw)
-        except Exception:
-            lo = 0
-        try:
-            hi = int(hi_raw)
-        except Exception:
-            hi = lo
+    if kind == "int":
+        lo = _resolved_int_bound(space, "min", present_key="has_min", fallback=0, invalid=0)
+        hi = _resolved_int_bound(space, "max", present_key="has_max", fallback=lo, invalid=lo)
         if lo > hi:
             lo, hi = hi, lo
         return int(trial.suggest_int(name, lo, hi))
-    lo_raw = space.get('min', 0.0)
-    hi_raw = space.get('max', None)
-    try:
-        lo = float(lo_raw)
-    except Exception:
-        lo = 0.0
-    if hi_raw is None:
-        hi_raw = max(lo, 1.0)
-    try:
-        hi = float(hi_raw)
-    except Exception:
-        hi = max(lo, 1.0)
+    lo = _resolved_float_bound(space, "min", present_key="has_min", fallback=0.0, invalid=0.0)
+    hi = _resolved_float_bound(
+        space, "max", present_key="has_max", fallback=max(lo, 1.0), invalid=max(lo, 1.0)
+    )
     if lo > hi:
         lo, hi = hi, lo
-    if bool(space.get('log', False)) and lo > 0.0 and hi > 0.0:
+    if bool(space.get("log", False)) and lo > 0.0 and hi > 0.0:
         return float(trial.suggest_float(name, lo, hi, log=True))
     return float(trial.suggest_float(name, lo, hi))
 
@@ -528,84 +583,62 @@ def _failure_causes(history: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 def _sample_param(space: Dict[str, Any], rng: random.Random) -> Any:
-    t = str(space.get('type', 'float')).lower()
-    if t == 'categorical':
-        choices = space.get('choices') or []
+    space = _normalize_param_space(space)
+    kind = str(space.get("type", "float")).lower()
+    if kind == "categorical":
+        choices = space.get("choices") or []
         return rng.choice(list(choices)) if choices else None
-    if t == 'int':
-        lo_raw = space.get('min', 0)
-        hi_raw = space.get('max', lo_raw)
-        try:
-            lo = int(lo_raw)
-        except Exception:
-            lo = 0
-        try:
-            hi = int(hi_raw)
-        except Exception:
-            hi = lo
+    if kind == "int":
+        lo = _resolved_int_bound(space, "min", present_key="has_min", fallback=0, invalid=0)
+        hi = _resolved_int_bound(space, "max", present_key="has_max", fallback=lo, invalid=lo)
         if lo > hi:
             lo, hi = hi, lo
         return rng.randint(lo, hi)
-    # float (optionally log)
-    lo_raw = space.get('min', 0.0)
-    hi_raw = space.get('max', None)
-    try:
-        lo = float(lo_raw)
-    except Exception:
-        lo = 0.0
-    if hi_raw is None:
-        hi_raw = max(lo, 1.0)
-    try:
-        hi = float(hi_raw)
-    except Exception:
-        hi = max(lo, 1.0)
+    lo = _resolved_float_bound(space, "min", present_key="has_min", fallback=0.0, invalid=0.0)
+    hi = _resolved_float_bound(
+        space, "max", present_key="has_max", fallback=max(lo, 1.0), invalid=max(lo, 1.0)
+    )
     if lo > hi:
         lo, hi = hi, lo
-    if bool(space.get('log', False)) and lo > 0 and hi > 0:
+    if bool(space.get("log", False)) and lo > 0 and hi > 0:
         import math as _m
-        a = _m.log(lo); b = _m.log(hi)
+        a = _m.log(lo)
+        b = _m.log(hi)
         x = rng.random() * (b - a) + a
         return float(_m.exp(x))
     return rng.random() * (hi - lo) + lo
 
 
 def _mutate_value(value: Any, space: Dict[str, Any], rng: random.Random, strength: float = 0.2) -> Any:
-    t = str(space.get('type', 'float')).lower()
-    if t == 'categorical':
-        choices = list(space.get('choices') or [])
+    space = _normalize_param_space(space)
+    kind = str(space.get("type", "float")).lower()
+    if kind == "categorical":
+        choices = list(space.get("choices") or [])
         if not choices:
             return value
         if len(choices) == 1:
             return choices[0]
-        # pick a different choice
         cand = [c for c in choices if c != value]
         return rng.choice(cand) if cand else value
-    if t == 'int':
-        lo_raw = space.get('min', value)
-        hi_raw = space.get('max', value)
-        try:
-            lo = int(lo_raw if lo_raw is not None else (value if value is not None else 0))
-        except Exception:
-            lo = 0
-        try:
-            hi = int(hi_raw if hi_raw is not None else lo)
-        except Exception:
-            hi = lo
+    if kind == "int":
+        value_lo = int(value) if value is not None else 0
+        lo = _resolved_int_bound(
+            space, "min", present_key="has_min", fallback=value_lo, invalid=0
+        )
+        hi = _resolved_int_bound(
+            space, "max", present_key="has_max", fallback=value_lo, invalid=lo
+        )
         if value is None:
             value = int((lo + hi) // 2)
         span = max(1, int(round((hi - lo) * strength)))
         return max(lo, min(hi, int(value) + rng.randint(-span, span)))
-    # float
-    lo_raw = space.get('min', value)
-    hi_raw = space.get('max', value)
-    try:
-        lo = float(lo_raw if lo_raw is not None else (value if value is not None else 0.0))
-    except Exception:
-        lo = 0.0
-    try:
-        hi = float(hi_raw if hi_raw is not None else (lo + 1.0))
-    except Exception:
-        hi = max(lo, 1.0)
+    value_lo = float(value) if value is not None else 0.0
+    lo = _resolved_float_bound(
+        space, "min", present_key="has_min", fallback=value_lo, invalid=0.0
+    )
+    hi = _resolved_float_bound(
+        space, "max", present_key="has_max", fallback=value_lo, invalid=max(lo, 1.0)
+    )
     if value is None:
         try:
             value = float((lo + hi) * 0.5)
