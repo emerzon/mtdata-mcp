@@ -2,7 +2,7 @@ import argparse
 import inspect
 from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
-from ....utils.coercion import UNPARSED_BOOL, parse_bool_like
+from ....utils.coercion import UNPARSED_BOOL, parse_bool_like, parse_strict_bool
 from ...param_help import COMMAND_PARAM_HELP_OVERRIDES as _COMMAND_PARAM_HELP_OVERRIDES
 
 ToolInfo = Dict[str, Any]
@@ -112,6 +112,9 @@ _FORECAST_METHOD_LITERAL_MARKERS = {
 }
 
 
+_TRADING_MUTATION_COMMANDS = frozenset({"trade_place", "trade_modify", "trade_close"})
+
+
 def _parse_cli_bool_value(value: Any) -> str:
     """Accept the shared bool vocabulary and return argparse's canonical token."""
     parsed = parse_bool_like(value)
@@ -119,6 +122,14 @@ def _parse_cli_bool_value(value: Any) -> str:
         raise argparse.ArgumentTypeError(
             "expected true/false, 1/0, yes/no, or on/off"
         )
+    return "true" if bool(parsed) else "false"
+
+
+def _parse_cli_strict_bool_value(value: Any) -> str:
+    """Accept only canonical true/false for trading mutation flags."""
+    parsed = parse_strict_bool(value)
+    if parsed is UNPARSED_BOOL:
+        raise argparse.ArgumentTypeError("expected true or false")
     return "true" if bool(parsed) else "false"
 
 
@@ -479,7 +490,11 @@ def resolve_param_kwargs(
             if base_type in (int, float, str):
                 kwargs["type"] = base_type
             elif base_type is bool:
-                kwargs["type"] = _parse_cli_bool_value
+                kwargs["type"] = (
+                    _parse_cli_strict_bool_value
+                    if str(cmd_name or "") in _TRADING_MUTATION_COMMANDS
+                    else _parse_cli_bool_value
+                )
                 kwargs["choices"] = ["true", "false"]
 
             if origin in (list, tuple):

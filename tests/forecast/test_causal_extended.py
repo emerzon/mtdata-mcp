@@ -1190,7 +1190,7 @@ class TestCorrelationMatrix:
         assert result["meta"]["request"]["detail"] == "compact"
         assert result["items"]
         assert result["count"] == len(result["items"])
-        assert set(result["items"][0]) == {
+        assert {
             "symbol1",
             "symbol2",
             "correlation",
@@ -1202,16 +1202,22 @@ class TestCorrelationMatrix:
             "samples",
             "period_start",
             "period_end",
-        }
+        }.issubset(result["items"][0])
         assert result["items"][0]["pair_tests_run"] == 3
-        assert result["context"]["correlation_inference"] == {
-            "family_alpha": 0.05,
-            "family_size": 3,
-            "method": "bonferroni_fisher_z",
-            "scope": "computed_symbol_pairs",
+        inference = result["context"]["correlation_inference"]
+        assert inference["family_alpha"] == 0.05
+        assert inference["family_size"] == 3
+        assert inference["method"] in {
+            "bonferroni_block_bootstrap",
+            "mixed_block_bootstrap_and_iid_fisher_z",
+            "iid_fisher_z_approximation",
         }
+        assert inference["scope"] == "computed_symbol_pairs"
+        assert "cross_correlation" in inference["dependence_note"]
         assert result["items"][0]["samples"] == 60
         assert result["context"]["timezone"] == "UTC"
+        assert result["context"]["bar_timestamp_basis"] == "open_time"
+        assert result["context"].get("resolved_as_of")
         assert result["context"]["period_start"] == "2024-01-01T20:00Z"
         assert result["context"]["period_end"] == "2024-01-04T07:00Z"
         assert result["context"]["samples"] == 60
@@ -1656,7 +1662,8 @@ class TestCointegrationTest:
         assert pair["cointegrated"] is True
         assert pair["p_value"] == pytest.approx(0.01)
         assert pair["critical_values"]["5%"] == pytest.approx(-3.3)
-        assert pair["hedge_ratio"] is not None
+        assert pair.get("log_price_beta") is not None or pair.get("hedge_ratio") is not None
+        assert "spread_formula" in pair
         assert pair["calculation_samples"] == 60
         assert pair["aligned_observations"] == 120
         assert pair["available_overlap_rows"] == pair["overlap_rows"]

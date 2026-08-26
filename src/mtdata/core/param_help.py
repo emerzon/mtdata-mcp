@@ -139,7 +139,22 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "available in this installation."
     ),
     ("trade_var_cvar_calculate", "method"): (
-        "Tail-risk method: historical, parametric, cornish_fisher, or ewma."
+        "Tail-risk method: historical (empirical observed P&L quantile), "
+        "parametric, cornish_fisher, or ewma. Not the bootstrap scenarios used "
+        "by portfolio_risk_decompose method=bootstrap_historical."
+    ),
+    ("trade_var_cvar_calculate", "confidence"): (
+        "VaR/CVaR tail confidence as a fraction such as 0.95 or 0.99. "
+        "Must satisfy 0.5 < confidence < 1."
+    ),
+    ("portfolio_risk_decompose", "method"): (
+        "Scenario generator: filtered_historical or bootstrap_historical. "
+        "bootstrap_historical resamples historical windows; it is not the "
+        "empirical-quantile historical method on trade_var_cvar_calculate."
+    ),
+    ("portfolio_risk_decompose", "confidence"): (
+        "VaR/CVaR tail confidence levels. Each value must satisfy "
+        "0.5 < confidence < 1."
     ),
     ("trade_var_cvar_calculate", "symbol"): (
         "Optional scope: calculate VaR/CVaR for currently open positions in this "
@@ -254,12 +269,14 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "top week buys/sales, or top owner trade/buys/sales."
     ),
     ("calendar", "start"): (
-        "Inclusive start. YYYY-MM-DD or a relative phrase such as today or "
-        "2 days ago."
+        "Inclusive range start (YYYY-MM-DD, ISO timestamp, or relative such as "
+        "today). Timestamps keep their time-of-day and filter scheduled_at; "
+        "date-only values select the America/New_York calendar day."
     ),
     ("calendar", "end"): (
-        "Inclusive end. YYYY-MM-DD or a relative phrase such as today or "
-        "2 days ago."
+        "Inclusive range end (YYYY-MM-DD, ISO timestamp, or relative such as "
+        "today). Timestamps keep their time-of-day and filter scheduled_at; "
+        "date-only values select the America/New_York calendar day."
     ),
     ("calendar", "upcoming"): (
         "When omitted with no start/end, economic calendar defaults to upcoming "
@@ -337,6 +354,14 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "Number of recent observations to analyze when fetch_limit is omitted, "
         "and the summary window when fetch_limit is provided. Extra history may "
         "be fetched for feature warmup but is excluded from model fitting."
+    ),
+    ("regime_detect", "threshold"): (
+        "BOCPD-only change-point probability threshold (0-1). Rejected for hmm, "
+        "pelt, and other non-BOCPD methods; omit it or pass --method bocpd."
+    ),
+    ("regime_detect", "target"): (
+        "Series used for detection. Default auto resolves to price for "
+        "rule_based and return for other methods."
     ),
     ("seasonality_detect", "lookback"): (
         "Historical bars used to detect seasonal periods; must be at least 31."
@@ -444,6 +469,49 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "Option knock-in/knock-out barrier price level, in the same units as spot "
         "and strike. This is a numeric parametric pricer; it does not fetch a symbol quote."
     ),
+    ("options_barrier_price", "model"): (
+        "Pricing model: black_scholes_merton (default analytic barrier with "
+        "flat --volatility) or heston (FdHestonBarrierEngine using the five "
+        "calibrated Heston parameters)."
+    ),
+    ("options_barrier_price", "heston_v0"): (
+        "Heston initial variance v0. Required with --model heston; from "
+        "options_heston_calibrate params.v0."
+    ),
+    ("options_barrier_price", "heston_kappa"): (
+        "Heston mean-reversion speed kappa. Required with --model heston."
+    ),
+    ("options_barrier_price", "heston_theta"): (
+        "Heston long-run variance theta. Required with --model heston."
+    ),
+    ("options_barrier_price", "heston_sigma"): (
+        "Heston volatility of variance sigma. Required with --model heston."
+    ),
+    ("options_barrier_price", "heston_rho"): (
+        "Heston spot-variance correlation rho in [-1, 1]. Required with --model heston."
+    ),
+    ("options_barrier_price", "volatility"): (
+        "Annualized Black volatility as a decimal fraction; 0.20 = 20%. Used "
+        "only with --model black_scholes_merton. For a smile-consistent price, "
+        "use --model heston with calibrated parameters."
+    ),
+    ("options_chain", "quote_usable_only"): (
+        "Keep only contracts with a provider option-quote timestamp and a "
+        "two-sided live quote. Yahoo and Tradier do not supply quote timestamps, "
+        "so this filter is rejected with capability_unavailable before querying. "
+        "Use last_trade_recent_and_market_two_sided or options_heston_calibrate."
+    ),
+    ("options_chain", "max_quote_age_seconds"): (
+        "Maximum age in seconds for a provider option-quote timestamp. Yahoo "
+        "and Tradier do not supply quote timestamps, so this filter is rejected "
+        "with capability_unavailable before querying."
+    ),
+    ("volume_profile_levels", "volume_source"): (
+        "Volume weight: auto, real_volume, tick_volume, volume_real, volume, or "
+        "tick_count. tick_count is broker/provider tick rows and is rejected "
+        "with source=m1_bars; use tick_volume for M1 bars or source=ticks for "
+        "true tick counts."
+    ),
     ("strategy_validate", "candidates"): (
         "JSON strategy candidate list. Built-in example: "
         "'[{\"id\":\"cross\",\"type\":\"builtin_strategy\","
@@ -477,7 +545,10 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
     ),
     ("equity_profile", "symbol"): "US equity ticker, e.g. AAPL or TSLA.",
     ("options_heston_calibrate", "calendar"): (
-        "QuantLib calendar name used by calibration helpers, such as UnitedStates.NYSE or NullCalendar."
+        "QuantLib calendar for valuation timezone and the reported business-day "
+        "days_to_expiry diagnostic, such as UnitedStates.NYSE or NullCalendar. "
+        "Calibration helper maturity is fixed to calendar days ending on the "
+        "contract expiry (NullCalendar); this flag does not change helper dates."
     ),
     ("options_heston_calibrate", "maturity_basis"): (
         "Basis for the reported days_to_expiry diagnostic; calibration remains anchored to the contract expiry date."
@@ -572,8 +643,9 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "the complete labeled series."
     ),
     ("labels_triple_barrier", "lookback"): (
-        "Number of labeled entries to calculate; the tool fetches lookback plus "
-        "horizon bars."
+        "Optional tail cap of labeled entries. When start/end are omitted the "
+        "default is 50 and the tool fetches lookback plus horizon bars. An "
+        "explicit date range is analyzed in full unless lookback is also set."
     ),
     ("labels_triple_barrier", "barriers"): (
         "Barrier pair as KV or JSON. Prefer the shell-safe form "
@@ -588,8 +660,23 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
     ),
     ("market_scan", "limit"): "Max matching symbols to return.",
     ("news", "limit"): (
-        "Global maximum across all news/event buckets. One upcoming event is "
-        "reserved when available; use --limit-per-bucket to cap each family separately."
+        "Global maximum across all news/event buckets. Compact unified view "
+        "defaults to 10; otherwise unbounded. One upcoming event is reserved "
+        "when available; use --limit-per-bucket to cap each family separately."
+    ),
+    ("news", "start"): (
+        "Inclusive UTC publication start. Date-only values start at 00:00 UTC."
+    ),
+    ("news", "end"): (
+        "Inclusive UTC publication end. Date-only values include the full UTC day."
+    ),
+    ("news", "max_age"): (
+        "Keep items published within this age. Seconds or a duration such as "
+        "3600, 60m, or 1h."
+    ),
+    ("market_microstructure_analyze", "minutes_back"): (
+        "Look back this many minutes from end/now instead of using start. "
+        "Defaults to 60 when start/end are omitted."
     ),
     ("news", "limit_per_bucket"): (
         "Maximum rows in each news/event family while preserving the separate buckets."
@@ -614,9 +701,10 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "--include-sections, or --max-sections to bound work."
     ),
     ("report_generate", "max_runtime"): (
-        "Cooperative runtime budget in seconds (1-3600). Sections whose "
-        "estimated cost does not fit are omitted, and new sub-tools stop after "
-        "the deadline; an active native/MT5 call is allowed to finish safely."
+        "Cooperative wall-clock budget in seconds (1-3600). Static section "
+        "estimates are advisory and never consume the budget; new sub-tools "
+        "stop after the actual deadline, and an active native/MT5 call is "
+        "allowed to finish safely."
     ),
     ("report_generate", "allow_partial"): (
         "Return success=true when at least one report section is usable while "
@@ -762,18 +850,26 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
     ),
     ("trade_history", "minutes_back"): (
         "History lookback in minutes. Defaults to 10080 minutes (7 days) when "
-        "start/end and minutes_back are omitted."
+        "start/end and minutes_back are omitted. Maximum is 10512000 minutes "
+        "(20 years)."
     ),
     ("trade_journal_analyze", "minutes_back"): (
         "Journal history lookback in minutes. Defaults to 10080 minutes (7 days) "
-        "when start/end and minutes_back are omitted."
+        "when start/end and minutes_back are omitted. Maximum is 10512000 minutes "
+        "(20 years)."
     ),
     ("trade_journal_analyze", "limit"): (
-        "Maximum per-trade rows returned in full detail (default 50). Period "
-        "statistics always analyze all realized exit deals in the resolved window."
+        "Maximum unique per-trade rows returned in full detail (default 50), "
+        "including items plus ranked best/worst lists. Period statistics always "
+        "analyze all realized exit deals in the resolved window."
+    ),
+    ("trade_history", "limit"): (
+        "Maximum rows returned per page. Defaults to 20; the safety cap is 500. "
+        "Use --cursor for additional pages."
     ),
     ("trade_execution_quality", "minutes_back"): (
-        "Execution-history lookback in minutes (default 10080 = 7 days)."
+        "Execution-history lookback in minutes (default 10080 = 7 days). "
+        "Maximum is 10512000 minutes (20 years)."
     ),
     ("trade_execution_quality", "limit"): (
         "Maximum eligible fills to analyze (default 200)."
@@ -915,7 +1011,7 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
     ),
     ("portfolio_risk_decompose", "ewma_half_life"): (
         "EWMA volatility half-life in bars of the requested timeframe. "
-        "Used only by method=filtered_historical; omit it for historical."
+        "Used only by method=filtered_historical; omit it for bootstrap_historical."
     ),
     ("portfolio_risk_decompose", "simulations"): (
         "Monte Carlo scenario count used for portfolio tail-risk estimates."
@@ -974,8 +1070,9 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "cannot be used with as_of."
     ),
     ("labels_triple_barrier", "end"): (
-        "Optional UTC cutoff. With lookback, fetches the most recent labeled "
-        "window ending at this time. Cannot be combined with as_of."
+        "Optional UTC cutoff. Combined with start, this is the analysis window "
+        "unless an explicit lookback tail-cap is also set. Cannot be combined "
+        "with as_of."
     ),
     ("labels_triple_barrier", "as_of"): (
         "Point-in-time cutoff for labeled history. Cannot be combined with start/end."

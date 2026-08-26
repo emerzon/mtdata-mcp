@@ -1382,6 +1382,7 @@ class TestSymbolsDescribe:
         ]
 
         result = _get_symbols_describe()("EURUSD")
+        standard = _get_symbols_describe()("EURUSD", detail="standard")["details"]
 
         details = result["details"]
         assert details["quote_source"] == "mt5.symbol_info_tick"
@@ -1391,7 +1392,8 @@ class TestSymbolsDescribe:
         assert details["usable_for_live_trading"] is True
         assert details["bid"] == 1.1
         assert details["ask"] == 1.10009
-        assert details["mid"] == 1.100045
+        assert "mid" not in details
+        assert standard["mid"] == 1.100045
         assert details["spread"] == 0.00009
         assert details["spread_points"] == 9.0
         assert details["spread_pips"] == 0.9
@@ -1402,6 +1404,13 @@ class TestSymbolsDescribe:
             "previous_trading_day_close_to_refreshed_quote"
         )
         assert details["price_change_current_price_field"] == "bid"
+        assert details["price_change_current_price"] == 1.1
+        assert details["price_change_reference_price"] == 1.2
+        recomputed = (
+            (details["price_change_current_price"] - details["price_change_reference_price"])
+            / abs(details["price_change_reference_price"])
+        ) * 100.0
+        assert details["price_change_pct"] == pytest.approx(recomputed, abs=1e-6)
         assert details["price_change_period"] == {
             "start": "previous_trading_day_close",
             "end": "current_quote",
@@ -1617,15 +1626,18 @@ class TestSymbolsDescribe:
         fn = _get_symbols_describe()
         res = fn("EURUSD", detail="compact")
         sd = res["details"]
+        standard = fn("EURUSD", detail="standard")["details"]
 
         assert res["symbol"] == "EURUSD"
         assert "trade_mode" not in sd
         assert sd["trade_mode_label"] == "Longonly"
-        assert "Market" in sd["order_mode_labels"]
-        assert "Limit" in sd["order_mode_labels"]
-        assert sd["trade_tick_value"] == 1.25
-        assert "trade_tick_value_currency" in sd
-        assert sd["units"]["trade_tick_value"] == (
+        assert "order_mode_labels" not in sd
+        assert "Market" in standard["order_mode_labels"]
+        assert "Limit" in standard["order_mode_labels"]
+        assert "trade_tick_value" not in sd
+        assert standard["trade_tick_value"] == 1.25
+        assert "trade_tick_value_currency" in standard
+        assert standard["units"]["trade_tick_value"] == (
             "account_currency_per_tick_per_broker_lot"
         )
         assert "trade_tick_value_profit" not in sd
@@ -1741,22 +1753,25 @@ class TestSymbolsDescribe:
         fn = _get_symbols_describe()
         res = fn("EURUSD", detail="compact")
         sd = res["details"]
+        standard = fn("EURUSD", detail="standard")["details"]
 
         assert res["symbol"] == "EURUSD"
         assert sd["digits"] == 5
         assert sd["point"] == 0.00001
         assert sd["trade_contract_size"] == 100000.0
-        assert sd["trade_tick_size"] == 0.00001
-        assert sd["trade_tick_value"] == 1.0
+        assert "trade_tick_size" not in sd
+        assert "trade_tick_value" not in sd
+        assert standard["trade_tick_size"] == 0.00001
+        assert standard["trade_tick_value"] == 1.0
         assert "margin_initial" not in sd
         assert "margin_maintenance" not in sd
-        assert sd["broker_margin_initial_raw"] == 1000.0
-        assert sd["broker_margin_maintenance_raw"] == 500.0
-        assert "trade_place dry-run" in sd["margin_fields_note"]
+        assert "broker_margin_initial_raw" not in sd
+        assert "broker_margin_maintenance_raw" not in sd
+        assert "margin_fields_note" not in sd
         assert sd["volume_min"] == 0.01
         assert sd["volume_max"] == 100.0
         assert sd["volume_step"] == 0.01
-        assert sd["order_mode_labels"] == ["Market", "Limit"]
+        assert "order_mode_labels" not in sd
         for raw_key in (
             "bidlow",
             "bidhigh",
@@ -1808,21 +1823,25 @@ class TestSymbolsDescribe:
         symbols_mod.mt5.SYMBOL_SWAP_MODE_POINTS = 1
 
         fn = _get_symbols_describe()
-        res = fn("XAUUSD", detail="compact")
-        sd = res["details"]
+        compact = fn("XAUUSD", detail="compact")["details"]
+        standard = fn("XAUUSD", detail="standard")["details"]
 
-        assert sd["trade_exemode_label"] == "Market"
-        assert "Cfd" in sd["trade_calc_mode_label"]
-        assert "IOC" in sd["filling_mode_labels"]
-        assert sd["swap_mode_label"] == "Points"
-        assert sd["swap_long"] == -54.5
-        assert sd["swap_short"] == 46.6
-        assert sd["trade_stops_level"] == 10
-        assert sd["trade_freeze_level"] == 5
+        assert "swap_mode_label" not in compact
+        assert "swap_long" not in compact
+        assert "trade_exemode_label" not in compact
+        assert standard["trade_exemode_label"] == "Market"
+        assert "Cfd" in standard["trade_calc_mode_label"]
+        assert "IOC" in standard["filling_mode_labels"]
+        assert standard["swap_mode_label"] == "Points"
+        assert standard["swap_long"] == -54.5
+        assert standard["swap_short"] == 46.6
+        assert standard["trade_stops_level"] == 10
+        assert standard["trade_freeze_level"] == 5
         for raw_key in (
             "trade_exemode",
             "trade_calc_mode",
             "filling_mode",
             "swap_mode",
         ):
-            assert raw_key not in sd
+            assert raw_key not in compact
+            assert raw_key not in standard

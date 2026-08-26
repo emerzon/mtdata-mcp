@@ -792,6 +792,8 @@ def test_completed_bullish_harmonic_past_target_is_not_a_long_setup(monkeypatch)
     assert rows[0]["bias_scope"] == "historical_structure"
     assert rows[0]["target_price"] == 12.0
     assert rows[0]["invalidation_price"] == 9.5
+    assert rows[0]["target_price"] == rows[0]["price_levels"]["target_1"]
+    assert rows[0]["invalidation_price"] == rows[0]["price_levels"]["invalidation"]
 
     compact = _build_pattern_response(
         "EURUSD",
@@ -815,6 +817,49 @@ def test_completed_bullish_harmonic_past_target_is_not_a_long_setup(monkeypatch)
     assert compact["status_scope"] == "recent_bars"
     assert compact["top_patterns"][0]["target_price"] == 12.0
     assert compact["top_patterns"][0]["invalidation_price"] == 9.5
+
+
+def test_harmonic_public_prices_match_nested_rounded_copies(monkeypatch):
+    from mtdata.patterns.harmonic import HarmonicDetectorConfig, HarmonicPatternResult
+
+    df = pd.DataFrame(
+        {
+            "time": list(range(8)),
+            "open": [1.16] * 8,
+            "high": [1.17] * 8,
+            "low": [1.15] * 8,
+            "close": [1.16] * 8,
+        }
+    )
+    pattern = HarmonicPatternResult(
+        confidence=0.9,
+        start_index=0,
+        end_index=4,
+        start_time=0.0,
+        end_time=4.0,
+        name="Bullish Gartley",
+        status="completed",
+        bias="bullish",
+        entry_price=1.1679599999999999,
+        target_prices=[1.1671501599999998],
+        invalidation_price=1.1702959199999998,
+        details={"bias": "bullish", "entry_price": 1.16796},
+    )
+    monkeypatch.setattr(
+        core_patterns,
+        "_detect_harmonic_patterns",
+        lambda _df, _cfg: [pattern],
+    )
+    rows = core_patterns._format_harmonic_patterns(
+        df,
+        HarmonicDetectorConfig(recent_bars=20),
+    )
+    row = rows[0]
+    assert row["entry_price"] == row["price_levels"]["entry"]
+    assert row["reference_price"] == row["price_levels"]["entry"]
+    assert row["invalidation_price"] == row["price_levels"]["invalidation"]
+    assert row["target_price"] == row["price_levels"]["target_1"]
+    assert row["entry_price"] == row["details"]["entry_price"]
 
 
 def test_completed_bullish_harmonic_still_active_keeps_current_setup(monkeypatch):

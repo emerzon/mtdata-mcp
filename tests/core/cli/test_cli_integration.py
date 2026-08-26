@@ -3608,7 +3608,7 @@ def test_help_search_indexes_reviewed_examples():
         ("options_expirations", "AAPL", "EURUSD"),
         ("options_heston_calibrate", "AAPL", "EURUSD"),
         ("report_generate", "--template minimal", "<template>"),
-        ("portfolio_risk_decompose", "--method historical", "theta"),
+        ("portfolio_risk_decompose", "--method bootstrap_historical", "theta"),
         ("options_barrier_price", "150 --strike 155", "<"),
         ("wait_event", "--max-wait-seconds 1", "mtdata-cli wait_event\n"),
         ("trade_stress_test", "--shocks", "<shocks>"),

@@ -1735,6 +1735,18 @@ def test_execution_quality_separates_pending_wait_from_market_latency() -> None:
     assert duration_display["order_to_fill_duration"]["p95"] == "9.55s"
     assert result["items"][1]["fill_timing_basis"] == "pending_time_to_fill"
     assert any("not broker execution latency" in item for item in result["warnings"])
+    assert result["summary"]["slippage_basis"] == "explicit_order_price_all_fills"
+    assert (
+        result["price_quality_definition"]["market_fill_slippage_bps"]
+        == "market_fill_vs_submitted_order_price"
+    )
+    assert (
+        result["price_quality_definition"]["market_fill_vs_order_price_bps"]
+        == "market_fill_vs_submitted_order_price"
+    )
+    assert result["summary"]["market_fill_vs_order_price_bps"]["mean"] is not None
+    arrival_stats = result["summary"]["market_fill_vs_arrival_quote_bps"]
+    assert all(value is None for value in arrival_stats.values())
 
 
 def test_execution_quality_separates_pending_opportunity_cost_from_slippage() -> None:
@@ -1827,6 +1839,45 @@ def test_execution_quality_formats_long_pending_durations() -> None:
     )
 
     assert display == {"mean": "1h 57m", "p95": "11h 36m", "max": "13h 35m"}
+
+
+def test_execution_quality_zero_fills_are_an_empty_state() -> None:
+    gateway = FakeGateway()
+    gateway.deals = []
+    gateway.orders = []
+
+    result = analyze_execution_quality(
+        TradeExecutionQualityRequest(
+            minutes_back=60,
+            min_sample=1,
+            markout_seconds=[1, 5, 30],
+            detail="full",
+        ),
+        gateway,
+    )
+
+    assert result["success"] is True
+    assert result["empty"] is True
+    assert result["status"] == "no_matching_fills"
+    assert "No matching fills" in result["message"]
+    assert result["summary"]["fills"] == 0
+    assert result["summary"]["slippage_basis"] == "not_applicable"
+    assert result["fill_sample_quality"]["status"] == "not_applicable"
+    assert result["price_quality_definition"]["slippage_bps"] == "not_applicable"
+    assert result["warnings"] == [] or not any(
+        "Markout evidence" in str(item) for item in result.get("warnings") or []
+    )
+
+
+def test_execution_quality_rejects_overflowing_minutes_back() -> None:
+    result = analyze_execution_quality(
+        TradeExecutionQualityRequest(minutes_back=999_999_999_999),
+        FakeGateway(),
+    )
+
+    assert result["success"] is False
+    assert result["error_code"] == "invalid_minutes_back"
+    assert result["details"]["minutes_back"] == 999_999_999_999
 
 
 def test_execution_quality_duration_display_preserves_subsecond_resolution() -> None:
@@ -2891,7 +2942,7 @@ def test_portfolio_risk_accepts_long_short_proposed_side() -> None:
     assert result["proposed_trade"]["mark_price_basis"] == "ask"
 
 
-def test_portfolio_risk_historical_omits_unused_ewma_half_life() -> None:
+def test_portfolio_risk_bootstrap_historical_omits_unused_ewma_half_life() -> None:
     gateway = FakeGateway()
     gateway.positions = [
         {"ticket": 1, "symbol": "EURUSD", "type": 0, "volume": 1.0, "price_current": 1.1},
@@ -2903,19 +2954,21 @@ def test_portfolio_risk_historical_omits_unused_ewma_half_life() -> None:
             horizon_bars=[1],
             confidence=[0.95],
             simulations=500,
-            method="historical",
+            method="bootstrap_historical",
         ),
         gateway,
     )
 
     assert result["success"] is True
+    assert result["method"] == "bootstrap_historical"
+    assert result["scenario_generation"] == "bootstrap_historical_windows"
     assert "ewma_half_life" not in result["model_context"]
 
 
-def test_portfolio_risk_historical_rejects_non_default_ewma_half_life() -> None:
+def test_portfolio_risk_bootstrap_historical_rejects_non_default_ewma_half_life() -> None:
     with pytest.raises(ValidationError, match="filtered_historical"):
         PortfolioRiskDecomposeRequest(
-            method="historical",
+            method="bootstrap_historical",
             ewma_half_life=90.0,
         )
 
@@ -2963,6 +3016,7 @@ def test_portfolio_risk_reconciles_component_expected_shortfall() -> None:
         "confidence_levels": [0.95],
         "simulations": 500,
         "ewma_half_life": 60.0,
+        "scenario_generation": "ewma_filtered_bootstrap_windows",
         "random_seed": 42,
         "completion_policy": "fail_closed",
         "valuation_time": result["model_context"]["valuation_time"],
@@ -3090,7 +3144,7 @@ def test_portfolio_risk_horizons_share_one_stable_calibration_window() -> None:
     common = dict(
         lookback=300,
         confidence=[0.95],
-        method="historical",
+        method="bootstrap_historical",
         simulations=500,
         seed=7,
     )
@@ -3138,7 +3192,7 @@ def test_portfolio_risk_converts_log_scenarios_to_simple_return_pnl() -> None:
             lookback=120,
             horizon_bars=[2],
             confidence=[0.95],
-            method="historical",
+            method="bootstrap_historical",
             simulations=500,
         ),
         gateway,
@@ -3993,3 +4047,19 @@ def test_relative_strength_reports_factor_alignment_empty_reason() -> None:
     assert "60 are required" in result["message"]
     assert "quote/volume" not in result["message"]
     assert "--volatility-lookback" in result["remediation"]
+
+
+def test_strategy_validate_ema_cross_shortcut_uses_horizon_only_barrier() -> None:
+    request = StrategyValidateRequest(
+        symbol="EURUSD",
+        lookback=400,
+        strategy="ema_cross",
+        n_splits=2,
+        cost_model="fixed",
+        spread_bps=1.0,
+        bootstrap_samples=100,
+    )
+    assert request.barrier.tp_pct is None
+    assert request.barrier.sl_pct is None
+    result = validate_strategies(request, FakeGateway())
+    assert result.get("error_code") != "incompatible_barrier_for_state_reversal"

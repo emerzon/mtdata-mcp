@@ -754,3 +754,92 @@ def test_volatility_term_structure_suppresses_tiny_sample_percentiles(monkeypatc
     assert item["percentile_rank"] is None
     assert item["cone"] is None
     assert result["low_sample_horizons"] == [29]
+
+
+def test_phillips_perron_insufficient_sample_is_excluded(monkeypatch):
+    class _PP:
+        stat = -3.5
+        pvalue = 0.01
+        lags = 1
+        nobs = 19
+        critical_values = {"5%": -2.9}
+
+    frame = _bars(np.linspace(100.0, 102.0, 21))
+    monkeypatch.setattr(diagnostics, "create_mt5_gateway", lambda **kwargs: _Gateway())
+    monkeypatch.setattr(
+        diagnostics,
+        "_fetch_diagnostic_bars",
+        lambda *args, **kwargs: (frame, None),
+    )
+    import sys
+
+    fake_arch = type("arch", (), {})()
+    fake_unitroot = type("unitroot", (), {"PhillipsPerron": lambda *a, **k: _PP()})()
+    fake_arch.unitroot = fake_unitroot
+    monkeypatch.setitem(sys.modules, "arch", fake_arch)
+    monkeypatch.setitem(sys.modules, "arch.unitroot", fake_unitroot)
+
+    result = _raw(diagnostics.stationarity_test)(
+        symbol="TEST", lookback=21, tests="pp"
+    )
+
+    assert result["success"] is True
+    assert result["items"][0]["test"] == "pp"
+    assert result["items"][0]["samples"] == 19
+    assert result["items"][0]["stationary"] is None
+    assert result["items"][0]["status"] == "insufficient_sample"
+    assert result["conclusion"] == "inconclusive"
+    assert result["stationary_votes"] == 0
+    assert "excluded" in result["warnings"][0]
+
+
+def test_phillips_perron_twenty_effective_samples_can_vote(monkeypatch):
+    class _PP:
+        stat = -3.5
+        pvalue = 0.01
+        lags = 1
+        nobs = 20
+        critical_values = {"5%": -2.9}
+
+    frame = _bars(np.linspace(100.0, 102.0, 22))
+    monkeypatch.setattr(diagnostics, "create_mt5_gateway", lambda **kwargs: _Gateway())
+    monkeypatch.setattr(
+        diagnostics,
+        "_fetch_diagnostic_bars",
+        lambda *args, **kwargs: (frame, None),
+    )
+    import sys
+
+    fake_arch = type("arch", (), {})()
+    fake_unitroot = type("unitroot", (), {"PhillipsPerron": lambda *a, **k: _PP()})()
+    fake_arch.unitroot = fake_unitroot
+    monkeypatch.setitem(sys.modules, "arch", fake_arch)
+    monkeypatch.setitem(sys.modules, "arch.unitroot", fake_unitroot)
+
+    result = _raw(diagnostics.stationarity_test)(
+        symbol="TEST", lookback=22, tests="pp"
+    )
+
+    assert result["items"][0]["samples"] == 20
+    assert result["items"][0]["stationary"] is True
+    assert result["items"][0]["status"] == "ok"
+    assert result["conclusion"] == "stationary"
+
+
+def test_seasonality_quality_follows_composite_score():
+    assert diagnostics._seasonality_signal_quality(0.08, 0.15, 0.0) == "weak"
+    assert diagnostics._seasonality_signal_quality(0.12) == "moderate"
+
+
+def test_volatility_term_structure_rejects_empty_percentiles(monkeypatch):
+    monkeypatch.setattr(diagnostics, "create_mt5_gateway", lambda **kwargs: _Gateway())
+    for raw_percentiles in ("", "   ", "\t"):
+        result = _raw(diagnostics.volatility_term_structure)(
+            symbol="TEST",
+            lookback=100,
+            horizons="1,5",
+            percentiles=raw_percentiles,
+        )
+        assert result["success"] is False
+        assert result["error_code"] == "invalid_parameter"
+        assert result["details"]["parameter"] == "percentiles"

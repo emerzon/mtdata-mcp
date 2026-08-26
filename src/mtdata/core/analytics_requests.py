@@ -55,7 +55,14 @@ class MarketMicrostructureRequest(BaseModel):
     symbol: str
     start: Optional[str] = None
     end: Optional[str] = None
-    minutes_back: int = Field(60, gt=0)
+    minutes_back: int = Field(
+        60,
+        gt=0,
+        description=(
+            "Look back this many minutes from end/now instead of using start. "
+            "Defaults to 60 when start/end are omitted."
+        ),
+    )
     max_ticks: int = Field(10_000, ge=20, le=50_000)
     bucket_seconds: int = Field(60, ge=1, le=86_400)
     detail: DetailLiteral = "compact"
@@ -78,7 +85,10 @@ class TradeExecutionQualityRequest(BaseModel):
     minutes_back: int = Field(
         10_080,
         gt=0,
-        description="Execution-history lookback in minutes (default 10080 = 7 days).",
+        description=(
+            "Execution-history lookback in minutes (default 10080 = 7 days). "
+            "Maximum is 10512000 minutes (20 years)."
+        ),
     )
     symbol: Optional[str] = None
     side: Optional[Literal["buy", "sell"]] = None
@@ -181,8 +191,22 @@ class StrategyCandidate(BaseModel):
 
 class BarrierSpec(BaseModel):
     horizon: int = Field(12, ge=1, le=200)
-    tp_pct: float = Field(0.5, gt=0.0)
-    sl_pct: float = Field(0.5, gt=0.0)
+    tp_pct: Optional[float] = Field(
+        None,
+        gt=0.0,
+        description=(
+            "Take-profit percent for barrier outcomes. Omit for sma_cross/ema_cross "
+            "state-reversal strategies. Defaults to 0.5 for event/threshold strategies."
+        ),
+    )
+    sl_pct: Optional[float] = Field(
+        None,
+        gt=0.0,
+        description=(
+            "Stop-loss percent for barrier outcomes. Omit for sma_cross/ema_cross "
+            "state-reversal strategies. Defaults to 0.5 for event/threshold strategies."
+        ),
+    )
     same_bar_policy: Literal["sl_first", "tp_first", "neutral"] = "sl_first"
 
 
@@ -281,6 +305,21 @@ class StrategyValidateRequest(BaseModel):
             raise ValueError("--spread-bps is only valid with --cost-model fixed")
         if self.cost_model == "fixed" and self.spread_bps is None:
             raise ValueError("--spread-bps is required with --cost-model fixed")
+        state_reversal = {
+            str(candidate.strategy or "")
+            for candidate in self.candidates
+            if str(candidate.strategy or "") in {"sma_cross", "ema_cross"}
+        }
+        barrier_fields = set(getattr(self.barrier, "model_fields_set", set()) or set())
+        explicit_tp_sl = bool(
+            barrier_fields.intersection({"tp_pct", "sl_pct"})
+            and (self.barrier.tp_pct is not None or self.barrier.sl_pct is not None)
+        )
+        if state_reversal and not explicit_tp_sl:
+            self.barrier = BarrierSpec(
+                horizon=self.barrier.horizon,
+                same_bar_policy=self.barrier.same_bar_policy,
+            )
         return self
 
 
@@ -315,7 +354,15 @@ class PortfolioRiskDecomposeRequest(BaseModel):
     lookback: int = Field(1_000, ge=100, le=20_000)
     horizon_bars: List[int] = Field(default_factory=lambda: [1, 5])
     confidence: List[float] = Field(default_factory=lambda: [0.95, 0.99])
-    method: Literal["filtered_historical", "historical"] = "filtered_historical"
+    method: Literal["filtered_historical", "bootstrap_historical"] = Field(
+        default="filtered_historical",
+        description=(
+            "Scenario generator: filtered_historical rescales bootstrap windows "
+            "by current EWMA volatility; bootstrap_historical resamples raw "
+            "historical return windows. Neither is the empirical-quantile "
+            "historical method used by trade_var_cvar_calculate."
+        ),
+    )
     ewma_half_life: float = Field(
         60.0,
         gt=1.0,
@@ -343,12 +390,12 @@ class PortfolioRiskDecomposeRequest(BaseModel):
     def _confidence(cls, value: List[float]) -> List[float]:
         out = sorted({float(item) for item in value})
         if not out or any(not math.isfinite(item) or not 0.5 < item < 1.0 for item in out):
-            raise ValueError("confidence values must be between 0.5 and 1")
+            raise ValueError("confidence values must satisfy 0.5 < confidence < 1")
         return out
 
     @model_validator(mode="after")
     def _historical_ewma_unused(self) -> "PortfolioRiskDecomposeRequest":
-        if self.method != "historical":
+        if self.method != "bootstrap_historical":
             return self
         if "ewma_half_life" not in self.model_fields_set:
             return self
@@ -356,7 +403,7 @@ class PortfolioRiskDecomposeRequest(BaseModel):
         if self.ewma_half_life != default:
             raise ValueError(
                 "ewma_half_life applies only to method=filtered_historical; "
-                "omit it for historical"
+                "omit it for bootstrap_historical"
             )
         return self
 

@@ -32,7 +32,7 @@ from mtdata.utils.symbol import (
 from mtdata.utils.symbol import (
     _normalize_group_path_query,
 )
-from mtdata.utils.time import format_datetime_utc
+from mtdata.utils.time import bar_close_epoch, format_datetime_utc, format_epoch_utc
 from mtdata.utils.utils import (
     _parse_end_datetime,
     _parse_start_datetime,
@@ -551,6 +551,9 @@ def _fetch_series(
         series.attrs["forming_candle_skipped"] = bool(forming_trimmed)
         series.attrs["forming_candle_included"] = bool(last_is_forming)
         series.attrs["latest_bar_complete"] = not bool(last_is_forming)
+        series.attrs["resolved_as_of"] = format_datetime_utc(datetime.now(timezone.utc))
+        if end_dt is not None:
+            series.attrs["requested_as_of"] = format_datetime_utc(end_dt)
         return series, None
     return pd.Series(dtype=float), f"Failed to fetch data for {symbol}" + (
         f" after {retries} retries" if retries > 1 else ""
@@ -794,10 +797,93 @@ def _format_sample_time(value: Any) -> str:
     return format_datetime_utc(timestamp.to_pydatetime(), timespec="minutes")
 
 
-def _pairwise_analysis_context(rows: List[Dict[str, Any]], *, timeframe: Any) -> Dict[str, Any]:
+def _series_timestamp_utc(value: Any) -> Optional[pd.Timestamp]:
+    try:
+        timestamp = pd.Timestamp(value)
+    except Exception:
+        return None
+    if pd.isna(timestamp):
+        return None
+    if timestamp.tzinfo is None:
+        return timestamp.tz_localize("UTC")
+    return timestamp.tz_convert("UTC")
+
+
+def _last_completed_bar_close(
+    series_map: Dict[str, pd.Series],
+    timeframe: Any,
+) -> Optional[str]:
+    latest_open: pd.Timestamp | None = None
+    for series in series_map.values():
+        if series is None or series.empty:
+            continue
+        forming = bool(series.attrs.get("forming_candle_included"))
+        index = series.index[:-1] if forming and len(series.index) > 1 else series.index
+        if len(index) == 0:
+            continue
+        timestamp = _series_timestamp_utc(index[-1])
+        if timestamp is None:
+            continue
+        if latest_open is None or timestamp > latest_open:
+            latest_open = timestamp
+    if latest_open is None:
+        return None
+    close_epoch = bar_close_epoch(float(latest_open.timestamp()), str(timeframe or ""))
+    return format_epoch_utc(close_epoch)
+
+
+def _analysis_time_contract(
+    *,
+    timeframe: Any,
+    series_map: Optional[Dict[str, pd.Series]] = None,
+    as_of: Optional[str] = None,
+    end: Optional[str] = None,
+) -> Dict[str, Any]:
+    context: Dict[str, Any] = {
+        "timezone": "UTC",
+        "bar_timestamp_basis": "open_time",
+        "resolved_as_of": format_datetime_utc(datetime.now(timezone.utc)),
+    }
+    requested = as_of or end
+    if requested not in (None, ""):
+        context["requested_as_of"] = requested
+    mapping = series_map or {}
+    resolved_values = [
+        str(series.attrs.get("resolved_as_of"))
+        for series in mapping.values()
+        if series is not None and series.attrs.get("resolved_as_of") not in (None, "")
+    ]
+    if resolved_values:
+        context["resolved_as_of"] = max(resolved_values)
+    requested_values = [
+        str(series.attrs.get("requested_as_of"))
+        for series in mapping.values()
+        if series is not None and series.attrs.get("requested_as_of") not in (None, "")
+    ]
+    if requested_values and "requested_as_of" not in context:
+        context["requested_as_of"] = max(requested_values)
+    data_as_of = _last_completed_bar_close(mapping, timeframe)
+    if data_as_of:
+        context["data_as_of"] = data_as_of
+    return context
+
+
+def _pairwise_analysis_context(
+    rows: List[Dict[str, Any]],
+    *,
+    timeframe: Any,
+    series_map: Optional[Dict[str, pd.Series]] = None,
+    as_of: Optional[str] = None,
+    end: Optional[str] = None,
+) -> Dict[str, Any]:
     context: Dict[str, Any] = {
         "timeframe": str(timeframe),
-        "timezone": "UTC",
+        **_analysis_time_contract(
+            timeframe=timeframe,
+            series_map=series_map,
+            as_of=as_of,
+            end=end,
+        ),
     }
     starts = [
         str(row.get("period_start"))
@@ -924,6 +1010,7 @@ def _causal_error(
     meta: Dict[str, Any],
     warnings: List[str] | None = None,
     details: List[str] | None = None,
+    context: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     out: Dict[str, Any] = {
         "success": False,
@@ -935,6 +1022,8 @@ def _causal_error(
         out["warnings"] = warnings
     if details:
         out["details"] = details
+    if context:
+        out["context"] = context
     return out
 
 

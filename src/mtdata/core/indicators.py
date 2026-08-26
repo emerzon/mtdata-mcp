@@ -422,27 +422,66 @@ def _compact_indicator_spec_is_parser_valid(spec: str) -> bool:
     return True
 
 
+_PERIOD_PARAM_NAMES = {
+    "length",
+    "period",
+    "timeperiod",
+    "n",
+    "fast",
+    "slow",
+    "signal",
+}
+_INDICATOR_PERIOD_FALLBACKS = {
+    "cmo": 14,
+}
+
+
 def _indicator_preferred_spec(name: str, params: List[Dict[str, Any]], context: Dict[str, Any]) -> str:
     lname = str(name or "").strip().lower()
     if lname == "vwap":
         return "vwap"
     if lname == "cdl_pattern":
         return "cdl_pattern"
-    typical = str(context.get("typical_parameters") or "")
-    match = re.search(rf"\b{re.escape(lname)}\([^)]*\)", typical, flags=re.IGNORECASE)
-    if match:
-        spec = match.group(0).lower()
-        if _compact_indicator_spec_is_parser_valid(spec):
-            return spec
+    period_defaults: List[Any] = []
+    non_period_defaults: List[Any] = []
     for raw in params or []:
-        if not isinstance(raw, dict) or "default" not in raw:
+        if not isinstance(raw, dict):
             continue
         default = raw.get("default")
         if isinstance(default, bool) or default is None:
             continue
         if not isinstance(default, (int, float)):
             continue
-        spec = f"{lname}({default})"
+        param_name = str(raw.get("name") or "").strip().lower()
+        if param_name in _PERIOD_PARAM_NAMES:
+            period_defaults.append(default)
+        else:
+            non_period_defaults.append(default)
+    typical = str(context.get("typical_parameters") or "")
+    match = re.search(rf"\b{re.escape(lname)}\([^)]*\)", typical, flags=re.IGNORECASE)
+    if match:
+        spec = match.group(0).lower()
+        numbers = [
+            float(part.strip())
+            for part in (match.group(0).split("(", 1)[-1].rstrip(")").split(","))
+            if part.strip()
+            and re.fullmatch(r"-?\d+(?:\.\d+)?", part.strip())
+        ]
+        first_number = numbers[0] if numbers else None
+        uses_non_period_default = (
+            first_number is not None
+            and any(abs(float(first_number) - float(value)) < 1e-12 for value in non_period_defaults)
+            and not any(abs(float(first_number) - float(value)) < 1e-12 for value in period_defaults)
+        )
+        if _compact_indicator_spec_is_parser_valid(spec) and not uses_non_period_default:
+            return spec
+    if period_defaults:
+        spec = f"{lname}({period_defaults[0]})"
+        if _compact_indicator_spec_is_parser_valid(spec):
+            return spec
+    fallback = _INDICATOR_PERIOD_FALLBACKS.get(lname)
+    if fallback is not None:
+        spec = f"{lname}({fallback})"
         if _compact_indicator_spec_is_parser_valid(spec):
             return spec
     return lname

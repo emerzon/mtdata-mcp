@@ -48,6 +48,19 @@ barrier grids. They now also change which extra tools run: session and news on
 intraday, volume profile and news on swing/position, and live quote/session
 gates on scalping.
 
+Compatible timeframe ranges for style templates:
+
+| Template | Typical | Expected range | Rejected overrides |
+|----------|---------|----------------|--------------------|
+| `scalping` | M5 | M1-M15 | D1, W1, MN1 |
+| `intraday` | H1 | M15-H4 | MN1 |
+| `swing` | H4 | H1-D1 | M1 |
+| `position` | D1 | H4-MN1 | M1-M5 |
+
+Unusual but non-absurd overrides such as `scalping`+H4 or `intraday`+W1 keep
+success and emit a structured `template_timeframe_warning`. Truly contradictory
+pairs fail with `incompatible_template_timeframe`.
+
 A single `--methods` value skips the ranking backtest and forecasts that method
 directly. Denoising, when requested, is applied to candles, forecast, backtest,
 volatility, and barrier searches.

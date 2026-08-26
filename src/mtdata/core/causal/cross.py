@@ -13,6 +13,7 @@ from pydantic import Field
 from mtdata.core._mcp_instance import mcp
 from mtdata.core.causal.common import (
     _ALIGNMENT_WARNING_THRESHOLD_PCT,
+    _analysis_time_contract,
     _bar_completion_context,
     _build_pairwise_frame,
     _causal_connection_error,
@@ -282,6 +283,11 @@ def cross_correlation(  # noqa: C901
                 f"Only {len(aligned)} overlapping samples are available; min_overlap={min_overlap}.",
                 code="insufficient_overlap",
                 meta=meta,
+                context=_analysis_time_contract(
+                    timeframe=timeframe,
+                    series_map=series_map,
+                    end=end,
+                ),
             )
         left_values = aligned[symbol_list[0]].to_numpy(dtype=float)
         right_values = aligned[symbol_list[1]].to_numpy(dtype=float)
@@ -421,6 +427,12 @@ def cross_correlation(  # noqa: C901
             "best_nonzero": best_nonzero,
             "lag_convention": "positive lag means the first symbol leads the second",
             "context": {
+                **_analysis_time_contract(
+                    timeframe=timeframe,
+                    series_map=series_map,
+                    end=end,
+                ),
+                "timeframe": timeframe,
                 "window_bars": int(window_bars),
                 "samples_aligned": int(len(aligned)),
                 "samples_raw_aligned": int(len(raw_aligned)),

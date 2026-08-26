@@ -323,11 +323,7 @@ def _method_parameter_warnings(
     lookback_mapped_to_window: bool = False,
 ) -> List[str]:
     warnings_out: List[str] = []
-    if method != "bocpd" and (threshold is not None or "threshold" in params):
-        warnings_out.append(
-            "threshold only applies to BOCPD change-point detection and is ignored "
-            f"for method='{method}'."
-        )
+    _ = threshold
     if method == "rule_based":
         if (
             requested_lookback >= 0

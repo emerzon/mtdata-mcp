@@ -679,6 +679,12 @@ def causal_discover_signals(  # noqa: C901
                 meta=meta,
                 warnings=warnings_out,
                 details=pair_failures or pair_skips or None,
+                context=_pairwise_analysis_context(
+                    [],
+                    timeframe=timeframe,
+                    series_map=series_map,
+                    end=end,
+                ),
             )
         rows_for_output = (
             rows_sorted
@@ -710,7 +716,12 @@ def causal_discover_signals(  # noqa: C901
             "undirected_pairs": int(undirected_pairs_tested),
             **pagination,
             "context": {
-                **_pairwise_analysis_context(rows_sorted, timeframe=timeframe),
+                **_pairwise_analysis_context(
+                    rows_sorted,
+                    timeframe=timeframe,
+                    series_map=series_map,
+                    end=end,
+                ),
                 "limit": output_limit,
                 "window_bars": int(window_bars),
                 "start": start,

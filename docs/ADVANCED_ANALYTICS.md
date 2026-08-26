@@ -105,7 +105,7 @@ Holm correction and reports `positive`, `negative`, or `inconclusive`.
 ```bash
 mtdata-cli strategy_validate EURUSD --strategy ema_cross --json
 
-mtdata-cli strategy_validate EURUSD --timeframe H1 --lookback 3000 --candidates '[{"id":"fast-cross","type":"builtin_strategy","strategy":"ema_cross","params":{"fast_period":10,"slow_period":30}}]' --barrier '{"horizon":12,"tp_pct":0.5,"sl_pct":0.5}' --json
+mtdata-cli strategy_validate EURUSD --timeframe H1 --lookback 3000 --candidates '[{"id":"fast-cross","type":"builtin_strategy","strategy":"ema_cross","params":{"fast_period":10,"slow_period":30}}]' --barrier '{"horizon":12}' --json
 ```
 
 Use `--strategy` for a single built-in strategy with default parameters. Use
@@ -156,20 +156,20 @@ coverage uses `evaluation_status=partial` and cannot receive a positive evidence
 classification. `evaluation_status=complete` is reserved for candidates that
 evaluate every requested fold.
 
-The default `historical_bar_spread` model estimates costs from spread values in
-the completed-bar validation window. Coverage below 90% is disclosed as
-incomplete and prevents a positive evidence classification. Use `fixed` with an
-explicit `spread_bps` for a controlled constant-cost comparison. An insufficient
+The default `auto` cost model uses complete historical bar spreads when
+coverage is sufficient. If coverage is below 90%, `auto` substitutes a
+disclosed conservative fixed estimate and still marks the cost model complete.
+`historical_bar_spread` is stricter: incomplete coverage is disclosed and
+prevents a positive evidence classification. Use `fixed` with an explicit
+`spread_bps` for a controlled constant-cost comparison. An insufficient
 forecast-threshold candidate reports the
 required trade count, computed-anchor coverage, long/short/neutral counts, and
 a reason distinguishing unavailable forecasts from an uncrossed threshold.
 
-This validation policy is intentionally less strict than
-`strategy_backtest --cost-model historical_bar_spread`, which does not run
-unless historical spread coverage is complete. The backtest default is
-`cost_model=auto`: complete historical spreads when available, otherwise a
-disclosed conservative fixed estimate. When you want a controlled constant
-instead, pass `--cost-model fixed --spread-bps <value>` to either tool.
+`strategy_backtest` also defaults to `cost_model=auto`. When you want a
+controlled constant instead, pass `--cost-model fixed --spread-bps <value>`
+to either tool. The explicit `historical_bar_spread` policy does not run a
+backtest unless historical spread coverage is complete.
 
 Same-bar TP/SL touches default to `sl_first` and are echoed in the result.
 `max_drawdown` is always the non-negative peak-to-trough return magnitude, in
@@ -181,8 +181,11 @@ the same convention used by the backtest tools.
 filtered-historical scenarios. It returns multi-horizon VaR/CVaR,
 component CVaR, concentration, prescribed stresses, and optional proposed-trade
 incremental CVaR and margin. `ewma_half_life` applies only to
-`method=filtered_historical`; historical simulation omits it from
-`model_context` and rejects a non-default supplied value.
+`method=filtered_historical`; `bootstrap_historical` omits it from
+`model_context` and rejects a non-default supplied value. Both portfolio
+methods resample historical windows (`scenario_generation` is
+`ewma_filtered_bootstrap_windows` or `bootstrap_historical_windows`) and are
+not the empirical-quantile `historical` method on `trade_var_cvar_calculate`.
 Multi-bar log-return paths are converted to compounded simple returns before
 they are applied to account-currency position sensitivities.
 

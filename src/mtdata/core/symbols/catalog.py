@@ -178,7 +178,6 @@ _SYMBOL_DESCRIBE_COMPACT_DIRECT_FIELDS: tuple[str, ...] = (
     "quote_status",
     "quote_source",
     "quote_source_state",
-    "quote_source_conflict",
     "data_stale",
     "data_age_seconds",
     "stale_after_seconds",
@@ -187,11 +186,6 @@ _SYMBOL_DESCRIBE_COMPACT_DIRECT_FIELDS: tuple[str, ...] = (
     "freshness_reason",
     "usable_for_live_trading",
     "usable_for_live_trading_basis",
-    "timestamp_ahead_of_wall_clock",
-    "timestamp_in_future",
-    "timestamp_skew_seconds",
-    "timestamp_skew_tolerance_seconds",
-    "timestamp_warning",
     "market_status",
     "market_status_reason",
     "note",
@@ -200,29 +194,44 @@ _SYMBOL_DESCRIBE_COMPACT_DIRECT_FIELDS: tuple[str, ...] = (
     "price_change_pct_unit",
     "price_change_basis",
     "price_change_current_price_field",
+    "price_change_current_price",
+    "price_change_reference_price",
+    "price_change_reference_as_of",
     "price_change_period",
     "bid",
     "ask",
-    "last",
-    "mid",
     "spread",
     "spread_points",
     "spread_pips",
-    "spread_pct",
     "spread_valid",
     "spread_quality",
     "digits",
     "point",
     "trade_contract_size",
+    "volume_min",
+    "volume_max",
+    "volume_step",
+    "trade_mode_label",
+)
+
+_SYMBOL_DESCRIBE_STANDARD_DIRECT_FIELDS: tuple[str, ...] = (
+    *_SYMBOL_DESCRIBE_COMPACT_DIRECT_FIELDS,
+    "last",
+    "mid",
+    "spread_pct",
+    "spread_valid",
+    "spread_quality",
+    "quote_source_conflict",
+    "timestamp_ahead_of_wall_clock",
+    "timestamp_in_future",
+    "timestamp_skew_seconds",
+    "timestamp_skew_tolerance_seconds",
+    "timestamp_warning",
     "trade_tick_size",
     "trade_tick_value",
     "trade_stops_level",
     "trade_freeze_level",
-    "volume_min",
-    "volume_max",
-    "volume_step",
     "volume_limit",
-    "trade_mode_label",
     "trade_exemode_label",
     "trade_calc_mode_label",
     "order_mode_labels",
@@ -255,6 +264,9 @@ _SYMBOL_DESCRIBE_SUMMARY_DIRECT_FIELDS: tuple[str, ...] = (
     "price_change_pct_unit",
     "price_change_basis",
     "price_change_current_price_field",
+    "price_change_current_price",
+    "price_change_reference_price",
+    "price_change_reference_as_of",
     "price_change_period",
     "bid",
     "ask",
@@ -296,30 +308,39 @@ def _normalize_spread_float_field(payload: Dict[str, Any]) -> None:
     elif value is not None:
         payload["spread_is_floating"] = bool(value)
 
-def _compact_symbol_describe_payload(symbol_data: Dict[str, Any]) -> Dict[str, Any]:
-    compact: Dict[str, Any] = {}
-    for field in _SYMBOL_DESCRIBE_COMPACT_DIRECT_FIELDS:
-        _copy_symbol_describe_field(compact, symbol_data, field)
-
+def _apply_raw_margin_fields(payload: Dict[str, Any], symbol_data: Dict[str, Any]) -> None:
     raw_margin_fields = {
         "margin_initial": "broker_margin_initial_raw",
         "margin_maintenance": "broker_margin_maintenance_raw",
     }
     for source, target in raw_margin_fields.items():
         if source in symbol_data:
-            compact[target] = symbol_data[source]
-    if any(target in compact for target in raw_margin_fields.values()):
-        compact["margin_fields_note"] = (
+            payload[target] = symbol_data[source]
+    if any(target in payload for target in raw_margin_fields.values()):
+        payload["margin_fields_note"] = (
             "Raw broker symbol template values, not cash required for an order. "
             "Actual margin depends on account leverage and instrument rules; use "
             "trade_place dry-run for an order-specific margin estimate."
         )
 
-    _apply_symbol_currency_diagnostics(compact)
 
-    if "time_epoch" in symbol_data:
-        compact["time_epoch"] = symbol_data["time_epoch"]
+def _compact_symbol_describe_payload(symbol_data: Dict[str, Any]) -> Dict[str, Any]:
+    compact: Dict[str, Any] = {}
+    for field in _SYMBOL_DESCRIBE_COMPACT_DIRECT_FIELDS:
+        _copy_symbol_describe_field(compact, symbol_data, field)
+    _apply_symbol_currency_diagnostics(compact)
     return compact
+
+
+def _standard_symbol_describe_payload(symbol_data: Dict[str, Any]) -> Dict[str, Any]:
+    standard: Dict[str, Any] = {}
+    for field in _SYMBOL_DESCRIBE_STANDARD_DIRECT_FIELDS:
+        _copy_symbol_describe_field(standard, symbol_data, field)
+    _apply_raw_margin_fields(standard, symbol_data)
+    _apply_symbol_currency_diagnostics(standard)
+    if "time_epoch" in symbol_data:
+        standard["time_epoch"] = symbol_data["time_epoch"]
+    return standard
 
 def _summary_symbol_describe_payload(symbol_data: Dict[str, Any]) -> Dict[str, Any]:
     summary: Dict[str, Any] = {}
@@ -1343,6 +1364,12 @@ def symbols_describe(  # noqa: C901
                     "previous_trading_day_close_to_refreshed_quote"
                 )
                 symbol_data["price_change_current_price_field"] = refreshed_price_field
+                symbol_data["price_change_current_price"] = refreshed_price
+                symbol_data["price_change_reference_price"] = previous_close
+                if symbol_data.get("time"):
+                    symbol_data["price_change_reference_as_of"] = (
+                        "previous_trading_day_close"
+                    )
                 symbol_data["price_change_period"] = {
                     "start": "previous_trading_day_close",
                     "end": "current_quote",
@@ -1354,6 +1381,14 @@ def symbols_describe(  # noqa: C901
                 )
                 symbol_data["price_change_pct_unit"] = "percent (1.0 = 1%)"
                 symbol_data["price_change_basis"] = "broker_reported_price_change"
+                if previous_close is not None:
+                    symbol_data["price_change_reference_price"] = previous_close
+                    symbol_data["price_change_reference_as_of"] = (
+                        "previous_trading_day_close"
+                    )
+                if refreshed_price is not None:
+                    symbol_data["price_change_current_price"] = refreshed_price
+                    symbol_data["price_change_current_price_field"] = refreshed_price_field
                 symbol_data["price_change_period"] = {
                     "start": "previous_trading_day_close",
                     "end": "broker_symbol_snapshot",
@@ -1372,15 +1407,21 @@ def symbols_describe(  # noqa: C901
                     )
                     symbol_data["price_change_pct_unit"] = "percent (1.0 = 1%)"
                     symbol_data["price_change_basis"] = "session_open_to_session_close"
+                    symbol_data["price_change_reference_price"] = session_open
+                    symbol_data["price_change_current_price"] = session_close
+                    symbol_data["price_change_current_price_field"] = "session_close"
                     symbol_data["price_change_period"] = "broker_current_session"
             symbol_data.pop("price_change", None)
 
             _normalize_spread_float_field(symbol_data)
             _add_symbol_currency_diagnostics(symbol_data)
-            if contract.detail == "summary":
+            detail_mode = normalize_output_detail(contract.detail, default="compact")
+            if detail_mode == "summary":
                 symbol_data = _summary_symbol_describe_payload(symbol_data)
-            elif contract.shape_detail == "compact":
+            elif detail_mode == "compact":
                 symbol_data = _compact_symbol_describe_payload(symbol_data)
+            elif detail_mode == "standard":
+                symbol_data = _standard_symbol_describe_payload(symbol_data)
 
             if symbol_data.get("trade_tick_value") is not None:
                 tick_value_currency = account_currency_from_gateway(mt5_gateway)

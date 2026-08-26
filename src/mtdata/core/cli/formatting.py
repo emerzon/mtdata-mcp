@@ -351,7 +351,8 @@ def _normalize_trade_session_context_cli_payload(  # noqa: C901
         "market_status",
         "market_status_reason",
         "is_tradable",
-        "can_open_new_positions",
+        "execution_preconditions_allow_open",
+        "trade_mode_allows_opening",
     ):
         value = out.get(key)
         if not _is_empty_value(value):

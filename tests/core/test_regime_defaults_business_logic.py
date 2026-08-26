@@ -836,3 +836,21 @@ def test_bocpd_walkforward_calibration_defaults_collect_larger_null_sample() -> 
     assert int(sig.parameters["max_windows"].default) == 10
     assert int(sig.parameters["bootstrap_runs"].default) == 20
 
+
+def test_regime_detect_auto_target_matches_default_method() -> None:
+    raw = _unwrap(regime_detect)
+    history = _sample_df(80)
+
+    with (
+        patch("mtdata.core.regime.api._fetch_history", return_value=history),
+        patch("mtdata.core.regime.api.resolve_denoise_base_col", return_value="close"),
+        patch("mtdata.core.regime.api._format_time_minimal", side_effect=lambda x: f"T{x}"),
+        patch("mtdata.core.regime.detect._format_time_minimal", side_effect=lambda x: f"T{x}"),
+    ):
+        out = raw(symbol="EURUSD", timeframe="H1", fetch_limit=80)
+
+    assert out.get("method") == "rule_based"
+    assert out.get("target") == "price"
+    assert out.get("effective_target") == "price"
+    assert not any("normalized" in str(warning) for warning in out.get("warnings") or [])
+

@@ -7,12 +7,77 @@ from typing import Any, Dict, List, Literal, Optional, Union
 from pydantic import BaseModel, Field, model_validator
 
 from ...forecast.requests import MAX_FORECAST_HORIZON
+from ...shared.constants import TIMEFRAME_SECONDS
 from ...shared.schema import (
     DenoiseSpecInput,
     DetailLiteral,
     TimeframeLiteral,
     reject_removed_field,
 )
+
+_STYLE_TEMPLATE_TIMEFRAMES: Dict[str, Dict[str, Any]] = {
+    "scalping": {
+        "typical": "M5",
+        "expected": ("M1", "M2", "M3", "M4", "M5", "M6", "M10", "M12", "M15"),
+        "reject": ("D1", "W1", "MN1"),
+    },
+    "intraday": {
+        "typical": "H1",
+        "expected": ("M15", "M20", "M30", "H1", "H2", "H3", "H4"),
+        "reject": ("MN1",),
+    },
+    "swing": {
+        "typical": "H4",
+        "expected": ("H1", "H2", "H3", "H4", "H6", "H8", "H12", "D1"),
+        "reject": ("M1",),
+    },
+    "position": {
+        "typical": "D1",
+        "expected": ("H4", "H6", "H8", "H12", "D1", "W1", "MN1"),
+        "reject": ("M1", "M2", "M3", "M4", "M5"),
+    },
+}
+
+
+def template_timeframe_compatibility(
+    template: str,
+    timeframe: Optional[str],
+) -> Dict[str, Any] | None:
+    """Return a warning or rejection payload for style/timeframe mismatches."""
+    style = str(template or "").strip().lower()
+    tf = str(timeframe or "").strip().upper()
+    spec = _STYLE_TEMPLATE_TIMEFRAMES.get(style)
+    if spec is None or not tf or tf not in TIMEFRAME_SECONDS:
+        return None
+    expected = spec["expected"]
+    typical = spec["typical"]
+    if tf in spec["reject"]:
+        return {
+            "action": "reject",
+            "code": "incompatible_template_timeframe",
+            "expected": list(expected),
+            "typical": typical,
+            "timeframe": tf,
+            "template": style,
+            "message": (
+                f"template={style} is incompatible with timeframe={tf}; "
+                f"expected {expected[0]}-{expected[-1]} (typical {typical})."
+            ),
+        }
+    if tf not in expected:
+        return {
+            "action": "warn",
+            "code": "template_timeframe_warning",
+            "expected": list(expected),
+            "typical": typical,
+            "timeframe": tf,
+            "template": style,
+            "message": (
+                f"template={style} typically uses {typical} "
+                f"({expected[0]}-{expected[-1]}); timeframe={tf} is an unusual override."
+            ),
+        }
+    return None
 
 ReportTemplateLiteral = Literal[
     "minimal",

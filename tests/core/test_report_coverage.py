@@ -3088,3 +3088,68 @@ def test_compact_summary_structured_drops_duplicate_aliases():
     assert compact["volatility"]["method"] == "ewma"
     assert "volatility" not in compact.get("risk", {})
     assert "barriers" not in compact.get("risk", {})
+
+
+def test_capped_basic_report_assessment_does_not_claim_missing_sections():
+    from mtdata.core.report.use_cases import _build_overall_report_assessment
+
+    assessment = _build_overall_report_assessment(
+        {
+            "template": "basic",
+            "sections_status": {
+                "summary": {"ok": 3, "partial": 0, "error": 0, "omitted": 0, "total": 3},
+                "sections": {
+                    "context": {"status": "ok"},
+                    "pivot": {"status": "ok"},
+                    "contexts_multi": {"status": "ok"},
+                },
+            },
+            "execution_progress": {
+                "requested_sections": [
+                    "context",
+                    "pivot",
+                    "contexts_multi",
+                    "forecast",
+                    "barriers",
+                ],
+                "selected_sections": ["context", "pivot", "contexts_multi"],
+                "capped_requested_sections": ["forecast", "barriers"],
+            },
+            "sections": {
+                "context": {"close": 1.1},
+                "pivot": {"pivot": 1.1},
+                "contexts_multi": {},
+            },
+        }
+    )
+
+    assert assessment["assembly_confidence"] == "limited"
+    assert assessment["coverage_status"] == "limited_by_max_sections"
+    assert assessment["section_health"]["intentionally_omitted"] == 2
+    assert "forecast" not in assessment["summary"].lower() or "excluded" in assessment["summary"].lower()
+    assert "risk context" not in assessment["summary"]
+
+
+def test_style_template_timeframe_compatibility_ranges():
+    from mtdata.core.report.requests import template_timeframe_compatibility
+
+    rejected = template_timeframe_compatibility("scalping", "W1")
+    assert rejected is not None
+    assert rejected["action"] == "reject"
+    warned = template_timeframe_compatibility("scalping", "H4")
+    assert warned is not None
+    assert warned["action"] == "warn"
+    assert warned["code"] == "template_timeframe_warning"
+    position = template_timeframe_compatibility("position", "M1")
+    assert position is not None
+    assert position["action"] == "reject"
+    compatible = template_timeframe_compatibility("intraday", "H1")
+    assert compatible is None
+
+
+def test_report_max_runtime_help_describes_advisory_estimates():
+    from mtdata.core.param_help import COMMAND_PARAM_HELP_OVERRIDES
+
+    help_text = COMMAND_PARAM_HELP_OVERRIDES[("report_generate", "max_runtime")]
+    assert "advisory" in help_text.lower()
+    assert "estimated cost does not fit are omitted" not in help_text.lower()

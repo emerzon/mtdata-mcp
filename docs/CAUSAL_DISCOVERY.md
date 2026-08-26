@@ -105,7 +105,10 @@ adjusted interval excludes zero; the context reports the number of lag tests
 and both confidence levels. The adjusted bounds are exposed as
 `best.ci_familywise_low` and `best.ci_familywise_high`. `correlation_matrix`
 also reports `ci_familywise_low` and `ci_familywise_high`, corrected across all computed
-symbol pairs.
+symbol pairs. Those intervals use a moving-block bootstrap when sample size
+allows; otherwise they are labeled `iid_fisher_z_approximation` because the
+Fisher-z formula assumes independent observations. Use `cross_correlation` for
+lead/lag inference on a specific pair.
 
 ### `causal_discover_signals`
 

@@ -6,11 +6,13 @@ import pytest
 from mtdata.core.causal.cointegration import (
     _build_cointegration_summary,
     _cointegration_pair_sort_key,
+    _cointegration_spread_formula,
     _evaluate_cointegration_pair,
     _fit_cointegration_hedge,
 )
 from mtdata.core.causal.common import (
     _TRANSFORM_LEGEND,
+    _analysis_time_contract,
     _limit_pair_rows,
     _normalize_cointegration_transform,
     _normalize_cointegration_trend,
@@ -53,6 +55,51 @@ def test_cointegration_pair_uses_stable_left_dependent_orientation():
     assert row["dependent"] == "A"
     assert row["hedge"] == "B"
     assert row["orientation_policy"] == "left_dependent"
+    assert "log_price_beta" in row
+    assert "hedge_ratio" not in row
+    assert "log(" in row["spread_formula"]
+
+
+def test_cointegration_level_transform_keeps_unit_hedge_ratio():
+    idx = pd.date_range("2024-01-01", periods=40, freq="h")
+    frame = pd.DataFrame(
+        {"A": np.arange(40, dtype=float) + 1.0, "B": np.arange(40, dtype=float) * 2.0 + 1.0},
+        index=idx,
+    )
+
+    row, failures = _evaluate_cointegration_pair(
+        frame,
+        "A",
+        "B",
+        trend="c",
+        significance=0.05,
+        coint_func=lambda *_args, **_kwargs: (-4.0, 0.02, [-3.9, -3.3, -3.0]),
+        transform="level",
+    )
+
+    assert failures == []
+    assert "hedge_ratio" in row
+    assert "log_price_beta" not in row
+    assert row["spread_formula"] == _cointegration_spread_formula(
+        "level", "c", "A", "B"
+    )
+
+
+def test_analysis_time_contract_always_identifies_open_time_basis():
+    idx = pd.date_range("2024-01-01", periods=5, freq="h", tz="UTC")
+    series = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0], index=idx)
+    series.attrs["resolved_as_of"] = "2024-01-01T12:00:00Z"
+    context = _analysis_time_contract(
+        timeframe="H1",
+        series_map={"A": series},
+        end="2024-01-01T12:00:00Z",
+    )
+
+    assert context["timezone"] == "UTC"
+    assert context["bar_timestamp_basis"] == "open_time"
+    assert context["resolved_as_of"] == "2024-01-01T12:00:00Z"
+    assert context["requested_as_of"] == "2024-01-01T12:00:00Z"
+    assert context["data_as_of"]
 
 
 def test_cointegration_pair_rejects_nonfinite_test_statistic():
@@ -179,7 +226,8 @@ def test_rank_correlation_pairs_rounds_statistical_estimates() -> None:
     assert row["correlation"] == round(row["correlation"], 6)
     assert row["abs_correlation"] == round(row["abs_correlation"], 6)
     assert len(str(row["correlation"]).split(".")[1]) <= 6
-    assert row["ci_familywise_method"] == "bonferroni_fisher_z"
+    assert row["ci_familywise_method"] == "iid_fisher_z_approximation"
+    assert "iid" in str(row.get("ci_familywise_assumption") or "")
     assert row["pair_tests_run"] == 1
 
 

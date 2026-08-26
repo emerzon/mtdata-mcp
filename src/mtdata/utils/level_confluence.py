@@ -27,10 +27,32 @@ def _role_for_price(price: float, reference_price: float) -> str:
     return "at"
 
 
+def _role_for_zone(low: float, high: float, reference_price: float) -> str:
+    if float(low) <= float(reference_price) <= float(high):
+        return "inside"
+    if float(low) > float(reference_price):
+        return "above"
+    return "below"
+
+
 def _distance_pct(price: float, reference_price: float) -> Optional[float]:
     if abs(reference_price) <= 1e-12:
         return None
     return ((float(price) - float(reference_price)) / abs(float(reference_price))) * 100.0
+
+
+def _zone_distance_pct(
+    low: float,
+    high: float,
+    reference_price: float,
+) -> Optional[float]:
+    if abs(reference_price) <= 1e-12:
+        return None
+    if float(low) <= float(reference_price) <= float(high):
+        return 0.0
+    if float(high) < float(reference_price):
+        return _distance_pct(high, reference_price)
+    return _distance_pct(low, reference_price)
 
 
 def _source_weight(record: Dict[str, Any]) -> float:
@@ -463,11 +485,13 @@ def _format_cluster(
             "high": _round_price(high),
             "width": _round_price(high - low),
         },
-        "role": _role_for_price(price, reference_price),
+        "role": _role_for_zone(low, high, reference_price),
         "score": score,
         "source_families": families,
         "source_count": len(records),
-        "distance_pct": _round_metric(_distance_pct(price, reference_price)),
+        "distance_pct": _round_metric(_zone_distance_pct(low, high, reference_price)),
+        "centroid_distance_pct": _round_metric(_distance_pct(price, reference_price)),
+        "centroid_role": _role_for_price(price, reference_price),
     }
     if include_reasons:
         out["reasons"] = reasons
@@ -606,7 +630,7 @@ def build_level_confluence_payload(
     }
     side_counts = {
         role: sum(1 for cluster in top_clusters if cluster.get("role") == role)
-        for role in ("above", "below", "at")
+        for role in ("above", "below", "inside", "at")
     }
     out["level_coverage"] = side_counts
     volume_profile_contributed = any(

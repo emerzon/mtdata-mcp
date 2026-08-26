@@ -1549,12 +1549,12 @@ class TestPostForecastVolatility:
         with patch("mtdata.core.web_api._forecast_vol_impl", return_value={}) as mock_fv:
             _client.post("/api/forecast/volatility", json={
                 "symbol": "EURUSD", "timeframe": "D1", "horizon": 5,
-                "method": "garch", "proxy": "close", "params": {"p": 1},
+                "method": "garch", "proxy": "squared_return", "params": {"p": 1},
                 "as_of": "2025-01-01", "denoise": {"method": "wavelet"},
             })
         request = mock_fv.call_args.args[0]
         assert request.method == "garch"
-        assert request.proxy == "close"
+        assert request.proxy == "squared_return"
         assert request.denoise == {"method": "wavelet"}
 
 

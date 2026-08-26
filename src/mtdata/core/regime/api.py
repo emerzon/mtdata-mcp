@@ -276,7 +276,7 @@ def regime_detect(  # noqa: C901
         "ensemble",
         "all",
     ] = "rule_based",  # type: ignore
-    target: Literal["return", "price"] = "return",  # type: ignore
+    target: Literal["return", "price", "auto"] = "auto",  # type: ignore
     params: Optional[Dict[str, Any]] = None,
     denoise: DenoiseSpecInput = None,
     threshold: Optional[float] = None,
@@ -404,12 +404,17 @@ def regime_detect(  # noqa: C901
     requested_target = str(target).strip().lower()
     started_at = time.perf_counter()
     global_warnings: List[str] = []
-    if method == "rule_based" and requested_target != "price":
+    if requested_target in {"", "auto"}:
+        target = "price" if method == "rule_based" else "return"
+        requested_target = "auto"
+    elif method == "rule_based" and requested_target != "price":
         target = "price"
         global_warnings.append(
             "rule_based uses price-path efficiency and trend metrics; "
             "requested target='return' was normalized to target='price'."
         )
+    else:
+        target = requested_target
     symbol_input: Optional[str] = None
     analysis_window_meta: Dict[str, Any] = {}
     freshness_meta: Dict[str, Any] = {}
@@ -483,6 +488,26 @@ def regime_detect(  # noqa: C901
         return _finish({"error": "lookback must be >= 1 when provided."})
     if min_regime_bars is not None and min_regime_bars < 1:
         return _finish({"error": "min_regime_bars must be >= 1 when provided."})
+    explicit_threshold = (
+        threshold is not None
+        or (params or {}).get("threshold") is not None
+        or (params or {}).get("cp_threshold") is not None
+    )
+    if method not in {"bocpd", "all", "ensemble"} and explicit_threshold:
+        return _finish(
+            build_error_payload(
+                (
+                    "--threshold applies only to bocpd; remove it or choose "
+                    "--method bocpd."
+                ),
+                code="cli_invalid_arguments",
+                operation="regime_detect",
+                details={"parameter": "threshold", "method": method},
+                remediation="Remove --threshold or set --method bocpd.",
+                valid_values={"threshold": "bocpd-only change-point probability"},
+                example="--method bocpd --threshold 0.6",
+            )
+        )
     if method == "bocpd":
         threshold_candidates = (
             ("params.cp_threshold", (params or {}).get("cp_threshold")),

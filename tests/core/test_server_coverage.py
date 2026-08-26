@@ -1440,7 +1440,7 @@ class TestMcpToolSchemas:
             "all",
         ]
         assert props["target"]["type"] == "string"
-        assert props["target"]["enum"] == ["return", "price"]
+        assert props["target"]["enum"] == ["return", "price", "auto"]
         assert props["detail"]["type"] == "string"
         assert "compact" in props["detail"]["enum"]
         assert props["json"]["type"] == "boolean"

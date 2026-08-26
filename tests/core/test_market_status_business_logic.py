@@ -187,7 +187,7 @@ def test_market_status_timezone_display_utc_converts_market_times(monkeypatch) -
     assert {market["venue"] for market in result["markets"]} == {"NYSE", "NASDAQ"}
     for market in result["markets"]:
         assert market["exchange_local_time"] == "2024-01-02T10:00:00-05:00"
-        assert market["local_time"] == "2024-01-02T15:00:00Z"
+        assert market["local_time"] == "2024-01-02T10:00:00-05:00"
         assert market["display_time"] == "2024-01-02T15:00:00Z"
         assert market["next_close"] == "2024-01-02T21:00:00Z"
 
@@ -213,7 +213,7 @@ def test_market_status_global_server_timezone_converts_market_times(monkeypatch)
     assert result["display_timezone"] == "Europe/Nicosia"
     for market in result["markets"]:
         assert market["exchange_local_time"] == "2024-01-02T10:00:00-05:00"
-        assert market["local_time"] == "2024-01-02T17:00:00+02:00"
+        assert market["local_time"] == "2024-01-02T10:00:00-05:00"
         assert market["display_time"] == "2024-01-02T17:00:00+02:00"
         assert market["next_close"] == "2024-01-02T23:00:00+02:00"
 

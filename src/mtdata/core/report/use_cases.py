@@ -14,7 +14,7 @@ from ...utils.time import format_datetime_utc, parse_iso_utc
 from ..error_envelope import build_error_payload, normalize_error_payload
 from ..execution_logging import log_operation_exception, run_logged_operation
 from ..output_contract import normalize_output_detail
-from .requests import ReportGenerateRequest
+from .requests import ReportGenerateRequest, template_timeframe_compatibility
 from .utils import (
     extract_report_forecast_values,
     normalize_report_methods,
@@ -1487,6 +1487,130 @@ def _report_section_names_by_status(
     return names
 
 
+def _report_capped_and_present_sections(
+    report: Dict[str, Any],
+    *,
+    failed_sections: List[str],
+    omitted_sections: List[str],
+) -> tuple[List[str], List[str]]:
+    execution_progress = report.get("execution_progress")
+    capped = (
+        execution_progress.get("capped_requested_sections")
+        if isinstance(execution_progress, dict)
+        else None
+    )
+    capped_names = [str(name) for name in capped] if isinstance(capped, list) else []
+    scheduled = (
+        execution_progress.get("selected_sections")
+        if isinstance(execution_progress, dict)
+        else None
+    )
+    scheduled_names = (
+        [str(name) for name in scheduled]
+        if isinstance(scheduled, list)
+        else [str(name) for name in (report.get("sections") or {})]
+    )
+    present_sections = [
+        name
+        for name in scheduled_names
+        if name not in failed_sections
+        and name not in omitted_sections
+        and name not in capped_names
+    ]
+    return capped_names, present_sections
+
+
+def _healthy_report_assessment_text(
+    *,
+    template: str,
+    report: Dict[str, Any],
+    sections_status: Any,
+    failed_sections: List[str],
+    partial_sections: List[str],
+    omitted_sections: List[str],
+    capped_names: List[str],
+    present_sections: List[str],
+) -> tuple[str, str]:
+    if template == "minimal":
+        execution_progress = report.get("execution_progress")
+        requested = (
+            execution_progress.get("requested_sections")
+            if isinstance(execution_progress, dict)
+            else None
+        )
+        requested_names = (
+            [str(name) for name in requested]
+            if isinstance(requested, list)
+            else list((sections_status.get("sections") or {}).keys())
+        )
+        scheduled = (
+            execution_progress.get("selected_sections")
+            if isinstance(execution_progress, dict)
+            else None
+        )
+        scheduled_names = (
+            [str(name) for name in scheduled]
+            if isinstance(scheduled, list)
+            else list(requested_names)
+        )
+        completed_names = [
+            name
+            for name in ("context", "forecast")
+            if name in scheduled_names
+            and name not in failed_sections
+            and name not in partial_sections
+            and name not in omitted_sections
+        ]
+        not_requested = [
+            name for name in ("context", "forecast") if name not in requested_names
+        ]
+        recommended_action = "run_basic_template_for_levels_and_risk"
+        completed_text = " and ".join(completed_names) or "selected sections"
+        summary_text = f"Minimal {completed_text} completed successfully"
+        if not_requested:
+            verb = "was" if len(not_requested) == 1 else "were"
+            summary_text += (
+                f"; {' and '.join(not_requested).capitalize()} {verb} not requested"
+            )
+        if capped_names:
+            verb = "was" if len(capped_names) == 1 else "were"
+            summary_text += (
+                f"; {' and '.join(capped_names).capitalize()} {verb} excluded by max_sections"
+            )
+        summary_text += "; use template=basic when levels and risk context are required."
+        return recommended_action, summary_text
+    present_text = ", ".join(present_sections) or "selected sections"
+    if capped_names:
+        verb = "was" if len(capped_names) == 1 else "were"
+        return (
+            "rerun_without_section_cap_for_full_template",
+            (
+                f"Completed sections: {present_text}. "
+                f"{', '.join(capped_names)} {verb} excluded by max_sections "
+                "and were not used in this assessment."
+            ),
+        )
+    mentions = []
+    if any(name in present_sections for name in ("pivot", "confluence", "patterns")):
+        mentions.append("levels")
+    if "forecast" in present_sections:
+        mentions.append("forecast")
+    if any(name in present_sections for name in ("barriers", "volatility", "backtest")):
+        mentions.append("risk context")
+    if mentions:
+        review = (
+            mentions[0]
+            if len(mentions) == 1
+            else ", ".join(mentions[:-1]) + ", and " + mentions[-1]
+        )
+        summary_text = (
+            f"Report sections completed successfully; review {review} before acting."
+        )
+    else:
+        summary_text = "Report sections completed successfully."
+    return "review_key_levels_and_risk", summary_text
+
+
 def _build_overall_report_assessment(report: Dict[str, Any]) -> Dict[str, Any]:
     meta = report.get("meta")
     meta = meta if isinstance(meta, dict) else {}
@@ -1502,6 +1626,11 @@ def _build_overall_report_assessment(report: Dict[str, Any]) -> Dict[str, Any]:
     failed_sections = _report_section_names_by_status(sections_status, "error")
     partial_sections = _report_section_names_by_status(sections_status, "partial")
     omitted_sections = _report_section_names_by_status(sections_status, "omitted")
+    capped_names, present_sections = _report_capped_and_present_sections(
+        report,
+        failed_sections=failed_sections,
+        omitted_sections=omitted_sections,
+    )
 
     as_of_unavailable = (
         report.get("as_of") in (None, "")
@@ -1533,62 +1662,16 @@ def _build_overall_report_assessment(report: Dict[str, Any]) -> Dict[str, Any]:
         summary_text = "Report is temporally coherent, but some current-only sections were omitted."
     else:
         confidence = "high" if ok >= 3 else "medium"
-        if template == "minimal":
-            execution_progress = report.get("execution_progress")
-            requested = (
-                execution_progress.get("requested_sections")
-                if isinstance(execution_progress, dict)
-                else None
-            )
-            requested_names = [
-                str(name) for name in requested
-            ] if isinstance(requested, list) else list(
-                (sections_status.get("sections") or {}).keys()
-            )
-            scheduled = (
-                execution_progress.get("selected_sections")
-                if isinstance(execution_progress, dict)
-                else None
-            )
-            scheduled_names = (
-                [str(name) for name in scheduled]
-                if isinstance(scheduled, list)
-                else list(requested_names)
-            )
-            completed_names = [
-                name
-                for name in ("context", "forecast")
-                if name in scheduled_names
-                and name not in failed_sections
-                and name not in partial_sections
-                and name not in omitted_sections
-            ]
-            not_requested = [
-                name for name in ("context", "forecast") if name not in requested_names
-            ]
-            capped = (
-                execution_progress.get("capped_requested_sections")
-                if isinstance(execution_progress, dict)
-                else None
-            )
-            capped_names = [str(name) for name in capped] if isinstance(capped, list) else []
-            recommended_action = "run_basic_template_for_levels_and_risk"
-            completed_text = " and ".join(completed_names) or "selected sections"
-            summary_text = f"Minimal {completed_text} completed successfully"
-            if not_requested:
-                verb = "was" if len(not_requested) == 1 else "were"
-                summary_text += (
-                    f"; {' and '.join(not_requested).capitalize()} {verb} not requested"
-                )
-            if capped_names:
-                verb = "was" if len(capped_names) == 1 else "were"
-                summary_text += (
-                    f"; {' and '.join(capped_names).capitalize()} {verb} excluded by max_sections"
-                )
-            summary_text += "; use template=basic when levels and risk context are required."
-        else:
-            recommended_action = "review_key_levels_and_risk"
-            summary_text = "Report sections completed successfully; review levels, forecast, and risk context before acting."
+        recommended_action, summary_text = _healthy_report_assessment_text(
+            template=template,
+            report=report,
+            sections_status=sections_status,
+            failed_sections=failed_sections,
+            partial_sections=partial_sections,
+            omitted_sections=omitted_sections,
+            capped_names=capped_names,
+            present_sections=present_sections,
+        )
 
     stale_sections: List[str] = []
     closed_session = False
@@ -1629,11 +1712,15 @@ def _build_overall_report_assessment(report: Dict[str, Any]) -> Dict[str, Any]:
         }:
             recommended_action = "review_stale_or_closed_session_data"
 
+    if capped_names and confidence == "high":
+        confidence = "limited"
     assessment: Dict[str, Any] = {
         "is_trade_signal": False,
         "recommended_action": recommended_action,
         "assembly_confidence": confidence,
-        "assembly_confidence_basis": "report_section_health",
+        "assembly_confidence_basis": (
+            "requested_template_coverage" if capped_names else "report_section_health"
+        ),
         "summary": summary_text,
         "section_health": {
             "ok": ok,
@@ -1643,6 +1730,10 @@ def _build_overall_report_assessment(report: Dict[str, Any]) -> Dict[str, Any]:
             "total": total,
         },
     }
+    if capped_names:
+        assessment["section_health"]["intentionally_omitted"] = len(capped_names)
+        assessment["coverage_status"] = "limited_by_max_sections"
+        assessment["intentionally_omitted_sections"] = capped_names[:8]
     if failed_sections:
         assessment["failed_sections"] = failed_sections[:6]
     if partial_sections:
@@ -1786,6 +1877,30 @@ def run_report_generate(  # noqa: C901
             params = dict(request.params or {})
             if request.timeframe:
                 params["timeframe"] = str(request.timeframe)
+            compatibility = template_timeframe_compatibility(
+                name,
+                params.get("timeframe") or request.timeframe,
+            )
+            if compatibility and compatibility.get("action") == "reject":
+                return {
+                    **build_error_payload(
+                        str(compatibility["message"]),
+                        code=str(compatibility["code"]),
+                        operation="report_generate",
+                        details={
+                            "template": compatibility.get("template"),
+                            "timeframe": compatibility.get("timeframe"),
+                            "expected": compatibility.get("expected"),
+                            "typical": compatibility.get("typical"),
+                        },
+                        remediation=(
+                            "Choose a compatible timeframe or a matching style "
+                            "template. Unusual but non-absurd overrides emit "
+                            "template_timeframe_warning instead of failing."
+                        ),
+                        example="--template scalping --timeframe M5",
+                    )
+                }
             if request.start:
                 params["start"] = request.start
             if request.end:
@@ -1935,6 +2050,17 @@ def run_report_generate(  # noqa: C901
             if not isinstance(rep, dict):
                 msg = "Report template returned an unexpected payload."
                 return report_error_payload(msg)
+            if compatibility and compatibility.get("action") == "warn":
+                warning_payload = {
+                    "code": compatibility.get("code"),
+                    "template": compatibility.get("template"),
+                    "timeframe": compatibility.get("timeframe"),
+                    "expected": compatibility.get("expected"),
+                    "typical": compatibility.get("typical"),
+                    "message": compatibility.get("message"),
+                }
+                rep["template_timeframe_warning"] = warning_payload
+                captured_warnings.append(str(compatibility.get("message") or ""))
             if rep.get("error"):
                 msg = rep.get("error")
                 return report_error_payload(msg)

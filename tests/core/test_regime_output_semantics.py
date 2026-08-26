@@ -866,7 +866,6 @@ def test_rule_based_warns_for_inapplicable_parameters() -> None:
             timeframe="H1",
             fetch_limit=120,
             method="rule_based",
-            threshold=0.9,
             lookback=50,
             min_regime_bars=5,
             max_regimes=2,
@@ -874,10 +873,22 @@ def test_rule_based_warns_for_inapplicable_parameters() -> None:
         )
 
     warnings = "\n".join(out.get("warnings", []))
-    assert "threshold only applies to BOCPD" in warnings
     assert "lookback was ignored for rule_based because params.window_bars was also provided" not in warnings
     assert "min_regime_bars is not used by rule_based" in warnings
     assert "max_regimes has no effect for rule_based" in warnings
+
+    rejected = raw(
+        symbol="TEST",
+        timeframe="H1",
+        fetch_limit=120,
+        method="rule_based",
+        threshold=0.9,
+        lookback=50,
+        detail="full",
+    )
+    assert rejected.get("success") is False
+    assert rejected.get("error_code") == "cli_invalid_arguments"
+    assert "bocpd" in str(rejected.get("error") or "").lower()
 
 
 def test_regime_detect_all_uses_same_rule_based_window_as_standalone() -> None:

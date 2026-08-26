@@ -9,6 +9,7 @@ from ....utils.coercion import (
     UNPARSED_BOOL,
     coerce_cli_scalar,
     parse_bool_like,
+    parse_strict_bool,
     split_top_level_csv,
 )
 from ...error_envelope import build_error_payload
@@ -541,7 +542,12 @@ def create_command_function(  # noqa: C901
                 is_list_like = False
 
             if base_type is bool and isinstance(arg_value, str):
-                parsed_bool = parse_bool_like(arg_value)
+                bool_parser = (
+                    parse_strict_bool
+                    if cmd_name in LIVE_TRADE_MUTATION_TOOLS
+                    else parse_bool_like
+                )
+                parsed_bool = bool_parser(arg_value)
                 if parsed_bool is not UNPARSED_BOOL and parsed_bool is not None:
                     arg_value = bool(parsed_bool)
 

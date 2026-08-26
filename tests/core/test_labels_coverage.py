@@ -963,3 +963,52 @@ def test_labels_triple_barrier_logs_finish_event(mock_hist, mock_den, mock_pip, 
         for record in caplog.records
     )
 
+
+@patch(f"{_LABELS_MOD}._get_tick_size", return_value=0.0001)
+@patch(f"{_LABELS_MOD}.resolve_denoise_base_col", return_value="close")
+@patch(f"{_LABELS_MOD}._fetch_history")
+def test_explicit_range_uses_full_fetched_window_without_default_lookback(
+    mock_hist, mock_den, mock_pip
+):
+    mock_hist.return_value = _make_df(200)
+    result = _get_raw_fn()(
+        "EURUSD",
+        tp_pct=0.5,
+        sl_pct=0.5,
+        horizon=5,
+        start="2026-08-01",
+        end="2026-08-20",
+        detail="summary",
+    )
+
+    assert result["success"] is True
+    assert result["history_bars_fetched"] == 200
+    assert result["history_bars_used"] == 200
+    assert result["truncated"] is False
+    assert result["summary"]["sample_quality"]["status"] != "truncated"
+
+
+@patch(f"{_LABELS_MOD}._get_tick_size", return_value=0.0001)
+@patch(f"{_LABELS_MOD}.resolve_denoise_base_col", return_value="close")
+@patch(f"{_LABELS_MOD}._fetch_history")
+def test_explicit_lookback_with_range_is_marked_truncated(
+    mock_hist, mock_den, mock_pip
+):
+    mock_hist.return_value = _make_df(200)
+    result = _get_raw_fn()(
+        "EURUSD",
+        tp_pct=0.5,
+        sl_pct=0.5,
+        horizon=5,
+        lookback=50,
+        start="2026-08-01",
+        end="2026-08-20",
+        detail="summary",
+    )
+
+    assert result["success"] is True
+    assert result["history_bars_used"] == 55
+    assert result["truncated"] is True
+    assert result["summary"]["sample_quality"]["status"] == "truncated"
+    assert result["summary"]["sample_quality"]["status"] != "ok"
+

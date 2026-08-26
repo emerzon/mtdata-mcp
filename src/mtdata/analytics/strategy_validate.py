@@ -586,7 +586,11 @@ def validate_strategies(  # noqa: C901
         for candidate in request.candidates
         if _candidate_signal_definition(candidate) == "state_reversal"
     ]
-    if state_reversal_ids and barrier_fields.intersection({"tp_pct", "sl_pct"}):
+    explicit_tp_sl = bool(
+        barrier_fields.intersection({"tp_pct", "sl_pct"})
+        and (request.barrier.tp_pct is not None or request.barrier.sl_pct is not None)
+    )
+    if state_reversal_ids and explicit_tp_sl:
         return {
             "success": False,
             "error": (
@@ -659,12 +663,18 @@ def validate_strategies(  # noqa: C901
             outcome_end = exit_indices
             outcome_model = "position_reversal"
         else:
+            tp_pct = (
+                0.5 if request.barrier.tp_pct is None else float(request.barrier.tp_pct)
+            )
+            sl_pct = (
+                0.5 if request.barrier.sl_pct is None else float(request.barrier.sl_pct)
+            )
             indices, gross = _barrier_returns(
                 df,
                 signal,
                 request.barrier.horizon,
-                request.barrier.tp_pct,
-                request.barrier.sl_pct,
+                tp_pct,
+                sl_pct,
                 same_bar_policy,
             )
             outcome_end = indices + int(request.barrier.horizon)

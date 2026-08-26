@@ -89,7 +89,9 @@ def report_generate(
               extra_timeframes/pivot_timeframes, and advanced regime/conformal keys
               (regime_limit, regime_lookback, cp_threshold, hmm_states, conformal_*).
     - denoise: pass-through to candles, forecast, backtest, volatility, and barriers.
-    - max_runtime: cooperative seconds budget; expensive sections that do not fit are omitted.
+    - max_runtime: cooperative wall-clock budget in seconds. Static section
+      estimates are advisory and do not omit work; new sub-tools stop after the
+      deadline, and an already-running native/MT5 call is allowed to finish.
     - allow_partial: defaults true so usable sections survive nested failures; set false for strict runs.
     - allow_stale: permit closed-session completed candle context while retaining stale warnings.
     - progress: emit sub-tool start/finish lines to stderr.

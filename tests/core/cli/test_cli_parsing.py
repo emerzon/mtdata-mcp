@@ -16,7 +16,7 @@ from typing import Annotated, Any, Dict, List, Literal, Optional, Tuple, Union
 from unittest.mock import MagicMock, call, patch
 
 import pytest
-from pydantic import Field
+from pydantic import Field, ValidationError
 
 from mtdata.core.data.requests import DataFetchCandlesRequest
 from mtdata.core.patterns_requests import PatternsDetectRequest
@@ -1514,6 +1514,11 @@ class TestResolveParamKwargs:
             ("temporal_analyze", "time_range", "in --timezone"),
             ("temporal_analyze", "return_basis", "overnight/session gaps"),
             ("options_heston_calibrate", "valuation_date", "chain snapshot date"),
+            (
+                "options_heston_calibrate",
+                "calendar",
+                "valuation timezone",
+            ),
             ("seasonality_detect", "max_period", "period in bars"),
         ],
     )
@@ -1563,6 +1568,49 @@ class TestResolveParamKwargs:
         assert "metavar" not in kwargs
         assert kwargs["type"]("True") == "true"
         assert kwargs["type"]("FALSE") == "false"
+
+    def test_research_bools_still_accept_aliases(self):
+        param = {"name": "include_spread", "type": bool, "required": False, "default": False}
+        kwargs, _ = _resolve_param_kwargs(param, None, cmd_name="data_fetch_candles")
+        assert kwargs["type"]("yes") == "true"
+        assert kwargs["type"]("0") == "false"
+
+    @pytest.mark.parametrize("alias", ["no", "off", "0", "yes", "on", "1", "y", "n"])
+    def test_trading_mutation_bools_reject_undocumented_aliases(self, alias):
+        kwargs, _ = _resolve_param_kwargs(
+            {"name": "dry_run", "type": bool, "required": False, "default": True},
+            None,
+            cmd_name="trade_place",
+        )
+        with pytest.raises(argparse.ArgumentTypeError, match="true or false"):
+            kwargs["type"](alias)
+
+    def test_trading_mutation_bools_accept_canonical_true_false(self):
+        kwargs, _ = _resolve_param_kwargs(
+            {"name": "dry_run", "type": bool, "required": False, "default": True},
+            None,
+            cmd_name="trade_place",
+        )
+        assert kwargs["type"]("true") == "true"
+        assert kwargs["type"]("FALSE") == "false"
+
+    @pytest.mark.parametrize("alias", ["no", "off", "0", "yes", "on", "1"])
+    def test_trade_place_request_rejects_live_aliases_for_dry_run(self, alias):
+        with pytest.raises(ValidationError, match="true or false"):
+            TradePlaceRequest(
+                symbol="EURUSD",
+                volume=0.01,
+                order_type="BUY",
+                stop_loss=1.10,
+                take_profit=1.12,
+                dry_run=alias,
+            )
+
+    def test_trade_history_limit_has_safety_cap(self):
+        with pytest.raises(ValidationError):
+            TradeHistoryRequest(limit=1_000_000)
+        request = TradeHistoryRequest(limit=500)
+        assert request.limit == 500
 
     def test_optional_int_accepts_integer_and_null_tokens(self):
         param = {
@@ -2150,8 +2198,9 @@ class TestResolveParamKwargs:
         assert "recent resolved TP/SL examples" in limit_kwargs["help"]
         assert "tail is entirely neutral" in limit_kwargs["help"]
         assert "full returns the complete labeled series" in limit_kwargs["help"]
-        assert "labeled entries to calculate" in lookback_kwargs["help"]
+        assert "Optional tail cap of labeled entries" in lookback_kwargs["help"]
         assert "lookback plus horizon" in lookback_kwargs["help"]
+        assert "explicit date range is analyzed in full" in lookback_kwargs["help"]
 
     def test_labels_triple_barrier_barriers_help_documents_json_and_units(self):
         barriers_kwargs, _ = _resolve_param_kwargs(
@@ -2432,6 +2481,17 @@ class TestResolveParamKwargs:
         param = {"name": "limit", "type": int, "required": False, "default": 20}
         kwargs, _ = _resolve_param_kwargs(param, None, cmd_name="news")
         assert "Global maximum across all news/event buckets" in kwargs["help"]
+        assert "defaults to 10" in kwargs["help"]
+        assert "compact" in kwargs["help"].lower()
+
+    def test_market_microstructure_minutes_back_help_discloses_default(self):
+        kwargs, _ = _resolve_param_kwargs(
+            {"name": "minutes_back", "type": int, "required": False, "default": None},
+            None,
+            cmd_name="market_microstructure_analyze",
+        )
+        assert "Defaults to 60" in kwargs["help"]
+        assert "start/end" in kwargs["help"]
 
     def test_trade_stress_test_shocks_help_has_json_examples(self):
         param = {

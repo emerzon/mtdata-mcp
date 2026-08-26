@@ -995,15 +995,16 @@ def _format_harmonic_patterns(
             details = {k: _round_value(v) for k, v in (p.details or {}).items()}
             bias = str(details.get("bias") or p.bias or "").strip().lower()
             target_prices = [
-                float(value)
+                _round_value(float(value))
                 for value in getattr(p, "target_prices", [])
                 if isinstance(value, (int, float, np.integer, np.floating))
             ]
             target_1 = target_prices[0] if target_prices else None
             target_2 = target_prices[1] if len(target_prices) > 1 else None
-            invalidation = float(p.invalidation_price)
+            entry_price = _round_value(float(p.entry_price))
+            invalidation = _round_value(float(p.invalidation_price))
             price_levels: Dict[str, Any] = {
-                "entry": float(p.entry_price),
+                "entry": entry_price,
                 "target_1": target_1,
                 "target_2": target_2,
                 "invalidation": invalidation,
@@ -1023,8 +1024,8 @@ def _format_harmonic_patterns(
                 "end_date": end_date,
                 "direction": bias,
                 "bias": bias,
-                "entry_price": float(p.entry_price),
-                "reference_price": float(p.entry_price),
+                "entry_price": entry_price,
+                "reference_price": entry_price,
                 "invalidation_price": invalidation,
                 "price_levels": {
                     key: _round_value(value)
@@ -1061,10 +1062,10 @@ def _format_harmonic_patterns(
                 else "historical_structure"
             )
             if target_1 is not None:
-                row["target_price"] = float(target_1)
-                row["target_price_1"] = float(target_1)
+                row["target_price"] = target_1
+                row["target_price_1"] = target_1
             if target_2 is not None:
-                row["target_price_2"] = float(target_2)
+                row["target_price_2"] = target_2
             out_list.append(row)
         except Exception:
             logger.debug("Dropping harmonic pattern during formatting", exc_info=True)

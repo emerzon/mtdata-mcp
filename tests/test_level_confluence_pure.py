@@ -99,7 +99,7 @@ def test_confluence_compact_omits_verbose_source_narration():
     assert payload["units"]["score"] == "unbounded_heuristic_points"
     assert "max_distance_pct" not in payload
     assert payload["min_source_families"] == 2
-    assert payload["level_coverage"] == {"above": 1, "below": 0, "at": 0}
+    assert payload["level_coverage"] == {"above": 1, "below": 0, "inside": 0, "at": 0}
     assert "No confluence levels below" in payload["coverage_note"]
 
 
@@ -281,3 +281,43 @@ def test_duplicate_pivot_prices_do_not_earn_method_agreement_bonus():
     components = payload["levels"][0]["score_components"]
     assert components["pivot_method_bonus"] == 0.0
     assert components["independent_pivot_prices"] == 1
+
+
+def test_confluence_reference_inside_nonzero_width_cluster_is_inside():
+    payload = build_level_confluence_payload(
+        symbol="EURUSD",
+        pivot_timeframe="D1",
+        sr_timeframe="H1",
+        reference_price=1.16736,
+        tolerance_pct=0.2,
+        pivot_methods=[
+            {
+                "method": "classic",
+                "levels": {"R1": 1.16683, "R2": 1.16856},
+                "pivot": 1.16743,
+            }
+        ],
+        support_resistance_payload={
+            "success": True,
+            "levels": [
+                {
+                    "type": "resistance",
+                    "value": 1.16743,
+                    "score": 5.0,
+                    "touches": 3,
+                }
+            ],
+        },
+        max_distance_pct=1.0,
+        min_source_families=1,
+        detail="standard",
+    )
+
+    assert payload["success"] is True
+    cluster = payload["levels"][0]
+    assert cluster["range"]["low"] <= 1.16736 <= cluster["range"]["high"]
+    assert cluster["range"]["width"] > 0
+    assert cluster["role"] == "inside"
+    assert cluster["distance_pct"] == 0.0
+    assert cluster["centroid_distance_pct"] != 0.0
+    assert payload["level_coverage"]["inside"] >= 1

@@ -180,8 +180,17 @@ def _diagnostic_series(frame: pd.DataFrame, target: str) -> pd.Series:
     return pd.Series(values, dtype=float).replace([np.inf, -np.inf], np.nan).dropna()
 
 
-def _seasonality_signal_quality(score: float, acf: float, spectral_strength: float) -> str:
-    signal = max(float(score), max(0.0, float(acf)), max(0.0, float(spectral_strength)))
+_SEASONALITY_QUALITY_THRESHOLDS = {
+    "very_weak": "score < 0.05",
+    "weak": "0.05 <= score < 0.10",
+    "moderate": "0.10 <= score < 0.25",
+    "strong": "score >= 0.25",
+}
+
+
+def _seasonality_signal_quality(score: float, acf: float = 0.0, spectral_strength: float = 0.0) -> str:
+    del acf, spectral_strength
+    signal = float(score)
     if signal < 0.05:
         return "very_weak"
     if signal < 0.10:
@@ -460,18 +469,29 @@ def stationarity_test(
                 warnings_out.append("Phillips-Perron skipped because optional package 'arch' is not installed.")
             else:
                 result = PhillipsPerron(series.to_numpy(), trend=trend)
+                pp_samples = int(result.nobs)
+                pp_sufficient = pp_samples >= 20
                 rows.append(
                     {
                         "test": "pp",
                         "statistic": round(float(result.stat), 6),
                         "p_value": float(result.pvalue),
                         "lags": int(result.lags),
-                        "samples": int(result.nobs),
-                        "stationary": bool(float(result.pvalue) < alpha),
+                        "samples": pp_samples,
+                        "stationary": (
+                            bool(float(result.pvalue) < alpha) if pp_sufficient else None
+                        ),
+                        "status": "ok" if pp_sufficient else "insufficient_sample",
                         "null_hypothesis": "unit_root",
                         **({"critical_values": _critical_values(result.critical_values)} if detail_mode == "full" else {}),
                     }
                 )
+                if not pp_sufficient:
+                    warnings_out.append(
+                        "Phillips-Perron was excluded from the combined conclusion because "
+                        f"only {pp_samples} effective observations were available; "
+                        "at least 20 are required."
+                    )
 
         votes = [
             bool(row["stationary"])
@@ -625,11 +645,8 @@ def seasonality_detect(
                 "score": score_rounded,
                 "acf": acf_rounded,
                 "spectral_strength": spectral_rounded,
-                "signal_quality": _seasonality_signal_quality(
-                    score_rounded,
-                    acf_rounded,
-                    spectral_rounded,
-                ),
+                "quality_statistic": score_rounded,
+                "signal_quality": _seasonality_signal_quality(score_rounded),
                 "cycles_observed": round(n / float(period), 2),
             }
             if spectral_rounded == 0.0:
@@ -654,6 +671,9 @@ def seasonality_detect(
             "count": len(rows),
             "dominant_period_bars": rows[0]["period_bars"] if rows else None,
             "score_formula": "0.55*clip(acf,0,1) + 0.45*spectral_strength; range 0-1, higher = stronger seasonality",
+            "quality_statistic": "score",
+            "quality_formula": "0.55*clip(acf,0,1) + 0.45*spectral_strength; range 0-1, higher = stronger seasonality",
+            "quality_thresholds": dict(_SEASONALITY_QUALITY_THRESHOLDS),
             **_diagnostic_history_metadata(
                 frame, include_incomplete=include_incomplete
             ),
@@ -682,6 +702,11 @@ def seasonality_detect(
                 "periodogram_weight": 0.45,
                 "spectral_component": "candidate_power / total_positive_frequency_power",
                 "minimum_cycles": int(min_cycles),
+                "signal_quality": (
+                    "Labels are assigned from the disclosed composite score using "
+                    "quality_thresholds; autocorrelation and spectral share are not "
+                    "used as hidden substitutes."
+                ),
             }
         return out
 
@@ -927,8 +952,26 @@ def volatility_term_structure(
             return {"error": "horizons and percentiles must be comma-separated numbers."}
         if not horizon_values or any(value < 1 for value in horizon_values):
             return {"error": "horizons must contain positive integers."}
+        if not percentile_values:
+            return build_error_payload(
+                "percentiles must contain at least one value strictly between 0 and 100.",
+                code="invalid_parameter",
+                operation="volatility_term_structure",
+                details={"parameter": "percentiles", "received": percentiles},
+                remediation="Pass a comma-separated list such as 10,25,50,75,90.",
+                valid_values={"percentiles": "0 < p < 100"},
+                example="--percentiles 10,25,50,75,90",
+            )
         if any(value <= 0.0 or value >= 100.0 for value in percentile_values):
-            return {"error": "percentiles must be strictly between 0 and 100."}
+            return build_error_payload(
+                "percentiles must be strictly between 0 and 100.",
+                code="invalid_parameter",
+                operation="volatility_term_structure",
+                details={"parameter": "percentiles", "received": percentiles},
+                remediation="Pass values such as 10,25,50,75,90.",
+                valid_values={"percentiles": "0 < p < 100"},
+                example="--percentiles 10,25,50,75,90",
+            )
         maximum_horizon = max(horizon_values)
         minimum_lookback = max(30, maximum_horizon + 1)
         if int(lookback) < minimum_lookback:

@@ -216,7 +216,7 @@ Tools that accept a one-based `page` input convert it to the zero-based
 `pagination.offset` value.
 
 `trade_history` is the keyset-pagination exception: its default page size is
-20, and `pagination.next_cursor` freezes the resolved UTC window plus the last
+20 (capped at 500), and `pagination.next_cursor` freezes the resolved UTC window plus the last
 history time/ticket key. Reuse that cursor with unchanged history filters and
 time controls. This avoids skips or duplicates when relative windows move or
 the account history changes between calls. Trade-history cursors expire after

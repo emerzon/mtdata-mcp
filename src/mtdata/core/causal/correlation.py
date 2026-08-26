@@ -41,6 +41,7 @@ from mtdata.core.causal.common import (
     _transform_aligned_pair,
     _transform_frame,
 )
+from mtdata.core.causal.cross import _block_bootstrap_correlation_ci
 from mtdata.core.mt5_gateway import create_mt5_gateway
 from mtdata.core.output_contract import normalize_output_verbosity_detail
 from mtdata.core.runtime_metadata import run_mt5_logged_operation
@@ -154,6 +155,7 @@ def _rank_correlation_pairs(
     family_alpha: float = 0.05,
 ) -> tuple[List[Dict[str, Any]], Dict[str, int], Dict[str, int]]:
     rows: List[Dict[str, Any]] = []
+    pair_series: List[tuple[Any, Any]] = []
     pair_overlaps: Dict[str, int] = {}
     skipped = {
         "min_overlap": 0,
@@ -205,22 +207,63 @@ def _rank_correlation_pairs(
                     ),
                 }
             )
+            pair_series.append(
+                (
+                    subset[left].to_numpy(dtype=float),
+                    subset[right].to_numpy(dtype=float),
+                )
+            )
 
     if inference_supported and rows:
         family_size = len(rows)
         family_z = NormalDist().inv_cdf(
             1.0 - float(family_alpha) / (2.0 * float(family_size))
         )
-        for row in rows:
-            low, high = _correlation_fisher_ci(
-                float(row["correlation"]),
-                int(row["samples"]),
-                z=family_z,
+        per_pair_confidence = 1.0 - (float(family_alpha) / float(family_size))
+        iid_note = (
+            "IID Fisher-z interval assumes independent observations and a Pearson "
+            "sampling model; it does not account for serial dependence. Use "
+            "cross_correlation for a block-bootstrap interval on a specific pair."
+        )
+        if method != "pearson":
+            iid_note = (
+                f"Pearson Fisher-z was applied to {method} rank correlation under an "
+                "IID assumption. Use cross_correlation for a rank-aware block-bootstrap "
+                "interval on a specific pair."
             )
+        for row, (left_values, right_values) in zip(rows, pair_series):
+            n = int(min(left_values.size, right_values.size))
+            block_size = max(2, int(round(math.sqrt(max(n, 1)))))
+            low, high = _block_bootstrap_correlation_ci(
+                left_values,
+                right_values,
+                method=method,
+                samples=300,
+                block_size=block_size,
+                confidence=per_pair_confidence,
+            )
+            if low is None or high is None:
+                low, high = _correlation_fisher_ci(
+                    float(row["correlation"]),
+                    int(row["samples"]),
+                    z=family_z,
+                )
+                row["ci_familywise_method"] = "iid_fisher_z_approximation"
+                row["ci_familywise_assumption"] = (
+                    "observations_are_iid; time-series dependence is not handled"
+                )
+                row["ci_familywise_note"] = iid_note
+            else:
+                row["ci_familywise_method"] = "bonferroni_block_bootstrap"
+                row["ci_familywise_assumption"] = (
+                    "moving_block_bootstrap_preserves_serial_dependence"
+                )
+                row["bootstrap_block_size"] = int(block_size)
+                row["bootstrap_samples"] = 300
+                row["bootstrap_seed"] = 42
             row["ci_familywise_low"] = low
             row["ci_familywise_high"] = high
             row["ci_familywise_alpha"] = float(family_alpha)
-            row["ci_familywise_method"] = "bonferroni_fisher_z"
             row["pair_tests_run"] = int(family_size)
 
     rows.sort(
@@ -250,6 +293,10 @@ def _compact_correlation_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]
             "ci_familywise_high",
             "ci_familywise_alpha",
             "ci_familywise_method",
+            "ci_familywise_assumption",
+            "ci_familywise_note",
+            "bootstrap_block_size",
+            "bootstrap_samples",
             "pair_tests_run",
         ):
             if key in row:
@@ -709,6 +756,17 @@ def correlation_matrix(  # noqa: C901
                 warnings=warnings_out,
                 details=_format_pair_overlap_details(pair_overlaps, int(min_overlap))
                 or None,
+                context={
+                    **_pairwise_analysis_context(
+                        [],
+                        timeframe=timeframe,
+                        series_map=series_map,
+                        end=end,
+                    ),
+                    **_bar_completion_context(
+                        series_map, include_incomplete=bool(include_incomplete)
+                    ),
+                },
             )
 
         output_rows = (
@@ -722,7 +780,12 @@ def correlation_matrix(  # noqa: C901
             else {}
         )
         context = {
-            **_pairwise_analysis_context(rows, timeframe=timeframe),
+            **_pairwise_analysis_context(
+                rows,
+                timeframe=timeframe,
+                series_map=series_map,
+                end=end,
+            ),
             "requested_symbols": list(meta.get("symbols_input") or []),
             "resolved_symbols": list(symbols_used),
             "symbol_expansion": (
@@ -745,11 +808,29 @@ def correlation_matrix(  # noqa: C901
             ),
         }
         if transform_value in {"log_return", "pct", "diff"}:
+            ci_methods = {
+                str(row.get("ci_familywise_method"))
+                for row in rows
+                if row.get("ci_familywise_method")
+            }
+            inference_method = (
+                "bonferroni_block_bootstrap"
+                if ci_methods == {"bonferroni_block_bootstrap"}
+                else "mixed_block_bootstrap_and_iid_fisher_z"
+                if "bonferroni_block_bootstrap" in ci_methods
+                else "iid_fisher_z_approximation"
+            )
             context["correlation_inference"] = {
                 "family_alpha": 0.05,
                 "family_size": int(len(rows)),
-                "method": "bonferroni_fisher_z",
+                "method": inference_method,
                 "scope": "computed_symbol_pairs",
+                "dependence_note": (
+                    "Intervals use a moving-block bootstrap with Bonferroni pair "
+                    "correction when sample size allows; otherwise an IID Fisher-z "
+                    "approximation is labeled explicitly. Use cross_correlation for "
+                    "lead/lag inference on a specific pair."
+                ),
             }
         else:
             warnings_out.append(

@@ -221,3 +221,18 @@ def test_indicators_describe_cdl_pattern_is_not_compact_cli(monkeypatch):
     assert usage["compact_spec"] is None
     assert "patterns_detect" in usage["alternative"]["tool"]
     assert "cdl_pattern(all)" not in str(usage)
+
+
+def test_cmo_preferred_spec_uses_period_not_scalar():
+    spec = core_indicators._indicator_preferred_spec(
+        "cmo",
+        [
+            {"name": "length"},
+            {"name": "scalar", "default": 100},
+            {"name": "talib", "default": True},
+            {"name": "drift", "default": 1},
+        ],
+        {},
+    )
+    assert spec in {"cmo", "cmo(14)"}
+    assert spec != "cmo(100)"

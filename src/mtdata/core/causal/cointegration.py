@@ -133,6 +133,29 @@ def _fit_cointegration_hedge(
     return beta, intercept, spread
 
 
+def _cointegration_spread_formula(
+    transform: str,
+    trend: str,
+    dependent: str,
+    hedge: str,
+) -> str:
+    if transform == "log_level":
+        y = f"log({dependent})"
+        x = f"log({hedge})"
+        beta = "log_price_beta"
+    else:
+        y = dependent
+        x = hedge
+        beta = "hedge_ratio"
+    if trend == "n":
+        return f"{y} = {beta}*{x} + spread"
+    if trend == "ct":
+        return f"{y} = intercept + {beta}*{x} + trend + spread"
+    if trend == "ctt":
+        return f"{y} = intercept + {beta}*{x} + trend + trend^2 + spread"
+    return f"{y} = intercept + {beta}*{x} + spread"
+
+
 def _evaluate_cointegration_pair(
     subset: pd.DataFrame,
     left: str,
@@ -141,6 +164,7 @@ def _evaluate_cointegration_pair(
     trend: str,
     significance: float,
     coint_func: Any,
+    transform: str = "log_level",
 ) -> tuple[Dict[str, Any] | None, List[Dict[str, Any]]]:
     failures: List[Dict[str, Any]] = []
     best_row: Dict[str, Any] | None = None
@@ -231,10 +255,12 @@ def _evaluate_cointegration_pair(
             "test_stat": float(test_stat) if math.isfinite(float(test_stat)) else None,
             "p_value": float(p_value),
             "critical_values": _critical_values_dict(critical_values),
-            "hedge_ratio": float(hedge_ratio),
             "intercept": float(intercept),
             "spread_last": spread_last,
             "spread_zscore": spread_zscore,
+            "spread_formula": _cointegration_spread_formula(
+                transform, trend, dependent, hedge
+            ),
             "samples": int(len(subset)),
             "period_start": _format_sample_time(subset.index[0]),
             "period_end": _format_sample_time(subset.index[-1]),
@@ -244,6 +270,10 @@ def _evaluate_cointegration_pair(
             else "no_cointegration",
             "orientation_policy": "left_dependent",
         }
+        if transform == "level":
+            row["hedge_ratio"] = float(hedge_ratio)
+        else:
+            row["log_price_beta"] = float(hedge_ratio)
         if best_row is None or float(row["p_value"]) < float(best_row["p_value"]):
             best_row = row
 
@@ -838,7 +868,12 @@ def cointegration_test(  # noqa: C901
                     }
                 )
             johansen_context = {
-                **_pairwise_analysis_context([], timeframe=timeframe),
+                **_pairwise_analysis_context(
+                    [],
+                    timeframe=timeframe,
+                    series_map=series_map,
+                    end=end,
+                ),
                 "window_bars": window_bars_value,
                 "samples": int(len(sample)),
                 "available_overlap_rows": available_overlap,
@@ -858,7 +893,6 @@ def cointegration_test(  # noqa: C901
             if len(sample.index) > 0:
                 johansen_context["period_start"] = _format_sample_time(sample.index[0])
                 johansen_context["period_end"] = _format_sample_time(sample.index[-1])
-                johansen_context["bar_timestamp_basis"] = "open_time"
             out: Dict[str, Any] = {
                 "success": True,
                 "data_quality": data_quality,
@@ -904,6 +938,7 @@ def cointegration_test(  # noqa: C901
                     trend=trend_value,
                     significance=float(significance),
                     coint_func=coint,
+                    transform=transform_value,
                 )
                 if row is not None:
                     if detail_mode == "full":
@@ -973,6 +1008,12 @@ def cointegration_test(  # noqa: C901
                 meta=meta,
                 warnings=warnings_out,
                 details=details,
+                context=_pairwise_analysis_context(
+                    [],
+                    timeframe=timeframe,
+                    series_map=series_map,
+                    end=end,
+                ),
             )
 
         cointegrated_count = int(
@@ -1016,7 +1057,12 @@ def cointegration_test(  # noqa: C901
                 "highlights": _build_cointegration_summary(output_rows_raw),
             },
             "context": {
-                **_pairwise_analysis_context(rows, timeframe=timeframe),
+                **_pairwise_analysis_context(
+                    rows,
+                    timeframe=timeframe,
+                    series_map=series_map,
+                    end=end,
+                ),
                 "limit": output_limit,
                 "window_bars": window_bars_value,
                 "start": start,
@@ -1046,7 +1092,15 @@ def cointegration_test(  # noqa: C901
                             "test_statistic": "Engle-Granger test statistic; more negative = stronger evidence of cointegration",
                             "critical_values": "Thresholds at 1%, 5%, 10% significance levels; test statistic < critical value indicates cointegration",
                         },
-                        "hedge_ratio": "Units of quote symbol needed to hedge one unit of base symbol in a pairs trade",
+                        "hedge_ratio": (
+                            "Units of quote symbol needed to hedge one unit of base "
+                            "symbol from price-level OLS (transform=level only)"
+                        ),
+                        "log_price_beta": (
+                            "Elasticity from log(dependent) = intercept + beta * "
+                            "log(hedge); not an executable unit hedge ratio"
+                        ),
+                        "spread_formula": "Fitted residual equation for the reported coefficient",
                     }
                     if detail_mode == "full"
                     else None

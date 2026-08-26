@@ -431,7 +431,7 @@ def labels_triple_barrier(  # noqa: C901
     label_on: Literal["close", "high_low"] = "high_low",  # type: ignore
     same_bar_policy: Literal["sl_first", "tp_first", "neutral"] = "sl_first",  # type: ignore
     detail: DetailLiteral = "compact",
-    lookback: Annotated[int, Field(ge=1)] = _DEFAULT_LABEL_LOOKBACK,
+    lookback: Annotated[Optional[int], Field(ge=1)] = None,
     start: Optional[str] = None,
     end: Optional[str] = None,
     as_of: Optional[str] = None,
@@ -461,8 +461,9 @@ def labels_triple_barrier(  # noqa: C901
     timeout (no-barrier-hit) and same_bar_neutral outcomes; full detail returns
     the complete labeled series.
     start/end/as_of select a point-in-time history window. `as_of` cannot be
-    combined with start/end. Observation time (requested/effective window,
-    last_bar_open, data_as_of) is always returned.
+    combined with start/end. An explicit start/end range is labeled in full;
+    lookback is only a tail cap when the caller sets it. Observation time
+    (requested/effective window, last_bar_open, data_as_of) is always returned.
     """
 
     def _run() -> Dict[str, Any]:  # noqa: C901
@@ -617,21 +618,42 @@ def labels_triple_barrier(  # noqa: C901
             horizon_bars = int(horizon)
             if horizon_bars <= 0:
                 return {"error": "horizon must be greater than 0."}
-            requested_lookback = max(1, int(lookback))
+            explicit_range = bool(start or end)
+            explicit_lookback = lookback is not None
+            requested_lookback = max(
+                1,
+                int(lookback if lookback is not None else _DEFAULT_LABEL_LOOKBACK),
+            )
             sample_limit = max(1, int(limit))
             history_bars_requested = int(requested_lookback + horizon_bars)
+            fetch_need = history_bars_requested
+            if explicit_range and not explicit_lookback:
+                fetch_need = max(history_bars_requested, 2)
             df = _fetch_history(
                 symbol,
                 timeframe,
-                history_bars_requested,
+                fetch_need,
                 as_of=as_of,
                 start=start,
                 end=end,
             )
             history_bars_fetched = int(len(df))
-            if history_bars_fetched > history_bars_requested:
+            truncated = False
+            rows_dropped = 0
+            if explicit_range and not explicit_lookback:
+                history_bars_requested = history_bars_fetched
+            elif history_bars_fetched > history_bars_requested:
+                rows_dropped = int(history_bars_fetched - history_bars_requested)
                 df = df.tail(history_bars_requested).copy()
+                truncated = bool(explicit_range and explicit_lookback)
             history_bars_used = int(len(df))
+            if explicit_range and not explicit_lookback:
+                requested_lookback = max(1, history_bars_used - horizon_bars)
+            if truncated:
+                warnings_out.append(
+                    "Requested start/end range was truncated to the explicit "
+                    f"lookback tail ({history_bars_used} of {history_bars_fetched} bars)."
+                )
             if len(df) < horizon_bars + 2:
                 return {"error": "Insufficient history for labeling"}
             raw_highs = (
@@ -954,6 +976,7 @@ def labels_triple_barrier(  # noqa: C901
                 "history_bars_requested": history_bars_requested,
                 "history_bars_fetched": history_bars_fetched,
                 "history_bars_used": history_bars_used,
+                "truncated": bool(truncated),
                 "sample_limit": sample_limit,
                 **history_window,
                 "entry_bar_open_times": t_entry,
@@ -1047,7 +1070,13 @@ def labels_triple_barrier(  # noqa: C901
                 recommended_lookback = max(horizon_bars * 4, 30)
                 bars_insufficient_for_horizon = int(n) <= horizon_bars * 2
                 sample_quality = {
-                    "status": "low" if int(n) < recommended_lookback else "ok",
+                    "status": (
+                        "truncated"
+                        if truncated
+                        else "low"
+                        if int(n) < recommended_lookback
+                        else "ok"
+                    ),
                     "lookback": int(n),
                     "requested_lookback": requested_lookback,
                     "history_bars_requested": history_bars_requested,
@@ -1055,6 +1084,19 @@ def labels_triple_barrier(  # noqa: C901
                     "minimum_recommended": int(recommended_lookback),
                     "bars_insufficient_for_horizon": bool(bars_insufficient_for_horizon),
                 }
+                if truncated:
+                    coverage_pct = (
+                        round(100.0 * float(history_bars_used) / float(history_bars_fetched), 2)
+                        if history_bars_fetched
+                        else 0.0
+                    )
+                    sample_quality["truncated"] = True
+                    sample_quality["rows_dropped"] = int(rows_dropped)
+                    sample_quality["coverage_pct"] = coverage_pct
+                    sample_quality["reason"] = (
+                        "Explicit lookback capped the requested start/end range; "
+                        "sample quality is not a full-range result."
+                    )
                 if int(n) < recommended_lookback:
                     sample_quality["reason"] = (
                         f"Only {int(n)} labeled rows are summarized; "
@@ -1154,6 +1196,7 @@ def labels_triple_barrier(  # noqa: C901
                         "history_bars_requested": history_bars_requested,
                         "history_bars_fetched": history_bars_fetched,
                         "history_bars_used": history_bars_used,
+                        "truncated": bool(truncated),
                         "sample_limit": sample_limit,
                         **history_window,
                         "label_uses_future_path": True,
