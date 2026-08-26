@@ -115,6 +115,14 @@ def test_volatility_metadata_and_helper_functions(monkeypatch):
     assert by_name["garch"]["available"] is False
     assert "arch" in by_name["garch"]["requires"]
     assert by_name["theta"]["available"] is True
+    assert by_name["theta"]["requires_proxy"] is True
+    assert by_name["theta"]["valid_proxies"] == [
+        "squared_return",
+        "abs_return",
+        "log_r2",
+    ]
+    assert by_name["har_rv"]["sample_gates"]["aligned_rows_required"] == 20
+    assert "requires_proxy" not in by_name["ewma"]
 
     assert bars_per_year("H1") == 6048.0
     assert math.isnan(bars_per_year("BAD"))
@@ -402,10 +410,15 @@ def test_forecast_volatility_general_theta_and_proxy_errors(monkeypatch):
     monkeypatch.setattr(vol.mt5, "last_error", lambda: (0, "ok"))
 
     out = vol.forecast_volatility(symbol="EURUSD", timeframe="H1", method="theta", proxy=None)
-    assert "require 'proxy'" in out["error"]
+    assert "--proxy" in out["error"]
+    assert out["error_code"] == "volatility_proxy_required"
+    assert out["valid_proxies"] == ["squared_return", "abs_return", "log_r2"]
+    assert "--proxy squared_return" in out["remediation"]
 
     out = vol.forecast_volatility(symbol="EURUSD", timeframe="H1", method="theta", proxy="bad_proxy")  # type: ignore[arg-type]
     assert "Unsupported proxy" in out["error"]
+    assert out["error_code"] == "invalid_volatility_proxy"
+    assert "--proxy" in out["remediation"]
 
     out = vol.forecast_volatility(
         symbol="EURUSD",
@@ -439,6 +452,43 @@ def test_forecast_volatility_rejects_proxy_for_direct_method():
     )
 
     assert "does not accept proxy" in out["error"]
+
+
+def test_har_rv_sample_error_includes_counts_and_days_recommendation():
+    out = vol._har_rv_sample_error(
+        error="Insufficient samples after alignment for HAR-RV (12 aligned rows, 20 required).",
+        error_code="har_rv_insufficient_aligned_samples",
+        daily_rv_observed=28,
+        daily_rv_required=30,
+        aligned_rows_observed=12,
+        aligned_rows_required=20,
+        window_m=22,
+        window_w=5,
+        days_requested=30,
+    )
+
+    assert out["error_code"] == "har_rv_insufficient_aligned_samples"
+    assert out["daily_rv_observed"] == 28
+    assert out["daily_rv_required"] == 30
+    assert out["aligned_rows_observed"] == 12
+    assert out["aligned_rows_required"] == 20
+    assert out["window_m"] == 22
+    assert out["days_requested"] == 30
+    assert out["days_recommended"] >= 120
+    assert f"days={out['days_recommended']}" in out["remediation"]
+    assert vol._har_rv_recommended_days(window_m=22, days_requested=30) == 120
+    assert vol._har_rv_recommended_days(window_m=22, days_requested=120) > 120
+
+
+def test_forecast_volatility_estimate_request_proxy_choices():
+    with pytest.raises(ValidationError):
+        ForecastVolatilityEstimateRequest(symbol="EURUSD", method="theta", proxy="close")
+    request = ForecastVolatilityEstimateRequest(
+        symbol="EURUSD",
+        method="theta",
+        proxy="squared_return",
+    )
+    assert request.proxy == "squared_return"
 
 
 def test_forecast_volatility_direct_methods_and_short_data(monkeypatch):

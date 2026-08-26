@@ -89,6 +89,17 @@ def test_forecast_barrier_prob_request_defaults_single_price_to_closed_form():
     assert request.method is None
 
 
+def test_forecast_barrier_prob_request_accepts_explicit_auto_for_single_price():
+    request = ForecastBarrierProbRequest(
+        symbol="EURUSD",
+        method="auto",
+        barrier={"kind": "single_price", "level": 1.18},
+    )
+
+    assert request.method == "auto"
+    assert request.barrier.kind == "single_price"
+
+
 def test_forecast_barrier_prob_request_uses_tick_fields_as_canonical_names():
     request = ForecastBarrierProbRequest(
         symbol="EURUSD",

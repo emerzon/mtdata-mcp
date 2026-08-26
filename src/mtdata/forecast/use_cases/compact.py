@@ -173,6 +173,16 @@ def _forecast_compact_ci(
             "reason": "ci_alpha was not requested; direction is based on the point estimate only.",
             "recommended_tool": "forecast_conformal_intervals",
         }
+    if ci_status == "insufficient_calibration":
+        return {
+            "status": "insufficient_calibration",
+            "mode": "point_only",
+            "reason": (
+                "calibration residuals are below the required sample; "
+                "bounds are diagnostic only."
+            ),
+            "recommended_tool": "forecast_conformal_intervals",
+        }
     if ci_status == "unavailable":
         out: Dict[str, Any] = {
             "status": "unavailable",
@@ -281,6 +291,15 @@ def _round_forecast_generate_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     ):
         if key in out:
             out[key] = _round_forecast_list(out.get(key), digits=digits)
+    diagnostic = out.get("diagnostic_bounds")
+    if isinstance(diagnostic, dict):
+        rounded_bounds = dict(diagnostic)
+        for key in ("lower_price", "upper_price", "lower_return", "upper_return"):
+            if key in rounded_bounds:
+                rounded_bounds[key] = _round_forecast_list(
+                    rounded_bounds.get(key), digits=digits
+                )
+        out["diagnostic_bounds"] = rounded_bounds
     for key in ("last_price", "last_price_close"):
         if key in out:
             out[key] = _round_forecast_number(out.get(key), digits=digits)
@@ -456,6 +475,7 @@ _BARRIER_OPTIMIZE_COMPACT_OMIT_KEYS = frozenset(
         "no_action_reason",
         "no_candidates",
         "output_mode",
+        "results",
         "trade_gate_passed",
         "tradable",
         "viable",
@@ -463,6 +483,38 @@ _BARRIER_OPTIMIZE_COMPACT_OMIT_KEYS = frozenset(
         "warning",
     }
 )
+
+_BARRIER_RANKED_CANDIDATE_KEYS = (
+    "tp",
+    "sl",
+    "prob_tp_first",
+    "ev",
+    "edge",
+)
+
+
+def _compact_barrier_ranked_candidates(results: Any) -> Optional[List[Dict[str, Any]]]:
+    if not isinstance(results, list) or not results:
+        return None
+    ranked: List[Dict[str, Any]] = []
+    for index, row in enumerate(results, start=1):
+        if not isinstance(row, dict):
+            continue
+        compact_row: Dict[str, Any] = {"rank": index}
+        for key in _BARRIER_RANKED_CANDIDATE_KEYS:
+            value = row.get(key)
+            if value not in (None, "", [], {}):
+                compact_row[key] = value
+        ci = row.get("ev_ci95") or row.get("edge_ci95") or row.get("prob_win_ci95")
+        if ci not in (None, "", [], {}):
+            compact_row["ci"] = ci
+        viable = row.get("viable")
+        if viable is None:
+            viable = row.get("mathematically_viable")
+        if isinstance(viable, bool):
+            compact_row["viable"] = viable
+        ranked.append(compact_row)
+    return ranked or None
 
 
 def _compact_barrier_optimize_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -482,6 +534,9 @@ def _compact_barrier_optimize_payload(payload: Dict[str, Any]) -> Dict[str, Any]
     trade_gate = payload.get("trade_gate_passed", payload.get("tradable"))
     if trade_gate not in (None, "", [], {}):
         out["tradable"] = bool(trade_gate)
+    ranked = _compact_barrier_ranked_candidates(payload.get("results"))
+    if ranked:
+        out["ranked_candidates"] = ranked
     return out
 
 
@@ -732,6 +787,7 @@ def _annotate_forecast_generate_quality(payload: Dict[str, Any]) -> Dict[str, An
     if str(out.get("ci_status") or "").strip().lower() in {
         "not_requested",
         "unavailable",
+        "insufficient_calibration",
     }:
         out.setdefault("signal_status", "not_actionable")
     path_flatness = _forecast_path_flatness(out)
@@ -770,6 +826,8 @@ def _annotate_forecast_generate_quality(payload: Dict[str, Any]) -> Dict[str, An
     ci_status = str(out.get("ci_status") or "").strip().lower()
     if ci_status in {"not_requested", "unavailable"}:
         trust_blockers.append("forecast_uncertainty_not_available")
+    if ci_status == "insufficient_calibration":
+        trust_blockers.append("insufficient_interval_calibration")
     if path_flatness:
         trust_blockers.append("non_informative_forecast_path")
     out["trust_level"] = (
@@ -941,6 +999,7 @@ def _forecast_generate_compact_rows(payload: Dict[str, Any]) -> List[Dict[str, A
 
     count = min(len(times), len(forecast_values))
     price_values = payload.get("forecast_price")
+    attach_intervals = payload.get("ci_available") is not False
     rows: List[Dict[str, Any]] = []
     for idx in range(count):
         row: Dict[str, Any] = {"time": _format_forecast_time_utc(times[idx])}
@@ -954,7 +1013,11 @@ def _forecast_generate_compact_rows(payload: Dict[str, Any]) -> List[Dict[str, A
             row["value"] = forecast_values[idx]
         if isinstance(market_status, list) and idx < len(market_status):
             row["market_status"] = market_status[idx]
-        if isinstance(lower_values, list) and isinstance(upper_values, list):
+        if (
+            attach_intervals
+            and isinstance(lower_values, list)
+            and isinstance(upper_values, list)
+        ):
             if idx < len(lower_values) and idx < len(upper_values):
                 row[lower_field] = lower_values[idx]
                 row[upper_field] = upper_values[idx]
@@ -1624,6 +1687,9 @@ def _apply_barrier_prob_detail(
             "timeframe",
             "method",
             "method_source",
+            "method_requested",
+            "method_used",
+            "auto_reason",
             "direction",
             "barrier_side",
             "horizon",
@@ -1684,6 +1750,9 @@ def _apply_barrier_prob_detail(
         "timeframe",
         "method",
         "method_source",
+        "method_requested",
+        "method_used",
+        "auto_reason",
         "kind",
         "direction",
         "horizon",

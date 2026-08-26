@@ -27,7 +27,11 @@ from ..utils.barriers import (
     normalize_trade_direction_alias,
 )
 from ..utils.utils import validate_historical_range
+from .barrier_constants import BarrierProbMethodLiteral
 from .tuning_contract import TuningMetricLiteral, TuningModeLiteral
+
+VOLATILITY_PROXY_VALUES = ("squared_return", "abs_return", "log_r2")
+VolatilityProxyLiteral = Literal["squared_return", "abs_return", "log_r2"]
 
 MAX_FORECAST_HORIZON = 500
 MAX_BACKTEST_STEPS = 200
@@ -599,10 +603,7 @@ class ForecastBarrierProbRequest(_PublicForecastRequest):
     as_of: Optional[str] = None
     start: Optional[str] = None
     end: Optional[str] = None
-    method: Optional[Literal[
-        "auto", "bootstrap", "garch", "heston", "hmm_mc", "jump_diffusion",
-        "mc_gbm", "mc_gbm_bb", "closed_form"
-    ]] = None
+    method: Optional[BarrierProbMethodLiteral] = None
     direction: Literal["long", "short"] = "long"
     same_bar_policy: Literal["sl_first", "tp_first", "neutral"] = "sl_first"
     barrier: ForecastBarrierSpec
@@ -633,16 +634,12 @@ class ForecastBarrierProbRequest(_PublicForecastRequest):
     @model_validator(mode="after")
     def _validate_barrier_kind(self) -> "ForecastBarrierProbRequest":
         validate_as_of_time_window(self.as_of, self.start, self.end)
-        effective_method = self.method or (
-            "closed_form"
-            if isinstance(self.barrier, SinglePriceBarrierSpec)
-            else "mc_gbm_bb"
-        )
-        if effective_method == "closed_form" and not isinstance(self.barrier, SinglePriceBarrierSpec):
+        requested = str(self.method or "").strip().lower() or None
+        if requested in (None, "auto"):
+            return self
+        if requested == "closed_form" and not isinstance(self.barrier, SinglePriceBarrierSpec):
             raise ValueError("closed_form requires barrier.kind='single_price'")
-        if effective_method != "closed_form" and not isinstance(
-            self.barrier, BarrierPairSpec
-        ):
+        if requested != "closed_form" and not isinstance(self.barrier, BarrierPairSpec):
             raise ValueError("Monte Carlo methods require barrier.kind='tp_sl'")
         return self
 
@@ -919,7 +916,14 @@ class ForecastVolatilityEstimateRequest(_PublicForecastRequest):
             "with detail=standard and search_term to inspect the full namespace."
         ),
     )
-    proxy: Optional[str] = None
+    proxy: Optional[VolatilityProxyLiteral] = Field(
+        None,
+        description=(
+            "Required for general methods (arima, sarima, ets, theta). "
+            "Choices: squared_return, abs_return, log_r2. Omit for direct "
+            "estimators such as ewma, har_rv, and garch."
+        ),
+    )
     params: Optional[Dict[str, Any]] = None
     lookback: Optional[int] = Field(
         None,

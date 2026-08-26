@@ -3439,9 +3439,11 @@ def test_forecast_conformal_intervals_success_and_errors(monkeypatch):
     assert out["conformal"]["ci_alpha"] == 0.1
     assert out["conformal"]["empirical_coverage"] == 1.0
     assert out["conformal"]["min_calibration_points"] == 2
-    assert len(out["lower_price"]) == 2
-    assert len(out["upper_price"]) == 2
-    assert out["lower_price"][0] <= 100.0 <= out["upper_price"][0]
+    assert "lower_price" not in out
+    assert "upper_price" not in out
+    assert out["diagnostic_bounds"]["lower_price"][0] <= 100.0 <= out["diagnostic_bounds"]["upper_price"][0]
+    assert out["trust_level"] == "degraded"
+    assert "insufficient_interval_calibration" in out["trust_blockers"]
 
     monkeypatch.setattr(cf, "_forecast_backtest_impl", lambda **kwargs: {"error": "backtest failed"})
     assert raw(request=ForecastConformalIntervalsRequest(symbol="EURUSD", method="theta", horizon=2))["error"] == "backtest failed"
@@ -3597,10 +3599,14 @@ def test_run_forecast_conformal_intervals_uses_finite_sample_quantile():
     assert result["coverage_status"] == "below_nominal_target"
     assert result["coverage_gap"] == pytest.approx(-0.083333)
     assert "confidence_level" not in result
-    assert result["lower_price"] == [97.0]
-    assert result["upper_price"] == [103.0]
+    assert "lower_price" not in result
+    assert "upper_price" not in result
+    assert result["diagnostic_bounds"]["lower_price"] == [97.0]
+    assert result["diagnostic_bounds"]["upper_price"] == [103.0]
     assert result["ci_status"] == "insufficient_calibration"
     assert result["ci_available"] is False
+    assert result["trust_level"] == "degraded"
+    assert "insufficient_interval_calibration" in result["trust_blockers"]
 
 
 def test_run_forecast_conformal_intervals_compact_omits_technical_metadata():
@@ -3661,10 +3667,12 @@ def test_run_forecast_conformal_intervals_compact_omits_technical_metadata():
         {
             "time": "2026-05-29T21:00Z",
             "value": 100.12346,
-            "lower": 99.12346,
-            "upper": 101.12346,
         }
     ]
+    assert result["diagnostic_bounds"]["lower_price"] == [99.12346]
+    assert result["diagnostic_bounds"]["upper_price"] == [101.12346]
+    assert result["trust_level"] == "degraded"
+    assert "insufficient_interval_calibration" in result["trust_blockers"]
     assert result["conformal"] == {
         "ci_alpha": 0.1,
         "calibration_steps": 1,
@@ -3759,10 +3767,14 @@ def test_run_forecast_conformal_intervals_rewrites_interval_unavailable_guidance
     assert result["required_calibration_points"] == 30
     assert result["interval_usage"] == "diagnostic_only"
     assert "Increase --steps" in result["calibration_remediation"]
-    assert result["lower_price"] == [99.0]
-    assert result["upper_price"] == [101.0]
+    assert "lower_price" not in result
+    assert "upper_price" not in result
+    assert result["diagnostic_bounds"]["lower_price"] == [99.0]
+    assert result["diagnostic_bounds"]["upper_price"] == [101.0]
     assert result["warnings"][0] == "native theta fallback used"
     assert "at least 30" in result["warnings"][1]
+    assert result["trust_level"] == "degraded"
+    assert "insufficient_interval_calibration" in result["trust_blockers"]
 
 
 def test_run_forecast_conformal_intervals_raises_typed_error_for_nested_error_payload():
@@ -3813,6 +3825,15 @@ def test_conformal_interval_availability_uses_calibration_threshold(
     assert result["ci_status"] == expected_status
     assert result["ci_available"] is expected_available
     assert result["conformal"]["min_calibration_points"] == sample_size
+    if expected_available:
+        assert "lower_price" in result
+        assert "diagnostic_bounds" not in result
+    else:
+        assert "lower_price" not in result
+        assert "upper_price" not in result
+        assert result["diagnostic_bounds"]["usage"] == "diagnostic_only"
+        assert result["trust_level"] == "degraded"
+        assert "insufficient_interval_calibration" in result["trust_blockers"]
 
 
 def test_forecast_time_normalization_recurses_through_nested_payloads() -> None:
@@ -3966,7 +3987,8 @@ def test_forecast_tune_genetic_and_barrier_prob_routing(monkeypatch):
     )
     assert out["kind"] == "mc"
     assert out["method"] == "auto"
-    assert out["method_source"] == "request"
+    assert out["method_source"] == "auto_selection"
+    assert out["method_requested"] == "auto"
     assert out["direction"] == "short"
     assert out["detail"] == "compact"
 
@@ -3988,6 +4010,19 @@ def test_forecast_tune_genetic_and_barrier_prob_routing(monkeypatch):
     )
     assert out["kind"] == "cf"
     assert out["method_source"] == "auto_for_barrier_kind"
+
+    out = raw_barrier(
+        request=ForecastBarrierProbRequest(
+            symbol="EURUSD",
+            method="auto",
+            barrier={"kind": "single_price", "level": 1.2},
+        )
+    )
+    assert out["kind"] == "cf"
+    assert out["method_source"] == "auto_selection"
+    assert out["method_requested"] == "auto"
+    assert out["method_used"] == "closed_form"
+    assert out["auto_reason"] == "auto: single_price barrier; closed_form"
 
     with pytest.raises(ValidationError, match="direction"):
         ForecastBarrierProbRequest(
@@ -4051,15 +4086,21 @@ def test_forecast_barrier_optimize_rounds_public_float_artifacts():
             "price_precision": 5,
             "best": {
                 "tp": 0.45833333333333337,
+                "sl": 0.25,
                 "rr": 1.8333333333333335,
                 "tp_price": 1.1764675416666668,
+                "sl_price": 1.1681722500000001,
                 "prob_resolve": 0.46950000000000003,
                 "edge": -0.21050000000000002,
+                "edge_vs_breakeven": -0.2234411764705882,
                 "profit_factor": 0.6982843137254903,
             },
             "results": [
                 {
+                    "tp": 0.45833333333333337,
+                    "sl": 0.25,
                     "sl_price": 1.1681722500000001,
+                    "edge": -0.21050000000000002,
                     "edge_vs_breakeven": -0.2234411764705882,
                 }
             ],
@@ -4074,11 +4115,15 @@ def test_forecast_barrier_optimize_rounds_public_float_artifacts():
     assert out["best"]["tp"] == 0.458333
     assert out["best"]["rr"] == 1.8333
     assert out["best"]["tp_price"] == 1.17647
+    assert out["best"]["sl_price"] == 1.16817
     assert out["best"]["prob_resolve"] == 0.4695
     assert out["best"]["edge"] == -0.2105
+    assert out["best"]["edge_vs_breakeven"] == -0.223441
     assert out["best"]["profit_factor"] == 0.698284
-    assert out["results"][0]["sl_price"] == 1.16817
-    assert out["results"][0]["edge_vs_breakeven"] == -0.223441
+    assert "results" not in out
+    assert out["ranked_candidates"] == [
+        {"rank": 1, "tp": 0.458333, "sl": 0.25, "edge": -0.2105}
+    ]
     assert out["barrier_unit"] == "percent"
     assert out["probability_unit"] == "fraction"
     assert out["edge_definition"] == "prob_win - prob_loss (probability fraction)."
@@ -4792,6 +4837,159 @@ def test_forecast_barrier_prob_compact_keeps_cis_after_neutral_verdict():
     assert out["prob_sl_first_ci95"] == {"low": 0.019, "high": 0.044}
     assert out["prob_tp_first_se"] == 0.006
     assert out["prob_sl_first_se"] == 0.006
+
+
+def test_forecast_barrier_prob_compact_keeps_auto_selection_fields():
+    payload = {
+        "success": True,
+        "symbol": "EURUSD",
+        "method": "jump_diffusion",
+        "method_source": "auto_selection",
+        "method_requested": "auto",
+        "method_used": "jump_diffusion",
+        "auto_reason": "auto: heavy tails/jump risk",
+        "prob_tp_first": 0.2,
+        "prob_sl_first": 0.1,
+    }
+
+    out = forecast_use_cases._apply_barrier_prob_detail(
+        payload,
+        ForecastBarrierProbRequest(
+            symbol="EURUSD",
+            method="auto",
+            detail="compact",
+            barrier={
+                "kind": "tp_sl",
+                "unit": "pct",
+                "take_profit": 0.2,
+                "stop_loss": 0.1,
+            },
+        ),
+    )
+
+    assert out["method"] == "jump_diffusion"
+    assert out["method_source"] == "auto_selection"
+    assert out["method_requested"] == "auto"
+    assert out["method_used"] == "jump_diffusion"
+    assert out["auto_reason"] == "auto: heavy tails/jump risk"
+
+
+def test_compact_barrier_optimize_json_uses_ranked_candidates_not_results():
+    best = {
+        "tp": 1.0,
+        "sl": 0.5,
+        "prob_tp_first": 0.55,
+        "ev": 0.12,
+        "edge": 0.04,
+        "ev_ci95": {"low": 0.01, "high": 0.2},
+        "kelly": 0.1,
+        "profit_factor": 1.4,
+        "timeout_mtm_contribution": 0.01,
+        "same_bar_contribution": 0.0,
+        "phantom_profit_risk": False,
+    }
+    payload = {
+        "success": True,
+        "detail": "compact",
+        "best": best,
+        "results": [
+            dict(best),
+            {
+                "tp": 0.8,
+                "sl": 0.4,
+                "prob_tp_first": 0.5,
+                "ev": 0.08,
+                "edge": 0.02,
+                "kelly": 0.05,
+            },
+            {
+                "tp": 0.6,
+                "sl": 0.3,
+                "prob_tp_first": 0.4,
+                "ev": 0.01,
+                "edge": -0.01,
+                "viable": False,
+            },
+        ],
+        "actionability_flags": ["ok"],
+        "viable": True,
+    }
+
+    compact = forecast_compact._compact_barrier_optimize_payload(payload)
+
+    assert "results" not in compact
+    assert compact["best"] == best
+    assert [row["rank"] for row in compact["ranked_candidates"]] == [1, 2, 3]
+    assert compact["ranked_candidates"][0]["tp"] == 1.0
+    assert compact["ranked_candidates"][0]["ci"] == {"low": 0.01, "high": 0.2}
+    assert "kelly" not in compact["ranked_candidates"][0]
+    assert "timeout_mtm_contribution" not in compact["ranked_candidates"][0]
+    assert compact["ranked_candidates"][2]["viable"] is False
+    assert compact["ranked_candidates"][0] != compact["best"]
+
+
+def test_barrier_method_catalog_matches_request_schema(monkeypatch):
+    from mtdata.forecast.barrier_constants import (
+        BARRIER_PROB_METHODS,
+        BARRIER_SAMPLING_CI_METHODS,
+        barrier_method_catalog_rows,
+    )
+
+    monkeypatch.setattr(
+        cf,
+        "_get_forecast_methods_data",
+        lambda: {"total": 0, "categories": {}, "methods": []},
+    )
+
+    schema = ForecastBarrierProbRequest.model_json_schema()
+    method_prop = schema["properties"]["method"]
+    enums = set()
+    if "enum" in method_prop:
+        enums.update(value for value in method_prop["enum"] if value is not None)
+    for option in method_prop.get("anyOf", method_prop.get("oneOf", [])):
+        if isinstance(option, dict) and "enum" in option:
+            enums.update(value for value in option["enum"] if value is not None)
+
+    catalog_rows = barrier_method_catalog_rows()
+    catalog_names = {row["method"] for row in catalog_rows}
+    assert set(BARRIER_PROB_METHODS) == catalog_names
+    assert enums == catalog_names
+
+    rows = {row["method"]: row for row in catalog_rows}
+    assert rows["auto"]["barrier_kinds"] == ["single_price", "tp_sl"]
+    assert rows["closed_form"]["barrier_kinds"] == ["single_price"]
+    assert rows["closed_form"]["supports_ci"] is False
+    assert rows["mc_gbm_bb"]["supports_ci"] is True
+    assert rows["mc_gbm_bb"]["ci_method"] == "simulation_sampling_interval"
+    for name in BARRIER_SAMPLING_CI_METHODS:
+        assert rows[name]["supports_ci"] is True
+
+    listed = _unwrap(cf.forecast_list_methods)(
+        category="barrier",
+        profile="all",
+        detail="full",
+        show_unavailable=True,
+        limit=50,
+    )
+    listed_names = {row["method"] for row in listed["methods"]}
+    assert catalog_names <= listed_names
+    listed_rows = {row["method"]: row for row in listed["methods"]}
+    assert listed_rows["auto"]["barrier_kinds"] == ["single_price", "tp_sl"]
+    assert listed_rows["closed_form"]["supports_ci"] is False
+    assert listed_rows["mc_gbm_bb"]["supports_ci"] is True
+    assert listed_rows["mc_gbm_bb"]["ci_method"] == "simulation_sampling_interval"
+
+    ci_listed = _unwrap(cf.forecast_list_methods)(
+        category="barrier",
+        profile="all",
+        supports_ci=True,
+        show_unavailable=True,
+        limit=50,
+    )
+    ci_names = {row["method"] for row in ci_listed["methods"]}
+    assert "mc_gbm_bb" in ci_names
+    assert "auto" in ci_names
+    assert "closed_form" not in ci_names
 
 
 @pytest.mark.parametrize("detail", ["compact", "full"])

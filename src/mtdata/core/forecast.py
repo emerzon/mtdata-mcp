@@ -1841,6 +1841,10 @@ def _forecast_ci_method(item: Dict[str, Any]) -> Optional[str]:
         return "statsmodels_prediction_interval"
     if method_name == "theta":
         return "native_theta_interval"
+    if category == "barrier":
+        if bool(item.get("supports_ci")):
+            return str(item.get("ci_method") or "simulation_sampling_interval")
+        return None
     if method_name in {"mc_gbm", "hmm_mc"} or category == "monte_carlo":
         return "simulation_quantile"
     if method_name == "analog" or category == "analog":
@@ -1896,6 +1900,17 @@ def _forecast_list_full_row(
         row["supports_training"] = bool(item.get("supports_training"))
     if row.get("supports_training") is True and item.get("training_category") not in (None, ""):
         row["training_category"] = item.get("training_category")
+    if item.get("requires_proxy") is True:
+        row["requires_proxy"] = True
+    valid_proxies = item.get("valid_proxies")
+    if isinstance(valid_proxies, list) and valid_proxies:
+        row["valid_proxies"] = [str(value) for value in valid_proxies if str(value).strip()]
+    barrier_kinds = item.get("barrier_kinds")
+    if isinstance(barrier_kinds, list) and barrier_kinds:
+        row["barrier_kinds"] = [str(value) for value in barrier_kinds if str(value).strip()]
+    sample_gates = item.get("sample_gates")
+    if isinstance(sample_gates, dict) and sample_gates:
+        row["sample_gates"] = sample_gates
     if params:
         row["params"] = params
     if item.get("tool") not in (None, ""):
@@ -1934,38 +1949,31 @@ def _auxiliary_method_catalog_rows() -> List[Dict[str, Any]]:
             name = str(item.get("method") or "").strip()
             if not name:
                 continue
-            rows.append(
-                {
-                    "method": name,
-                    "available": bool(item.get("available", True)),
-                    "description": item.get("description"),
-                    "params": item.get("params") or [],
-                    "requires": item.get("requires") or [],
-                    "tool": "forecast_volatility_estimate",
-                    "namespace": "volatility",
-                    "category": "volatility",
-                }
-            )
+            row = {
+                "method": name,
+                "available": bool(item.get("available", True)),
+                "description": item.get("description"),
+                "params": item.get("params") or [],
+                "requires": item.get("requires") or [],
+                "tool": "forecast_volatility_estimate",
+                "namespace": "volatility",
+                "category": "volatility",
+            }
+            if item.get("requires_proxy") is True:
+                row["requires_proxy"] = True
+            valid_proxies = item.get("valid_proxies")
+            if isinstance(valid_proxies, list) and valid_proxies:
+                row["valid_proxies"] = list(valid_proxies)
+            sample_gates = item.get("sample_gates")
+            if isinstance(sample_gates, dict) and sample_gates:
+                row["sample_gates"] = sample_gates
+            rows.append(row)
     except Exception:
         pass
     try:
-        from ..forecast.barrier_constants import BARRIER_METHOD_SIM_PARAM_KEYS
+        from ..forecast.barrier_constants import barrier_method_catalog_rows
 
-        for name, keys in BARRIER_METHOD_SIM_PARAM_KEYS.items():
-            rows.append(
-                {
-                    "method": str(name),
-                    "available": True,
-                    "description": f"Barrier probability method '{name}'.",
-                    "params": [
-                        {"name": key, "type": "any"}
-                        for key in sorted(keys)
-                    ],
-                    "tool": "forecast_barrier_prob",
-                    "namespace": "barrier",
-                    "category": "barrier",
-                }
-            )
+        rows.extend(barrier_method_catalog_rows())
     except Exception:
         pass
     return rows
@@ -2316,10 +2324,21 @@ def _forecast_list_methods_impl(  # noqa: C901
                     row["ci_method"] = ci_method
             if isinstance(item.get("supports_training"), bool):
                 row["supports_training"] = bool(item.get("supports_training"))
+            if item.get("requires_proxy") is True:
+                row["requires_proxy"] = True
+            valid_proxies = item.get("valid_proxies")
+            if detail_value == "standard" and isinstance(valid_proxies, list) and valid_proxies:
+                row["valid_proxies"] = list(valid_proxies)
+            barrier_kinds = item.get("barrier_kinds")
+            if isinstance(barrier_kinds, list) and barrier_kinds:
+                row["barrier_kinds"] = list(barrier_kinds)
             if detail_value == "standard":
                 params = item.get("params")
                 if isinstance(params, list):
                     row["params_count"] = len(params)
+                sample_gates = item.get("sample_gates")
+                if isinstance(sample_gates, dict) and sample_gates:
+                    row["sample_gates"] = sample_gates
             requires = item.get("requires")
             if not available and isinstance(requires, list) and requires:
                 req_text = ", ".join(str(req) for req in requires if str(req).strip())

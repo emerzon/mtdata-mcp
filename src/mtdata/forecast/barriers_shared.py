@@ -40,7 +40,7 @@ from ..utils.time import (
     _use_client_tz,
 )
 from ..utils.utils import parse_kv_or_json as _parse_kv_or_json
-from .barrier_constants import BARRIER_MONTE_CARLO_METHODS, BarrierMethodLiteral
+from .barrier_constants import BARRIER_MONTE_CARLO_METHODS
 from .barrier_stats import _confidence_interval_wilson_proportion
 from .common import fetch_history as _fetch_history
 from .common import log_returns_from_prices as _log_returns_from_prices
@@ -126,6 +126,34 @@ def normalize_barrier_method(
     if allow_ensemble:
         allowed.add("ensemble")
     return method_key if method_key in allowed else None
+
+
+def resolve_barrier_prob_method(
+    method: Any,
+    barrier_kind: Any,
+) -> Tuple[str, str, Optional[str], Optional[str]]:
+    """Resolve omitted/auto barrier-prob methods after inspecting barrier.kind.
+
+    Returns ``(effective_method, method_source, method_requested, auto_reason)``.
+    Explicit ``auto`` with ``tp_sl`` keeps ``effective_method='auto'`` so the
+    simulation engine can still choose among Monte Carlo models.
+    """
+    requested = str(method or "").strip().lower() or None
+    kind = str(barrier_kind or "").strip().lower()
+    if requested is None:
+        if kind == "single_price":
+            return "closed_form", "auto_for_barrier_kind", None, None
+        return "mc_gbm_bb", "auto_for_barrier_kind", None, None
+    if requested == "auto":
+        if kind == "single_price":
+            return (
+                "closed_form",
+                "auto_selection",
+                "auto",
+                "auto: single_price barrier; closed_form",
+            )
+        return "auto", "auto_selection", "auto", None
+    return requested, "request", None, None
 
 
 def barrier_method_error(

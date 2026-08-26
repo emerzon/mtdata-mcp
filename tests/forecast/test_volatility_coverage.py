@@ -483,6 +483,7 @@ class TestForecastVolatilityValidation:
             result = forecast_volatility("EURUSD", "H1", 5, method="theta")
             assert "error" in result
             assert "proxy" in result["error"].lower()
+            assert result["error_code"] == "volatility_proxy_required"
 
     def test_general_method_unsupported_proxy(self):
         with _mock_vol_env():
@@ -1379,6 +1380,7 @@ class TestGeneralMethodErrors:
             r = forecast_volatility("EURUSD", "H1", 5, method="theta",
                                     proxy=None)
             assert "error" in r and "proxy" in r["error"].lower()
+            assert r.get("error_code") == "volatility_proxy_required"
 
     def test_unsupported_proxy(self):
         """Line 447: unsupported proxy string."""

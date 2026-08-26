@@ -708,6 +708,34 @@ class TestForecastModels:
             row["adapter_method"] == "statsforecast" for row in family["models"]
         )
 
+    def test_filters_models_by_data_scope_symbol_and_timeframe(self):
+        from mtdata.core.forecast_tasks import forecast_models_list
+
+        handles = [
+            TrainedModelHandle("nhits/EURUSD_H1/a", "nhits", "EURUSD_H1", "a", 1000.0),
+            TrainedModelHandle("tft/GBPUSD_H4/b", "tft", "GBPUSD_H4", "b", 2000.0),
+            TrainedModelHandle("nhits/EURUSD_M15/c", "nhits", "EURUSD_M15", "c", 1500.0),
+        ]
+        mock_store = MagicMock()
+        mock_store.list_models.return_value = handles
+
+        with patch(_PATCH_STORE, return_value=mock_store):
+            by_scope = _unwrap(forecast_models_list)(data_scope="EURUSD_H1")
+            by_symbol = _unwrap(forecast_models_list)(symbol="eurusd")
+            by_timeframe = _unwrap(forecast_models_list)(timeframe="H4")
+            composed = _unwrap(forecast_models_list)(symbol="EURUSD", timeframe="M15")
+
+        assert [row["model_id"] for row in by_scope["models"]] == ["nhits/EURUSD_H1/a"]
+        assert by_scope["pagination"]["total"] == 1
+        assert by_scope["filters"]["data_scope"] == "EURUSD_H1"
+        assert {row["data_scope"] for row in by_symbol["models"]} == {
+            "EURUSD_H1",
+            "EURUSD_M15",
+        }
+        assert [row["data_scope"] for row in by_timeframe["models"]] == ["GBPUSD_H4"]
+        assert [row["model_id"] for row in composed["models"]] == ["nhits/EURUSD_M15/c"]
+        assert composed["pagination"]["total"] == 1
+
     def test_compact_model_rows_show_training_anchor(self):
         from mtdata.core.forecast_tasks import forecast_models_list
 

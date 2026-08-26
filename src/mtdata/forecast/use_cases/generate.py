@@ -131,6 +131,9 @@ def _apply_conformal_intervals_detail(
         "calibration_sufficient",
         "interval_usage",
         "calibration_remediation",
+        "diagnostic_bounds",
+        "trust_level",
+        "trust_blockers",
         "last_price",
         "last_price_source",
         "digits",
@@ -154,6 +157,9 @@ def _apply_conformal_intervals_detail(
         value = payload.get(key)
         if value not in (None, "", [], {}):
             out[key] = value
+    if payload.get("ci_available") is False:
+        for key in ("lower_price", "upper_price", "lower_return", "upper_return"):
+            out.pop(key, None)
     if "last_price_age_seconds" in out:
         out["data_age_seconds"] = out["last_price_age_seconds"]
     if "last_price_stale" in out:
@@ -651,8 +657,8 @@ def run_forecast_conformal_intervals(
                 "finite-sample conformal coverage guarantee."
             ),
         }
-        result["lower_price"] = [float(v) for v in lo.tolist()]
-        result["upper_price"] = [float(v) for v in hi.tolist()]
+        bounds_lower = [float(v) for v in lo.tolist()]
+        bounds_upper = [float(v) for v in hi.tolist()]
         result["ci_alpha"] = float(request.ci_alpha)
         nominal_confidence = round(1.0 - float(request.ci_alpha), 6)
         result["nominal_confidence_level"] = nominal_confidence
@@ -674,6 +680,8 @@ def run_forecast_conformal_intervals(
         result["required_calibration_points"] = _MIN_CONFORMAL_CALIBRATION_POINTS
         result["calibration_sufficient"] = calibration_sufficient
         if calibration_sufficient:
+            result["lower_price"] = bounds_lower
+            result["upper_price"] = bounds_upper
             result["ci_status"] = "available"
             result["ci_available"] = True
             result["interval_usage"] = "calibrated"
@@ -681,6 +689,11 @@ def run_forecast_conformal_intervals(
             result["ci_status"] = "insufficient_calibration"
             result["ci_available"] = False
             result["interval_usage"] = "diagnostic_only"
+            result["diagnostic_bounds"] = {
+                "lower_price": bounds_lower,
+                "upper_price": bounds_upper,
+                "usage": "diagnostic_only",
+            }
             result["calibration_remediation"] = (
                 "Increase --steps until every forecast horizon has at least "
                 f"{_MIN_CONFORMAL_CALIBRATION_POINTS} calibration residuals."

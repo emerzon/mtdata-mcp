@@ -22,6 +22,7 @@ from ..forecast.requests import MAX_FORECAST_HORIZON
 from ..shared.schema import (
     DetailLiteral,
     TimeframeLiteral,
+    normalize_optional_symbol,
     validate_as_of_time_window,
 )
 from ..utils.time import format_epoch_utc
@@ -329,6 +330,39 @@ def _adapter_method(method: Any) -> str:
     if selector_key and execution_library:
         return execution_library
     return method_name
+
+
+def _split_model_data_scope(scope: Any) -> tuple[str, str]:
+    text = str(scope or "").strip()
+    if "_" not in text:
+        return text, ""
+    symbol, timeframe = text.rsplit("_", 1)
+    return symbol, timeframe
+
+
+def _model_matches_inventory_filters(
+    handle: Any,
+    *,
+    adapter: Optional[str] = None,
+    data_scope: Optional[str] = None,
+    symbol: Optional[str] = None,
+    timeframe: Optional[str] = None,
+) -> bool:
+    if adapter and _adapter_method(getattr(handle, "method", "")) != str(adapter):
+        return False
+    scope = str(getattr(handle, "data_scope", "") or "")
+    if data_scope and scope != str(data_scope).strip():
+        return False
+    scope_symbol, scope_timeframe = _split_model_data_scope(scope)
+    if symbol:
+        wanted = str(symbol).strip().upper()
+        if scope_symbol.upper() != wanted:
+            return False
+    if timeframe:
+        wanted_tf = str(timeframe).strip().upper()
+        if scope_timeframe.upper() != wanted_tf:
+            return False
+    return True
 
 
 def _task_matches_filters(
@@ -1309,14 +1343,17 @@ def forecast_task_list(
 def forecast_models_list(
     method: Optional[str] = None,
     adapter: Optional[str] = None,
+    data_scope: Optional[str] = None,
+    symbol: Optional[str] = None,
+    timeframe: Optional[TimeframeLiteral] = None,
     detail: DetailLevel = "compact",
     limit: Annotated[int, Field(ge=1, le=500)] = 10,
     offset: Annotated[int, Field(ge=0)] = 0,
 ) -> Dict[str, Any]:
     """List usable stored trained forecast models.
 
-    Optionally filter by public method name (for example sf_naive) or by
-    adapter family (for example statsforecast).
+    Optionally filter by public method name (for example sf_naive), adapter
+    family (for example statsforecast), data_scope, symbol, or timeframe.
     Expired artifacts are intentionally excluded; use a dry-run
     ``forecast_models_cleanup`` call to inspect them. Use ``detail='full'`` to
     include stored model metadata. Results use deterministic model-id ordering
@@ -1326,17 +1363,31 @@ def forecast_models_list(
     def _execute() -> Dict[str, Any]:
         detail_mode = _detail_mode(detail)
         store = _get_model_store()
+        wanted_symbol = normalize_optional_symbol(symbol)
         handles = store.list_models(method=method)
         all_handles = store.list_models(method=method, include_expired=True)
-        if adapter:
-            handles = [
-                handle for handle in handles
-                if _adapter_method(handle.method) == str(adapter)
-            ]
-            all_handles = [
-                handle for handle in all_handles
-                if _adapter_method(handle.method) == str(adapter)
-            ]
+        handles = [
+            handle
+            for handle in handles
+            if _model_matches_inventory_filters(
+                handle,
+                adapter=adapter,
+                data_scope=data_scope,
+                symbol=wanted_symbol,
+                timeframe=timeframe,
+            )
+        ]
+        all_handles = [
+            handle
+            for handle in all_handles
+            if _model_matches_inventory_filters(
+                handle,
+                adapter=adapter,
+                data_scope=data_scope,
+                symbol=wanted_symbol,
+                timeframe=timeframe,
+            )
+        ]
         handles = sorted(handles, key=lambda handle: str(handle.model_id))
         total_count = len(handles)
         page = handles[int(offset) : int(offset) + int(limit)]
@@ -1363,6 +1414,19 @@ def forecast_models_list(
             method_name = str(getattr(handle, "method", "") or "unknown")
             count_by_method[method_name] = count_by_method.get(method_name, 0) + 1
         out["count_by_method"] = dict(sorted(count_by_method.items()))
+        filters = {
+            key: value
+            for key, value in {
+                "method": method,
+                "adapter": adapter,
+                "data_scope": data_scope,
+                "symbol": wanted_symbol,
+                "timeframe": timeframe,
+            }.items()
+            if value is not None
+        }
+        if filters or detail_mode == "full":
+            out["filters"] = filters
         if out["expired_models_hidden"]:
             out["expired_models_hint"] = (
                 "Use forecast_models_cleanup with dry_run=true to inspect expired artifacts."
@@ -1392,6 +1456,23 @@ def forecast_models_list(
             elif adapter:
                 out["message"] = (
                     f"No stored forecast models matched adapter={adapter!r}."
+                )
+            elif data_scope:
+                out["message"] = (
+                    f"No stored forecast models matched data_scope={data_scope!r}."
+                )
+            elif wanted_symbol or timeframe:
+                out["message"] = (
+                    "No stored forecast models matched "
+                    + ", ".join(
+                        part
+                        for part in (
+                            None if wanted_symbol is None else f"symbol={wanted_symbol!r}",
+                            None if timeframe is None else f"timeframe={timeframe!r}",
+                        )
+                        if part
+                    )
+                    + "."
                 )
             else:
                 out["message"] = (
@@ -1423,6 +1504,9 @@ def forecast_models_list(
         func=_execute,
         method=method,
         adapter=adapter,
+        data_scope=data_scope,
+        symbol=symbol,
+        timeframe=timeframe,
         detail=detail,
         limit=limit,
         offset=offset,

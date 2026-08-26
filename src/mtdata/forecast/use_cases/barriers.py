@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import time
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from mtdata.core.error_envelope import build_error_payload
 from mtdata.core.execution_logging import (
@@ -16,6 +16,7 @@ from mtdata.forecast.barriers_shared import (
     BARRIER_EDGE_DEFINITION,
     barrier_method_error,
     normalize_barrier_method,
+    resolve_barrier_prob_method,
 )
 from mtdata.forecast.requests import (
     ForecastBarrierOptimizeRequest,
@@ -38,6 +39,26 @@ from mtdata.forecast.use_cases.compact import (
 logger = logging.getLogger("mtdata.forecast.use_cases")
 
 
+def _stamp_barrier_method_provenance(
+    result: Dict[str, Any],
+    *,
+    method_source: str,
+    method_requested: Optional[str],
+    method_used: Optional[str],
+    auto_reason: Optional[str],
+) -> Dict[str, Any]:
+    result["method_source"] = method_source
+    if method_source != "auto_selection":
+        return result
+    if method_requested:
+        result.setdefault("method_requested", method_requested)
+    if method_used:
+        result.setdefault("method_used", method_used)
+    if auto_reason:
+        result.setdefault("auto_reason", auto_reason)
+    return result
+
+
 def run_forecast_barrier_prob(
     request: ForecastBarrierProbRequest,
     *,
@@ -47,13 +68,14 @@ def run_forecast_barrier_prob(
     barrier_closed_form_impl: Any,
 ) -> Dict[str, Any]:
     started_at = time.perf_counter()
-    method_source = "request" if request.method is not None else "auto_for_barrier_kind"
-    requested_method = request.method or (
-        "closed_form" if request.barrier.kind == "single_price" else "mc_gbm_bb"
+    method_val, method_source, method_requested, auto_reason = (
+        resolve_barrier_prob_method(request.method, request.barrier.kind)
     )
-    method_val = normalize_barrier_method(requested_method, allow_closed_form=True)
-    if method_val is None:
-        method_val = str(requested_method).lower().strip()
+    normalized = normalize_barrier_method(method_val, allow_closed_form=True)
+    if normalized is None:
+        method_val = str(method_val).lower().strip()
+    else:
+        method_val = normalized
     mc_methods = {
         "auto",
         "bootstrap",
@@ -145,7 +167,13 @@ def run_forecast_barrier_prob(
             )
             if isinstance(result, dict):
                 result = _annotate_price_currency(result, request.symbol)
-                result["method_source"] = method_source
+                result = _stamp_barrier_method_provenance(
+                    result,
+                    method_source=method_source,
+                    method_requested=method_requested,
+                    method_used=None if method_val == "auto" else method_val,
+                    auto_reason=auto_reason,
+                )
             result = _attach_analysis_time_window(result, request)
             result = _apply_barrier_prob_detail(result, request)
             log_operation_finish(
@@ -188,7 +216,13 @@ def run_forecast_barrier_prob(
             )
             if isinstance(result, dict):
                 result = _annotate_price_currency(result, request.symbol)
-                result["method_source"] = method_source
+                result = _stamp_barrier_method_provenance(
+                    result,
+                    method_source=method_source,
+                    method_requested=method_requested,
+                    method_used=method_val,
+                    auto_reason=auto_reason,
+                )
             result = _attach_analysis_time_window(result, request)
             result = _apply_barrier_prob_detail(result, request)
             log_operation_finish(

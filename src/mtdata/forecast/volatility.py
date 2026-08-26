@@ -43,6 +43,11 @@ from .forecast_registry import (
     ForecastRegistry,
     get_forecast_method_availability_snapshot,
 )
+from .requests import VOLATILITY_PROXY_VALUES
+
+HAR_RV_MIN_ALIGNED_ROWS = 20
+HAR_RV_MIN_DAILY_RV = 30
+VOLATILITY_PROXY_METHODS = ("arima", "sarima", "ets", "theta")
 
 _VOLATILITY_METHOD_HINTS = (
     "ewma",
@@ -146,10 +151,24 @@ def get_volatility_methods_data() -> Dict[str, Any]:
         "description": "HAR-RV model on realized variance aggregated from intraday bars.",
         "params": [
             {"name": "rv_timeframe", "type": "str", "default": "M5", "description": "Timeframe used to build intraday realized variance."},
-            {"name": "days", "type": "int", "default": 120, "description": "Number of calendar days fetched for the HAR fit."},
+            {
+                "name": "days",
+                "type": "int",
+                "default": 120,
+                "description": (
+                    "Number of calendar days fetched for the HAR fit. Need enough "
+                    "history for max(30, window_m+5) daily RV observations and 20 "
+                    "aligned regression rows after the monthly lag; default 120."
+                ),
+            },
             {"name": "window_w", "type": "int", "default": 5, "description": "Weekly window size for HAR lags."},
             {"name": "window_m", "type": "int", "default": 22, "description": "Monthly window size for HAR lags."},
         ],
+        "sample_gates": {
+            "daily_rv_required": "max(30, window_m + 5)",
+            "aligned_rows_required": HAR_RV_MIN_ALIGNED_ROWS,
+            "days_default": 120,
+        },
     })
 
     def _garch_entry(name: str, base_desc: str, dist_default: str = "normal") -> Dict[str, Any]:
@@ -180,15 +199,14 @@ def get_volatility_methods_data() -> Dict[str, Any]:
         _garch_entry("figarch", "Fractionally integrated FIGARCH volatility model."),
     ])
 
-    for method_name, description in (
-        ("arima", "ARIMA model fitted to the volatility proxy series."),
-        (
-            "sarima",
-            "Seasonal ARIMA on the volatility proxy with the canonical seasonal period.",
-        ),
-        ("ets", "Canonical exponential smoothing on the volatility proxy."),
-        ("theta", "Canonical Theta method applied to the volatility proxy."),
-    ):
+    _proxy_method_descriptions = {
+        "arima": "ARIMA model fitted to the volatility proxy series.",
+        "sarima": "Seasonal ARIMA on the volatility proxy with the canonical seasonal period.",
+        "ets": "Canonical exponential smoothing on the volatility proxy.",
+        "theta": "Canonical Theta method applied to the volatility proxy.",
+    }
+    for method_name in VOLATILITY_PROXY_METHODS:
+        description = _proxy_method_descriptions[method_name]
         method = ForecastRegistry.get(method_name)
         available = bool(forecast_availability.get(method_name, False))
         methods.append(
@@ -198,6 +216,8 @@ def get_volatility_methods_data() -> Dict[str, Any]:
                 "requires": [] if available else list(method.required_packages),
                 "description": description,
                 "params": list(getattr(method, "PARAMS", []) or []),
+                "requires_proxy": True,
+                "valid_proxies": list(VOLATILITY_PROXY_VALUES),
             }
         )
 
@@ -309,6 +329,82 @@ def _invalid_volatility_method_error(
         "error_code": "invalid_volatility_method",
         "valid_volatility_methods": valid_method_list,
         **({"suggested_method": suggested_method} if suggested_method else {}),
+    }
+
+
+def _har_rv_daily_rv_required(window_m: int) -> int:
+    return max(HAR_RV_MIN_DAILY_RV, int(window_m) + 5)
+
+
+def _har_rv_recommended_days(*, window_m: int, days_requested: int) -> int:
+    daily_required = _har_rv_daily_rv_required(window_m)
+    min_trading_days = max(
+        daily_required,
+        HAR_RV_MIN_ALIGNED_ROWS + int(window_m) + 1,
+    )
+    calendar_days = int(math.ceil(min_trading_days * 7 / 5) + 2)
+    recommended = max(calendar_days, 120)
+    requested = int(days_requested)
+    if recommended <= requested:
+        recommended = requested + max(int(window_m), 20)
+    return recommended
+
+
+def _har_rv_sample_error(
+    *,
+    error: str,
+    error_code: str,
+    daily_rv_observed: int,
+    daily_rv_required: int,
+    aligned_rows_observed: Optional[int],
+    aligned_rows_required: int,
+    window_m: int,
+    window_w: int,
+    days_requested: int,
+) -> Dict[str, Any]:
+    recommended_days = _har_rv_recommended_days(
+        window_m=window_m,
+        days_requested=days_requested,
+    )
+    payload: Dict[str, Any] = {
+        "success": False,
+        "error": error,
+        "error_code": error_code,
+        "daily_rv_observed": int(daily_rv_observed),
+        "daily_rv_required": int(daily_rv_required),
+        "aligned_rows_required": int(aligned_rows_required),
+        "window_m": int(window_m),
+        "window_w": int(window_w),
+        "days_requested": int(days_requested),
+        "days_recommended": int(recommended_days),
+        "remediation": (
+            f"Retry forecast_volatility_estimate with --params days={recommended_days} "
+            "(or the default days=120). HAR-RV needs at least "
+            f"{daily_rv_required} daily RV observations and "
+            f"{aligned_rows_required} aligned regression rows after the "
+            f"window_m={window_m} monthly lag."
+        ),
+    }
+    if aligned_rows_observed is not None:
+        payload["aligned_rows_observed"] = int(aligned_rows_observed)
+    return payload
+
+
+def _volatility_proxy_required_error(method: str) -> Dict[str, Any]:
+    proxies = "|".join(VOLATILITY_PROXY_VALUES)
+    return {
+        "success": False,
+        "error": (
+            f"General methods require --proxy ({proxies})."
+        ),
+        "error_code": "volatility_proxy_required",
+        "method": str(method).strip().lower(),
+        "valid_proxies": list(VOLATILITY_PROXY_VALUES),
+        "remediation": (
+            "Retry forecast_volatility_estimate with --proxy squared_return "
+            f"(or {', '.join(VOLATILITY_PROXY_VALUES[1:])}). Direct estimators "
+            "such as ewma, har_rv, and garch do not need --proxy."
+        ),
     }
 
 
@@ -1115,7 +1211,7 @@ def forecast_volatility(  # noqa: C901
         method_l = str(method).lower().strip()
         garch_family = {'garch','egarch','gjr_garch','garch_t','egarch_t','gjr_garch_t','figarch'}
         valid_direct = {'ewma','parkinson','gk','rs','yang_zhang','rolling_std','realized_kernel','har_rv'} | garch_family
-        valid_general = {'arima','sarima','ets','theta'}
+        valid_general = set(VOLATILITY_PROXY_METHODS)
         valid_meta = {'ensemble'}
         valid_methods = valid_direct.union(valid_general).union(valid_meta)
         if method_l not in valid_methods:
@@ -1441,7 +1537,7 @@ def forecast_volatility(  # noqa: C901
                 return {"error": "Insufficient returns to estimate volatility proxy"}
             # Build proxy
             if not proxy:
-                return {"error": "General methods require 'proxy' (squared_return|abs_return|log_r2)"}
+                return _volatility_proxy_required_error(method_l)
             proxy_l = str(proxy).lower().strip()
             eps = 1e-12
             if proxy_l == 'squared_return':
@@ -1451,7 +1547,20 @@ def forecast_volatility(  # noqa: C901
             elif proxy_l == 'log_r2':
                 y = np.log(r * r + eps); back = 'exp_sqrt'
             else:
-                return {"error": f"Unsupported proxy: {proxy}"}
+                return {
+                    "success": False,
+                    "error": (
+                        f"Unsupported proxy: {proxy}. Use --proxy "
+                        f"{'|'.join(VOLATILITY_PROXY_VALUES)}."
+                    ),
+                    "error_code": "invalid_volatility_proxy",
+                    "method": method_l,
+                    "valid_proxies": list(VOLATILITY_PROXY_VALUES),
+                    "remediation": (
+                        "Retry forecast_volatility_estimate with --proxy "
+                        "squared_return, abs_return, or log_r2."
+                    ),
+                }
             y = y[np.isfinite(y)]
             fh = int(horizon)
             try:
@@ -1618,8 +1727,22 @@ def forecast_volatility(  # noqa: C901
                     close_col=_volatility_price_column(dfrv, dn_spec_used, "close"),
                     )
                 )
-                if len(daily_rv) < max(30, m + 5):
-                    return {"error": "Not enough daily RV observations for HAR-RV"}
+                daily_rv_required = _har_rv_daily_rv_required(m)
+                if len(daily_rv) < daily_rv_required:
+                    return _har_rv_sample_error(
+                        error=(
+                            "Not enough daily RV observations for HAR-RV "
+                            f"({len(daily_rv)} observed, {daily_rv_required} required)."
+                        ),
+                        error_code="har_rv_insufficient_daily_rv",
+                        daily_rv_observed=len(daily_rv),
+                        daily_rv_required=daily_rv_required,
+                        aligned_rows_observed=None,
+                        aligned_rows_required=HAR_RV_MIN_ALIGNED_ROWS,
+                        window_m=m,
+                        window_w=w,
+                        days_requested=days,
+                    )
                 RV = daily_rv.to_numpy(dtype=float)
                 Dlag = RV[:-1]
 
@@ -1636,8 +1759,22 @@ def forecast_volatility(  # noqa: C901
                 mask = np.isfinite(Xd) & np.isfinite(Wlag) & np.isfinite(Mlag) & np.isfinite(y)
                 X = np.vstack([np.ones_like(Xd[mask]), Xd[mask], Wlag[mask], Mlag[mask]]).T
                 yv = y[mask]
-                if X.shape[0] < 20:
-                    return {"error": "Insufficient samples after alignment for HAR-RV"}
+                if X.shape[0] < HAR_RV_MIN_ALIGNED_ROWS:
+                    return _har_rv_sample_error(
+                        error=(
+                            "Insufficient samples after alignment for HAR-RV "
+                            f"({int(X.shape[0])} aligned rows, "
+                            f"{HAR_RV_MIN_ALIGNED_ROWS} required)."
+                        ),
+                        error_code="har_rv_insufficient_aligned_samples",
+                        daily_rv_observed=len(daily_rv),
+                        daily_rv_required=daily_rv_required,
+                        aligned_rows_observed=int(X.shape[0]),
+                        aligned_rows_required=HAR_RV_MIN_ALIGNED_ROWS,
+                        window_m=m,
+                        window_w=w,
+                        days_requested=days,
+                    )
                 beta, *_ = np.linalg.lstsq(X, yv, rcond=None)
                 D_last = RV[-1]
                 W_last = float(pd.Series(RV).tail(w).mean())
