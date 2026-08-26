@@ -438,22 +438,12 @@ def _market_scan_completed_rates(
             rates = refreshed
     return rates
 
-def _build_market_scan_bar_row(
+def _project_market_scan_completed_bars(
     symbol: Any,
     timeframe: str,
-    mt5_timeframe: Any,
+    latest_bar: Any,
+    previous_bar: Any,
 ) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
-    rates = _market_scan_completed_rates(
-        symbol.name,
-        timeframe=timeframe,
-        mt5_timeframe=mt5_timeframe,
-        count=2,
-    )
-    if rates is None or len(rates) < 2:
-        return None, f"At least two completed {timeframe} bars are required."
-
-    latest_bar = rates[-1]
-    previous_bar = rates[-2]
     open_price = _market_scan_float(latest_bar["open"])
     close_price = _market_scan_float(latest_bar["close"])
     previous_close = _market_scan_float(previous_bar["close"])
@@ -466,8 +456,6 @@ def _build_market_scan_bar_row(
 
     digits = max(0, int(getattr(symbol, "digits", 0) or 0))
     bar_time = _market_scan_float(latest_bar["time"])
-    tick_volume = _market_scan_bar_int(latest_bar["tick_volume"])
-    real_volume = _market_scan_bar_int(latest_bar["real_volume"])
     row = _market_scan_base_row(symbol)
     row.update(
         {
@@ -488,8 +476,8 @@ def _build_market_scan_bar_row(
             or None,
             "price_basis": "mt5_latest_completed_bar_close",
             "price_point": _market_scan_float(getattr(symbol, "point", None)),
-            "tick_volume": tick_volume,
-            "real_volume": real_volume,
+            "tick_volume": _market_scan_bar_int(latest_bar["tick_volume"]),
+            "real_volume": _market_scan_bar_int(latest_bar["real_volume"]),
             "price_change_pct": _market_scan_round(
                 ((close_price - previous_close) / previous_close) * 100.0,
                 digits=6,
@@ -508,6 +496,27 @@ def _build_market_scan_bar_row(
         }
     )
     return row, None
+
+
+def _build_market_scan_bar_row(
+    symbol: Any,
+    timeframe: str,
+    mt5_timeframe: Any,
+) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
+    rates = _market_scan_completed_rates(
+        symbol.name,
+        timeframe=timeframe,
+        mt5_timeframe=mt5_timeframe,
+        count=2,
+    )
+    if rates is None or len(rates) < 2:
+        return None, f"At least two completed {timeframe} bars are required."
+    return _project_market_scan_completed_bars(
+        symbol,
+        timeframe,
+        rates[-1],
+        rates[-2],
+    )
 
 def _market_scan_table(
     headers: List[str],
@@ -1444,17 +1453,14 @@ def _build_market_scan_signal_row(
     if rates is None or len(rates) < 2:
         return None, f"At least two completed {timeframe} bars are required."
 
-    latest_bar = rates[-1]
-    previous_bar = rates[-2]
-    open_price = _market_scan_float(latest_bar["open"])
-    close_price = _market_scan_float(latest_bar["close"])
-    previous_close = _market_scan_float(previous_bar["close"])
-    if open_price is None or close_price is None:
-        return None, "Completed bar is missing open/close prices."
-    if previous_close is None:
-        return None, "Previous completed bar is missing its close price."
-    if previous_close == 0:
-        return None, "Previous completed bar close price is zero."
+    row, error = _project_market_scan_completed_bars(
+        symbol,
+        timeframe,
+        rates[-1],
+        rates[-2],
+    )
+    if row is None:
+        return None, error
 
     close_values: List[float] = []
     for bar in rates:
@@ -1463,9 +1469,7 @@ def _build_market_scan_signal_row(
             close_values.append(close_value)
 
     digits = max(0, int(getattr(symbol, "digits", 0) or 0))
-    bar_time = _market_scan_float(latest_bar["time"])
-    tick_volume = _market_scan_bar_int(latest_bar["tick_volume"])
-    real_volume = _market_scan_bar_int(latest_bar["real_volume"])
+    close_price = _market_scan_float(rates[-1]["close"])
     sma_value = None
     if include_sma and len(close_values) >= max(1, int(sma_period)):
         sma_window = close_values[-int(sma_period):]
@@ -1481,49 +1485,10 @@ def _build_market_scan_signal_row(
         else None
     )
     sma_distance_pct = None
-    if sma_value is not None and sma_value != 0:
+    if sma_value is not None and sma_value != 0 and close_price is not None:
         sma_distance_pct = ((close_price - sma_value) / sma_value) * 100.0
 
-    row = _market_scan_base_row(symbol)
-    row.update(
-        {
-            "timeframe": timeframe,
-            "data_source": f"{timeframe}_bars",
-            "time": _format_time_explicit(bar_time) if bar_time is not None else None,
-            **_market_scan_bar_freshness_fields(
-                bar_time,
-                timeframe=timeframe,
-                symbol=symbol,
-            ),
-            "previous_close": _market_scan_round(previous_close, digits=digits),
-            "open": _market_scan_round(open_price, digits=digits),
-            "close": _market_scan_round(close_price, digits=digits),
-            "price_currency": str(
-                getattr(symbol, "currency_profit", "") or ""
-            ).strip()
-            or None,
-            "price_basis": "mt5_latest_completed_bar_close",
-            "price_point": _market_scan_float(getattr(symbol, "point", None)),
-            "tick_volume": tick_volume,
-            "real_volume": real_volume,
-            "price_change_pct": _market_scan_round(
-                ((close_price - previous_close) / previous_close) * 100.0,
-                digits=6,
-            ),
-            "price_change_basis": "previous_completed_close_to_latest_completed_close",
-            "price_change_period": {
-                "bars": 1,
-                "timeframe": timeframe,
-                "bar_state": "completed",
-            },
-            "rsi_warmup_bars": rsi_warmup_bars if include_rsi else None,
-            "gap_pct": _market_scan_round(
-                ((open_price - previous_close) / previous_close) * 100.0,
-                digits=6,
-            ),
-            "gap_basis": "previous_completed_close_to_latest_completed_open",
-        }
-    )
+    row["rsi_warmup_bars"] = rsi_warmup_bars if include_rsi else None
     if include_rsi:
         row["rsi"] = _market_scan_round(rsi_value, digits=4)
     if include_sma:
