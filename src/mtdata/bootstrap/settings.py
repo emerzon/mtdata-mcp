@@ -126,12 +126,6 @@ def _suppress_noisy_third_party_logs() -> None:
 _suppress_noisy_third_party_logs()
 
 
-_env_bool = get_bool_env
-_env_int = get_int_env
-_env_float = get_float_env
-_env_csv = get_csv_env
-
-
 def _env_optional_int(name: str) -> Optional[int]:
     raw = os.getenv(name)
     if raw is None:
@@ -280,17 +274,17 @@ class TradeGuardrailsRuntimeConfig(_GuardrailSection):
         # Atomic field swap under lock so concurrent evaluations never observe
         # a partially-updated multi-field policy.
         with self._reload_lock:
-            self.enabled = _env_bool("MTDATA_TRADE_GUARDRAILS_ENABLED", default=False)
-            self.ignore_on_demo = _env_bool(
+            self.enabled = get_bool_env("MTDATA_TRADE_GUARDRAILS_ENABLED", default=False)
+            self.ignore_on_demo = get_bool_env(
                 "MTDATA_TRADE_GUARDRAILS_IGNORE_ON_DEMO",
                 default=False,
             )
-            self.trading_enabled = _env_bool("MTDATA_TRADING_ENABLED", default=True)
+            self.trading_enabled = get_bool_env("MTDATA_TRADING_ENABLED", default=True)
             self.allowed_symbols = [
-                symbol.upper() for symbol in _env_csv("MTDATA_TRADE_ALLOWED_SYMBOLS")
+                symbol.upper() for symbol in get_csv_env("MTDATA_TRADE_ALLOWED_SYMBOLS")
             ]
             self.blocked_symbols = [
-                symbol.upper() for symbol in _env_csv("MTDATA_TRADE_BLOCKED_SYMBOLS")
+                symbol.upper() for symbol in get_csv_env("MTDATA_TRADE_BLOCKED_SYMBOLS")
             ]
             self.max_volume = _env_optional_float("MTDATA_TRADE_MAX_VOLUME")
             self.max_volume_by_symbol = _env_symbol_float_map(
@@ -300,14 +294,14 @@ class TradeGuardrailsRuntimeConfig(_GuardrailSection):
             self.safety_policy.max_volume = _env_optional_float(
                 "MTDATA_TRADE_SAFETY_MAX_VOLUME"
             )
-            self.safety_policy.require_stop_loss = _env_bool(
+            self.safety_policy.require_stop_loss = get_bool_env(
                 "MTDATA_TRADE_SAFETY_REQUIRE_STOP_LOSS",
                 default=False,
             )
             self.safety_policy.max_deviation = _env_optional_int(
                 "MTDATA_TRADE_SAFETY_MAX_DEVIATION"
             )
-            self.safety_policy.reduce_only = _env_bool(
+            self.safety_policy.reduce_only = get_bool_env(
                 "MTDATA_TRADE_SAFETY_REDUCE_ONLY",
                 default=False,
             )
@@ -405,13 +399,13 @@ class MT5Config:
         self._login_value = _env_optional_int("MT5_LOGIN")
         self.password = os.getenv("MT5_PASSWORD")
         self.server = os.getenv("MT5_SERVER")
-        self.timeout = _env_int("MT5_TIMEOUT", 30)
+        self.timeout = get_int_env("MT5_TIMEOUT", 30)
         self.server_tz_name = os.getenv("MT5_SERVER_TZ")  # e.g., "Europe/Lisbon"
         self.client_tz_name = os.getenv("CLIENT_TZ") or os.getenv("MT5_CLIENT_TZ")  # e.g., "America/New_York"
-        self.time_offset_minutes = _env_int("MT5_TIME_OFFSET_MINUTES", 0)
-        self.broker_time_check_enabled = _env_bool("MTDATA_BROKER_TIME_CHECK", default=False)
+        self.time_offset_minutes = get_int_env("MT5_TIME_OFFSET_MINUTES", 0)
+        self.broker_time_check_enabled = get_bool_env("MTDATA_BROKER_TIME_CHECK", default=False)
         ttl_raw = os.getenv("MTDATA_BROKER_TIME_CHECK_TTL_SECONDS")
-        ttl_seconds = _env_int("MTDATA_BROKER_TIME_CHECK_TTL_SECONDS", 60)
+        ttl_seconds = get_int_env("MTDATA_BROKER_TIME_CHECK_TTL_SECONDS", 60)
         if ttl_seconds < 0:
             _LOGGER.warning(
                 "MTDATA_BROKER_TIME_CHECK_TTL_SECONDS=%r is negative; clamping to 0.",
@@ -419,7 +413,7 @@ class MT5Config:
             )
         self.broker_time_check_ttl_seconds = max(0, ttl_seconds)
         magic_raw = os.getenv("MTDATA_ORDER_MAGIC")
-        magic_value = _env_int("MTDATA_ORDER_MAGIC", 234000)
+        magic_value = get_int_env("MTDATA_ORDER_MAGIC", 234000)
         if magic_value < 0 or magic_value > (1 << 64) - 1:
             _LOGGER.warning(
                 "MTDATA_ORDER_MAGIC=%r is outside the MT5 ulong range; using default 234000.",
@@ -510,13 +504,13 @@ class NewsEmbeddingsConfig:
         self.reload_from_env()
 
     def reload_from_env(self) -> None:
-        self.enabled = _env_bool("MTDATA_NEWS_EMBEDDINGS_ENABLED", default=False)
+        self.enabled = get_bool_env("MTDATA_NEWS_EMBEDDINGS_ENABLED", default=False)
         self.model_name = (
             os.getenv("MTDATA_NEWS_EMBEDDINGS_MODEL", "Qwen/Qwen3-Embedding-0.6B").strip()
             or "Qwen/Qwen3-Embedding-0.6B"
         )
-        self.top_n = max(1, _env_int("MTDATA_NEWS_EMBEDDINGS_TOP_N", 8))
-        self.weight = max(0.0, _env_float("MTDATA_NEWS_EMBEDDINGS_WEIGHT", 1.0))
+        self.top_n = max(1, get_int_env("MTDATA_NEWS_EMBEDDINGS_TOP_N", 8))
+        self.weight = max(0.0, get_float_env("MTDATA_NEWS_EMBEDDINGS_WEIGHT", 1.0))
         self.truncate_dim = _env_optional_int("MTDATA_NEWS_EMBEDDINGS_TRUNCATE_DIM")
         if self.truncate_dim is not None and self.truncate_dim <= 0:
             _LOGGER.warning(
@@ -524,7 +518,7 @@ class NewsEmbeddingsConfig:
                 self.truncate_dim,
             )
             self.truncate_dim = None
-        self.cache_size = max(0, _env_int("MTDATA_NEWS_EMBEDDINGS_CACHE_SIZE", 256))
+        self.cache_size = max(0, get_int_env("MTDATA_NEWS_EMBEDDINGS_CACHE_SIZE", 256))
         self.hf_token_env_var = (
             os.getenv("MTDATA_NEWS_EMBEDDINGS_HF_TOKEN_ENV_VAR", "HF_TOKEN").strip() or "HF_TOKEN"
         )

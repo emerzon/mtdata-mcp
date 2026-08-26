@@ -11,11 +11,6 @@ from .env import get_bool_env, get_csv_env, get_int_env
 TransportLiteral = Literal["stdio", "sse", "streamable-http"]
 
 
-_get_bool_env = get_bool_env
-_get_int_env = get_int_env
-_get_csv_env = get_csv_env
-
-
 def _normalize_transport(value: Optional[str], *, default: TransportLiteral = "sse") -> TransportLiteral:
     candidate = str(value or default).strip().lower()
     if candidate not in ("stdio", "sse", "streamable-http"):
@@ -85,7 +80,7 @@ def load_mcp_runtime_settings(
     default_transport: TransportLiteral = "sse",
 ) -> McpRuntimeSettings:
     transport = _normalize_transport(transport_override or os.getenv("MCP_TRANSPORT"), default=default_transport)
-    allow_remote = _get_bool_env("FASTMCP_ALLOW_REMOTE", False)
+    allow_remote = get_bool_env("FASTMCP_ALLOW_REMOTE", False)
     host = (os.getenv("FASTMCP_HOST", "127.0.0.1").strip() or "127.0.0.1")
     if transport != "stdio":
         host = _require_explicit_remote_bind(
@@ -101,8 +96,8 @@ def load_mcp_runtime_settings(
             "MCP_AUTH_TOKEN is required for non-loopback FASTMCP_HOST values "
             "(SSE/streamable-HTTP expose trading tools)."
         )
-    allowed_hosts = _get_csv_env("MCP_ALLOWED_HOSTS", ())
-    allowed_origins = _get_csv_env("MCP_ALLOWED_ORIGINS", ())
+    allowed_hosts = get_csv_env("MCP_ALLOWED_HOSTS", ())
+    allowed_origins = get_csv_env("MCP_ALLOWED_ORIGINS", ())
     if transport != "stdio" and not is_loopback_host(host):
         if host in {"0.0.0.0", "::"} and not allowed_hosts:
             raise ValueError(
@@ -116,7 +111,7 @@ def load_mcp_runtime_settings(
     return McpRuntimeSettings(
         transport=transport,
         host=host,
-        port=_get_int_env("FASTMCP_PORT", 8000),
+        port=get_int_env("FASTMCP_PORT", 8000),
         log_level=(os.getenv("FASTMCP_LOG_LEVEL", "INFO").strip() or "INFO"),
         mount_path=(os.getenv("FASTMCP_MOUNT_PATH", "/").strip() or "/"),
         sse_path=(os.getenv("FASTMCP_SSE_PATH", "/sse").strip() or "/sse"),
@@ -129,7 +124,7 @@ def load_mcp_runtime_settings(
 
 
 def load_web_api_runtime_settings() -> WebApiRuntimeSettings:
-    allow_remote = _get_bool_env("WEBAPI_ALLOW_REMOTE", False)
+    allow_remote = get_bool_env("WEBAPI_ALLOW_REMOTE", False)
     host = _require_explicit_remote_bind(
         (os.getenv("WEBAPI_HOST", "127.0.0.1").strip() or "127.0.0.1"),
         allow_remote=allow_remote,
@@ -141,14 +136,14 @@ def load_web_api_runtime_settings() -> WebApiRuntimeSettings:
     if not is_loopback_host(host) and not auth_token:
         raise ValueError("WEBAPI_AUTH_TOKEN is required for non-loopback WEBAPI_HOST values.")
     cors_origins = _validate_cors_origins(
-        _get_csv_env(
+        get_csv_env(
             "CORS_ORIGINS",
             ("http://127.0.0.1:5173", "http://localhost:5173"),
         )
     )
     return WebApiRuntimeSettings(
         host=host,
-        port=_get_int_env("WEBAPI_PORT", 8000),
+        port=get_int_env("WEBAPI_PORT", 8000),
         cors_origins=cors_origins,
         webui_directory=(os.getenv("WEBUI_DIST_DIR", "webui/dist").strip() or "webui/dist"),
         auth_token=auth_token,
