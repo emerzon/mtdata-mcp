@@ -245,11 +245,6 @@ class TradePlaceRequest(BaseModel):
             return value
         return value.strip().upper().replace("-", "_").replace(" ", "_")
 
-    @property
-    def auto_close_on_sl_tp_fail(self) -> bool:
-        """Always-on unprotected-fill recovery; not a request field."""
-        return True
-
 
 class TradeModifyRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", populate_by_name=True)

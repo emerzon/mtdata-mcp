@@ -206,7 +206,7 @@ def run_trade_place(  # noqa: C901
                     ),
                 ],
                 "require_sl_tp": bool(request.require_sl_tp),
-                "auto_close_on_sl_tp_fail": bool(request.auto_close_on_sl_tp_fail),
+                "auto_close_on_sl_tp_fail": True,
                 "guardrails_enabled": bool(guardrail_preview.get("enabled")),
                 "guardrails_preview": guardrail_preview,
             }
@@ -626,29 +626,6 @@ def run_trade_place(  # noqa: C901
                 order_type=order_type_norm,
                 pending=is_pending,
             )
-        if (
-            not is_pending
-            and bool(request.require_sl_tp)
-            and not bool(request.auto_close_on_sl_tp_fail)
-        ):
-            return _finish(
-                {
-                    "error": (
-                        "Conflicting safety settings: require_sl_tp=true cannot be "
-                        "combined with auto_close_on_sl_tp_fail=false for a market order."
-                    ),
-                    "error_code": "conflicting_sl_tp_safety_settings",
-                    "require_sl_tp": True,
-                    "auto_close_on_sl_tp_fail": False,
-                    "hint": (
-                        "Keep auto_close_on_sl_tp_fail=true to ensure an unprotected "
-                        "fill is closed, or set require_sl_tp=false to manage a failed "
-                        "protection attachment yourself."
-                    ),
-                },
-                order_type=order_type_norm,
-                pending=False,
-            )
         basic_protection_error = validation._validate_basic_protection_levels(
             side=order_type_norm,
             stop_loss=request.stop_loss,
@@ -972,56 +949,54 @@ def run_trade_place(  # noqa: C901
                         warnings_out.append(critical)
                     if warnings_out:
                         result["warnings"] = warnings_out
-                    should_auto_close = bool(request.auto_close_on_sl_tp_fail)
-                    if should_auto_close:
-                        close_ticket = safe_int_ticket(pos_ticket)
-                        if close_ticket is None:
-                            for candidate_ticket in candidate_tickets:
-                                close_ticket = safe_int_ticket(candidate_ticket)
-                                if close_ticket is not None:
-                                    break
-                        if close_ticket is None:
-                            auto_close_result: Dict[str, Any] = {
-                                "error": "Auto-close skipped: position_ticket unavailable."
-                            }
-                        else:
-                            auto_close_result = close_positions(
-                                ticket=close_ticket,
-                                volume=(
-                                    validation.coerce_finite_float(
-                                        result.get("filled_volume")
-                                    )
-                                    or float(request.volume)
-                                ),
-                                comment="AUTO-CLOSE: TP/SL protection unresolved",
-                                deviation=request.deviation,
-                            )
-                        result["auto_close_on_sl_tp_fail"] = True
-                        result["auto_close_result"] = auto_close_result
-
-                        auto_close_ok = bool(
-                            isinstance(auto_close_result, dict)
-                            and (
-                                auto_close_result.get("success") is True
-                                or (
-                                    "success" not in auto_close_result
-                                    and auto_close_result.get("retcode") == 10009
+                    close_ticket = safe_int_ticket(pos_ticket)
+                    if close_ticket is None:
+                        for candidate_ticket in candidate_tickets:
+                            close_ticket = safe_int_ticket(candidate_ticket)
+                            if close_ticket is not None:
+                                break
+                    if close_ticket is None:
+                        auto_close_result: Dict[str, Any] = {
+                            "error": "Auto-close skipped: position_ticket unavailable."
+                        }
+                    else:
+                        auto_close_result = close_positions(
+                            ticket=close_ticket,
+                            volume=(
+                                validation.coerce_finite_float(
+                                    result.get("filled_volume")
                                 )
+                                or float(request.volume)
+                            ),
+                            comment="AUTO-CLOSE: TP/SL protection unresolved",
+                            deviation=request.deviation,
+                        )
+                    result["auto_close_on_sl_tp_fail"] = True
+                    result["auto_close_result"] = auto_close_result
+
+                    auto_close_ok = bool(
+                        isinstance(auto_close_result, dict)
+                        and (
+                            auto_close_result.get("success") is True
+                            or (
+                                "success" not in auto_close_result
+                                and auto_close_result.get("retcode") == 10009
                             )
                         )
-                        if auto_close_ok:
-                            result["protection_status"] = "auto_closed_after_sl_tp_fail"
-                            result["success"] = False
-                        else:
-                            warnings_out = _coerce_warning_list(result.get("warnings"))
-                            auto_close_warning = (
-                                "AUTO-CLOSE FAILED: position protection remains unresolved; "
-                                "reconcile and close immediately."
-                            )
-                            if auto_close_warning not in warnings_out:
-                                warnings_out.append(auto_close_warning)
-                            result["warnings"] = warnings_out
-                            result["success"] = False
+                    )
+                    if auto_close_ok:
+                        result["protection_status"] = "auto_closed_after_sl_tp_fail"
+                        result["success"] = False
+                    else:
+                        warnings_out = _coerce_warning_list(result.get("warnings"))
+                        auto_close_warning = (
+                            "AUTO-CLOSE FAILED: position protection remains unresolved; "
+                            "reconcile and close immediately."
+                        )
+                        if auto_close_warning not in warnings_out:
+                            warnings_out.append(auto_close_warning)
+                        result["warnings"] = warnings_out
+                        result["success"] = False
 
                     if sl_tp_unverified:
                         result.setdefault(
