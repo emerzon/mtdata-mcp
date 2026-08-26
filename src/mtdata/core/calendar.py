@@ -10,7 +10,6 @@ from pydantic import Field
 from ..services.research.capabilities import CALENDAR, ResearchSourcePin
 from ..services.research.errors import finviz_only_source_error
 from ..services.research.payload import stamp_provider
-from ..services.research.protocols import CalendarRequest
 from ..shared.schema import DetailLiteral
 from ._mcp_instance import mcp
 from .error_envelope import build_error_payload
@@ -38,31 +37,6 @@ def _stamp_calendar_freshness(payload: Any) -> Any:
             "a real-time feed.",
         )
     return out
-
-
-def _fetch_finviz_calendar(request: CalendarRequest) -> Dict[str, Any]:
-    from .finviz import finviz_earnings, run_finviz_calendar
-
-    if request.view == "period":
-        return finviz_earnings(
-            period=request.period or "this-week",
-            limit=request.limit,
-            page=request.page,
-            include_elapsed=request.include_elapsed,
-            detail=request.detail,
-        )
-    return run_finviz_calendar(
-        calendar=request.kind,
-        impact=request.impact,
-        country=request.country,
-        currency=request.currency,
-        start=request.start,
-        end=request.end,
-        upcoming=request.upcoming,
-        limit=request.limit,
-        page=request.page,
-        detail=request.detail,
-    )
 
 
 @mcp.tool()
@@ -178,22 +152,7 @@ def calendar(
         )
         if pin_error is not None:
             return pin_error
-        request = CalendarRequest(
-            kind=str(kind),
-            view=str(view),
-            period=period,
-            impact=impact,
-            country=country,
-            currency=currency,
-            start=start,
-            end=end,
-            upcoming=upcoming,
-            include_elapsed=bool(include_elapsed),
-            limit=int(limit),
-            page=int(page),
-            detail=str(detail or "compact"),
-        )
-        if request.view == "period" and request.kind != "earnings":
+        if view == "period" and kind != "earnings":
             return build_error_payload(
                 "view='period' is only supported for kind='earnings'.",
                 code="calendar_invalid_view",
@@ -201,16 +160,16 @@ def calendar(
                 valid_values={"kind": ["earnings"], "view": ["range", "period"]},
                 remediation="Use kind=earnings, or switch to view=range.",
             )
-        if request.view == "period":
+        if view == "period":
             invalid = [
                 name
                 for name, value in (
-                    ("start", request.start),
-                    ("end", request.end),
-                    ("impact", request.impact),
-                    ("country", request.country),
-                    ("currency", request.currency),
-                    ("upcoming", request.upcoming),
+                    ("start", start),
+                    ("end", end),
+                    ("impact", impact),
+                    ("country", country),
+                    ("currency", currency),
+                    ("upcoming", upcoming),
                 )
                 if value is not None
             ]
@@ -237,11 +196,11 @@ def calendar(
                         "view=range."
                     ),
                 )
-        if request.view == "range":
+        if view == "range":
             invalid = []
-            if request.period is not None:
+            if period is not None:
                 invalid.append("period")
-            if request.include_elapsed:
+            if include_elapsed:
                 invalid.append("include_elapsed")
             if invalid:
                 return build_error_payload(
@@ -270,14 +229,14 @@ def calendar(
                         "with kind=earnings."
                     ),
                 )
-        if request.kind != "economic":
+        if kind != "economic":
             invalid = [
                 name
                 for name, value in (
-                    ("impact", request.impact),
-                    ("country", request.country),
-                    ("currency", request.currency),
-                    ("upcoming", request.upcoming),
+                    ("impact", impact),
+                    ("country", country),
+                    ("currency", currency),
+                    ("upcoming", upcoming),
                 )
                 if value is not None
             ]
@@ -293,7 +252,7 @@ def calendar(
                     + " only supported for economic calendar.",
                     code="incompatible_parameters",
                     operation="calendar",
-                    details={"invalid": invalid, "kind": request.kind},
+                    details={"invalid": invalid, "kind": kind},
                     valid_values={
                         "kind": ["economic", "earnings", "dividends"],
                         "economic_controls": [
@@ -308,7 +267,29 @@ def calendar(
                         "kind=economic."
                     ),
                 )
-        payload = _fetch_finviz_calendar(request)
+        from .finviz import finviz_earnings, run_finviz_calendar
+
+        if view == "period":
+            payload = finviz_earnings(
+                period=period or "this-week",
+                limit=limit,
+                page=page,
+                include_elapsed=include_elapsed,
+                detail=detail,
+            )
+        else:
+            payload = run_finviz_calendar(
+                calendar=kind,
+                impact=impact,
+                country=country,
+                currency=currency,
+                start=start,
+                end=end,
+                upcoming=upcoming,
+                limit=limit,
+                page=page,
+                detail=detail,
+            )
         if isinstance(payload, dict) and payload.get("operation") == "finviz_calendar":
             payload["operation"] = "calendar"
         return _stamp_calendar_freshness(stamp_provider(payload, provider="finviz"))

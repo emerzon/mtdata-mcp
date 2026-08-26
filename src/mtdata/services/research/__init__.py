@@ -1,4 +1,4 @@
-"""Shared research-source capabilities, errors, and calendar request types."""
+"""Shared research-source capabilities, errors, and payload helpers."""
 
 from .capabilities import (
     CALENDAR,
@@ -12,7 +12,6 @@ from .capabilities import (
 )
 from .errors import capability_unsupported_error, source_unavailable_error
 from .payload import stamp_provider
-from .protocols import CalendarRequest
 
 __all__ = [
     "CALENDAR",
@@ -23,7 +22,6 @@ __all__ = [
     "RESEARCH_CAPABILITIES",
     "ResearchSourcePin",
     "SCREENER",
-    "CalendarRequest",
     "capability_unsupported_error",
     "source_unavailable_error",
     "stamp_provider",
