@@ -116,7 +116,7 @@ These are **not** tutorials. They track coverage and dependency work.
 |----------|-------------|
 | [WEBUI_GOAL.md](WEBUI_GOAL.md) | Chart-workspace product goal |
 | [WEBUI_API_COVERAGE.md](WEBUI_API_COVERAGE.md) | Route × UI matrix |
-| [WEBUI_TOOL_COVERAGE.md](WEBUI_TOOL_COVERAGE.md) | All 83 tools × UI surface |
+| [WEBUI_TOOL_COVERAGE.md](WEBUI_TOOL_COVERAGE.md) | Tool → UI surface exceptions (dedicated, omitted, gated) |
 | [DEPENDENCY_MIGRATION.md](DEPENDENCY_MIGRATION.md) | Python 3.14 package snapshot |
 | [PUBLISHING.md](PUBLISHING.md) | PyPI + Official MCP Registry publish sequence (emerzon) |
 | [STYLE.md](STYLE.md) | Docs persona and page contract |

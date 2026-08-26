@@ -1,103 +1,85 @@
-# Web UI tool coverage inventory
+# Web UI tool coverage (by exception)
 
 **Audience:** Contributor
 
-Every backend MCP/bootstrap tool classified for the SPA. User tour:
-[WEBUI.md](WEBUI.md).
+User tour: [WEBUI.md](WEBUI.md).
 
-| Tool | Category | Surface | Frontend path | Confirm | Notes |
-|---|---|---|---|---|---|
-| `asset_performance` | market | generic_runner | tools-runner/generic | no | Delayed forex/crypto/futures/insider context, not live quotes |
-| `calendar` | news | generic_runner | tools-runner/generic | no | Provider-agnostic event table; Finviz is the current structured source |
-| `causal_discover_signals` | research | generic_runner | tools-runner/generic | no |  |
-| `cointegration_test` | research | generic_runner | tools-runner/generic | no |  |
-| `confluence_levels` | research | dedicated_ui | chart-workspace/confluence-overlay | no |  |
-| `correlation_matrix` | research | generic_runner | tools-runner/generic | no |  |
-| `cross_correlation` | research | generic_runner | tools-runner/generic | no |  |
-| `data_fetch_candles` | data | dedicated_ui | chart-workspace/history | no | Chart Indicators control sends `indicators` / optional `ohlcv` on `/history` |
-| `data_fetch_ticks` | data | generic_runner | tools-runner/generic | no |  |
-| `denoise_describe` | methods | dedicated_ui | chart-workspace/denoise-modal | no |  |
-| `denoise_list_methods` | methods | dedicated_ui | chart-workspace/denoise-modal | no |  |
-| `equity_profile` | research | generic_runner | tools-runner/generic | no | US-issuer dossier; Finviz-backed |
-| `forecast_backtest_run` | forecast | dedicated_ui | forecast-panel/backtest | no |  |
-| `forecast_barrier_optimize` | forecast | generic_runner | tools-runner/generic | no |  |
-| `forecast_barrier_prob` | forecast | generic_runner | tools-runner/generic | no |  |
-| `forecast_conformal_intervals` | forecast | generic_runner | tools-runner/generic | no |  |
-| `forecast_generate` | forecast | dedicated_ui | forecast-panel/price | no |  |
-| `forecast_list_library_models` | forecast | generic_runner | tools-runner/generic | no |  |
-| `forecast_list_methods` | forecast | dedicated_ui | forecast-panel/methods | no |  |
-| `forecast_models_cleanup` | forecast | generic_runner | tools-runner/generic | yes | mutation gate |
-| `forecast_models_delete` | forecast | generic_runner | tools-runner/generic | yes | mutation gate |
-| `forecast_models_list` | forecast | dedicated_ui | forecast-panel/models-browser | no |  |
-| `forecast_optimize_hints` | forecast | generic_runner | tools-runner/generic | no |  |
-| `forecast_task_cancel` | forecast | generic_runner | tools-runner/generic | yes | mutation gate |
-| `forecast_task_cancel_all` | forecast | generic_runner | tools-runner/generic | yes | mutation gate |
-| `forecast_task_list` | forecast | generic_runner | tools-runner/generic | no |  |
-| `forecast_task_status` | forecast | generic_runner | tools-runner/generic | no |  |
-| `forecast_task_wait` | forecast | generic_runner | tools-runner/generic | no |  |
-| `forecast_train` | forecast | generic_runner | tools-runner/generic | no |  |
-| `forecast_tune_genetic` | forecast | intentional_omit | Long-running optimization has no HTTP progress or cancellation contract. Run it through CLI or MCP instead. | no |  |
-| `forecast_tune_optuna` | forecast | intentional_omit | Long-running optimization has no HTTP progress or cancellation contract. Run it through CLI or MCP instead. | no |  |
-| `forecast_volatility_estimate` | forecast | dedicated_ui | forecast-panel/volatility | no |  |
-| `indicators_describe` | methods | generic_runner | tools-runner/generic | no |  |
-| `indicators_list` | methods | generic_runner | tools-runner/generic | no |  |
-| `labels_triple_barrier` | research | generic_runner | tools-runner/generic | no |  |
-| `market_depth_fetch` | market | generic_runner | tools-runner/generic | no | gated by `MTDATA_ENABLE_MARKET_DEPTH_FETCH`; disabled by default |
-| `market_microstructure_analyze` | market | generic_runner | tools-runner/generic | no |  |
-| `market_radar` | market | dedicated_ui | radar-panel/watchlist | no | Watchlist radar; also via Tools |
-| `market_relative_strength` | market | generic_runner | tools-runner/generic | no |  |
-| `market_scan` | market | generic_runner | tools-runner/generic | no |  |
-| `market_snapshot` | market | generic_runner | tools-runner/generic | no |  |
-| `market_status` | market | generic_runner | tools-runner/generic | no |  |
-| `market_ticker` | market | dedicated_ui | chart-workspace/live-quotes | no |  |
-| `news` | news | generic_runner | tools-runner/generic | no |  |
-| `options_barrier_price` | options | generic_runner | tools-runner/generic | no |  |
-| `options_chain` | options | generic_runner | tools-runner/generic | no |  |
-| `options_expirations` | options | generic_runner | tools-runner/generic | no |  |
-| `options_heston_calibrate` | options | generic_runner | tools-runner/generic | no |  |
-| `options_provider_status` | options | generic_runner | tools-runner/generic | no |  |
-| `outliers_detect` | research | generic_runner | tools-runner/generic | no |  |
-| `patterns_detect` | pattern_regime | generic_runner | tools-runner/generic | no |  |
-| `pivot_compute_points` | analysis | dedicated_ui | chart-workspace/pivot-overlay | no |  |
-| `portfolio_risk_decompose` | trading | generic_runner | tools-runner/generic | no |  |
-| `regime_detect` | pattern_regime | generic_runner | tools-runner/generic | no |  |
-| `report_generate` | report | generic_runner | tools-runner/generic | no |  |
-| `screener` | research | generic_runner | tools-runner/generic | no | Equity screen + filter catalog |
-| `seasonality_detect` | research | generic_runner | tools-runner/generic | no |  |
-| `stationarity_test` | research | generic_runner | tools-runner/generic | no |  |
-| `strategy_backtest` | forecast | generic_runner | tools-runner/generic | no |  |
-| `strategy_validate` | forecast | generic_runner | tools-runner/generic | no |  |
-| `support_resistance_levels` | analysis | dedicated_ui | chart-workspace/sr-overlay | no |  |
-| `symbols_describe` | symbols | generic_runner | tools-runner/generic | no |  |
-| `symbols_list` | symbols | generic_runner | tools-runner/generic | no |  |
-| `symbols_top_markets` | symbols | generic_runner | tools-runner/generic | no |  |
-| `temporal_analyze` | analysis | generic_runner | tools-runner/generic | no |  |
-| `tools_list` | research | dedicated_ui | tools-runner/catalog | no |  |
-| `trade_account_info` | trading | generic_runner | tools-runner/generic | no |  |
-| `trade_close` | trading | generic_runner | tools-runner/generic | yes | mutation gate |
-| `trade_execution_quality` | trading | generic_runner | tools-runner/generic | no |  |
-| `trade_get_open` | trading | dedicated_ui | chart-workspace/exposure-overlay | no | Read-only chart overlay |
-| `trade_get_pending` | trading | dedicated_ui | chart-workspace/exposure-overlay | no | Read-only chart overlay |
-| `trade_history` | trading | generic_runner | tools-runner/generic | no |  |
-| `trade_idea_compose` | trading | dedicated_ui | idea-panel/compose | no | Preview-only composer; also runnable via Tools |
-| `trade_journal_analyze` | trading | generic_runner | tools-runner/generic | no |  |
-| `trade_modify` | trading | generic_runner | tools-runner/generic | yes | mutation gate |
-| `trade_place` | trading | generic_runner | tools-runner/generic | yes | mutation gate |
-| `trade_risk_analyze` | trading | generic_runner | tools-runner/generic | no |  |
-| `trade_session_context` | trading | generic_runner | tools-runner/generic | no |  |
-| `trade_stress_test` | trading | generic_runner | tools-runner/generic | no |  |
-| `trade_var_cvar_calculate` | trading | generic_runner | tools-runner/generic | no |  |
-| `volatility_term_structure` | research | generic_runner | tools-runner/generic | no |  |
-| `volume_profile_levels` | research | dedicated_ui | chart-workspace/volume-profile-overlay | no |  |
-| `wait_event` | data | intentional_omit | Blocking waits have no HTTP progress or cancellation contract. Run wait_event through CLI or MCP instead. | no |  |
+This page maps how the SPA treats backend tools. It is **not** an exhaustive
+catalog. Most tools show up in the Tools runner as a schema-driven form. Keep
+the exceptions here: dedicated chart or research controls, tools the SPA will
+not invoke, and environment-gated entries.
+
+Do not copy a tool count into docs. Inspect the runtime catalog instead.
+
+## How to inspect the runtime inventory
+
+The live catalog is `GET /api/v1/tools` (the same bootstrap used by MCP). Detail
+and invoke live at `GET /api/v1/tools/{name}` and
+`POST /api/v1/tools/{name}/invoke`.
+
+Classification helpers are in `mtdata.core.web_api_tools`. After adding a tool,
+run:
+
+```python
+from mtdata.core.web_api_tools import coverage_inventory_rows
+
+coverage_inventory_rows()
+```
+
+Each row includes `name`, `category`, `surface`, `frontend`, and
+`requires_confirmation`. Gated tools stay in this inventory even when disabled.
 
 ## Surface meanings
 
-- **dedicated_ui** — primary path is a specialized chart/research control; also runnable via Tools runner.
-- **generic_runner** — discoverable and invocable from the SPA Tools runner (schema-driven form).
-- **intentional_omit** — visible with a rationale but not invocable from the SPA. Long-running tuning remains available through CLI/MCP; mutations use confirm gates instead.
+- **dedicated_ui** — primary path is a specialized chart or research control.
+  The tool remains runnable from the Tools runner.
+- **generic_runner** — default. Discoverable and invocable from the SPA Tools
+  runner. Mutating tools still require the confirm gate rather than being omitted.
+- **intentional_omit** — listed with a rationale but not invocable from the SPA.
+  Use CLI or MCP instead.
 
-**Total tools in inventory:** 83 (includes env-gated market_depth_fetch even when disabled).
+## Dedicated UI
 
-Source of truth for runtime catalog: `GET /api/v1/tools` (bootstraps MCP tools).
-Classification helpers: `mtdata.core.web_api_tools`.
+| Tool | Frontend path | Notes |
+|---|---|---|
+| `confluence_levels` | chart-workspace/confluence-overlay | |
+| `data_fetch_candles` | chart-workspace/history | Chart Indicators sends `indicators` / optional `ohlcv` on `/history` |
+| `denoise_describe` | chart-workspace/denoise-modal | |
+| `denoise_list_methods` | chart-workspace/denoise-modal | |
+| `forecast_backtest_run` | forecast-panel/backtest | |
+| `forecast_generate` | forecast-panel/price | |
+| `forecast_list_methods` | forecast-panel/methods | |
+| `forecast_models_list` | forecast-panel/models-browser | |
+| `forecast_volatility_estimate` | forecast-panel/volatility | |
+| `market_radar` | radar-panel/watchlist | Watchlist radar; also via Tools |
+| `market_ticker` | chart-workspace/live-quotes | |
+| `pivot_compute_points` | chart-workspace/pivot-overlay | |
+| `support_resistance_levels` | chart-workspace/sr-overlay | |
+| `tools_list` | tools-runner/catalog | |
+| `trade_get_open` | chart-workspace/exposure-overlay | Read-only chart overlay |
+| `trade_get_pending` | chart-workspace/exposure-overlay | Read-only chart overlay |
+| `trade_idea_compose` | idea-panel/compose | Preview-only composer; also via Tools |
+| `volume_profile_levels` | chart-workspace/volume-profile-overlay | |
+
+Source of the path strings: `DEDICATED_UI_TOOLS` in
+`mtdata.core.web_api_tools`.
+
+## Intentional omit
+
+| Tool | Rationale |
+|---|---|
+| `forecast_tune_genetic` | Long-running optimization has no HTTP progress or cancellation contract. Run it through CLI or MCP instead. |
+| `forecast_tune_optuna` | Long-running optimization has no HTTP progress or cancellation contract. Run it through CLI or MCP instead. |
+| `wait_event` | Blocking waits have no HTTP progress or cancellation contract. Run `wait_event` through CLI or MCP instead. |
+
+Source of the rationales: `INTENTIONAL_OMIT_TOOLS` in
+`mtdata.core.web_api_tools`.
+
+## Environment-gated
+
+`market_depth_fetch` stays in the inventory with surface `generic_runner`. It is
+gated by `MTDATA_ENABLE_MARKET_DEPTH_FETCH` and is disabled by default. Enable
+the env var when the Tools runner should invoke it.
+
+Everything else is `generic_runner` unless `coverage_inventory_rows()` says
+otherwise.
