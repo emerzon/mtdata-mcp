@@ -104,19 +104,9 @@ def _env_enabled(name: str) -> bool:
     return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def available_command_names() -> tuple[str, ...]:
-    """Return always-on commands plus explicitly enabled gated commands."""
-    optional = tuple(
-        command
-        for command, env_name in _OPTIONAL_COMMAND_ENV.items()
-        if _env_enabled(env_name)
-    )
-    return tuple(sorted({*CLI_COMMAND_NAMES, *optional}))
-
-
 def known_command_names() -> tuple[str, ...]:
-    """Return enabled commands plus supported commands hidden behind gates."""
-    return tuple(sorted((*CLI_COMMAND_NAMES, *_OPTIONAL_COMMAND_ENV)))
+    """Return the discoverable CLI command catalog."""
+    return tuple(sorted(CLI_COMMAND_NAMES))
 
 
 def display_program_name(argv0: object) -> str:
@@ -151,7 +141,7 @@ def current_cli_program_name(argv0: object | None = None) -> str:
 
 def format_root_help(program: str) -> str:
     """Render root help without importing any tool implementation modules."""
-    names = available_command_names()
+    names = known_command_names()
     grouped_names: set[str] = set()
     lines = [
         f"usage: {program} [-h] [-V] [--json] [--output-fields FIELD[,FIELD...]]",
@@ -222,7 +212,6 @@ def format_root_help(program: str) -> str:
 
 __all__ = [
     "CLI_COMMAND_NAMES",
-    "available_command_names",
     "known_command_names",
     "format_root_help",
 ]

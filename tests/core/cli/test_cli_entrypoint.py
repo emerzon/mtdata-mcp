@@ -209,12 +209,12 @@ def test_current_cli_program_name_uses_module_invocation():
 
 
 def test_root_help_groups_commands_by_tools_list_category():
-    from mtdata.core.cli.catalog import available_command_names, format_root_help
+    from mtdata.core.cli.catalog import format_root_help, known_command_names
     from mtdata.shared.tool_categories import TOOL_CATEGORY_IDS, tool_catalog_category
 
     rendered = format_root_help("mtdata-cli")
     lines = rendered.splitlines()
-    names = available_command_names()
+    names = known_command_names()
 
     for category in TOOL_CATEGORY_IDS:
         expected = [name for name in names if tool_catalog_category(name) == category]
@@ -609,11 +609,11 @@ def test_noninteractive_shell_frames_pretty_json_as_ndjson(monkeypatch, capsys):
 def test_static_command_catalog_matches_registered_tools():
     from mtdata.bootstrap.tools import bootstrap_tools
     from mtdata.core.cli.api import discover_tools
-    from mtdata.core.cli.catalog import available_command_names
+    from mtdata.core.cli.catalog import known_command_names
 
     bootstrap_tools()
 
-    assert set(available_command_names()) == set(discover_tools())
+    assert set(known_command_names()) == set(discover_tools())
 
 
 def test_tool_metadata_registry_has_no_private_names():
