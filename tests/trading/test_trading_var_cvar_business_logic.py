@@ -9,7 +9,6 @@ from mtdata.core.trading.requests import TradeVarCvarRequest
 from mtdata.core.trading.use_cases import run_trade_var_cvar_calculate
 from mtdata.core.trading.use_cases.risk import (
     _calculate_var_cvar_from_pnl,
-    _normalize_var_cvar_method,
     _position_mark_freshness,
 )
 
@@ -86,11 +85,6 @@ def test_calculate_var_cvar_from_pnl_gaussian_cvar_exceeds_var() -> None:
     assert threshold < 0.0
     assert var_value > 0.0
     assert cvar_value >= var_value
-
-
-def test_normalize_var_cvar_method_accepts_cornish_fisher_and_ewma() -> None:
-    assert _normalize_var_cvar_method("cornish-fisher") == ("cornish_fisher", None)
-    assert _normalize_var_cvar_method("ewma") == ("ewma", None)
 
 
 def test_calculate_var_cvar_from_pnl_cornish_fisher_cvar_exceeds_var() -> None:

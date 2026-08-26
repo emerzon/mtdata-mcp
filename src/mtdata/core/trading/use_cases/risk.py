@@ -36,7 +36,6 @@ from mtdata.core.trading.use_cases.common import (
 from mtdata.services.data_service.candles import _is_last_bar_forming
 from mtdata.shared.constants import BROKER_VOLUME_UNIT, TIMEFRAME_MAP
 from mtdata.shared.market_units import price_delta_ticks
-from mtdata.shared.validators import invalid_timeframe_error
 from mtdata.utils.barriers import normalize_trade_direction
 from mtdata.utils.mt5 import MT5ConnectionError, _normalize_times_in_struct
 from mtdata.utils.quote import resolve_quote_tick, tick_value
@@ -751,60 +750,6 @@ def _extract_trade_risk_kelly_inputs(
         if value is None
     ]
     return inputs, missing, "sizing" if sizing is not None else None
-
-
-def _normalize_var_cvar_method(method: Any) -> tuple[Optional[str], Optional[str]]:
-    method_text = str(method or "historical").strip().lower()
-    if method_text in {"historical", "hist"}:
-        return "historical", None
-    if method_text in {"gaussian", "normal", "parametric"}:
-        return "parametric", None
-    if method_text in {"cornish_fisher", "cornish-fisher", "cf"}:
-        return "cornish_fisher", None
-    if method_text in {"ewma", "ewma_historical"}:
-        return "ewma", None
-    return None, (
-        "Invalid method. Valid options: historical, parametric, cornish_fisher, ewma"
-    )
-
-
-def _normalize_var_cvar_transform(
-    transform: Any,
-) -> tuple[Optional[str], Optional[str]]:
-    transform_text = str(transform or "log_return").strip().lower()
-    if transform_text in {"log_return", "log_returns", "log"}:
-        return "log_return", None
-    if transform_text in {
-        "pct",
-        "pct_return",
-        "pct_returns",
-        "percent",
-        "percent_return",
-        "percent_returns",
-        "simple_return",
-        "simple_returns",
-    }:
-        return "pct", None
-    return None, "Invalid transform. Valid options: log_return, pct"
-
-
-def _normalize_var_cvar_confidence(
-    confidence: Any,
-) -> tuple[Optional[float], Optional[str]]:
-    try:
-        confidence_value = float(confidence)
-    except (TypeError, ValueError):
-        return None, "confidence must be numeric"
-    if not math.isfinite(confidence_value):
-        return None, "confidence must be finite"
-    if confidence_value > 1.0:
-        confidence_value /= 100.0
-    if confidence_value <= 0.5 or confidence_value >= 1.0:
-        return (
-            None,
-            "confidence must satisfy 0.5 < confidence < 1, or 50 < confidence < 100 as a percentage",
-        )
-    return confidence_value, None
 
 
 def _empirical_min_observations_for_confidence(confidence: float) -> int:
@@ -3187,50 +3132,18 @@ def run_trade_var_cvar_calculate(  # noqa: C901
     if symbol_error is not None:
         return _finish(symbol_error)
 
-    timeframe_value = str(request.timeframe or "").strip().upper()
-    if timeframe_value not in TIMEFRAME_MAP:
-        return _finish(
-            {"error": invalid_timeframe_error(timeframe_value, TIMEFRAME_MAP)}
-        )
-
-    method_value, method_error = _normalize_var_cvar_method(request.method)
-    if method_error or method_value is None:
-        return _finish({"error": method_error})
-
-    transform_value, transform_error = _normalize_var_cvar_transform(request.transform)
-    if transform_error or transform_value is None:
-        return _finish({"error": transform_error})
-
-    confidence_value, confidence_error = _normalize_var_cvar_confidence(
-        request.confidence
-    )
-    if confidence_error or confidence_value is None:
-        return _finish({"error": confidence_error})
-
-    try:
-        lookback = int(request.lookback)
-    except (TypeError, ValueError):
-        return _finish({"error": "lookback must be an integer"})
-    if lookback < 2:
-        return _finish({"error": "lookback must be at least 2"})
-    try:
-        horizon_bars = int(request.horizon_bars)
-    except (TypeError, ValueError):
-        return _finish({"error": "horizon_bars must be an integer"})
-    if horizon_bars < 1:
-        return _finish({"error": "horizon_bars must be at least 1"})
+    timeframe_value = str(request.timeframe)
+    method_value = str(request.method)
+    transform_value = str(request.transform)
+    confidence_value = float(request.confidence)
+    lookback = int(request.lookback)
+    horizon_bars = int(request.horizon_bars)
+    min_observations = int(request.min_observations)
     history_policy = (
         "includes_current_forming_bar"
         if request.include_incomplete
         else "completed_bars_only"
     )
-
-    try:
-        min_observations = int(request.min_observations)
-    except (TypeError, ValueError):
-        return _finish({"error": "min_observations must be an integer"})
-    if min_observations < 2:
-        return _finish({"error": "min_observations must be at least 2"})
 
     try:
         account = gateway.account_info()
