@@ -73,6 +73,11 @@ class _PublicForecastRequest(BaseModel):
         )
         if issue is not None:
             raise ValueError(str(issue.get("error") or "Invalid historical range."))
+        validate_as_of_time_window(
+            getattr(self, "as_of", None),
+            getattr(self, "start", None),
+            getattr(self, "end", None),
+        )
         return self
 
     @property
@@ -240,7 +245,6 @@ class ForecastGenerateRequest(_PublicForecastRequest):
 
     @model_validator(mode="after")
     def _validate_time_window(self) -> "ForecastGenerateRequest":
-        validate_as_of_time_window(self.as_of, self.start, self.end)
         if self.model_cache == "ephemeral" and self.model_id is not None:
             raise ValueError("model_id cannot be used with model_cache='ephemeral'")
         if self.model_cache != "reuse" and self.async_mode:
@@ -255,7 +259,18 @@ class ForecastGenerateRequest(_PublicForecastRequest):
         return None if self.ci_alpha == 0.0 else float(self.ci_alpha)
 
 
-class ForecastBacktestRequest(_PublicForecastRequest):
+class _RollingWindowForecastRequest(_PublicForecastRequest):
+    @model_validator(mode="after")
+    def _validate_rolling_spacing(self) -> "_RollingWindowForecastRequest":
+        _validate_backtest_spacing(
+            steps=int(getattr(self, "steps")),
+            spacing=int(getattr(self, "spacing")),
+            horizon=int(getattr(self, "horizon")),
+        )
+        return self
+
+
+class ForecastBacktestRequest(_RollingWindowForecastRequest):
     symbol: str
     timeframe: TimeframeLiteral = "H1"
     horizon: int = Field(
@@ -339,16 +354,6 @@ class ForecastBacktestRequest(_PublicForecastRequest):
     def _reject_removed_target(cls, values: Any) -> Any:
         return reject_removed_field(values, field_name="target", replacement="quantity")
 
-    @model_validator(mode="after")
-    def _validate_spacing(self) -> "ForecastBacktestRequest":
-        _validate_backtest_spacing(
-            steps=self.steps,
-            spacing=self.spacing,
-            horizon=self.horizon,
-        )
-        return self
-
-
 class StrategyBacktestRequest(_PublicForecastRequest):
     symbol: str
     timeframe: TimeframeLiteral = "H1"
@@ -404,7 +409,7 @@ class StrategyBacktestRequest(_PublicForecastRequest):
         return self
 
 
-class ForecastConformalIntervalsRequest(_PublicForecastRequest):
+class ForecastConformalIntervalsRequest(_RollingWindowForecastRequest):
     symbol: str
     timeframe: TimeframeLiteral = "H1"
     method: str = "theta"
@@ -442,18 +447,7 @@ class ForecastConformalIntervalsRequest(_PublicForecastRequest):
     params: Optional[Dict[str, Any]] = None
     detail: DetailLiteral = "compact"
 
-    @model_validator(mode="after")
-    def _validate_spacing(self) -> "ForecastConformalIntervalsRequest":
-        validate_as_of_time_window(self.as_of, self.start, self.end)
-        _validate_backtest_spacing(
-            steps=self.steps,
-            spacing=self.spacing,
-            horizon=self.horizon,
-        )
-        return self
-
-
-class _ForecastTuneRequestBase(_PublicForecastRequest):
+class _ForecastTuneRequestBase(_RollingWindowForecastRequest):
     symbol: str
     timeframe: TimeframeLiteral = "H1"
     methods: List[str] = Field(
@@ -531,17 +525,6 @@ class _ForecastTuneRequestBase(_PublicForecastRequest):
         if len(normalized) != len(set(normalized)):
             raise ValueError("methods must contain unique method names")
         return normalized
-
-    @model_validator(mode="after")
-    def _validate_time_window(self) -> "_ForecastTuneRequestBase":
-        validate_as_of_time_window(self.as_of, self.start, self.end)
-        _validate_backtest_spacing(
-            steps=self.steps,
-            spacing=self.spacing,
-            horizon=self.horizon,
-        )
-        return self
-
 
 class ForecastTuneGeneticRequest(_ForecastTuneRequestBase):
     population: int = Field(
@@ -633,7 +616,6 @@ class ForecastBarrierProbRequest(_PublicForecastRequest):
 
     @model_validator(mode="after")
     def _validate_barrier_kind(self) -> "ForecastBarrierProbRequest":
-        validate_as_of_time_window(self.as_of, self.start, self.end)
         requested = str(self.method or "").strip().lower() or None
         if requested in (None, "auto"):
             return self
@@ -685,7 +667,7 @@ class ForecastBarrierProbRequest(_PublicForecastRequest):
         return normalize_trade_direction_alias(value)
 
 
-class ForecastOptimizeHintsRequest(_PublicForecastRequest):
+class ForecastOptimizeHintsRequest(_RollingWindowForecastRequest):
     symbol: str
     timeframes: List[TimeframeLiteral] = Field(
         default_factory=lambda: ["H1", "H4", "D1", "W1"],
@@ -793,17 +775,6 @@ class ForecastOptimizeHintsRequest(_PublicForecastRequest):
             raise ValueError("timeframes must contain unique values")
         return value
 
-    @model_validator(mode="after")
-    def _validate_time_window(self) -> "ForecastOptimizeHintsRequest":
-        validate_as_of_time_window(self.as_of, self.start, self.end)
-        _validate_backtest_spacing(
-            steps=self.steps,
-            spacing=self.spacing,
-            horizon=self.horizon,
-        )
-        return self
-
-
 class ForecastBarrierOptimizeRequest(_PublicForecastRequest):
     model_config = {"populate_by_name": True, "extra": "forbid"}
 
@@ -890,7 +861,6 @@ class ForecastBarrierOptimizeRequest(_PublicForecastRequest):
 
     @model_validator(mode="after")
     def _validate_time_window(self) -> "ForecastBarrierOptimizeRequest":
-        validate_as_of_time_window(self.as_of, self.start, self.end)
         if self.grid_style == "preset" and not str(self.preset or "").strip():
             raise ValueError(
                 "preset is required when grid_style='preset'; use one of: "
@@ -942,7 +912,6 @@ class ForecastVolatilityEstimateRequest(_PublicForecastRequest):
 
     @model_validator(mode="after")
     def _validate_time_window(self) -> "ForecastVolatilityEstimateRequest":
-        validate_as_of_time_window(self.as_of, self.start, self.end)
         nested = (
             None if not isinstance(self.params, dict) else self.params.get("lookback")
         )
