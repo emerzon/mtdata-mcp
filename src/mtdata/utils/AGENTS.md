@@ -6,7 +6,7 @@ Shared numerical and formatting helpers imported by `core/`, `forecast/`, `patte
 
 | File | Lines | Purpose |
 |------|-------|---------|
-| `indicators.py` | — | 194 technical indicators (pandas-ta; optional TA-Lib oracle backend) |
+| `indicators.py` | — | 193 technical indicators (pandas-ta; optional TA-Lib oracle backend) |
 | `denoise/` | package | 10+ signal filters: wavelet, EMD, VMD, Kalman, Savgol, LOESS, etc. |
 | `simplify.py` | 913 | Price series simplification/compression |
 | `dimred.py` | 592 | Dimension reduction (PCA, t-SNE, UMAP wrappers) |

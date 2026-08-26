@@ -1,12 +1,10 @@
 import copy
-import importlib
 import inspect
 import logging
 import math
 import pydoc
 import re
 from functools import lru_cache
-from types import ModuleType
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -21,17 +19,6 @@ except ModuleNotFoundError as exc:
 
 _INDICATOR_SERIES_NAMES = ("open", "open_", "high", "low", "close", "volume")
 _VOLUME_SOURCE_COLUMNS = ("real_volume", "volume", "tick_volume")
-_TA_INDICATOR_CATEGORIES = (
-    "candles",
-    "momentum",
-    "overlap",
-    "performance",
-    "statistics",
-    "trend",
-    "volatility",
-    "volume",
-    "cycles",
-)
 logger = logging.getLogger(__name__)
 _DEFAULT_TOKEN_RE = r"(?:'[^']*'|\"[^\"]*\"|True|False|None|null|[+-]?\d+(?:\.\d+)?|[A-Za-z_][A-Za-z0-9_]*)"
 _DEFAULT_MISSING = object()
@@ -77,23 +64,6 @@ def _canonicalize_ta_period_kwargs(
 def _normalize_ta_indicator_name(name: str) -> str:
     """Return the canonical lowercase indicator name (no historical nicknames)."""
     return str(name or "").strip().lower()
-
-
-def _resolve_ta_category_module(category: str) -> Optional[ModuleType]:
-    """Resolve a pandas_ta category module even when a top-level function shadows it."""
-    package_name = str(getattr(pta, "__name__", "") or "").strip()
-    if package_name:
-        try:
-            module = importlib.import_module(f"{package_name}.{category}")
-            if isinstance(module, ModuleType):
-                return module
-        except Exception:
-            logger.debug("Unable to import pandas_ta category module %s", category, exc_info=True)
-
-    module = getattr(pta, category, None)
-    if isinstance(module, ModuleType):
-        return module
-    return None
 
 
 def clean_help_text(text: str, func_name: Optional[str] = None) -> str:
@@ -225,65 +195,63 @@ def infer_defaults_from_doc(func_name: str, doc_text: str, params: List[Dict[str
 def _list_ta_indicators_cached(detailed: bool) -> Tuple[Dict[str, Any], ...]:
     items: List[Dict[str, Any]] = []
     seen = set()
+    category_map = getattr(pta, "Category", None)
+    if not isinstance(category_map, dict):
+        return tuple()
 
-    for category in _TA_INDICATOR_CATEGORIES:
-        try:
-            cat_module = _resolve_ta_category_module(category)
-            if cat_module is None:
-                continue
-
-            for func_name in dir(cat_module):
-                if func_name.startswith('_'):
-                    continue
-                func = getattr(cat_module, func_name, None)
-                if not callable(func):
-                    continue
-                name = func_name.lower()
-                if name in seen:
-                    continue
-                seen.add(name)
-                try:
-                    sig = inspect.signature(func)
-                except (TypeError, ValueError):
-                    continue
-                params: List[Dict[str, Any]] = []
-                for p in sig.parameters.values():
-                    if p.name in {"open", "high", "low", "close", "volume"}:
-                        continue
-                    if p.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
-                        continue
-                    entry: Dict[str, Any] = {"name": p.name}
-                    if p.default is not inspect._empty and p.default is not None:
-                        entry["default"] = p.default
-                    params.append(entry)
-
-                desc = ""
-                if detailed:
-                    raw = ""
-                    try:
-                        raw = pydoc.render_doc(func)
-                        desc = clean_help_text(raw, func_name=name)
-                    except Exception:
-                        desc = inspect.getdoc(func) or ""
-                    try:
-                        doc_text = inspect.getdoc(func) or raw
-                        infer_defaults_from_doc(name, doc_text, params)
-                    except Exception:
-                        pass
-                else:
-                    try:
-                        desc = inspect.getdoc(func) or ""
-                    except Exception:
-                        desc = ""
-
-                items.append({
-                    "name": name,
-                    "params": params,
-                    "description": desc,
-                    "category": category,
-                })
-        except Exception:
+    for category, names in category_map.items():
+        category_name = str(category or "").strip().lower()
+        if not category_name:
             continue
+        declared = names if isinstance(names, (list, tuple, set)) else ()
+        for func_name in declared:
+            name = str(func_name or "").strip().lower()
+            if not name or name in seen:
+                continue
+            func = getattr(pta, func_name, None)
+            if not callable(func):
+                continue
+            try:
+                sig = inspect.signature(func)
+            except (TypeError, ValueError):
+                continue
+            seen.add(name)
+            params: List[Dict[str, Any]] = []
+            for p in sig.parameters.values():
+                if p.name in {"open", "high", "low", "close", "volume"}:
+                    continue
+                if p.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
+                    continue
+                entry: Dict[str, Any] = {"name": p.name}
+                if p.default is not inspect._empty and p.default is not None:
+                    entry["default"] = p.default
+                params.append(entry)
+
+            desc = ""
+            if detailed:
+                raw = ""
+                try:
+                    raw = pydoc.render_doc(func)
+                    desc = clean_help_text(raw, func_name=name)
+                except Exception:
+                    desc = inspect.getdoc(func) or ""
+                try:
+                    doc_text = inspect.getdoc(func) or raw
+                    infer_defaults_from_doc(name, doc_text, params)
+                except Exception:
+                    pass
+            else:
+                try:
+                    desc = inspect.getdoc(func) or ""
+                except Exception:
+                    desc = ""
+
+            items.append({
+                "name": name,
+                "params": params,
+                "description": desc,
+                "category": category_name,
+            })
     items.sort(key=lambda x: x["name"])
     return tuple(items)
 

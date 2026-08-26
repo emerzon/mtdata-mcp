@@ -331,10 +331,12 @@ class TestParseTiSpecs:
 
         indicators_mod._is_available_ta_indicator.cache_clear()
 
-    def test_list_ta_indicators_includes_shadowed_volatility_category(self):
+    def test_list_ta_indicators_uses_native_category_catalog(self):
         items = list_ta_indicators(detailed=False)
         by_name = {str(item.get("name")): item for item in items}
 
+        assert "cdl" not in by_name
+        assert "cdl_pattern" in by_name
         for name in ("atr", "natr", "bbands", "kc", "donchian"):
             assert name in by_name
             assert by_name[name]["category"] == "volatility"
