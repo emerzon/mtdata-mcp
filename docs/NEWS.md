@@ -64,11 +64,14 @@ next upcoming event (or a recent release when no future event remains) and
 includes `bucket_truncation` metadata. With a symbol, a related headline is
 reserved first so `--limit 1` cannot hide direct-symbol news; an event still
 occupies the next slot when capacity is at least 2 or no headlines exist. Use
-`--limit` for a different global page size, `--limit-per-bucket` for
-independent bucket caps, or `--detail full` for the uncapped selected buckets
-and richer matching diagnostics. Scheduled calendar rows in `news` and
-`calendar` share `event` plus `scheduled_at` so a timeline can merge them
-without renaming fields.
+`--limit` for a different global page size (compact unified news defaults to
+10), `--limit-per-bucket` for independent bucket caps, or `--detail full` for
+the uncapped selected buckets and richer matching diagnostics. Bound
+publication time with `--start`/`--end` (UTC; date-only values are UTC days)
+or `--max-age` (`3600`, `60m`, `1h`). The result reports the applied bounds
+and `excluded_old_count`; an empty page uses `empty_reason=no_recent_news`.
+Scheduled calendar rows in `news` and `calendar` share `event` plus
+`scheduled_at` so a timeline can merge them without renaming fields.
 The related-news selector reserves up to five of the newest direct-symbol
 headlines before filling the remaining internal selection by relevance. Full
 detail exposes `related_selection`, including whether that selection was

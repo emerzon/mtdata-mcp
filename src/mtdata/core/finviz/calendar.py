@@ -39,7 +39,10 @@ from mtdata.core.finviz.common import (
     _run_logged_tool,
     _validate_finviz_detail,
 )
-from mtdata.core.output_contract import normalize_output_verbosity_detail
+from mtdata.core.output_contract import (
+    normalize_output_detail,
+    normalize_output_verbosity_detail,
+)
 from mtdata.services.finviz import (
     get_dividends_calendar_api,
     get_earnings_calendar,
@@ -124,7 +127,49 @@ _FINVIZ_EARNINGS_SESSION_TIMES = {
     (8, 30, 0): "before_market",
     (16, 30, 0): "after_market",
 }
-_FINVIZ_CALENDAR_COMPACT_FIELDS = (
+_FINVIZ_CALENDAR_TRADER_COMPACT_FIELDS = (
+    "calendar_id",
+    "symbol",
+    "country",
+    "country_code",
+    "event",
+    "scheduled_at",
+    "local_time",
+    "local_timezone",
+    "earnings_date",
+    "earnings_timing",
+    "event_time_precision",
+    "is_earning_date_estimate",
+    "ex_dividend_date",
+    "exdate",
+    "ex_date",
+    "pay_date",
+    "record_date",
+    "actual_value",
+    "previous_value",
+    "forecast_value",
+    "unit",
+    "currency",
+    "eps_estimate",
+    "eps_actual",
+    "eps_surprise",
+    "eps_basis",
+    "eps_reported_surprise",
+    "eps_reported_basis",
+    "eps_surprise_direction_conflict",
+    "sales_estimate",
+    "sales_actual",
+    "sales_surprise",
+    "one_day_price_reaction",
+    "dividend",
+    "amount",
+    "dividend_amount",
+    "ordinary_amount",
+    "special_amount",
+    "yield_pct",
+    "impact",
+)
+_FINVIZ_CALENDAR_STANDARD_FIELDS = (
     "calendar_id",
     "symbol",
     "country",
@@ -176,6 +221,7 @@ _FINVIZ_CALENDAR_COMPACT_FIELDS = (
     "impact",
     "provider_conflicts",
 )
+_FINVIZ_CALENDAR_COMPACT_FIELDS = _FINVIZ_CALENDAR_STANDARD_FIELDS
 _FINVIZ_CALENDAR_IMPORTANCE_LABELS = {
     1: "low",
     2: "medium",
@@ -262,6 +308,97 @@ def _finviz_earnings_date_from_token(
         period_window=period_window,
     )
     return parsed.isoformat() if parsed is not None else None
+
+
+def _calendar_input_has_clock_time(value: str) -> bool:
+    text = str(value or "").strip()
+    if re.search(r"T\d{1,2}:\d{2}", text):
+        return True
+    return bool(
+        re.search(
+            r"(?:^|\s)\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:\s*(?:Z|UTC|[+-]\d{2}(?::?\d{2})?))?",
+            text,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def _parse_calendar_bound(
+    value: Optional[str],
+    *,
+    inclusive_end: bool,
+) -> Optional[Dict[str, Any]]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    ny = ZoneInfo("America/New_York")
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        try:
+            date_ny = datetime.strptime(text, "%Y-%m-%d").date()
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid calendar date {text!r}. Use a real YYYY-MM-DD date."
+            ) from exc
+        return {
+            "date_ny": date_ny.isoformat(),
+            "instant_utc": None,
+            "has_time": False,
+            "original": text,
+        }
+    relative_day = text.lower()
+    if relative_day in {"today", "yesterday", "tomorrow"}:
+        day_offset = {"yesterday": -1, "today": 0, "tomorrow": 1}[relative_day]
+        current_ny = datetime.now(timezone.utc).astimezone(ny)
+        return {
+            "date_ny": (current_ny.date() + timedelta(days=day_offset)).isoformat(),
+            "instant_utc": None,
+            "has_time": False,
+            "original": text,
+        }
+    parsed = (
+        _parse_end_datetime(text) if inclusive_end else _parse_start_datetime(text)
+    )
+    if parsed is None:
+        raise ValueError(
+            f"Invalid calendar date {text!r}. Use YYYY-MM-DD, an ISO "
+            "datetime, or a relative expression such as '2 days ago'."
+        )
+    aware_utc = parsed.replace(tzinfo=timezone.utc)
+    has_time = _calendar_input_has_clock_time(text)
+    return {
+        "date_ny": aware_utc.astimezone(ny).date().isoformat(),
+        "instant_utc": aware_utc if has_time else None,
+        "has_time": has_time,
+        "original": text,
+    }
+
+
+def _stamp_calendar_requested_bounds(
+    payload: Dict[str, Any],
+    *,
+    start_bound: Optional[Dict[str, Any]],
+    end_bound: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
+    if not isinstance(payload, dict) or payload.get("success") is False:
+        return payload
+    out = dict(payload)
+    if start_bound is not None:
+        instant = start_bound.get("instant_utc")
+        if instant is not None:
+            out["start"] = format_datetime_utc(instant)
+            out["start_precision"] = "timestamp"
+        else:
+            out["start"] = start_bound["date_ny"]
+            out["start_precision"] = "date"
+    if end_bound is not None:
+        instant = end_bound.get("instant_utc")
+        if instant is not None:
+            out["end"] = format_datetime_utc(instant)
+            out["end_precision"] = "timestamp"
+        else:
+            out["end"] = end_bound["date_ny"]
+            out["end_precision"] = "date"
+    return out
 
 
 def _parse_finviz_calendar_time(value: Any) -> Optional[datetime]:
@@ -654,6 +791,7 @@ def _compact_finviz_calendar_item(
     item: Any,
     *,
     source_id_only: bool = True,
+    mode: str = "compact",
 ) -> Any:
     if not isinstance(item, dict):
         return item
@@ -672,11 +810,38 @@ def _compact_finviz_calendar_item(
         "",
     ):
         normalized["scheduled_at"] = normalized["date"]
-    return {
+    trader_compact = str(mode or "compact") in {"compact", "summary"}
+    fields = (
+        _FINVIZ_CALENDAR_TRADER_COMPACT_FIELDS
+        if trader_compact
+        else _FINVIZ_CALENDAR_STANDARD_FIELDS
+    )
+    if (
+        normalized.get("category") not in (None, "")
+        and normalized.get("category") == normalized.get("event")
+    ):
+        normalized = dict(normalized)
+        normalized.pop("category", None)
+    out = {
         field: normalized[field]
-        for field in _FINVIZ_CALENDAR_COMPACT_FIELDS
+        for field in fields
         if field in normalized and normalized[field] not in (None, "")
     }
+    if (
+        trader_compact
+        and normalized.get("category") not in (None, "")
+        and normalized.get("category") != normalized.get("event")
+    ):
+        out["category"] = normalized["category"]
+    if trader_compact:
+        parse_status = str(normalized.get("value_parse_status") or "").strip()
+        if parse_status in {"partial", "unparseable"}:
+            out["value_parse_status"] = parse_status
+            out["parse_warning"] = {
+                "code": "calendar_value_parse_lossy",
+                "status": parse_status,
+            }
+    return out
 
 
 def _normalize_finviz_dividend_item(item: Any) -> Any:
@@ -906,6 +1071,108 @@ def _apply_finviz_calendar_empty_hint(
     out["hint"] = "Relax impact, country, currency, start, or end filters."
 
 
+def _calendar_item_instant_utc(item: Any) -> Optional[datetime]:
+    if not isinstance(item, dict):
+        return None
+    for field in ("scheduled_at", "date", "earnings_date", "ex_dividend_date"):
+        parsed = _parse_finviz_calendar_time(item.get(field))
+        if parsed is not None:
+            return parsed.astimezone(timezone.utc)
+    return None
+
+
+def _finviz_calendar_row_items(
+    items: List[Any],
+    *,
+    calendar_type: str,
+    shape_detail: str,
+) -> List[Any]:
+    if shape_detail == "full":
+        return items
+    economic = str(calendar_type or "economic").strip().lower() == "economic"
+    return [
+        _compact_finviz_calendar_item(
+            item,
+            source_id_only=economic,
+            mode=shape_detail,
+        )
+        for item in items
+    ]
+
+
+def _apply_finviz_calendar_units(
+    out: Dict[str, Any],
+    *,
+    calendar_type: str,
+    shape_detail: str,
+) -> None:
+    kind = str(calendar_type or "economic").strip().lower()
+    if kind == "dividends":
+        out["currency_status"] = "unavailable"
+        out["units"] = {
+            "dividend_amount": "unspecified_listing_currency_per_share",
+            "ordinary_amount": "unspecified_listing_currency_per_share",
+            "special_amount": "unspecified_listing_currency_per_share",
+            "yield_pct": "percent (1.0 = 1%)",
+        }
+        return
+    if kind == "economic":
+        units = dict(out.get("units") or {})
+        units.update(
+            {
+                "actual_value": "parsed_numeric (percent: 1.0 = 1%)",
+                "previous_value": "parsed_numeric (percent: 1.0 = 1%)",
+                "forecast_value": "parsed_numeric (percent: 1.0 = 1%)",
+            }
+        )
+        if shape_detail not in {"compact", "summary"}:
+            units.update(
+                {
+                    "actual": "provider_text",
+                    "previous": "provider_text",
+                    "forecast": "provider_text",
+                    "scale": "numeric_multiplier_applied_to_provider_suffix",
+                }
+            )
+        out["units"] = units
+        return
+    if kind == "earnings":
+        out["currency_status"] = "unavailable"
+        out["amount_source_scale"] = "provider_millions_normalized_to_base_units"
+        out["units"] = {
+            "market_cap": "unspecified_listing_currency_base_units",
+            "sales_estimate": "unspecified_listing_currency_base_units",
+            "sales_actual": "unspecified_listing_currency_base_units",
+            "eps_estimate": "unspecified_listing_currency_per_share",
+            "eps_actual": "unspecified_listing_currency_per_share",
+            "eps_surprise": "percent (1.0 = 1%)",
+            "eps_reported_surprise": "percent (1.0 = 1%)",
+            "sales_surprise": "percent (1.0 = 1%)",
+            "one_day_price_reaction": "percent (1.0 = 1%)",
+        }
+
+
+def _filter_finviz_calendar_items_by_instant(
+    items: List[Any],
+    *,
+    start_instant: Optional[datetime],
+    end_instant: Optional[datetime],
+) -> List[Any]:
+    if start_instant is None and end_instant is None:
+        return items
+    kept: List[Any] = []
+    for item in items:
+        instant = _calendar_item_instant_utc(item)
+        if instant is None:
+            continue
+        if start_instant is not None and instant < start_instant:
+            continue
+        if end_instant is not None and instant > end_instant:
+            continue
+        kept.append(item)
+    return kept
+
+
 def _normalize_finviz_calendar_payload(
     result: Dict[str, Any],
     *,
@@ -916,10 +1183,12 @@ def _normalize_finviz_calendar_payload(
     source_is_unpaged: bool = False,
     limit: int = 20,
     page: int = 1,
+    start_instant: Optional[datetime] = None,
+    end_instant: Optional[datetime] = None,
 ) -> Dict[str, Any]:
     if not isinstance(result, dict) or result.get("error"):
         return result
-    detail_mode = normalize_output_verbosity_detail(detail, default="compact")
+    shape_detail = normalize_output_detail(detail, default="compact")
     out: Dict[str, Any] = {}
     for key, value in result.items():
         normalized_key = _normalize_finviz_output_key(key)
@@ -1013,6 +1282,12 @@ def _normalize_finviz_calendar_payload(
             normalized_items.sort(
                 key=lambda item: str(item.get("date") or item.get("earnings_date") or "")
             )
+        if start_instant is not None or end_instant is not None:
+            normalized_items = _filter_finviz_calendar_items_by_instant(
+                normalized_items,
+                start_instant=start_instant,
+                end_instant=end_instant,
+            )
         filtered_total = len(normalized_items)
         if source_is_unpaged:
             page_value = max(1, int(page or 1))
@@ -1021,17 +1296,11 @@ def _normalize_finviz_calendar_payload(
             normalized_items = normalized_items[
                 offset_value : offset_value + limit_value
             ]
-        if detail_mode == "full":
-            out["items"] = normalized_items
-        else:
-            out["items"] = [
-                _compact_finviz_calendar_item(
-                    item,
-                    source_id_only=str(calendar_type or "economic").strip().lower()
-                    == "economic",
-                )
-                for item in normalized_items
-            ]
+        out["items"] = _finviz_calendar_row_items(
+            normalized_items,
+            calendar_type=calendar_type,
+            shape_detail=shape_detail,
+        )
         out["count"] = len(out["items"])
         out["row_key"] = "items"
         if out["count"] == 0:
@@ -1050,42 +1319,11 @@ def _normalize_finviz_calendar_payload(
         out["timezone"] = "UTC"
     else:
         out.setdefault("timezone", _FINVIZ_CALENDAR_LOCAL_TIMEZONE)
-    if str(calendar_type or "economic").strip().lower() == "dividends":
-        out["currency_status"] = "unavailable"
-        out["units"] = {
-            "dividend_amount": "unspecified_listing_currency_per_share",
-            "ordinary_amount": "unspecified_listing_currency_per_share",
-            "special_amount": "unspecified_listing_currency_per_share",
-            "yield_pct": "percent (1.0 = 1%)",
-        }
-    if str(calendar_type or "economic").strip().lower() == "economic":
-        units = dict(out.get("units") or {})
-        units.update(
-            {
-                "actual": "provider_text",
-                "previous": "provider_text",
-                "forecast": "provider_text",
-                "actual_value": "parsed_numeric (percent: 1.0 = 1%)",
-                "previous_value": "parsed_numeric (percent: 1.0 = 1%)",
-                "forecast_value": "parsed_numeric (percent: 1.0 = 1%)",
-                "scale": "numeric_multiplier_applied_to_provider_suffix",
-            }
-        )
-        out["units"] = units
-    if str(calendar_type or "economic").strip().lower() == "earnings":
-        out["currency_status"] = "unavailable"
-        out["amount_source_scale"] = "provider_millions_normalized_to_base_units"
-        out["units"] = {
-            "market_cap": "unspecified_listing_currency_base_units",
-            "sales_estimate": "unspecified_listing_currency_base_units",
-            "sales_actual": "unspecified_listing_currency_base_units",
-            "eps_estimate": "unspecified_listing_currency_per_share",
-            "eps_actual": "unspecified_listing_currency_per_share",
-            "eps_surprise": "percent (1.0 = 1%)",
-            "eps_reported_surprise": "percent (1.0 = 1%)",
-            "sales_surprise": "percent (1.0 = 1%)",
-            "one_day_price_reaction": "percent (1.0 = 1%)",
-        }
+    _apply_finviz_calendar_units(
+        out,
+        calendar_type=calendar_type,
+        shape_detail=shape_detail,
+    )
     page_value = int(page if source_is_unpaged else result.get("page") or page or 1)
     if source_is_unpaged:
         offset_value = (max(1, page_value) - 1) * max(1, int(limit))
@@ -1113,7 +1351,7 @@ def _normalize_finviz_calendar_payload(
         has_more=has_more,
     )
     out.pop("omitted_item_count", None)
-    out["detail"] = detail_mode
+    out["detail"] = shape_detail
     return out
 
 
@@ -1131,52 +1369,23 @@ def run_finviz_calendar(
 ) -> Dict[str, Any]:
     """Fetch a Finviz calendar payload without MCP/CLI wrapping."""
 
-    def _calendar_date(value: Optional[str], *, inclusive_end: bool) -> Optional[str]:
-        text = str(value or "").strip()
-        if not text:
-            return None
-        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
-            try:
-                return datetime.strptime(text, "%Y-%m-%d").date().isoformat()
-            except ValueError as exc:
-                raise ValueError(
-                    f"Invalid calendar date {text!r}. Use a real YYYY-MM-DD date."
-                ) from exc
-        relative_day = text.lower()
-        if relative_day in {"today", "yesterday", "tomorrow"}:
-            day_offset = {"yesterday": -1, "today": 0, "tomorrow": 1}[
-                relative_day
-            ]
-            current_ny = datetime.now(timezone.utc).astimezone(
-                ZoneInfo("America/New_York")
-            )
-            return (current_ny.date() + timedelta(days=day_offset)).isoformat()
-        parsed = (
-            _parse_end_datetime(text)
-            if inclusive_end
-            else _parse_start_datetime(text)
-        )
-        if parsed is None:
-            raise ValueError(
-                f"Invalid calendar date {text!r}. Use YYYY-MM-DD, an ISO "
-                "datetime, or a relative expression such as '2 days ago'."
-            )
-        aware_utc = parsed.replace(tzinfo=timezone.utc)
-        return aware_utc.astimezone(ZoneInfo("America/New_York")).date().isoformat()
-
     try:
-        start_value = _calendar_date(start, inclusive_end=False)
-        end_value = _calendar_date(end, inclusive_end=True)
+        start_bound = _parse_calendar_bound(start, inclusive_end=False)
+        end_bound = _parse_calendar_bound(end, inclusive_end=True)
     except ValueError as exc:
         return build_error_payload(
             str(exc),
             code="invalid_date",
             operation="calendar",
             remediation=(
-                "Pass YYYY-MM-DD or a dateparser expression such as "
-                "start='2 days ago', end='today'."
+                "Pass YYYY-MM-DD, an ISO timestamp, or a dateparser "
+                "expression such as start='2 days ago', end='today'."
             ),
         )
+    start_value = None if start_bound is None else str(start_bound["date_ny"])
+    end_value = None if end_bound is None else str(end_bound["date_ny"])
+    start_instant = None if start_bound is None else start_bound.get("instant_utc")
+    end_instant = None if end_bound is None else end_bound.get("instant_utc")
 
     cal = (calendar or "economic").strip().lower()
     upcoming_only = (
@@ -1195,6 +1404,21 @@ def run_finviz_calendar(
             code="invalid_parameter",
             operation="calendar",
             remediation="Use a supported country or currency code, such as US or USD.",
+        )
+    if (
+        start_instant is not None
+        and end_instant is not None
+        and end_instant < start_instant
+    ):
+        return build_error_payload(
+            "end must be on or after start",
+            code="invalid_date_range",
+            operation="calendar",
+            details={
+                "start": format_datetime_utc(start_instant),
+                "end": format_datetime_utc(end_instant),
+            },
+            remediation="Set end to a timestamp on or after start.",
         )
     if start_value and end_value and end_value < start_value:
         return build_error_payload(
@@ -1233,7 +1457,7 @@ def run_finviz_calendar(
         )
 
     if cal == "economic":
-        return _normalize_finviz_calendar_payload(
+        payload = _normalize_finviz_calendar_payload(
             get_economic_calendar(
                 impact=impact,
                 limit=500,
@@ -1248,9 +1472,11 @@ def run_finviz_calendar(
             source_is_unpaged=True,
             limit=limit,
             page=page,
+            start_instant=start_instant,
+            end_instant=end_instant,
         )
-    if cal == "earnings":
-        return _normalize_finviz_calendar_payload(
+    elif cal == "earnings":
+        payload = _normalize_finviz_calendar_payload(
             get_earnings_calendar_api(
                 limit=limit,
                 page=page,
@@ -1261,9 +1487,11 @@ def run_finviz_calendar(
             calendar_type=cal,
             limit=limit,
             page=page,
+            start_instant=start_instant,
+            end_instant=end_instant,
         )
-    if cal == "dividends":
-        return _normalize_finviz_calendar_payload(
+    elif cal == "dividends":
+        payload = _normalize_finviz_calendar_payload(
             get_dividends_calendar_api(
                 limit=limit,
                 page=page,
@@ -1274,8 +1502,21 @@ def run_finviz_calendar(
             calendar_type=cal,
             limit=limit,
             page=page,
+            start_instant=start_instant,
+            end_instant=end_instant,
         )
-    return {"error": f"Unsupported calendar '{calendar}'. Expected economic, earnings, or dividends."}
+    else:
+        return {
+            "error": (
+                f"Unsupported calendar '{calendar}'. Expected economic, "
+                "earnings, or dividends."
+            )
+        }
+    return _stamp_calendar_requested_bounds(
+        payload,
+        start_bound=start_bound,
+        end_bound=end_bound,
+    )
 
 
 def finviz_calendar(

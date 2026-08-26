@@ -136,7 +136,7 @@ def _stamp_equity_profile_observation(
             "maximum": _FINVIZ_DELAY_MINUTES_MAX,
         },
     )
-    return _attach_finviz_fetch_timestamp(out)
+    return _attach_finviz_fetch_timestamp(out, include_equity_session=True)
 
 
 def _first_error(payloads: Dict[str, Any]) -> Optional[Dict[str, Any]]:

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Annotated, get_args, get_origin, get_type_hints
 
+import pytest
+
 from mtdata.core.screener import screener
 
 
@@ -51,6 +53,53 @@ def test_screener_rejects_offset_in_results_mode(monkeypatch) -> None:
     assert result["error_code"] == "incompatible_parameters"
     assert result["details"]["invalid"] == ["offset"]
     assert "Use --page" in result["error"]
+
+
+def test_screener_rejects_search_in_results_mode(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "mtdata.core.finviz.finviz_screen",
+        lambda **_kwargs: pytest.fail("results mode must not fetch with search"),
+    )
+
+    result = _unwrap(screener)(search="dividend")
+
+    assert result["success"] is False
+    assert result["error_code"] == "incompatible_parameters"
+    assert result["details"]["invalid"] == ["search"]
+    assert result["details"]["mode"] == "results"
+
+
+def test_screener_rejects_filter_name_in_results_mode(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "mtdata.core.finviz.finviz_screen",
+        lambda **_kwargs: pytest.fail("results mode must not fetch with filter_name"),
+    )
+
+    result = _unwrap(screener)(filter_name="Market Cap.")
+
+    assert result["success"] is False
+    assert result["error_code"] == "incompatible_parameters"
+    assert "filter_name" in result["details"]["invalid"]
+
+
+def test_screener_rejects_result_controls_in_catalog_mode(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "mtdata.core.finviz.finviz_filters_list",
+        lambda **_kwargs: pytest.fail("catalog mode must not fetch with result filters"),
+    )
+
+    result = _unwrap(screener)(
+        list_filters=True,
+        filters="sector=Technology",
+        order="price",
+        view="valuation",
+        page=2,
+    )
+
+    assert result["success"] is False
+    assert result["error_code"] == "incompatible_parameters"
+    assert result["details"]["mode"] == "list_filters"
+    assert result["details"]["invalid"] == ["filters", "order", "view", "page"]
 
 
 def test_screener_normalizes_provider_error_operation(monkeypatch) -> None:

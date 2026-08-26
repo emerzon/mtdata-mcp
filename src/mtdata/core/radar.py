@@ -213,6 +213,21 @@ def _extract_ranked_symbols(payload: Any, *, limit: int) -> List[str]:
     return symbols
 
 
+def _scan_authoritative_missing_symbols(scan: Any) -> Optional[List[str]]:
+    """Return the scanner's proven-missing names, if the error envelope has them."""
+    if not isinstance(scan, dict):
+        return None
+    details = scan.get("details")
+    names = None
+    if isinstance(details, dict) and isinstance(details.get("missing_symbols"), list):
+        names = details.get("missing_symbols")
+    elif isinstance(scan.get("missing_symbols"), list):
+        names = scan.get("missing_symbols")
+    if not isinstance(names, list):
+        return None
+    return [str(symbol).strip() for symbol in names if str(symbol).strip()]
+
+
 def assemble_radar_payload(
     *,
     requested: List[str],
@@ -242,6 +257,11 @@ def assemble_radar_payload(
 
     found = {row["symbol"] for row in ordered}
     missing = [symbol for symbol in requested if symbol not in found]
+    if isinstance(scan, dict) and scan.get("success") is False:
+        scan_missing = _scan_authoritative_missing_symbols(scan)
+        if scan_missing is not None:
+            missing_set = {str(symbol) for symbol in scan_missing}
+            missing = [symbol for symbol in requested if symbol in missing_set]
     assembled_at = format_datetime_utc(datetime.now(timezone.utc))
     payload: Dict[str, Any] = {
         "success": True,

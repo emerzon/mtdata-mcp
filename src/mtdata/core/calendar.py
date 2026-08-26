@@ -22,6 +22,24 @@ CalendarKind = Literal["economic", "earnings", "dividends"]
 CalendarView = Literal["range", "period"]
 
 
+def _stamp_calendar_freshness(payload: Any) -> Any:
+    if not isinstance(payload, dict):
+        return payload
+    if payload.get("success") is False and payload.get("error"):
+        return payload
+    from .finviz.common import _attach_finviz_fetch_timestamp
+
+    out = _attach_finviz_fetch_timestamp(payload)
+    out.setdefault("is_realtime", False)
+    if out.get("data_delayed") is not True and out.get("freshness") != "finviz_delayed":
+        out.setdefault(
+            "freshness_note",
+            "data_fetched_at is retrieval time. Finviz calendar rows are not "
+            "a real-time feed.",
+        )
+    return out
+
+
 def _fetch_finviz_calendar(request: CalendarRequest) -> Dict[str, Any]:
     from .finviz import finviz_earnings, run_finviz_calendar
 
@@ -90,11 +108,23 @@ def calendar(
     ] = None,
     start: Annotated[
         Optional[str],
-        Field(description="Inclusive range start (YYYY-MM-DD or relative)."),
+        Field(
+            description=(
+                "Inclusive range start (YYYY-MM-DD, ISO timestamp, or relative). "
+                "Timestamps keep their time-of-day and filter scheduled_at; "
+                "date-only values select the America/New_York calendar day."
+            )
+        ),
     ] = None,
     end: Annotated[
         Optional[str],
-        Field(description="Inclusive range end (YYYY-MM-DD or relative)."),
+        Field(
+            description=(
+                "Inclusive range end (YYYY-MM-DD, ISO timestamp, or relative). "
+                "Timestamps keep their time-of-day and filter scheduled_at; "
+                "date-only values select the America/New_York calendar day."
+            )
+        ),
     ] = None,
     upcoming: Annotated[
         Optional[bool],
@@ -281,7 +311,7 @@ def calendar(
         payload = _fetch_finviz_calendar(request)
         if isinstance(payload, dict) and payload.get("operation") == "finviz_calendar":
             payload["operation"] = "calendar"
-        return stamp_provider(payload, provider="finviz")
+        return _stamp_calendar_freshness(stamp_provider(payload, provider="finviz"))
 
     return run_logged_operation(
         logger,

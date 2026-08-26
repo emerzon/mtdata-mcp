@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import logging
 import re
-from datetime import datetime, timezone
-from typing import Annotated, Any, Dict, Literal, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Annotated, Any, Dict, Literal, Optional, Union
 
 from pydantic import Field
 
 from ..services.research.payload import stamp_provider
 from ..services.unified_news import fetch_unified_news
 from ..utils.time import format_datetime_utc, format_relative_time, parse_iso_utc
+from ..utils.utils import _parse_end_datetime, _parse_start_datetime
 from ._mcp_instance import mcp
 from .error_envelope import build_error_payload
 from .execution_logging import run_logged_operation
@@ -84,6 +85,34 @@ _NEWS_COMPACT_ITEM_DROP_KEYS = frozenset(
     }
 )
 _NEWS_COMPACT_BROAD_LIMIT = 10
+_NEWS_MAX_AGE_RE = re.compile(
+    r"^\s*(\d+(?:\.\d+)?)\s*"
+    r"(s|sec|secs|second|seconds|m|min|mins|minute|minutes|"
+    r"h|hr|hrs|hour|hours|d|day|days)?\s*$",
+    re.IGNORECASE,
+)
+_NEWS_MAX_AGE_SECONDS = {
+    None: 1.0,
+    "": 1.0,
+    "s": 1.0,
+    "sec": 1.0,
+    "secs": 1.0,
+    "second": 1.0,
+    "seconds": 1.0,
+    "m": 60.0,
+    "min": 60.0,
+    "mins": 60.0,
+    "minute": 60.0,
+    "minutes": 60.0,
+    "h": 3600.0,
+    "hr": 3600.0,
+    "hrs": 3600.0,
+    "hour": 3600.0,
+    "hours": 3600.0,
+    "d": 86400.0,
+    "day": 86400.0,
+    "days": 86400.0,
+}
 _NEWS_PROVIDER_DELIVERY = {
     "finviz": {
         "delivery": "aggregated_web_feed",
@@ -766,6 +795,167 @@ def _normalize_news_pagination_controls(
     return limit_value, offset_value, limit_per_bucket_value
 
 
+def _parse_news_max_age_seconds(value: Any) -> tuple[Optional[int], Optional[Dict[str, Any]]]:
+    if value in (None, ""):
+        return None, None
+    if isinstance(value, bool):
+        return None, build_error_payload(
+            "max_age must be seconds or a duration such as 60m or 1h.",
+            code="invalid_parameter",
+            operation="news",
+            details={"max_age": value},
+            remediation="Pass an integer number of seconds or a duration like 3600, 60m, or 1h.",
+        )
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        seconds = float(value)
+        if seconds <= 0:
+            return None, build_error_payload(
+                "max_age must be greater than 0.",
+                code="invalid_parameter",
+                operation="news",
+                details={"max_age": value},
+            )
+        return int(seconds), None
+    match = _NEWS_MAX_AGE_RE.fullmatch(str(value))
+    if match is None:
+        return None, build_error_payload(
+            "max_age must be seconds or a duration such as 60m or 1h.",
+            code="invalid_parameter",
+            operation="news",
+            details={"max_age": value},
+            remediation="Pass an integer number of seconds or a duration like 3600, 60m, or 1h.",
+        )
+    amount = float(match.group(1))
+    unit = str(match.group(2) or "").strip().lower()
+    multiplier = _NEWS_MAX_AGE_SECONDS.get(unit if unit else None)
+    if multiplier is None or amount <= 0:
+        return None, build_error_payload(
+            "max_age must be greater than 0.",
+            code="invalid_parameter",
+            operation="news",
+            details={"max_age": value},
+        )
+    return int(amount * multiplier), None
+
+
+def _parse_news_bound(value: Optional[str], *, inclusive_end: bool) -> Optional[datetime]:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    parsed = (
+        _parse_end_datetime(text) if inclusive_end else _parse_start_datetime(text)
+    )
+    if parsed is None:
+        return None
+    return parsed.replace(tzinfo=timezone.utc)
+
+
+def _news_item_instant(item: Any) -> Optional[datetime]:
+    if not isinstance(item, dict):
+        return None
+    kind = str(item.get("kind") or "").strip().lower()
+    if kind == "economic_event":
+        instant = _news_datetime_utc(
+            item.get("scheduled_at") or item.get("published_at")
+        )
+        if instant is not None:
+            return instant
+    instant = _news_datetime_utc(item.get("published_at") or item.get("scheduled_at"))
+    if instant is not None:
+        return instant
+    publication_date = str(item.get("publication_date") or "").strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", publication_date):
+        return datetime.strptime(publication_date, "%Y-%m-%d").replace(
+            tzinfo=timezone.utc
+        )
+    return None
+
+
+def _news_row_collections(result: Dict[str, Any]) -> list[str]:
+    keys = [key for key in _NEWS_BUCKET_KEYS if isinstance(result.get(key), list)]
+    if isinstance(result.get("items"), list):
+        keys.append("items")
+    return keys
+
+
+def _apply_news_recency_filter(
+    result: Dict[str, Any],
+    *,
+    start_dt: Optional[datetime],
+    end_dt: Optional[datetime],
+    max_age_seconds: Optional[int],
+) -> Dict[str, Any]:
+    if start_dt is None and end_dt is None:
+        return result
+    out = dict(result)
+    excluded_old = 0
+    excluded_untimestamped = 0
+    kept_any = False
+    for key in _news_row_collections(out):
+        rows = out.get(key)
+        if not isinstance(rows, list):
+            continue
+        kept: list[Any] = []
+        for item in rows:
+            instant = _news_item_instant(item)
+            if instant is None:
+                excluded_untimestamped += 1
+                continue
+            if start_dt is not None and instant < start_dt:
+                excluded_old += 1
+                continue
+            if end_dt is not None and instant > end_dt:
+                excluded_old += 1
+                continue
+            kept.append(item)
+        if kept:
+            kept_any = True
+            out[key] = kept
+        else:
+            out.pop(key, None)
+    recency: Dict[str, Any] = {
+        "excluded_old_count": excluded_old,
+        "excluded_untimestamped_count": excluded_untimestamped,
+    }
+    if start_dt is not None:
+        recency["start"] = format_datetime_utc(start_dt)
+    if end_dt is not None:
+        recency["end"] = format_datetime_utc(end_dt)
+    if max_age_seconds is not None:
+        recency["max_age_seconds"] = int(max_age_seconds)
+    out["recency"] = recency
+    if not kept_any:
+        out["empty_reason"] = "no_recent_news"
+        out["status"] = "no_results"
+        out.setdefault(
+            "hint",
+            "No headlines or events remained after the publication-time filter.",
+        )
+    return out
+
+
+def _rewrite_news_provider_error(
+    payload: Any,
+    *,
+    view: str,
+) -> Any:
+    if not isinstance(payload, dict):
+        return payload
+    out = dict(payload)
+    if out.get("success") is False or out.get("error"):
+        provider_operation = out.get("operation")
+        if provider_operation not in (None, "", "news"):
+            out["provider_operation"] = provider_operation
+        out["operation"] = "news"
+        out["view"] = view
+        if out.get("error_code") == "finviz_unsupported_symbol":
+            out["remediation"] = (
+                "view='ticker' is a raw Finviz US-equity page. Use "
+                "view='unified' for broker, FX, and crypto symbols."
+            )
+    return out
+
+
 def _news_incompatible_controls(
     *,
     view: str,
@@ -802,7 +992,16 @@ def _news_incompatible_controls(
 def news(
     symbol: Optional[str] = None,
     detail: Literal["compact", "full"] = "compact",
-    limit: Annotated[Optional[int], Field(ge=1)] = None,
+    limit: Annotated[
+        Optional[int],
+        Field(
+            ge=1,
+            description=(
+                f"Global maximum across all news/event buckets. Compact unified "
+                f"view defaults to {_NEWS_COMPACT_BROAD_LIMIT}; otherwise unbounded."
+            ),
+        ),
+    ] = None,
     offset: Annotated[int, Field(ge=0)] = 0,
     limit_per_bucket: Optional[int] = None,
     source: Annotated[
@@ -831,6 +1030,34 @@ def news(
         int,
         Field(ge=1, description="One-based page for ticker and market views."),
     ] = 1,
+    start: Annotated[
+        Optional[str],
+        Field(
+            description=(
+                "Inclusive UTC publication start. Date-only values start at "
+                "00:00 UTC, distinct from calendar America/New_York event days."
+            )
+        ),
+    ] = None,
+    end: Annotated[
+        Optional[str],
+        Field(
+            description=(
+                "Inclusive UTC publication end. Date-only values include the "
+                "full UTC day."
+            )
+        ),
+    ] = None,
+    max_age: Annotated[
+        Optional[Union[int, str]],
+        Field(
+            description=(
+                "Keep items published within this age. Seconds or a duration "
+                "such as 3600, 60m, or 1h. Combined with start/end as the "
+                "intersection."
+            )
+        ),
+    ] = None,
 ) -> Dict[str, Any]:
     """
     Fetch important general news and, optionally, symbol-relevant news.
@@ -896,6 +1123,10 @@ def news(
         Market-view slice.
     page : int, optional
         Provider page for ticker and market views.
+    start, end : str, optional
+        Inclusive UTC publication bounds. Date-only values are UTC days.
+    max_age : int or str, optional
+        Convenience age cap in seconds or a duration such as ``60m``.
 
     Returns
     -------
@@ -954,8 +1185,26 @@ def news(
     )
     if invalid_controls:
         valid_by_view = {
-            "ticker": ["symbol", "limit", "page", "source", "detail"],
-            "market": ["news_type", "limit", "page", "source", "detail"],
+            "ticker": [
+                "symbol",
+                "limit",
+                "page",
+                "source",
+                "detail",
+                "start",
+                "end",
+                "max_age",
+            ],
+            "market": [
+                "news_type",
+                "limit",
+                "page",
+                "source",
+                "detail",
+                "start",
+                "end",
+                "max_age",
+            ],
             "unified": [
                 "symbol",
                 "limit",
@@ -963,6 +1212,9 @@ def news(
                 "limit_per_bucket",
                 "source",
                 "detail",
+                "start",
+                "end",
+                "max_age",
             ],
         }
         return build_error_payload(
@@ -983,6 +1235,45 @@ def news(
                 "unified feed, or drop the listed controls."
             ),
         )
+
+    max_age_seconds, max_age_error = _parse_news_max_age_seconds(max_age)
+    if max_age_error is not None:
+        return max_age_error
+    start_dt = None
+    end_dt = None
+    if start not in (None, ""):
+        start_dt = _parse_news_bound(start, inclusive_end=False)
+        if start_dt is None:
+            return build_error_payload(
+                f"Invalid start {start!r}. Use an ISO timestamp or YYYY-MM-DD.",
+                code="invalid_date",
+                operation="news",
+                remediation="Pass start as UTC ISO, for example 2026-08-26T12:00:00Z.",
+            )
+    if end not in (None, ""):
+        end_dt = _parse_news_bound(end, inclusive_end=True)
+        if end_dt is None:
+            return build_error_payload(
+                f"Invalid end {end!r}. Use an ISO timestamp or YYYY-MM-DD.",
+                code="invalid_date",
+                operation="news",
+                remediation="Pass end as UTC ISO, for example 2026-08-26T13:00:00Z.",
+            )
+    if max_age_seconds is not None:
+        max_age_start = datetime.now(timezone.utc) - timedelta(seconds=max_age_seconds)
+        start_dt = max_age_start if start_dt is None else max(start_dt, max_age_start)
+    if start_dt is not None and end_dt is not None and end_dt < start_dt:
+        return build_error_payload(
+            "end must be on or after start",
+            code="invalid_date_range",
+            operation="news",
+            details={
+                "start": format_datetime_utc(start_dt),
+                "end": format_datetime_utc(end_dt),
+            },
+            remediation="Set end to a timestamp on or after start.",
+        )
+    recency_requested = start_dt is not None or end_dt is not None
 
     def _fetch_raw_provider_page() -> Dict[str, Any]:
         from .finviz import finviz_market_news, finviz_news
@@ -1015,7 +1306,16 @@ def news(
                 page=int(page),
                 detail=detail_mode,  # type: ignore[arg-type]
             )
-        return stamp_provider(payload, provider="finviz")
+        out = stamp_provider(payload, provider="finviz")
+        out = _rewrite_news_provider_error(out, view=str(view))
+        if recency_requested and isinstance(out, dict) and out.get("success") is not False:
+            out = _apply_news_recency_filter(
+                out,
+                start_dt=start_dt,
+                end_dt=end_dt,
+                max_age_seconds=max_age_seconds,
+            )
+        return out
 
     def _run() -> Dict[str, Any]:
         if view in {"ticker", "market"}:
@@ -1023,11 +1323,19 @@ def news(
         raw = fetch_unified_news(symbol=symbol, source=source)
         if isinstance(raw, dict) and raw.get("success") is False:
             return raw
+        normalized = normalize_news_output(
+            raw,
+            detail=detail_mode,
+        )
+        if recency_requested:
+            normalized = _apply_news_recency_filter(
+                normalized,
+                start_dt=start_dt,
+                end_dt=end_dt,
+                max_age_seconds=max_age_seconds,
+            )
         out = _apply_news_limit(
-            normalize_news_output(
-                raw,
-                detail=detail_mode,
-            ),
+            normalized,
             limit=effective_limit,
             limit_per_bucket=effective_limit_per_bucket,
             offset=offset_value,

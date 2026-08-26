@@ -201,6 +201,45 @@ def test_market_radar_fails_closed_when_allow_partial_false() -> None:
     assert result["partial_failure"] is True
 
 
+def test_market_radar_strict_error_propagates_scan_missing_symbols() -> None:
+    def caller(name: str, kwargs: Dict[str, Any]) -> Any:
+        assert name == "scan"
+        assert kwargs.get("allow_partial") is False
+        return {
+            "success": False,
+            "error": "Requested symbol(s) not found: NOTREAL.",
+            "error_code": "missing_symbols",
+            "data": [],
+            "details": {"missing_symbols": ["NOTREAL"]},
+        }
+
+    result = run_market_radar(
+        MarketRadarRequest(symbols="EURUSD,NOTREAL", allow_partial=False),
+        call_section=caller,
+    )
+
+    assert result["success"] is False
+    assert result["error_code"] == "missing_symbols"
+    assert result["missing_symbols"] == ["NOTREAL"]
+    assert "EURUSD" not in result["missing_symbols"]
+    assert "Requested symbol(s) not found: NOTREAL." in str(result.get("error") or "")
+
+
+def test_market_radar_strict_error_uses_top_level_missing_symbols() -> None:
+    result = run_market_radar(
+        MarketRadarRequest(symbols="EURUSD,NOTREAL", allow_partial=False),
+        call_section=lambda name, kwargs: {
+            "success": False,
+            "error": "Requested symbol(s) not found: NOTREAL.",
+            "error_code": "missing_symbols",
+            "rows": [],
+            "missing_symbols": ["NOTREAL"],
+        },
+    )
+
+    assert result["missing_symbols"] == ["NOTREAL"]
+
+
 def test_market_radar_rejects_watchlist_over_cap() -> None:
     names = [f"SYM{i}" for i in range(RADAR_MAX_SYMBOLS + 2)]
     result = run_market_radar(

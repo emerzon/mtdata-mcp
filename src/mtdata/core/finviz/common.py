@@ -4,6 +4,7 @@ import logging
 import re
 from datetime import (
     datetime,
+    timedelta,
     timezone,
 )
 from typing import (
@@ -125,7 +126,203 @@ def _attach_finviz_symbol_identity(
     return out
 
 
-def _attach_finviz_fetch_timestamp(payload: Dict[str, Any]) -> Dict[str, Any]:
+def _finviz_holiday_resolver(
+    country: str,
+    session_dt: Any,
+    exchange: Optional[str],
+) -> tuple[bool, Optional[str]]:
+    from mtdata.shared.market_sessions import exchange_holidays
+
+    if not exchange:
+        return False, None
+    holidays = exchange_holidays(str(exchange), session_dt.year)
+    date_key = session_dt.date()
+    if date_key in holidays:
+        return True, str(holidays[date_key])
+    return False, None
+
+
+def _us_equity_session_context(
+    now_utc: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    """NYSE/NASDAQ session fields for delayed US-equity snapshots."""
+    from mtdata.shared.market_sessions import (
+        MARKET_SESSIONS,
+        is_early_close_session,
+    )
+
+    now = now_utc or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    market = MARKET_SESSIONS["NYSE"]
+    tz = ZoneInfo(str(market["timezone"]))
+    now_local = now.astimezone(tz)
+    country = str(market["country"])
+    exchange = str(market.get("exchange_calendar") or "XNYS")
+    weekday = now_local.weekday()
+    is_holiday, holiday_name = _finviz_holiday_resolver(country, now_local, exchange)
+    early_close = is_early_close_session(
+        market,
+        country,
+        now_local,
+        holiday_resolver=_finviz_holiday_resolver,
+    )
+    open_hour, open_minute = market["open"]
+    close_hour, close_minute = market["close"]
+    if early_close and market.get("early_close"):
+        close_hour, close_minute = market["early_close"]
+    open_time = now_local.replace(
+        hour=open_hour, minute=open_minute, second=0, microsecond=0
+    )
+    close_time = now_local.replace(
+        hour=close_hour, minute=close_minute, second=0, microsecond=0
+    )
+    pre_open = market.get("pre_open")
+    after_hours_close = market.get("after_hours_close")
+    if weekday >= 5:
+        market_state = "closed"
+        market_state_reason = "weekend"
+    elif is_holiday and not early_close:
+        market_state = "closed"
+        market_state_reason = "holiday"
+    elif now_local < open_time:
+        if pre_open:
+            pre_open_time = now_local.replace(
+                hour=pre_open[0], minute=pre_open[1], second=0, microsecond=0
+            )
+            if now_local >= pre_open_time:
+                market_state = "pre_market"
+                market_state_reason = None
+            else:
+                market_state = "closed"
+                market_state_reason = "overnight"
+        else:
+            market_state = "closed"
+            market_state_reason = "before_open"
+    elif now_local < close_time:
+        market_state = "open"
+        market_state_reason = None
+    elif after_hours_close:
+        after_hours_close_time = now_local.replace(
+            hour=after_hours_close[0],
+            minute=after_hours_close[1],
+            second=0,
+            microsecond=0,
+        )
+        if now_local < after_hours_close_time:
+            market_state = "after_hours"
+            market_state_reason = None
+        else:
+            market_state = "closed"
+            market_state_reason = "overnight"
+    else:
+        market_state = "closed"
+        market_state_reason = "post_close"
+
+    cursor = now_local
+    latest_close = None
+    session_date = None
+    for _ in range(14):
+        day_holiday, _name = _finviz_holiday_resolver(country, cursor, exchange)
+        day_early = is_early_close_session(
+            market,
+            country,
+            cursor,
+            holiday_resolver=_finviz_holiday_resolver,
+        )
+        trading_day = cursor.weekday() < 5 and (not day_holiday or day_early)
+        if trading_day:
+            day_close_hour, day_close_minute = market["close"]
+            if day_early and market.get("early_close"):
+                day_close_hour, day_close_minute = market["early_close"]
+            day_close = cursor.replace(
+                hour=day_close_hour,
+                minute=day_close_minute,
+                second=0,
+                microsecond=0,
+            )
+            if now_local >= day_close:
+                latest_close = day_close
+                session_date = day_close.date()
+                break
+            if market_state == "open":
+                session_date = cursor.date()
+                previous = cursor - timedelta(days=1)
+                for _offset in range(10):
+                    prev_holiday, _prev_name = _finviz_holiday_resolver(
+                        country, previous, exchange
+                    )
+                    prev_early = is_early_close_session(
+                        market,
+                        country,
+                        previous,
+                        holiday_resolver=_finviz_holiday_resolver,
+                    )
+                    if previous.weekday() < 5 and (not prev_holiday or prev_early):
+                        prev_close_hour, prev_close_minute = market["close"]
+                        if prev_early and market.get("early_close"):
+                            prev_close_hour, prev_close_minute = market["early_close"]
+                        latest_close = previous.replace(
+                            hour=prev_close_hour,
+                            minute=prev_close_minute,
+                            second=0,
+                            microsecond=0,
+                        )
+                        break
+                    previous -= timedelta(days=1)
+                break
+        cursor = (cursor - timedelta(days=1)).replace(
+            hour=12, minute=0, second=0, microsecond=0
+        )
+
+    out: Dict[str, Any] = {
+        "observation_age_status": "unknown",
+        "market_state": market_state,
+        "exchange": exchange,
+        "session_timezone": str(market["timezone"]),
+    }
+    if market_state_reason:
+        out["market_state_reason"] = market_state_reason
+    if holiday_name and market_state_reason == "holiday":
+        out["holiday"] = holiday_name
+    if session_date is not None:
+        out["session_date"] = session_date.isoformat()
+    if latest_close is not None:
+        out["latest_completed_session"] = format_datetime_utc(
+            latest_close.astimezone(timezone.utc)
+        )
+    return out
+
+
+def _attach_finviz_equity_session_observation(
+    payload: Dict[str, Any],
+    *,
+    now_utc: Optional[datetime] = None,
+) -> Dict[str, Any]:
+    session = _us_equity_session_context(now_utc)
+    out = dict(payload)
+    for key, value in session.items():
+        out.setdefault(key, value)
+    if session.get("market_state") != "open":
+        warning = {
+            "code": "observation_age_unknown_outside_rth",
+            "market_state": session.get("market_state"),
+            "message": (
+                "Finviz's 15-20 minute delay is a published nominal window, "
+                "not a measured observation age. Outside regular US cash hours "
+                "the displayed price may be the regular close or an older session."
+            ),
+        }
+        out.setdefault("observation_age_warning", warning)
+        _append_finviz_warning(out, warning["message"])
+    return out
+
+
+def _attach_finviz_fetch_timestamp(
+    payload: Dict[str, Any],
+    *,
+    include_equity_session: bool = False,
+) -> Dict[str, Any]:
     if "error" in payload or payload.get("success") is False:
         return payload
     out = dict(payload)
@@ -146,6 +343,7 @@ def _attach_finviz_fetch_timestamp(payload: Dict[str, Any]) -> Dict[str, Any]:
     )
     if delayed_values:
         out.setdefault("observation_time_status", "provider_timestamp_unavailable")
+        out.setdefault("observation_age_status", "unknown")
         out.setdefault(
             "nominal_provider_delay_minutes",
             {
@@ -156,8 +354,12 @@ def _attach_finviz_fetch_timestamp(payload: Dict[str, Any]) -> Dict[str, Any]:
         out.setdefault(
             "observation_time_note",
             "data_fetched_at is transport time. Finviz does not provide the "
-            "observation timestamp, so no observation instant or window is inferred.",
+            "observation timestamp, so no observation instant or window is inferred. "
+            "nominal_provider_delay_minutes is the published 15-20 minute delay, "
+            "not a measured age, and does not bound quote age outside regular hours.",
         )
+        if include_equity_session:
+            out = _attach_finviz_equity_session_observation(out, now_utc=fetched_at)
     return out
 
 
@@ -165,11 +367,16 @@ def _run_logged_tool(
     operation: str,
     fields: Dict[str, Any],
     fn: Callable[[], Dict[str, Any]],
+    *,
+    include_equity_session: bool = False,
 ) -> Dict[str, Any]:
     return run_logged_operation(
         logger,
         operation=operation,
-        func=lambda: _attach_finviz_fetch_timestamp(fn()),
+        func=lambda: _attach_finviz_fetch_timestamp(
+            fn(),
+            include_equity_session=include_equity_session,
+        ),
         **fields,
     )
 

@@ -690,6 +690,7 @@ def finviz_fundamentals(
         "finviz_fundamentals",
         {"symbol": symbol, "detail": detail, "category": category, "fields": fields},
         _run,
+        include_equity_session=True,
     )
 
 

@@ -2101,9 +2101,10 @@ class TestFinvizTools:
         }
         assert custom["missing_fields"] == ["Missing"]
         assert custom["partial_failure"] is True
-        assert custom["warnings"] == [
+        assert (
             "Some requested fundamental fields were unavailable and were omitted."
-        ]
+            in custom["warnings"]
+        )
         assert custom_normalized["fundamentals"] == {
             "pe_ratio": 34.29,
             "market_cap": 3_979_470_000_000,
@@ -3354,7 +3355,6 @@ class TestFinvizTools:
             {
                 "country": "United States",
                 "country_code": "US",
-                "country_attribution": "inferred",
                 "event": "Nonfarm Payrolls",
                 "category": "Employment",
                 "scheduled_at": "2026-01-04T13:30:00Z",

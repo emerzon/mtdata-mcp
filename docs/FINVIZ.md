@@ -192,13 +192,18 @@ mtdata-cli calendar --kind earnings --view period --period this-week --include-e
 | `--period` | `this-week` | With `--view period`: `this-week`, `next-week`, `previous-week`, `this-month`. |
 | `--impact` | (all) | Economic only: `low`, `medium`, `high`. |
 | `--country` / `--currency` | (none) | Economic only, for example `US` / `USD`. |
-| `--start` / `--end` | live window | Inclusive `YYYY-MM-DD` (or a relative date). Omitted ranges use `America/New_York`. |
+| `--start` / `--end` | live window | Inclusive `YYYY-MM-DD`, ISO timestamp, or relative date. Date-only values select the `America/New_York` day; timestamps keep their time-of-day and filter `scheduled_at`. |
 | `--upcoming` | live default | Economic only: keep unreleased events. Defaults on when no date range is passed, off for an explicit range. |
 | `--include-elapsed` | `false` | Period view: include already-released dates. `previous-week` is always an archive. |
 | `--limit` / `--page` | `20` / `1` | Page size. |
 
-Default ranges report `start`, `end`, and `calendar_timezone`. Event
-timestamps use the separate root `timezone` field.
+Default ranges report `start`, `end`, and `calendar_timezone`. Timestamp
+bounds keep ISO instants and `start_precision`/`end_precision`. Event
+timestamps use the separate root `timezone` field. Successful snapshots
+include UTC `data_fetched_at` and `is_realtime=false`. Compact rows keep
+canonical scheduled time, event, country/currency, impact, and parsed
+actual/forecast/previous values; raw provider text and parse diagnostics
+are in `--detail standard` or `--detail full`.
 
 ---
 
@@ -258,9 +263,14 @@ market views. Full contract: [NEWS.md](NEWS.md).
 Finviz states a nominal 15–20 minute delay. Rows expose
 `nominal_provider_delay_minutes_min` / `nominal_provider_delay_minutes_max`;
 the payload root uses `nominal_provider_delay_minutes` plus
-`observation_time_status=provider_timestamp_unavailable`. That range is the
-provider’s published window, not a measured observation age. Rapid calls can
-return `error_code=finviz_rate_limited` with `retryable=true` and numeric
+`observation_time_status=provider_timestamp_unavailable` and
+`observation_age_status=unknown`. That range is the provider’s published
+window, not a measured observation age. Equity snapshots also add NYSE
+`market_state`, `session_date`, and `latest_completed_session` from the
+exchange calendar. Outside regular hours a structured
+`observation_age_warning` makes it explicit that the 15–20 minute window
+does not bound quote age. Rapid calls can return
+`error_code=finviz_rate_limited` with `retryable=true` and numeric
 `retry_after_seconds`.
 
 ### Company percentages and fields

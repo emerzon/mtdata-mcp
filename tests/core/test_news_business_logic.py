@@ -35,6 +35,9 @@ def test_news_tool_has_only_optional_symbol_parameter() -> None:
         "view",
         "news_type",
         "page",
+        "start",
+        "end",
+        "max_age",
     ]
     assert params[0].default is None
     assert params[1].default == "compact"
@@ -45,6 +48,9 @@ def test_news_tool_has_only_optional_symbol_parameter() -> None:
     assert params[6].default == "unified"
     assert params[7].default == "news"
     assert params[8].default == 1
+    assert params[9].default is None
+    assert params[10].default is None
+    assert params[11].default is None
 
 
 def test_news_tool_forwards_symbol(monkeypatch) -> None:
@@ -933,3 +939,100 @@ def test_generic_output_contract_no_longer_special_cases_news() -> None:
 
     assert "source_details" in result
     assert result["general_news"][0]["provider"] == "finviz"
+
+
+def test_news_recency_filter_excludes_old_headlines(monkeypatch) -> None:
+    raw = _unwrap(news)
+    monkeypatch.setattr(
+        "mtdata.core.news.fetch_unified_news",
+        lambda symbol=None, source="auto": {
+            "success": True,
+            "general_news": [
+                {
+                    "title": "stale",
+                    "published_at": "2026-08-13T19:44:00Z",
+                    "provider": "mt5",
+                },
+                {
+                    "title": "fresh",
+                    "published_at": "2026-08-26T12:10:00Z",
+                    "provider": "mt5",
+                },
+            ],
+        },
+    )
+
+    result = raw(
+        start="2026-08-26T12:00:00Z",
+        end="2026-08-26T13:00:00Z",
+        limit=5,
+        detail="full",
+    )
+
+    assert [item["title"] for item in result["general_news"]] == ["fresh"]
+    assert result["recency"]["excluded_old_count"] == 1
+    assert result["recency"]["start"] == "2026-08-26T12:00:00Z"
+    assert result["recency"]["end"] == "2026-08-26T13:00:00Z"
+
+
+def test_news_max_age_reports_no_recent_news(monkeypatch) -> None:
+    raw = _unwrap(news)
+    monkeypatch.setattr(
+        "mtdata.core.news.datetime",
+        type(
+            "FrozenDateTime",
+            (),
+            {
+                "now": staticmethod(
+                    lambda tz=None: datetime(2026, 8, 26, 12, 0, tzinfo=timezone.utc)
+                ),
+                "strptime": datetime.strptime,
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        "mtdata.core.news.fetch_unified_news",
+        lambda symbol=None, source="auto": {
+            "success": True,
+            "general_news": [
+                {
+                    "title": "old",
+                    "published_at": "2026-08-13T19:44:00Z",
+                    "provider": "mt5",
+                }
+            ],
+        },
+    )
+
+    result = raw(max_age="1h", detail="full")
+
+    assert "general_news" not in result or result.get("general_news") in (None, [])
+    assert result["empty_reason"] == "no_recent_news"
+    assert result["recency"]["max_age_seconds"] == 3600
+    assert result["recency"]["excluded_old_count"] == 1
+
+
+def test_news_ticker_view_rewrites_provider_operation(monkeypatch) -> None:
+    raw = _unwrap(news)
+    monkeypatch.setattr(
+        "mtdata.core.finviz.finviz_news",
+        lambda **_kwargs: {
+            "success": False,
+            "error": (
+                "EURUSD is not a Finviz-supported equity ticker. "
+                "finviz_news only supports US equities."
+            ),
+            "error_code": "finviz_unsupported_symbol",
+            "operation": "finviz_news",
+        },
+    )
+
+    result = raw(symbol="EURUSD", source="finviz", view="ticker", limit=5)
+
+    assert result["success"] is False
+    assert result["operation"] == "news"
+    assert result["provider_operation"] == "finviz_news"
+    assert result["view"] == "ticker"
+    assert result["error_code"] == "finviz_unsupported_symbol"
+    assert "view='unified'" in result["remediation"]
+    assert "view='ticker'" in result["remediation"]

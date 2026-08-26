@@ -228,6 +228,7 @@ def test_economic_calendar_keeps_raw_strings_and_adds_parsed_values() -> None:
         source_is_unpaged=True,
         limit=20,
         page=1,
+        detail="standard",
     )
 
     cpi = result["items"][0]
@@ -272,6 +273,7 @@ def test_economic_calendar_labels_currency_prints() -> None:
         source_is_unpaged=True,
         limit=20,
         page=1,
+        detail="standard",
     )
 
     gdp = result["items"][0]
@@ -325,3 +327,121 @@ def test_economic_calendar_compact_items_include_scheduled_at() -> None:
     assert row["event"] == "Money Supply"
     assert row["scheduled_at"] == "2026-08-25T17:00:00Z"
     assert "date" not in row
+    assert "category" not in row
+    assert "value_parse_status" not in row
+    assert "scale" not in row
+
+
+def test_economic_calendar_compact_drops_duplicate_category_and_ok_parse() -> None:
+    from mtdata.core.finviz.calendar import _normalize_finviz_calendar_payload
+
+    result = _normalize_finviz_calendar_payload(
+        {
+            "success": True,
+            "items": [
+                {
+                    "event": "CPI YoY",
+                    "category": "CPI YoY",
+                    "date": "2026-08-26T12:30:00Z",
+                    "actual": "3.790%",
+                    "previous": "3.780%",
+                    "forecast": "3.800%",
+                    "country": "United States",
+                    "country_code": "US",
+                }
+            ],
+            "total": 1,
+        },
+        calendar_type="economic",
+        upcoming_only=False,
+        source_is_unpaged=True,
+        limit=20,
+        page=1,
+        detail="compact",
+    )
+
+    row = result["items"][0]
+    assert row["event"] == "CPI YoY"
+    assert "category" not in row
+    assert "actual" not in row
+    assert row["actual_value"] == 3.79
+    assert row["previous_value"] == 3.78
+    assert row["forecast_value"] == 3.8
+    assert "scale" not in row
+    assert "value_parse_status" not in row
+    assert "country_attribution" not in row
+    assert "actual" not in result["units"]
+
+
+def test_economic_calendar_compact_keeps_lossy_parse_warning() -> None:
+    from mtdata.core.finviz.calendar import _compact_finviz_calendar_item
+
+    row = _compact_finviz_calendar_item(
+        {
+            "event": "Odd Print",
+            "scheduled_at": "2026-08-26T12:00:00Z",
+            "actual": "n.a.",
+            "value_parse_status": "unparseable",
+        },
+        mode="compact",
+    )
+
+    assert row["parse_warning"]["code"] == "calendar_value_parse_lossy"
+    assert row["value_parse_status"] == "unparseable"
+
+
+def test_calendar_timestamp_bounds_filter_scheduled_at(monkeypatch) -> None:
+    from mtdata.core.finviz.calendar import run_finviz_calendar
+
+    monkeypatch.setattr(
+        "mtdata.core.finviz.calendar.get_economic_calendar",
+        lambda **kwargs: {
+            "success": True,
+            "dateFrom": kwargs.get("date_from"),
+            "dateTo": kwargs.get("date_to"),
+            "calendarTimezone": "America/New_York",
+            "items": [
+                {
+                    "event": "MBA Mortgage Refinance Index",
+                    "date": "2026-08-26T11:00:00Z",
+                    "country": "United States",
+                    "country_code": "US",
+                },
+                {
+                    "event": "Crude Oil Inventories",
+                    "date": "2026-08-26T12:30:00Z",
+                    "country": "United States",
+                    "country_code": "US",
+                },
+            ],
+            "total": 2,
+        },
+    )
+
+    result = run_finviz_calendar(
+        start="2026-08-26T12:00:00Z",
+        end="2026-08-26T13:00:00Z",
+        upcoming=False,
+        limit=20,
+    )
+
+    assert result["success"] is not False
+    assert result["start"] == "2026-08-26T12:00:00Z"
+    assert result["end"] == "2026-08-26T13:00:00Z"
+    assert result["start_precision"] == "timestamp"
+    assert [item["event"] for item in result["items"]] == ["Crude Oil Inventories"]
+    assert result["items"][0]["scheduled_at"] == "2026-08-26T12:30:00Z"
+
+
+def test_calendar_success_includes_retrieval_freshness(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "mtdata.core.finviz.run_finviz_calendar",
+        lambda **_kwargs: {"success": True, "items": [{"event": "CPI"}], "count": 1},
+    )
+
+    result = _unwrap(calendar)(kind="economic")
+
+    assert result["success"] is True
+    assert result["data_fetched_at"].endswith("Z")
+    assert "T" in result["data_fetched_at"]
+    assert result["is_realtime"] is False

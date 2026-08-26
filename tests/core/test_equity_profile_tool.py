@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Annotated, get_args, get_origin, get_type_hints
 
 from mtdata.core.equity_profile import equity_profile
+from mtdata.core.finviz.common import _us_equity_session_context
 
 
 def _unwrap(fn):
@@ -163,6 +165,19 @@ def test_equity_profile_non_price_sections_keep_observation_contract(monkeypatch
         "maximum": 20,
     }
     assert "transport time" in result["observation_time_note"]
+    assert result["observation_age_status"] == "unknown"
+    assert result["market_state"] in {
+        "open",
+        "pre_market",
+        "after_hours",
+        "closed",
+    }
+    assert result["exchange"] == "XNYS"
+    if result["market_state"] != "open":
+        assert result["observation_age_warning"]["code"] == (
+            "observation_age_unknown_outside_rth"
+        )
+        assert any("15-20 minute" in warning for warning in result["warnings"])
 
 
 def test_equity_profile_source_schema_omits_mt5() -> None:
@@ -171,3 +186,16 @@ def test_equity_profile_source_schema_omits_mt5() -> None:
         get_args(annotation)[0] if get_origin(annotation) is Annotated else annotation
     )
     assert set(get_args(source_type)) == {"auto", "finviz"}
+
+
+def test_us_equity_session_context_marks_after_hours_age_unknown() -> None:
+    # Wednesday 2026-08-26 00:27 UTC is Tuesday evening in New York.
+    session = _us_equity_session_context(
+        datetime(2026, 8, 26, 0, 27, 34, tzinfo=timezone.utc)
+    )
+
+    assert session["observation_age_status"] == "unknown"
+    assert session["market_state"] == "closed"
+    assert session["exchange"] == "XNYS"
+    assert session["session_date"] == "2026-08-25"
+    assert session["latest_completed_session"].startswith("2026-08-25T20:00:00")

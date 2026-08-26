@@ -27,6 +27,14 @@ ScreenerView = Literal[
 ]
 
 
+def _screener_filters_are_default(filters: Any) -> bool:
+    if filters in (None, "", {}, []):
+        return True
+    if isinstance(filters, str) and not filters.strip():
+        return True
+    return False
+
+
 @mcp.tool()
 def screener(
     filters: Annotated[
@@ -113,7 +121,50 @@ def screener(
             return pin_error
         from .finviz import finviz_filters_list, finviz_screen
 
+        valid_values = {
+            "results": [
+                "filters",
+                "order",
+                "view",
+                "limit",
+                "page",
+                "detail",
+            ],
+            "list_filters": [
+                "search",
+                "filter_name",
+                "limit",
+                "offset",
+                "value_limit",
+                "value_offset",
+                "detail",
+            ],
+        }
         if list_filters:
+            invalid = []
+            if not _screener_filters_are_default(filters):
+                invalid.append("filters")
+            if str(order) != "-marketcap":
+                invalid.append("order")
+            if str(view) != "overview":
+                invalid.append("view")
+            if int(page) != 1:
+                invalid.append("page")
+            if invalid:
+                return build_error_payload(
+                    "Result-mode controls are only valid when screening. "
+                    "Drop "
+                    + ", ".join(invalid)
+                    + " or omit --list-filters.",
+                    code="incompatible_parameters",
+                    operation="screener",
+                    details={"invalid": invalid, "mode": "list_filters"},
+                    valid_values=valid_values,
+                    remediation=(
+                        "Drop --filters/--order/--view/--page to list the "
+                        "filter catalog, or omit --list-filters to screen."
+                    ),
+                )
             payload = finviz_filters_list(
                 search=search,
                 filter_name=filter_name,
@@ -123,45 +174,32 @@ def screener(
                 value_offset=int(value_offset),
                 detail=str(detail or "compact"),
             )
-        elif int(offset) != 0 or value_limit is not None or int(value_offset) != 0:
+        else:
             invalid = []
+            if search not in (None, ""):
+                invalid.append("search")
+            if filter_name not in (None, ""):
+                invalid.append("filter_name")
             if int(offset) != 0:
                 invalid.append("offset")
             if value_limit is not None:
                 invalid.append("value_limit")
             if int(value_offset) != 0:
                 invalid.append("value_offset")
-            return build_error_payload(
-                "Value-catalog controls are only valid with list_filters. Use "
-                "--page for screener results.",
-                code="incompatible_parameters",
-                operation="screener",
-                details={"invalid": invalid},
-                valid_values={
-                    "results": [
-                        "filters",
-                        "order",
-                        "view",
-                        "limit",
-                        "page",
-                        "detail",
-                    ],
-                    "list_filters": [
-                        "search",
-                        "filter_name",
-                        "limit",
-                        "offset",
-                        "value_limit",
-                        "value_offset",
-                        "detail",
-                    ],
-                },
-                remediation=(
-                    "Drop --offset, or pass --list-filters true to page the "
-                    "filter catalog. Use --page for result rows."
-                ),
-            )
-        else:
+            if invalid:
+                return build_error_payload(
+                    "Catalog controls are only valid with list_filters. Use "
+                    "--page for screener results.",
+                    code="incompatible_parameters",
+                    operation="screener",
+                    details={"invalid": invalid, "mode": "results"},
+                    valid_values=valid_values,
+                    remediation=(
+                        "Drop --search/--filter-name/--offset, or pass "
+                        "--list-filters true to page the filter catalog. Use "
+                        "--page for result rows."
+                    ),
+                )
             payload = finviz_screen(
                 filters=filters,
                 order=order,

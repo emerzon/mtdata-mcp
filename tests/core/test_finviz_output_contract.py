@@ -599,8 +599,6 @@ class TestFinvizCalendarOutputContract:
                 "impact": "high",
                 "country": "United States",
                 "country_code": "US",
-                "country_attribution": "inferred",
-                "reference_date": "2025-12",
             }
         ]
 
@@ -740,6 +738,7 @@ class TestFinvizCalendarOutputContract:
                 ],
             },
             calendar_type="economic",
+            detail="standard",
         )
 
         assert result["items"][0]["reference"] == "08/14"
@@ -759,6 +758,7 @@ class TestFinvizCalendarOutputContract:
             country="US",
             upcoming=False,
             limit=10,
+            detail="standard",
         )
 
         assert result["count"] == 4
@@ -872,7 +872,6 @@ class TestFinvizCalendarOutputContract:
                 "calendar_id": 419986,
                 "country": "United States",
                 "country_code": "US",
-                "country_attribution": "inferred",
                 "event": "Fed Cook Speech",
                 "category": "Interest Rate",
                 "scheduled_at": "2026-05-08T09:45:00Z",
@@ -916,7 +915,6 @@ class TestFinvizCalendarOutputContract:
                 "impact": "high",
                 "country": "United States",
                 "country_code": "US",
-                "country_attribution": "inferred",
             }
         ]
 

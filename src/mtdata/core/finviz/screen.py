@@ -548,4 +548,9 @@ def finviz_screen(
             )
         return result
 
-    return _run_logged_tool("finviz_screen", fields, _run)
+    return _run_logged_tool(
+        "finviz_screen",
+        fields,
+        _run,
+        include_equity_session=True,
+    )
