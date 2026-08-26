@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { composeTradeIdea, getErrorMessage } from '../api/client'
 import { forecastPanelPlacementClass, type LayoutBreakpoint } from '../lib/layout'
 import { useEscapeKey } from '../lib/useEscapeKey'
@@ -32,11 +32,42 @@ export function IdeaPanel({
   const [error, setError] = useState<string | null>(null)
   useEscapeKey(open, onClose)
 
+  const onIdeaRef = useRef(onIdea)
+  const requestKey = JSON.stringify({
+    symbol,
+    timeframe,
+    direction,
+    template,
+    horizon,
+    riskPct,
+  })
+  const requestKeyRef = useRef(requestKey)
+  requestKeyRef.current = requestKey
+  const runId = useRef(0)
+
+  useEffect(() => {
+    onIdeaRef.current = onIdea
+  }, [onIdea])
+
+  useEffect(() => {
+    runId.current += 1
+    setIsLoading(false)
+    setError(null)
+    setIdea(null)
+    onIdeaRef.current(null)
+  }, [requestKey])
+
   const run = useCallback(async () => {
     if (!symbol) return
+
+    const runRequestKey = requestKey
+    const currentRunId = ++runId.current
+    setIsLoading(true)
+    setError(null)
+    setIdea(null)
+    onIdeaRef.current(null)
+
     try {
-      setIsLoading(true)
-      setError(null)
       const result = await composeTradeIdea({
         symbol,
         timeframe,
@@ -45,16 +76,21 @@ export function IdeaPanel({
         template,
         risk_pct: riskPct,
       })
+      if (currentRunId !== runId.current || runRequestKey !== requestKeyRef.current) return
       setIdea(result)
-      onIdea(result)
+      onIdeaRef.current(result)
     } catch (err) {
-      setIdea(null)
-      onIdea(null)
-      setError(getErrorMessage(err))
+      if (currentRunId === runId.current && runRequestKey === requestKeyRef.current) {
+        setIdea(null)
+        onIdeaRef.current(null)
+        setError(getErrorMessage(err))
+      }
     } finally {
-      setIsLoading(false)
+      if (currentRunId === runId.current && runRequestKey === requestKeyRef.current) {
+        setIsLoading(false)
+      }
     }
-  }, [direction, horizon, onIdea, riskPct, symbol, template, timeframe])
+  }, [direction, horizon, requestKey, riskPct, symbol, template, timeframe])
 
   useEffect(() => {
     if (!open || !autoComposeKey) return
