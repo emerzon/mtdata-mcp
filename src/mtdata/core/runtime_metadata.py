@@ -259,20 +259,16 @@ def display_timezone_label(
     use_client_tz: bool,
     fallback: str = "client_local",
     resolve_client_tz: Any = None,
+    client_tz: Any = None,
 ) -> str:
-    if not use_client_tz:
-        return "UTC"
-    try:
-        if resolve_client_tz is None:
-            from ..utils.time import _resolve_client_tz as default_resolver
+    from ..utils.time import display_timezone_label as _display_timezone_label
 
-            resolve_client_tz = default_resolver
-        from ..utils.time import timezone_label
-
-        client_tz = resolve_client_tz()
-        return timezone_label(client_tz, default=fallback)
-    except Exception:
-        return fallback
+    return _display_timezone_label(
+        use_client_tz=use_client_tz,
+        fallback=fallback,
+        resolve_client_tz=resolve_client_tz,
+        client_tz=client_tz,
+    )
 
 
 def build_runtime_timezone_meta(

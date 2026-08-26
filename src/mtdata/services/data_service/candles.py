@@ -85,8 +85,8 @@ from ...utils.time import (
     _format_time_explicit_local,
     _resolve_client_tz,
     bar_close_epoch,
+    display_timezone_label,
     format_epoch_utc,
-    timezone_label,
 )
 from ...utils.utils import (
     _format_numeric_rows_from_df,
@@ -977,14 +977,6 @@ def _format_rate_times(epoch_series: pd.Series, *, use_client_tz: bool) -> pd.Se
     return formatted
 
 
-def _timezone_label(*, use_client_tz: bool, client_tz: Any) -> str:
-    if not use_client_tz:
-        return "UTC"
-    if client_tz is None:
-        return "local"
-    return timezone_label(client_tz, default="local")
-
-
 def _build_rates_df(rates: Any, use_client_tz: bool) -> pd.DataFrame:
     """Normalize raw MT5 rates into a DataFrame with epoch and display time columns."""
     df = _rates_to_df(rates)
@@ -1712,6 +1704,24 @@ def _collect_session_gaps(
     return session_gaps, None
 
 
+def _spacing_interval_measurements(
+    epochs: pd.Series,
+    *,
+    expected: float,
+) -> Optional[tuple[pd.Series, float, float]]:
+    """Return positive interval diffs plus median and matching-interval percent."""
+    diffs = epochs.diff().dropna()
+    diffs = diffs[diffs > 0]
+    if diffs.empty:
+        return None
+    median_seconds = float(diffs.median())
+    matching_pct = round(
+        float(diffs.between(expected * 0.75, expected * 1.5).mean()) * 100.0,
+        2,
+    )
+    return diffs, median_seconds, matching_pct
+
+
 def _candle_spacing_quality(
     df: pd.DataFrame,
     *,
@@ -1721,10 +1731,11 @@ def _candle_spacing_quality(
     expected = float(TIMEFRAME_SECONDS.get(timeframe, 0) or 0)
     if expected <= 0 or "__epoch" not in df.columns or df.empty:
         return None
-    epochs = pd.to_numeric(df["__epoch"], errors="coerce")
-    diffs = epochs.diff().dropna()
-    diffs = diffs[diffs > 0]
-    if diffs.empty:
+    measured = _spacing_interval_measurements(
+        pd.to_numeric(df["__epoch"], errors="coerce"),
+        expected=expected,
+    )
+    if measured is None:
         return {
             "requested_bar_seconds": expected,
             "observed_median_bar_seconds": None,
@@ -1733,9 +1744,7 @@ def _candle_spacing_quality(
             "spacing_matches_timeframe": None,
             "status": "insufficient_sample",
         }
-    median_seconds = float(diffs.median())
-    matching = diffs.between(expected * 0.75, expected * 1.5)
-    matching_pct = round(float(matching.mean()) * 100.0, 2)
+    diffs, median_seconds, matching_pct = measured
     spacing_matches = not (
         median_seconds > expected * 1.5 and matching_pct < 20.0
     )
@@ -1834,16 +1843,13 @@ def _history_spacing_quality(
     expected = float(TIMEFRAME_SECONDS.get(str(timeframe).upper(), 0) or 0)
     if expected <= 0 or "time" not in df.columns or len(df) < 6:
         return None
-    epochs = pd.to_numeric(df["time"], errors="coerce")
-    diffs = epochs.diff().dropna()
-    diffs = diffs[diffs > 0]
-    if len(diffs) < 5:
-        return None
-    median_seconds = float(diffs.median())
-    matching_pct = round(
-        float(diffs.between(expected * 0.75, expected * 1.5).mean()) * 100.0,
-        2,
+    measured = _spacing_interval_measurements(
+        pd.to_numeric(df["time"], errors="coerce"),
+        expected=expected,
     )
+    if measured is None or len(measured[0]) < 5:
+        return None
+    diffs, median_seconds, matching_pct = measured
     return {
         "requested_bar_seconds": int(expected),
         "observed_median_bar_seconds": round(median_seconds, 3),
@@ -2789,7 +2795,11 @@ def fetch_candles(  # noqa: C901
             payload["spread_mode"] = "per_bar"
         if session_gap_warning:
             payload["meta"]["diagnostics"]["session_gaps"]["warning"] = session_gap_warning
-        payload["timezone"] = _timezone_label(use_client_tz=_use_ctz, client_tz=client_tz)
+        payload["timezone"] = display_timezone_label(
+            use_client_tz=_use_ctz,
+            client_tz=client_tz,
+            fallback="local",
+        )
         if simplify_meta is not None:
             payload["simplified"] = True
             public_simplify = _public_simplify_meta(simplify_meta) or {"applied": True}

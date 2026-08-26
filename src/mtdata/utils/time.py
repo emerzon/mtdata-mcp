@@ -244,6 +244,27 @@ def timezone_label(tz: Any, default: str = "UTC") -> str:
     return text or default
 
 
+def display_timezone_label(
+    *,
+    use_client_tz: bool,
+    fallback: str = "client_local",
+    resolve_client_tz: Any = None,
+    client_tz: Any = None,
+) -> str:
+    """Return a display label for UTC or the resolved client timezone."""
+    if not use_client_tz:
+        return "UTC"
+    try:
+        resolved = client_tz
+        if resolved is None:
+            if resolve_client_tz is None:
+                resolve_client_tz = _resolve_client_tz
+            resolved = resolve_client_tz()
+        return timezone_label(resolved, default=fallback)
+    except Exception:
+        return fallback
+
+
 def _use_client_tz() -> bool:
     """Return True when a client timezone is configured."""
     return _resolve_client_tz() is not None

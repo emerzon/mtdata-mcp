@@ -55,7 +55,7 @@ from ...utils.simplify import (
     _simplify_dataframe_rows_ext,
 )
 from ...utils.tick_flags import is_mt5_trade_event
-from ...utils.time import _resolve_client_tz, format_epoch_utc
+from ...utils.time import _resolve_client_tz, display_timezone_label, format_epoch_utc
 from ...utils.utils import (
     _format_numeric_rows_from_df,
     _iana_timezone_datetime_issue,
@@ -67,7 +67,6 @@ from ...utils.utils import (
 from .candles import (
     _round_price_value,
     _round_row_price_columns,
-    _timezone_label,
 )
 from .errors import _future_start_error, attach_empty_range_weekend_context
 from .query import _DATE_FORMAT_HINT
@@ -1417,7 +1416,11 @@ def fetch_ticks(  # noqa: C901
                 "quote_update_count_event_basis": _QUOTE_UPDATE_COUNT_EVENT_BASIS,
                 "bid_update_count": bid_update_count,
                 "ask_update_count": ask_update_count,
-                "timezone": _timezone_label(use_client_tz=_use_ctz, client_tz=client_tz),
+                "timezone": display_timezone_label(
+                    use_client_tz=_use_ctz,
+                    client_tz=client_tz,
+                    fallback="local",
+                ),
                 "stats": {
                     "spread": (
                         {
@@ -1527,7 +1530,11 @@ def fetch_ticks(  # noqa: C901
                 float(len(df_stats) / duration_seconds) if duration_seconds > 0 else None
             )
 
-            timezone = _timezone_label(use_client_tz=_use_ctz, client_tz=client_tz)
+            timezone = display_timezone_label(
+                use_client_tz=_use_ctz,
+                client_tz=client_tz,
+                fallback="local",
+            )
 
             out: Dict[str, Any] = {
                 "success": True,
@@ -1729,7 +1736,11 @@ def fetch_ticks(  # noqa: C901
                 "count": len(rows),
             }
             payload.update(table_payload)
-            payload["timezone"] = _timezone_label(use_client_tz=_use_ctz, client_tz=client_tz)
+            payload["timezone"] = display_timezone_label(
+                use_client_tz=_use_ctz,
+                client_tz=client_tz,
+                fallback="local",
+            )
             if price_point is not None:
                 payload["price_point"] = price_point
             if price_currency:
@@ -1928,7 +1939,11 @@ def fetch_ticks(  # noqa: C901
             "count": len(rows),
         }
         payload.update(table_payload)
-        payload["timezone"] = _timezone_label(use_client_tz=_use_ctz, client_tz=client_tz)
+        payload["timezone"] = display_timezone_label(
+            use_client_tz=_use_ctz,
+            client_tz=client_tz,
+            fallback="local",
+        )
         if price_point is not None:
             payload["price_point"] = price_point
         if price_currency:

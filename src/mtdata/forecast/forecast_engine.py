@@ -43,7 +43,7 @@ from ..utils.time import (
     _resolve_client_tz,
     _use_client_tz,
     bar_close_epoch,
-    timezone_label,
+    display_timezone_label,
 )
 from ..utils.utils import (
     parse_kv_or_json as _parse_kv_or_json,
@@ -1425,14 +1425,6 @@ def _merge_engine_diagnostics(metadata: Dict[str, Any], diagnostics: Dict[str, A
     return metadata
 
 
-def _forecast_timezone_label(*, use_client_tz: bool, client_tz: Any) -> str:
-    if not use_client_tz:
-        return "UTC"
-    if client_tz is None:
-        return "local"
-    return timezone_label(client_tz, default="local")
-
-
 def _last_price_freshness_fields(
     *,
     last_epoch: float,
@@ -1621,9 +1613,10 @@ def _format_forecast_output(
     use_client_tz = _use_client_tz()
     client_tz = _resolve_client_tz() if use_client_tz else None
     fmt_time = _format_time_minimal_local if use_client_tz else _format_time_minimal
-    timezone_label = _forecast_timezone_label(
+    timezone_label = display_timezone_label(
         use_client_tz=use_client_tz,
         client_tz=client_tz,
+        fallback="local",
     )
     forecast_times = [fmt_time(float(epoch)) for epoch in future_epochs]
     forecast_bar_states = _forecast_target_bar_states(
