@@ -3,6 +3,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 
 from mtdata.core.trading.requests import TradeVarCvarRequest
 from mtdata.core.trading.use_cases import run_trade_var_cvar_calculate
@@ -766,3 +767,105 @@ def test_run_trade_var_cvar_calculate_full_detail_keeps_empty_shape() -> None:
     assert out["positions"] == []
     assert out["worst_observations"] == []
     assert out["message"] == "No open positions found for VaR/CVaR calculation."
+
+
+def test_trade_var_cvar_request_rejects_median_confidence() -> None:
+    with pytest.raises(ValidationError, match="greater than 0.5"):
+        TradeVarCvarRequest(confidence=0.5)
+
+
+def test_trade_var_cvar_marks_unresolved_high_confidence_sample() -> None:
+    position = SimpleNamespace(
+        ticket=11,
+        symbol="EURUSD",
+        type=0,
+        volume=1.0,
+        price_current=100.0,
+        price_open=99.0,
+        profit=1.0,
+    )
+    gateway = SimpleNamespace(
+        ensure_connection=lambda: None,
+        account_info=lambda: SimpleNamespace(equity=1000.0, currency="USD"),
+        positions_get=lambda symbol=None: [position],
+        symbol_info=lambda symbol: _symbol_info(),
+        symbol_info_tick=lambda symbol: SimpleNamespace(bid=99.0, ask=101.0, time=1),
+        copy_rates_from_pos=lambda symbol, timeframe, start, count: [
+            {"time": 1, "close": 100.0},
+            {"time": 2, "close": 95.0},
+            {"time": 3, "close": 105.0},
+        ],
+        POSITION_TYPE_BUY=0,
+        POSITION_TYPE_SELL=1,
+        ORDER_TYPE_BUY=0,
+        ORDER_TYPE_SELL=1,
+    )
+
+    out = run_trade_var_cvar_calculate(
+        TradeVarCvarRequest(
+            timeframe="H1",
+            lookback=3,
+            min_observations=2,
+            confidence=0.99,
+            method="historical",
+            transform="pct",
+            detail="compact",
+        ),
+        gateway=gateway,
+    )
+
+    assert out["success"] is True
+    assert out["sample_quality"]["status"] == "insufficient"
+    assert out["sample_quality"]["tail_observations"] == 1
+    assert out["summary"]["tail_observations"] == 1
+    assert out["scenario_generation"] == "empirical_observed_pnl"
+    assert out["data_start"]
+    assert out["data_end"]
+    assert out["as_of"] == out["data_end"]
+    assert out["window"]["timezone"] == "UTC"
+    assert any("insufficient" in str(item).lower() for item in out["warnings"])
+
+
+def test_trade_var_cvar_compact_keeps_history_window() -> None:
+    position = SimpleNamespace(
+        ticket=11,
+        symbol="EURUSD",
+        type=0,
+        volume=1.0,
+        price_current=100.0,
+        price_open=99.0,
+        profit=1.0,
+    )
+    gateway = SimpleNamespace(
+        ensure_connection=lambda: None,
+        account_info=lambda: SimpleNamespace(equity=1000.0, currency="USD"),
+        positions_get=lambda symbol=None: [position],
+        symbol_info=lambda symbol: _symbol_info(),
+        symbol_info_tick=lambda symbol: SimpleNamespace(bid=99.0, ask=101.0, time=1_700_000_000),
+        copy_rates_from_pos=lambda symbol, timeframe, start, count: [
+            {"time": index + 1, "close": 100.0 + index}
+            for index in range(6)
+        ],
+        POSITION_TYPE_BUY=0,
+        POSITION_TYPE_SELL=1,
+        ORDER_TYPE_BUY=0,
+        ORDER_TYPE_SELL=1,
+    )
+
+    out = run_trade_var_cvar_calculate(
+        TradeVarCvarRequest(
+            timeframe="H1",
+            lookback=5,
+            min_observations=4,
+            confidence=0.75,
+            method="historical",
+            transform="pct",
+        ),
+        gateway=gateway,
+    )
+
+    assert out["success"] is True
+    assert out["data_start"].endswith("Z")
+    assert out["data_end"].endswith("Z")
+    assert out["as_of"] == out["data_end"]
+    assert out["window"]["aligned_returns"] >= out["summary"]["observations"]

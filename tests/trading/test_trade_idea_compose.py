@@ -718,7 +718,40 @@ def test_trade_idea_compose_partial_failure_when_volatility_fails() -> None:
     assert idea["direction"] == "long"
 
 
-def test_trade_idea_forced_direction_uses_conformal_forecast_stack(monkeypatch) -> None:
+def test_trade_idea_forced_direction_uses_point_forecast_generate(monkeypatch) -> None:
+    generate_requests: list[Any] = []
+
+    def fake_call_tool(tool, **kwargs):
+        name = tool.__name__
+        if name == "trade_session_context":
+            return _session()
+        if name == "forecast_conformal_intervals":
+            raise AssertionError("explicit direction must not use conformal calibration")
+        if name == "forecast_generate":
+            generate_requests.append(kwargs["request"])
+            return _forecast()
+        if name == "forecast_volatility_estimate":
+            return _volatility()
+        if name == "forecast_barrier_prob":
+            return _barriers()
+        if name == "trade_risk_analyze":
+            return _sizing()
+        if name == "trade_place":
+            return _preview()
+        raise AssertionError(f"unexpected default section tool: {name}")
+
+    monkeypatch.setattr(ideas_module, "call_tool_sync_structured", fake_call_tool)
+
+    idea = run_trade_idea_compose(
+        TradeIdeaComposeRequest(symbol="EURUSD", direction="long")
+    )
+
+    assert len(generate_requests) == 1
+    assert idea["direction"] == "long"
+    assert idea["direction_basis"] == "requested"
+
+
+def test_trade_idea_auto_direction_still_uses_conformal_forecast(monkeypatch) -> None:
     conformal_requests: list[Any] = []
 
     def fake_call_tool(tool, **kwargs):
@@ -738,7 +771,7 @@ def test_trade_idea_forced_direction_uses_conformal_forecast_stack(monkeypatch) 
             )
             return forecast
         if name == "forecast_generate":
-            raise AssertionError("forced direction must not use point forecast_generate")
+            raise AssertionError("auto direction must use conformal intervals")
         if name == "forecast_volatility_estimate":
             return _volatility()
         if name == "forecast_barrier_prob":
@@ -752,12 +785,28 @@ def test_trade_idea_forced_direction_uses_conformal_forecast_stack(monkeypatch) 
     monkeypatch.setattr(ideas_module, "call_tool_sync_structured", fake_call_tool)
 
     idea = run_trade_idea_compose(
-        TradeIdeaComposeRequest(symbol="EURUSD", direction="long")
+        TradeIdeaComposeRequest(symbol="EURUSD", direction="auto")
     )
 
     assert len(conformal_requests) == 1
-    assert idea["forecast"]["ci_alpha"] == 0.05
+    assert conformal_requests[0].steps == 50
     assert idea["forecast"]["interval_method"] == "rolling_residual_quantiles"
+
+
+def test_trade_idea_rejects_future_as_of_before_sections() -> None:
+    idea = run_trade_idea_compose(
+        TradeIdeaComposeRequest(
+            symbol="EURUSD",
+            as_of="2099-01-01",
+        ),
+        call_section=lambda name, kwargs: (_ for _ in ()).throw(
+            AssertionError(f"section {name} must not run")
+        ),
+    )
+
+    assert idea["success"] is False
+    assert idea["error_code"] == "trade_idea_as_of_in_future"
+    assert "future" in idea["error"].lower()
 
 
 def test_trade_idea_barrier_widths_scale_from_horizon_volatility() -> None:

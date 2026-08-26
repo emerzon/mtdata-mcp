@@ -259,7 +259,7 @@ def _build_trade_ready(
         result["margin_utilization_pct"] = margin_utilization_pct
     if trade_mode_allows_opening is not None:
         result["trade_mode_allows_opening"] = trade_mode_allows_opening
-        result["can_open_new_positions"] = bool(
+        result["execution_preconditions_allow_open"] = bool(
             trade_mode_allows_opening and not deduped_blockers
         )
     return result
@@ -399,7 +399,7 @@ def _compact_trade_session_context_payload(payload: Dict[str, Any]) -> Dict[str,
             "market_status_reason",
             "market_status_error",
             "is_tradable",
-            "can_open_new_positions",
+            "execution_preconditions_allow_open",
             "trade_mode_allows_opening",
         )
         if payload.get(key) not in (None, "")
@@ -710,9 +710,6 @@ def trade_session_context(request: TradeSessionContextRequest) -> Dict[str, Any]
             payload["market_status"] = tradability.get("status")
             payload["market_status_reason"] = tradability.get("reason")
             payload["is_tradable"] = tradability.get("is_tradable")
-            payload["can_open_new_positions"] = tradability.get(
-                "can_open_new_positions"
-            )
             payload["trade_mode_allows_opening"] = tradability.get(
                 "trade_mode_allows_opening",
                 tradability.get("can_open_new_positions"),
@@ -729,9 +726,9 @@ def trade_session_context(request: TradeSessionContextRequest) -> Dict[str, Any]
                 open_positions_available=not open_failed,
                 pending_orders_available=not pending_failed,
             )
-            if payload["trade_ready"].get("can_open_new_positions") is not None:
-                payload["can_open_new_positions"] = payload["trade_ready"][
-                    "can_open_new_positions"
+            if payload["trade_ready"].get("execution_preconditions_allow_open") is not None:
+                payload["execution_preconditions_allow_open"] = payload["trade_ready"][
+                    "execution_preconditions_allow_open"
                 ]
         if partial_failure:
             payload["partial_failure"] = True

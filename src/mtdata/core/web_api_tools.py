@@ -13,7 +13,7 @@ from pydantic import BaseModel, ValidationError
 
 from ..forecast.exceptions import ForecastError
 from ..shared.tool_categories import TOOL_CATEGORY_IDS
-from ..utils.coercion import UNPARSED_BOOL, parse_bool_like
+from ..utils.coercion import UNPARSED_BOOL, parse_strict_bool
 from ..utils.denoise import DenoiseCausalityError
 from ..utils.mt5 import MT5ConnectionError
 from ._mcp_tools import (
@@ -113,7 +113,7 @@ def tool_requires_confirmation(name: str) -> bool:
 
 
 def _coerce_dry_run_flag(value: Any) -> Optional[bool]:
-    parsed = parse_bool_like(value, allow_none=True)
+    parsed = parse_strict_bool(value, allow_none=True)
     if parsed is UNPARSED_BOOL or parsed is None:
         return None
     return bool(parsed)

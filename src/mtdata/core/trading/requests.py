@@ -14,6 +14,7 @@ from pydantic import (
 
 from ...shared.schema import DetailLiteral, TimeframeLiteral, normalize_required_symbol
 from ...utils.barriers import normalize_trade_direction_alias
+from ...utils.coercion import UNPARSED_BOOL, parse_strict_bool
 from . import validation
 from .sizing import MAX_KELLY_R_MULTIPLE
 from .time import ExpirationValue
@@ -24,6 +25,16 @@ MAGIC_NUMBER_DESCRIPTION = (
     "strategy trades. Accepted range is 0..18446744073709551615; zero is valid. "
     "Use as a filter for one strategy; omit for all magic numbers."
 )
+
+
+def _strict_trade_bool(value: Any) -> bool:
+    parsed = parse_strict_bool(value)
+    if parsed is UNPARSED_BOOL:
+        raise ValueError("expected true or false")
+    return bool(parsed)
+
+
+StrictTradeBool = Annotated[bool, BeforeValidator(_strict_trade_bool)]
 
 
 class FixedFractionSizing(BaseModel):
@@ -191,11 +202,12 @@ class TradePlaceRequest(BaseModel):
         ge=0,
         description="Maximum allowed execution slippage in points.",
     )
-    dry_run: bool = Field(
+    dry_run: StrictTradeBool = Field(
         default=True,
         description=(
             "Preview the order without sending it to the broker. Defaults to "
-            "true; set dry_run=false explicitly to place a live order."
+            "true; set dry_run=false explicitly to place a live order. "
+            "Accepts only true or false."
         ),
     )
     detail: Literal["compact", "standard", "full"] = Field(
@@ -206,13 +218,13 @@ class TradePlaceRequest(BaseModel):
             "preview diagnostics."
         ),
     )
-    require_sl_tp: bool = Field(
+    require_sl_tp: StrictTradeBool = Field(
         default=True,
         description=(
             "Require both stop_loss and take_profit for market and pending "
             "orders and fail if protection cannot be attached. Filled market "
             "orders that cannot attach protection always use the internal "
-            "unprotected-position recovery fail-safe."
+            "unprotected-position recovery fail-safe. Accepts only true or false."
         ),
     )
     idempotency_key: Optional[str] = Field(
@@ -269,21 +281,27 @@ class TradeModifyRequest(BaseModel):
             "to remove an existing take-profit."
         ),
     )
-    clear_stop_loss: bool = Field(
+    clear_stop_loss: StrictTradeBool = Field(
         default=False,
-        description="Explicitly remove stop-loss protection from the ticket.",
+        description=(
+            "Explicitly remove stop-loss protection from the ticket. "
+            "Accepts only true or false."
+        ),
     )
-    clear_take_profit: bool = Field(
+    clear_take_profit: StrictTradeBool = Field(
         default=False,
-        description="Explicitly remove take-profit protection from the ticket.",
+        description=(
+            "Explicitly remove take-profit protection from the ticket. "
+            "Accepts only true or false."
+        ),
     )
     expiration: Optional[ExpirationValue] = None
-    dry_run: bool = Field(
+    dry_run: StrictTradeBool = Field(
         default=True,
         description=(
             "Preview the modification without sending it to the broker. Defaults "
             "to true; set dry_run=false explicitly to modify a live order or "
-            "position."
+            "position. Accepts only true or false."
         ),
     )
     idempotency_key: Optional[str] = Field(
@@ -313,11 +331,12 @@ class TradeCloseRequest(BaseModel):
         default="compact",
         description="Response detail level for close previews and result payloads.",
     )
-    close_all: bool = Field(
+    close_all: StrictTradeBool = Field(
         default=False,
         description=(
             "Select the whole account when ticket, symbol, and magic are omitted. "
-            "Symbol or magic already defines a matching bulk scope."
+            "Symbol or magic already defines a matching bulk scope. "
+            "Accepts only true or false."
         ),
     )
     symbol: Optional[str] = None
@@ -327,19 +346,20 @@ class TradeCloseRequest(BaseModel):
         gt=0.0,
         description="Partial close volume in lots. Requires ticket.",
     )
-    dry_run: bool = Field(
+    dry_run: StrictTradeBool = Field(
         default=True,
         description=(
             "Preview the close request without sending it to the broker. Defaults "
             "to true; set dry_run=false explicitly to close positions or cancel "
-            "pending orders selected by target."
+            "pending orders selected by target. Accepts only true or false."
         ),
     )
-    confirm_close_all: bool = Field(
+    confirm_close_all: StrictTradeBool = Field(
         default=False,
         description=(
             "Required for any ticketless live bulk operation, including symbol- "
-            "or magic-scoped requests and target=all_exposure."
+            "or magic-scoped requests and target=all_exposure. "
+            "Accepts only true or false."
         ),
     )
     pnl_filter: Literal["all", "profit", "loss"] = Field(
@@ -431,13 +451,18 @@ class TradeHistoryRequest(_SideNormalizedRequest):
         default=None,
         description=(
             "History lookback in minutes. Defaults to 10080 minutes (7 days) "
-            "when start, end, and minutes_back are omitted."
+            "when start, end, and minutes_back are omitted. Maximum is "
+            "10512000 minutes (20 years)."
         ),
     )
     limit: int = Field(
         default=20,
         ge=1,
-        description="Maximum rows returned per page. Defaults to 20.",
+        le=500,
+        description=(
+            "Maximum rows returned per page. Defaults to 20; the safety cap is "
+            "500. Use cursor pagination for larger result sets."
+        ),
     )
     cursor: Optional[str] = Field(
         default=None,
@@ -488,15 +513,17 @@ class TradeJournalAnalyzeRequest(_SideNormalizedRequest):
         default=None,
         description=(
             "Journal history lookback in minutes. Defaults to 10080 minutes "
-            "(7 days) when start, end, and minutes_back are omitted."
+            "(7 days) when start, end, and minutes_back are omitted. Maximum is "
+            "10512000 minutes (20 years)."
         ),
     )
     limit: int = Field(
         default=50,
         ge=1,
         description=(
-            "Maximum per-trade rows returned in full detail. Period statistics "
-            "always analyze all realized exits in the resolved time window."
+            "Maximum unique per-trade rows returned in full detail, including "
+            "items plus ranked best/worst lists. Period statistics always "
+            "analyze all realized exits in the resolved time window."
         ),
     )
     breakdown_limit: int = Field(default=10, ge=1)
@@ -645,17 +672,19 @@ class TradeVarCvarRequest(BaseModel):
     )
     confidence: float = Field(
         0.95,
-        gt=0.0,
+        gt=0.5,
         lt=1.0,
         description=(
-            "VaR/CVaR confidence level. Use a fraction such as 0.95 or 0.99, "
-            "Values must satisfy 0 < confidence < 1."
+            "VaR/CVaR tail confidence. Use a fraction such as 0.95 or 0.99. "
+            "Values must satisfy 0.5 < confidence < 1."
         ),
     )
     method: Literal["historical", "parametric", "cornish_fisher", "ewma"] = Field(
         default="historical",
         description=(
-            "Tail-risk method: historical, parametric, cornish_fisher, or ewma."
+            "Tail-risk method: historical (empirical observed P&L quantile), "
+            "parametric, cornish_fisher, or ewma. Not the same estimator as "
+            "portfolio_risk_decompose method=bootstrap_historical."
         ),
     )
     transform: Literal["log_return", "pct"] = Field(
@@ -664,7 +693,16 @@ class TradeVarCvarRequest(BaseModel):
             "Return transform: log_return or pct."
         ),
     )
-    min_observations: int = Field(50, ge=2)
+    min_observations: int = Field(
+        50,
+        ge=2,
+        description=(
+            "Caller floor on aligned PnL observations. High-confidence "
+            "historical VaR also requires enough observations to resolve more "
+            "than one tail point; thinner samples are marked "
+            "sample_quality=insufficient."
+        ),
+    )
     detail: DetailLiteral = Field(
         default="compact",
         description=(

@@ -330,7 +330,10 @@ include margin policy. `trade_allowed` and the canonical
 `new_exposure_allowed` combine broker permission, non-critical margin, and
 strict execution readiness (`trade_allowed_basis`). Prefer
 `new_exposure_allowed` before adding risk. `trade_session_context` still adds
-symbol/session checks on top of that account gate.
+symbol/session checks on top of that account gate. Its
+`execution_preconditions_allow_open` flag is that scoped execution gate; it
+does not imply portfolio-risk approval (`trade_ready.portfolio_risk_assessed`
+stays false until a risk tool is run).
 
 ```bash
 mtdata-cli trade_account_info --json
@@ -344,7 +347,7 @@ mtdata-cli trade_session_context EURUSD --json
 
 `trade_history` and `trade_journal_analyze` default to the last 7 days when you
 omit a window.
-`trade_history` returns 20 rows by default. If more rows exist, pass its opaque
+`trade_history` returns 20 rows by default (max 500 per page). If more rows exist, pass its opaque
 `pagination.next_cursor` back as `--cursor` with the same filters and time
 controls. Cursor pages retain the first page's exact UTC bounds and expire
 after one hour, preventing a moving relative window from skipping records.

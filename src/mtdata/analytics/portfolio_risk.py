@@ -366,6 +366,9 @@ def decompose_portfolio_risk(  # noqa: C901
     }
     if request.method == "filtered_historical":
         model_context["ewma_half_life"] = request.ewma_half_life
+        model_context["scenario_generation"] = "ewma_filtered_bootstrap_windows"
+    else:
+        model_context["scenario_generation"] = "bootstrap_historical_windows"
     proposed = request.proposed_trade
     proposed_validated: Optional[Dict[str, Any]] = None
     if proposed is not None:
@@ -563,7 +566,7 @@ def decompose_portfolio_risk(  # noqa: C901
     )
     standardized = standardized.tail(int(request.lookback)).copy()
     ewma_vol = current_vol.copy()
-    if request.method == "historical":
+    if request.method == "bootstrap_historical":
         standardized = returns.copy()
         current_vol = pd.Series(1.0, index=returns.columns)
     rng = np.random.default_rng(request.seed)
@@ -760,6 +763,7 @@ def decompose_portfolio_risk(  # noqa: C901
     return {
         "success": True,
         "method": request.method,
+        "scenario_generation": model_context.get("scenario_generation"),
         "timeframe": request.timeframe,
         "holding_periods": holding_periods,
         "model_context": _portfolio_model_context_for_detail(

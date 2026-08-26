@@ -1235,6 +1235,13 @@ def _normalize_minutes_back(minutes_back: Any) -> Tuple[Optional[int], Optional[
     minutes = int(value)
     if minutes <= 0:
         return None, "minutes_back must be a positive integer."
+    from ...utils.time import MAX_TRADING_MINUTES_BACK
+
+    if minutes > MAX_TRADING_MINUTES_BACK:
+        return None, (
+            f"minutes_back={minutes} exceeds the maximum supported lookback of "
+            f"{MAX_TRADING_MINUTES_BACK} minutes (~20 years)."
+        )
     return minutes, None
 
 

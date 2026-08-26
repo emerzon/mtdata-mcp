@@ -125,7 +125,15 @@ def resolve_trade_period_context(
         minutes_back
     )
     if minutes_back_error:
-        return {"error": minutes_back_error}
+        from ...utils.time import MAX_TRADING_MINUTES_BACK
+        from ..error_envelope import invalid_minutes_back_payload
+
+        return invalid_minutes_back_payload(
+            minutes_back,
+            operation="resolve_trade_period",
+            max_minutes_back=MAX_TRADING_MINUTES_BACK,
+            reason=minutes_back_error,
+        )
 
     if start and minutes_back_value is not None:
         return {"error": "Use either start or minutes_back, not both."}

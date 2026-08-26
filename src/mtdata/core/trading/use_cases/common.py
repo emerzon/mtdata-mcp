@@ -134,6 +134,7 @@ _TRADE_PLACE_PREVIEW_KEYS = (
     "tp_distance_points",
     "tp_distance_pips",
     "tp_distance_pct",
+    "candidate_risk",
     "min_distance_points",
     "sl_tp_valid",
     "sl_tp_error",
@@ -323,6 +324,19 @@ def _shape_trade_place_preview(
                 "blockers",
             )
             if key in validation_payload
+        }
+    if detail == "preview" and isinstance(out.get("candidate_risk"), dict):
+        risk = out["candidate_risk"]
+        out["candidate_risk"] = {
+            key: risk[key]
+            for key in (
+                "status",
+                "risk_currency",
+                "risk_pct_of_equity",
+                "reward_currency",
+                "reward_risk_ratio",
+            )
+            if key in risk
         }
     return out
 

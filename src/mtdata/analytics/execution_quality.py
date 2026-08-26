@@ -13,6 +13,7 @@ import pandas as pd
 from ..core.analytics_requests import (
     TradeExecutionQualityRequest,
 )
+from ..core.error_envelope import invalid_minutes_back_payload
 from ..shared.symbols import (
     is_probably_crypto_symbol,
     is_probably_fx_session_symbol,
@@ -21,7 +22,7 @@ from ..utils.freshness import (
     format_age_seconds,
 )
 from ..utils.sessions import market_session_label, session_definition_for_clock
-from ..utils.time import format_epoch_utc
+from ..utils.time import MAX_TRADING_MINUTES_BACK, format_epoch_utc
 from ..utils.utils import (
     validate_historical_range,
 )
@@ -316,7 +317,24 @@ def analyze_execution_quality(  # noqa: C901
     range_error = validate_historical_range(request.start, request.end)
     if range_error is not None:
         return range_error
-    start, end = _window(request.start, request.end, request.minutes_back)
+    if int(request.minutes_back) > MAX_TRADING_MINUTES_BACK:
+        return invalid_minutes_back_payload(
+            request.minutes_back,
+            operation="trade_execution_quality",
+            max_minutes_back=MAX_TRADING_MINUTES_BACK,
+        )
+    try:
+        start, end = _window(request.start, request.end, request.minutes_back)
+    except ValueError as exc:
+        message = str(exc)
+        if "minutes_back" in message:
+            return invalid_minutes_back_payload(
+                request.minutes_back,
+                operation="trade_execution_quality",
+                max_minutes_back=MAX_TRADING_MINUTES_BACK,
+                reason=message,
+            )
+        raise
     analysis_window = _analysis_window_metadata(request, start, end)
     account_currency = None
     account_info = getattr(gateway, "account_info", None)
@@ -650,8 +668,24 @@ def analyze_execution_quality(  # noqa: C901
     )
     market_order_fills = [item for item in fills if item.get("is_market_order")]
     non_market_order_fills = [item for item in fills if not item.get("is_market_order")]
+    arrival_quote_market_fills = [
+        item
+        for item in market_order_fills
+        if item.get("benchmark_source") == "arrival_quote"
+    ]
+    order_price_market_fills = [
+        item
+        for item in market_order_fills
+        if item.get("benchmark_source") in {"order_price", "order_price_fallback"}
+    ]
     market_slippages = [
         float(item["slippage_bps"]) for item in market_order_fills
+    ]
+    market_vs_arrival_slippages = [
+        float(item["slippage_bps"]) for item in arrival_quote_market_fills
+    ]
+    market_vs_order_slippages = [
+        float(item["slippage_bps"]) for item in order_price_market_fills
     ]
     pending_slippages = [
         float(item["slippage_bps"]) for item in non_market_order_fills
@@ -661,7 +695,10 @@ def analyze_execution_quality(  # noqa: C901
         for item in non_market_order_fills
         if item.get("arrival_implementation_shortfall_bps") is not None
     ]
-    if request.benchmark == "order_price":
+    if not fills:
+        headline_fills = []
+        slippage_basis = "not_applicable"
+    elif request.benchmark == "order_price":
         headline_fills = fills
         slippage_basis = "explicit_order_price_all_fills"
     elif market_order_fills:
@@ -706,6 +743,12 @@ def analyze_execution_quality(  # noqa: C901
         "slippage_basis": slippage_basis,
         "slippage_bps": _execution_percentiles(headline_slippages),
         "market_fill_slippage_bps": _execution_percentiles(market_slippages),
+        "market_fill_vs_arrival_quote_bps": _execution_percentiles(
+            market_vs_arrival_slippages
+        ),
+        "market_fill_vs_order_price_bps": _execution_percentiles(
+            market_vs_order_slippages
+        ),
         "pending_fill_vs_order_bps": _execution_percentiles(pending_slippages),
         "pending_arrival_implementation_shortfall_bps": _execution_percentiles(
             pending_arrival_shortfalls
@@ -792,12 +835,16 @@ def analyze_execution_quality(  # noqa: C901
                 else 0.0,
                 "minimum": request.min_sample,
                 "sample_status": (
-                    "ok" if observations >= request.min_sample else "insufficient"
+                    "not_applicable"
+                    if not fills
+                    else "ok"
+                    if observations >= request.min_sample
+                    else "insufficient"
                 ),
             }
         )
         summary.setdefault("markout_bps", {})[horizon_key] = markout_summary
-        if observations < request.min_sample:
+        if fills and observations < request.min_sample:
             insufficient_markout_horizons.append(horizon_key)
     breakdowns: Dict[str, List[Dict[str, Any]]] = {}
     if fills:
@@ -948,7 +995,13 @@ def analyze_execution_quality(  # noqa: C901
             }
         )
     fill_sample_quality = {
-        "status": "ok" if len(fills) >= request.min_sample else "insufficient",
+        "status": (
+            "not_applicable"
+            if not fills
+            else "ok"
+            if len(fills) >= request.min_sample
+            else "insufficient"
+        ),
         "minimum": request.min_sample,
         "observed": len(fills),
         "scope": "matched_fills_for_fill_level_metrics",
@@ -1015,6 +1068,20 @@ def analyze_execution_quality(  # noqa: C901
         "summary_scope": summary_scope,
         "filters_applied": filters_applied,
     }
+    if not fills:
+        empty_message = "No matching fills in the requested window"
+        if request.symbol:
+            empty_message += f" for {request.symbol}"
+        if minutes_label := (
+            f" in the last {int(request.minutes_back)} minute(s)"
+            if not request.start and not request.end
+            else ""
+        ):
+            empty_message += minutes_label
+        empty_message += "."
+        common["empty"] = True
+        common["status"] = "no_matching_fills"
+        common["message"] = empty_message
     if request.detail not in {"compact", "summary"}:
         common["requested_window"] = analysis_window
     if request.detail in {"compact", "summary"}:
@@ -1025,6 +1092,8 @@ def analyze_execution_quality(  # noqa: C901
             "non_market_order_fills",
             "slippage_basis",
             "slippage_bps",
+            "market_fill_vs_arrival_quote_bps",
+            "market_fill_vs_order_price_bps",
             "price_improvement_pct",
             "partial_fill_pct",
             "market_fill_latency_ms",
@@ -1120,15 +1189,39 @@ def analyze_execution_quality(  # noqa: C901
         },
         "price_quality_definition": {
             "slippage_bps": slippage_basis,
-            "market_fill_slippage_bps": "market_fill_vs_arrival_executable_quote",
-            "pending_fill_vs_order_bps": "pending_fill_vs_submitted_order_price",
+            "market_fill_slippage_bps": (
+                "not_applicable"
+                if not fills
+                else "market_fill_vs_submitted_order_price"
+                if request.benchmark == "order_price"
+                else "market_fill_vs_arrival_executable_quote"
+            ),
+            "market_fill_vs_arrival_quote_bps": (
+                "not_applicable"
+                if not arrival_quote_market_fills
+                else "market_fill_vs_arrival_executable_quote"
+            ),
+            "market_fill_vs_order_price_bps": (
+                "not_applicable"
+                if not order_price_market_fills
+                else "market_fill_vs_submitted_order_price"
+            ),
+            "pending_fill_vs_order_bps": (
+                "not_applicable"
+                if not non_market_order_fills
+                else "pending_fill_vs_submitted_order_price"
+            ),
             "pending_arrival_implementation_shortfall_bps": (
-                "pending_fill_vs_order_setup_executable_quote_not_broker_slippage"
+                "not_applicable"
+                if not pending_arrival_shortfalls
+                else "pending_fill_vs_order_setup_executable_quote_not_broker_slippage"
             ),
         },
         "units": {
             "slippage_bps": "basis_points_positive_is_worse",
             "market_fill_slippage_bps": "basis_points_positive_is_worse",
+            "market_fill_vs_arrival_quote_bps": "basis_points_positive_is_worse",
+            "market_fill_vs_order_price_bps": "basis_points_positive_is_worse",
             "pending_fill_vs_order_bps": "basis_points_positive_is_worse",
             "pending_arrival_implementation_shortfall_bps": (
                 "basis_points_positive_is_worse"

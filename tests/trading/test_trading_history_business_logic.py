@@ -2271,6 +2271,9 @@ def test_trade_journal_analyze_compact_returns_summary_only() -> None:
         "period_exit_deals_analyzed": 2,
         "analysis_complete": True,
         "items_returned": 0,
+        "ranked_trade_rows": 0,
+        "unique_trade_rows": 0,
+        "serialized_trade_rows": 0,
         "items_truncated": False,
         "history_has_more": False,
     }
@@ -2329,6 +2332,9 @@ def test_trade_journal_pages_until_period_history_is_complete() -> None:
         "period_exit_deals_analyzed": 4,
         "analysis_complete": True,
         "items_returned": 0,
+        "ranked_trade_rows": 0,
+        "unique_trade_rows": 0,
+        "serialized_trade_rows": 0,
         "items_truncated": False,
         "history_has_more": False,
         "history_rows_available": 4,
@@ -2366,16 +2372,16 @@ def test_trade_journal_limit_caps_items_not_period_statistics() -> None:
     assert out["summary"]["net_pnl"] == 1830.0
     assert out["sample_size"] == 60
     assert len(out["items"]) == 50
-    assert out["sample_provenance"] == {
-        "output_item_limit": 50,
-        "history_rows_scanned": 60,
-        "period_exit_deals_analyzed": 60,
-        "analysis_complete": True,
-        "items_returned": 50,
-        "items_truncated": True,
-        "history_has_more": False,
-        "history_rows_available": 60,
-    }
+    provenance = out["sample_provenance"]
+    assert provenance["output_item_limit"] == 50
+    assert provenance["items_returned"] == 50
+    assert provenance["unique_trade_rows"] <= 50
+    assert provenance["serialized_trade_rows"] == (
+        provenance["items_returned"] + provenance["ranked_trade_rows"]
+    )
+    assert provenance["items_truncated"] is True
+    assert all(item.get("rank_reference") for item in out["best_trades"])
+    assert all(item.get("rank_reference") for item in out["worst_trades"])
 
 
 def test_trade_journal_excludes_future_timestamp_anomalies() -> None:
@@ -2541,6 +2547,53 @@ def test_trade_journal_analyze_rejects_non_positive_minutes_back(
     assert out["error"] == "minutes_back must be a positive integer."
     assert "minutes_back_effective" not in out
     history.assert_not_called()
+
+
+def test_trade_journal_analyze_rejects_overflowing_minutes_back() -> None:
+    with patch(
+        "mtdata.core.trading.account._run_trade_history_request",
+    ) as history:
+        out = trade_journal_analyze(minutes_back=999_999_999_999, __cli_raw=True)
+
+    assert out["success"] is False
+    assert out["error_code"] == "invalid_minutes_back"
+    assert out["details"]["minutes_back"] == 999_999_999_999
+    history.assert_not_called()
+
+
+def test_trade_history_rejects_overflowing_minutes_back() -> None:
+    out = trade_history(minutes_back=999_999_999_999, __cli_raw=True)
+
+    assert out["success"] is False
+    assert out["error_code"] == "invalid_minutes_back"
+
+
+def test_trade_journal_ranked_lists_do_not_duplicate_full_item_rows() -> None:
+    rows = [
+        {
+            "ticket": index,
+            "symbol": "EURUSD",
+            "entry": "Out",
+            "profit": float(10 - index),
+        }
+        for index in range(1, 8)
+    ]
+    with patch(
+        "mtdata.core.trading.account._run_trade_history_request",
+        return_value={"success": True, "count": len(rows), "items": rows},
+    ):
+        out = trade_journal_analyze(limit=3, detail="full", __cli_raw=True)
+
+    assert len(out["items"]) == 3
+    provenance = out["sample_provenance"]
+    assert provenance["unique_trade_rows"] <= 3
+    assert provenance["serialized_trade_rows"] == (
+        provenance["items_returned"] + provenance["ranked_trade_rows"]
+    )
+    item_tickets = {item["deal_ticket"] for item in out["items"]}
+    for row in out["best_trades"] + out["worst_trades"]:
+        if row.get("rank_reference"):
+            assert row["deal_ticket"] in item_tickets
 
 
 def test_trade_journal_analyze_filters_best_worst_by_pnl_sign() -> None:

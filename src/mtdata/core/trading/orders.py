@@ -24,6 +24,7 @@ from .gateway import MT5TradingGateway, create_trading_gateway, trading_connecti
 from .positions import _resolve_open_position
 from .safety import (
     _account_uses_netting,
+    _estimate_order_risk_currency,
     _resolve_existing_symbol_net,
     assess_margin_stress,
     evaluate_trade_guardrails,
@@ -1079,6 +1080,70 @@ def _margin_preview_fields(
     return out
 
 
+def _candidate_risk_preview_fields(
+    *,
+    symbol_info: Any,
+    account_info: Any,
+    volume: float,
+    entry_price: float,
+    stop_loss: Optional[float],
+    take_profit: Optional[float],
+    side: str,
+) -> Dict[str, Any]:
+    candidate_risk: Dict[str, Any] = {
+        "status": "unavailable",
+        "basis": "tick_value_linear_sensitivity",
+    }
+    risk_currency, risk_error = _estimate_order_risk_currency(
+        symbol_info=symbol_info,
+        volume=volume,
+        entry_price=entry_price,
+        stop_loss=stop_loss,
+        side=side,
+    )
+    if risk_currency is not None:
+        candidate_risk["risk_currency"] = round(float(risk_currency), 2)
+        candidate_risk["status"] = "ok"
+    elif risk_error:
+        candidate_risk["risk_error"] = risk_error
+    reward_side = "SELL" if side == "BUY" else "BUY"
+    reward_currency, reward_error = _estimate_order_risk_currency(
+        symbol_info=symbol_info,
+        volume=volume,
+        entry_price=entry_price,
+        stop_loss=take_profit,
+        side=reward_side,
+    )
+    if reward_currency is not None:
+        candidate_risk["reward_currency"] = round(float(reward_currency), 2)
+    elif reward_error:
+        candidate_risk["reward_error"] = reward_error
+    if (
+        risk_currency is not None
+        and reward_currency is not None
+        and float(risk_currency) > 0.0
+    ):
+        candidate_risk["reward_risk_ratio"] = round(
+            float(reward_currency) / float(risk_currency), 4
+        )
+    equity = validation._safe_float_attr(account_info, "equity")
+    if (
+        risk_currency is not None
+        and equity is not None
+        and math.isfinite(equity)
+        and equity > 0.0
+    ):
+        candidate_risk["risk_pct_of_equity"] = round(
+            float(risk_currency) / float(equity) * 100.0, 4
+        )
+        candidate_risk["equity"] = round(float(equity), 2)
+    if candidate_risk.get("status") != "ok":
+        candidate_risk["status"] = str(
+            candidate_risk.get("risk_error") or "unavailable"
+        )
+    return candidate_risk
+
+
 def build_trade_place_dry_run_preview(
     *,
     symbol: str,
@@ -1252,6 +1317,16 @@ def build_trade_place_dry_run_preview(
             point=point,
             points_per_pip=points_per_pip,
         )
+    )
+
+    out["candidate_risk"] = _candidate_risk_preview_fields(
+        symbol_info=symbol_info,
+        account_info=account_info,
+        volume=float(volume_validated),
+        entry_price=float(entry_price),
+        stop_loss=None if normalized_sl is None else float(normalized_sl),
+        take_profit=None if normalized_tp is None else float(normalized_tp),
+        side=side,
     )
 
     out["units"] = {

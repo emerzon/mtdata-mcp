@@ -100,6 +100,19 @@ _ERROR_GUIDANCE: Dict[str, Dict[str, Any]] = {
             "symbols_list",
         ],
     },
+    "capability_unavailable": {
+        "remediation": (
+            "Omit the unsupported filter, or use a provider/tool that implements "
+            "the requested capability."
+        ),
+    },
+    "volume_profile_tick_count_unavailable_for_m1_bars": {
+        "remediation": (
+            "Use volume_source=tick_volume with source=m1_bars, or source=ticks "
+            "with volume_source=tick_count."
+        ),
+        "related_tools": ["volume_profile_levels"],
+    },
     "dependency_missing": {
         "remediation": (
             "Install the optional dependency group required by this method, then retry."
@@ -118,6 +131,23 @@ _ERROR_GUIDANCE: Dict[str, Dict[str, Any]] = {
     },
     "invalid_date_range": {
         "remediation": "Set start to a timestamp earlier than or equal to end.",
+    },
+    "invalid_minutes_back": {
+        "remediation": (
+            "Use a smaller minutes_back, or pass explicit start/end within the "
+            "broker's useful history range."
+        ),
+        "related_tools": [
+            "trade_history",
+            "trade_journal_analyze",
+            "trade_execution_quality",
+        ],
+    },
+    "trade_idea_as_of_in_future": {
+        "remediation": (
+            "Pass an as_of timestamp in UTC that is not in the future."
+        ),
+        "related_tools": ["trade_idea_compose", "forecast_generate"],
     },
     "invalid_datetime": {
         "remediation": (
@@ -503,6 +533,38 @@ def build_error_payload(
     if details:
         payload["details"] = dict(details)
     return payload
+
+
+def invalid_minutes_back_payload(
+    minutes_back: Any,
+    *,
+    operation: str,
+    max_minutes_back: int,
+    reason: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Canonical envelope for an excessive or unusable minutes_back lookback."""
+    message = reason or (
+        f"minutes_back={minutes_back} exceeds the maximum supported lookback of "
+        f"{max_minutes_back} minutes (~20 years)."
+    )
+    return build_error_payload(
+        message,
+        code="invalid_minutes_back",
+        operation=operation,
+        details={
+            "minutes_back": minutes_back,
+            "max_minutes_back": int(max_minutes_back),
+        },
+        remediation=(
+            "Use a smaller minutes_back, or pass explicit start/end within the "
+            "broker's useful history range."
+        ),
+        related_tools=[
+            "trade_history",
+            "trade_journal_analyze",
+            "trade_execution_quality",
+        ],
+    )
 
 
 def log_transport_exception(

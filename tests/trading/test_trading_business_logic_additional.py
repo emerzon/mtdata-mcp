@@ -597,6 +597,15 @@ def test_run_trade_place_compact_preview_slims_quote_and_validation():
             "ask": 1.1001,
             "estimated_fill_price": 1.1001,
             "sl_tp_valid": True,
+            "candidate_risk": {
+                "status": "ok",
+                "risk_currency": 20.0,
+                "risk_pct_of_equity": 0.5,
+                "reward_currency": 40.0,
+                "reward_risk_ratio": 2.0,
+                "basis": "tick_value_linear_sensitivity",
+                "equity": 4000.0,
+            },
             "quote_context": {
                 "usable_for_live_trading": True,
                 "freshness_state": "live",
@@ -622,6 +631,13 @@ def test_run_trade_place_compact_preview_slims_quote_and_validation():
     assert "quote_time_epoch" not in result["quote_context"]
     assert result["stop_loss"] == 1.08
     assert result["take_profit"] == 1.12
+    assert result["candidate_risk"] == {
+        "status": "ok",
+        "risk_currency": 20.0,
+        "risk_pct_of_equity": 0.5,
+        "reward_currency": 40.0,
+        "reward_risk_ratio": 2.0,
+    }
 
 
 def test_run_trade_place_preview_marks_unprotected_by_request():

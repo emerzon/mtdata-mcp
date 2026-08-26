@@ -246,6 +246,22 @@ def run_trade_history(  # noqa: C901
         )
         return result
 
+    minutes_back_value, minutes_back_error = normalize_minutes_back(
+        request.minutes_back
+    )
+    if minutes_back_error:
+        from mtdata.core.error_envelope import invalid_minutes_back_payload
+        from mtdata.utils.time import MAX_TRADING_MINUTES_BACK
+
+        return _finish(
+            invalid_minutes_back_payload(
+                request.minutes_back,
+                operation="trade_history",
+                max_minutes_back=MAX_TRADING_MINUTES_BACK,
+                reason=minutes_back_error,
+            )
+        )
+
     try:
         gateway.ensure_connection()
     except MT5ConnectionError as exc:
@@ -392,7 +408,15 @@ def run_trade_history(  # noqa: C901
                 request.minutes_back
             )
             if minutes_back_error:
-                return {"error": minutes_back_error}
+                from mtdata.core.error_envelope import invalid_minutes_back_payload
+                from mtdata.utils.time import MAX_TRADING_MINUTES_BACK
+
+                return invalid_minutes_back_payload(
+                    request.minutes_back,
+                    operation="trade_history",
+                    max_minutes_back=MAX_TRADING_MINUTES_BACK,
+                    reason=minutes_back_error,
+                )
 
             if cursor_state is not None:
                 from_dt = cursor_state["from_dt"]

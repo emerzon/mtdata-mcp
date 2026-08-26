@@ -5,6 +5,10 @@ from typing import Any, Optional
 
 from ..shared.constants import CALENDAR_TIMEFRAMES, TIMEFRAME_SECONDS
 
+# Broker history lookbacks longer than this overflow datetime arithmetic or
+# exceed any useful MT5 archive. 20 years is 10_512_000 minutes.
+MAX_TRADING_MINUTES_BACK = 20 * 365 * 24 * 60
+
 
 def bar_close_epoch(open_epoch: Any, timeframe: str) -> float:
     """Return the UTC end epoch for a bar opened at *open_epoch*.

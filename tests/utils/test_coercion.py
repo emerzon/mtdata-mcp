@@ -4,6 +4,7 @@ from mtdata.utils.coercion import (
     coerce_optional_bool,
     is_explicit_false,
     parse_bool_like,
+    parse_strict_bool,
     round_finite,
     safe_float,
     split_top_level_csv,
@@ -23,6 +24,15 @@ def test_parse_bool_like_accepts_canonical_boolean_values():
         assert parse_bool_like(value) is True
     for value in (False, 0, "false", " NO ", "n", "off"):
         assert parse_bool_like(value) is False
+
+
+def test_parse_strict_bool_accepts_only_canonical_true_false():
+    assert parse_strict_bool(True) is True
+    assert parse_strict_bool(False) is False
+    assert parse_strict_bool(" true ") is True
+    assert parse_strict_bool("FALSE") is False
+    for value in ("no", "off", "0", "yes", "on", "1", "y", "n"):
+        assert parse_strict_bool(value) is UNPARSED_BOOL
 
 
 def test_parse_bool_like_distinguishes_null_and_unrecognized_values():

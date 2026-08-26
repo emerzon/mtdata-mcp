@@ -284,8 +284,14 @@ def _extract_quote(session: Any) -> Dict[str, Any]:
     compact = {key: quote[key] for key in keys if key in quote}
     if session.get("is_tradable") is not None:
         compact["is_tradable"] = session.get("is_tradable")
-    if session.get("can_open_new_positions") is not None:
-        compact["can_open_new_positions"] = session.get("can_open_new_positions")
+    if session.get("execution_preconditions_allow_open") is not None:
+        compact["execution_preconditions_allow_open"] = session.get(
+            "execution_preconditions_allow_open"
+        )
+    elif session.get("can_open_new_positions") is not None:
+        compact["execution_preconditions_allow_open"] = session.get(
+            "can_open_new_positions"
+        )
     if session.get("market_status") not in (None, ""):
         compact["market_status"] = session.get("market_status")
     if session.get("market_status_reason") not in (None, ""):
@@ -314,18 +320,28 @@ def _reference_price(quote: Dict[str, Any], direction: Optional[str]) -> Optiona
     )
 
 
+def _session_open_gate(payload: Any) -> Optional[bool]:
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("execution_preconditions_allow_open") is False:
+        return False
+    if payload.get("can_open_new_positions") is False:
+        return False
+    return None
+
+
 def _session_tradable(session: Any, quote: Dict[str, Any]) -> bool:
-    if quote.get("can_open_new_positions") is False:
+    if _session_open_gate(quote) is False:
         return False
     if quote.get("is_tradable") is False:
         return False
     if isinstance(session, dict):
-        if session.get("can_open_new_positions") is False:
+        if _session_open_gate(session) is False:
             return False
         if session.get("is_tradable") is False:
             return False
         trade_ready = session.get("trade_ready")
-        if isinstance(trade_ready, dict) and trade_ready.get("can_open_new_positions") is False:
+        if _session_open_gate(trade_ready) is False:
             return False
     return True
 
@@ -868,10 +884,25 @@ def _default_call_section(name: str, kwargs: Dict[str, Any]) -> Any:
             **({"end": kwargs["as_of"]} if kwargs.get("as_of") else {}),
         )
     if name == "forecast":
+        horizon = int(kwargs["horizon"])
+        if kwargs.get("requested_direction") in {"long", "short"}:
+            from ...forecast.requests import ForecastGenerateRequest
+            from ..forecast import forecast_generate
+
+            return call_tool_sync_structured(
+                forecast_generate,
+                request=ForecastGenerateRequest(
+                    symbol=kwargs["symbol"],
+                    timeframe=kwargs["timeframe"],
+                    horizon=horizon,
+                    method="theta",
+                    as_of=kwargs.get("as_of"),
+                    detail="compact",
+                ),
+            )
         from ...forecast.requests import ForecastConformalIntervalsRequest
         from ..forecast import forecast_conformal_intervals
 
-        horizon = int(kwargs["horizon"])
         return call_tool_sync_structured(
             forecast_conformal_intervals,
             request=ForecastConformalIntervalsRequest(
@@ -984,6 +1015,25 @@ def run_trade_idea_compose(  # noqa: C901
         )
 
     historical = bool(str(request.as_of or "").strip())
+    if historical:
+        from ...forecast.common import future_as_of_error
+
+        future_error = future_as_of_error(request.as_of)
+        if future_error:
+            code = (
+                "trade_idea_as_of_in_future"
+                if "future" in future_error.lower()
+                else "trade_idea_invalid_as_of"
+            )
+            return build_error_payload(
+                future_error,
+                code=code,
+                operation="trade_idea_compose",
+                details={"as_of": request.as_of},
+                remediation=(
+                    "Pass an as_of timestamp in UTC that is not in the future."
+                ),
+            )
     planned = list(_STANDARD_SECTIONS if request.template == "standard" else _QUICK_SECTIONS)
     if historical:
         planned = [name for name in planned if name not in _HISTORICAL_SKIP]

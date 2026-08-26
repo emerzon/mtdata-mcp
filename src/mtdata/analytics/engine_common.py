@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from ..shared.constants import TIMEFRAME_MAP
-from ..utils.time import bar_close_epoch, format_datetime_utc
+from ..utils.time import MAX_TRADING_MINUTES_BACK, bar_close_epoch, format_datetime_utc
 from ..utils.utils import (
     _parse_end_datetime,
     _parse_start_datetime,
@@ -59,7 +59,22 @@ def _parse_time(
 def _window(start: Optional[str], end: Optional[str], minutes_back: int) -> Tuple[datetime, datetime]:
     now = datetime.now(timezone.utc)
     to_dt = _parse_time(end, now, end_bound=True)
-    from_dt = _parse_time(start, to_dt - timedelta(minutes=int(minutes_back)))
+    if start:
+        from_dt = _parse_time(start, to_dt)
+    else:
+        minutes = int(minutes_back)
+        if minutes > MAX_TRADING_MINUTES_BACK:
+            raise ValueError(
+                f"minutes_back={minutes} exceeds the maximum supported lookback of "
+                f"{MAX_TRADING_MINUTES_BACK} minutes (~20 years)."
+            )
+        try:
+            from_dt = to_dt - timedelta(minutes=minutes)
+        except (OverflowError, ValueError) as exc:
+            raise ValueError(
+                f"minutes_back={minutes} exceeds the maximum supported lookback of "
+                f"{MAX_TRADING_MINUTES_BACK} minutes (~20 years)."
+            ) from exc
     if from_dt >= to_dt:
         raise ValueError("start must be earlier than end")
     return from_dt, to_dt

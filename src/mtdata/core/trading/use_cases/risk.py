@@ -688,6 +688,12 @@ def _shape_trade_var_cvar_payload(
             "forming_candle_status_by_symbol",
             "history_failures",
             "warnings",
+            "data_start",
+            "data_end",
+            "as_of",
+            "window",
+            "sample_quality",
+            "scenario_generation",
             "mark_freshness_status",
             "mark_usability_status",
             "data_stale",
@@ -793,12 +799,28 @@ def _normalize_var_cvar_confidence(
         return None, "confidence must be finite"
     if confidence_value > 1.0:
         confidence_value /= 100.0
-    if confidence_value <= 0.0 or confidence_value >= 1.0:
+    if confidence_value <= 0.5 or confidence_value >= 1.0:
         return (
             None,
-            "confidence must be between 0 and 1, or between 0 and 100 as a percentage",
+            "confidence must satisfy 0.5 < confidence < 1, or 50 < confidence < 100 as a percentage",
         )
     return confidence_value, None
+
+
+def _empirical_min_observations_for_confidence(confidence: float) -> int:
+    """Minimum n so historical VaR has at least two empirical tail points."""
+    alpha = 1.0 - float(confidence)
+    if alpha <= 0.0:
+        return 2
+    return int(math.ceil(1.0 / alpha)) + 1
+
+
+def _historical_tail_observations(n: int, confidence: float) -> int:
+    if n <= 0:
+        return 0
+    alpha = 1.0 - float(confidence)
+    index = max(0, min(n - 1, int(math.floor(alpha * (n - 1)))))
+    return index + 1
 
 
 def _historical_var_cvar_tail(
@@ -3679,6 +3701,53 @@ def run_trade_var_cvar_calculate(  # noqa: C901
         }
         for timestamp, value in worst_bars.items()
     ]
+    aligned_start = _format_var_cvar_timestamp(aligned_returns.index[0])
+    aligned_end = _format_var_cvar_timestamp(aligned_returns.index[-1])
+    data_start = _format_var_cvar_timestamp(portfolio_pnl.index[0])
+    data_end = _format_var_cvar_timestamp(portfolio_pnl.index[-1])
+    as_of = data_end
+    tail_observations = sum(1 for value in pnl_values if value <= threshold)
+    if method_value == "historical":
+        tail_observations = _historical_tail_observations(
+            len(pnl_values), confidence_value
+        )
+        required_for_confidence = _empirical_min_observations_for_confidence(
+            confidence_value
+        )
+        sample_sufficient = (
+            len(pnl_values) >= required_for_confidence and tail_observations >= 2
+        )
+        scenario_generation = "empirical_observed_pnl"
+    else:
+        required_for_confidence = max(int(min_observations), 10)
+        sample_sufficient = len(pnl_values) >= required_for_confidence
+        scenario_generation = {
+            "parametric": "gaussian_parametric",
+            "gaussian": "gaussian_parametric",
+            "cornish_fisher": "cornish_fisher_parametric",
+            "ewma": "ewma_weighted_empirical",
+        }.get(method_value, method_value)
+    sample_quality: Dict[str, Any] = {
+        "status": "ok" if sample_sufficient else "insufficient",
+        "observations": int(len(pnl_values)),
+        "min_observations": int(min_observations),
+        "min_observations_for_confidence": int(required_for_confidence),
+        "tail_observations": int(tail_observations),
+        "min_tail_observations": 2 if method_value == "historical" else 1,
+    }
+    var_warnings: List[str] = []
+    if not sample_sufficient:
+        var_warnings.append(
+            "Sample is insufficient for an unqualified "
+            f"{confidence_value * 100.0:g}% {method_value} VaR/CVaR estimate: "
+            f"observations={len(pnl_values)}, tail_observations={tail_observations}, "
+            f"need at least {required_for_confidence} observations"
+            + (
+                " and 2 tail points."
+                if method_value == "historical"
+                else "."
+            )
+        )
 
     forming_candle_status = (
         "included"
@@ -3716,6 +3785,12 @@ def run_trade_var_cvar_calculate(  # noqa: C901
         "forming_candle_status": forming_candle_status,
         "min_observations": int(min_observations),
         "observations": int(len(pnl_values)),
+        "tail_observations": int(tail_observations),
+        "scenario_generation": scenario_generation,
+        "sample_quality": sample_quality,
+        "data_start": data_start,
+        "data_end": data_end,
+        "as_of": as_of,
         "positions": int(len(position_exposures)),
         "symbols": int(len(symbol_rows)),
         "gross_notional": round(total_abs_notional, 2),
@@ -3743,11 +3818,30 @@ def run_trade_var_cvar_calculate(  # noqa: C901
         "history_policy": history_policy,
         "forming_candle_status": forming_candle_status,
         "forming_candle_status_by_symbol": forming_candle_statuses,
+        "scenario_generation": scenario_generation,
+        "data_start": data_start,
+        "data_end": data_end,
+        "as_of": as_of,
+        "window": {
+            "data_start": data_start,
+            "data_end": data_end,
+            "as_of": as_of,
+            "inclusive": "both",
+            "timezone": "UTC",
+            "observation_basis": "holding_period_portfolio_pnl",
+            "aligned_return_start": aligned_start,
+            "aligned_return_end": aligned_end,
+            "aligned_returns": int(len(aligned_returns)),
+            "holding_period_observations": int(len(pnl_values)),
+        },
+        "sample_quality": sample_quality,
         "summary": summary,
         "symbol_exposures": symbol_rows,
         "positions": position_exposures,
         "worst_observations": worst_observations,
     }
+    if var_warnings:
+        result["warnings"] = var_warnings
     if request.symbol:
         result["symbol"] = request.symbol
         result["portfolio_hint"] = (

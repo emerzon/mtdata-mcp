@@ -39,6 +39,8 @@ def test_trade_ready_does_not_claim_portfolio_risk_approval() -> None:
     )
 
     assert readiness["execution_preconditions_met"] is True
+    assert readiness["execution_preconditions_allow_open"] is True
+    assert "can_open_new_positions" not in readiness
     assert readiness["portfolio_risk_assessed"] is False
     assert readiness["margin_level"] == 120.48
     assert readiness["margin_utilization_pct"] == 83.0
@@ -64,7 +66,8 @@ def test_trade_ready_blocks_critical_margin_stress() -> None:
     assert "critical_margin_stress" in readiness["blockers"]
     assert readiness["margin_stress"]["status"] == "critical"
     assert readiness["trade_mode_allows_opening"] is True
-    assert readiness["can_open_new_positions"] is False
+    assert readiness["execution_preconditions_allow_open"] is False
+    assert "can_open_new_positions" not in readiness
 
 
 def test_trade_ready_fails_closed_when_quote_or_market_status_is_unknown() -> None:
@@ -143,7 +146,8 @@ def test_trade_ready_fails_closed_when_book_snapshot_is_unavailable(
 
     assert readiness["execution_preconditions_met"] is False
     assert readiness["readiness_status"] == "unknown"
-    assert readiness["can_open_new_positions"] is False
+    assert readiness["execution_preconditions_allow_open"] is False
+    assert "can_open_new_positions" not in readiness
     assert readiness["blockers"] == expected_blockers
 
 
@@ -385,7 +389,8 @@ def test_trade_session_context_surfaces_closed_market_tradability() -> None:
     assert out["market_status"] == "weekend_closed"
     assert out["market_status_reason"] == "weekend"
     assert out["is_tradable"] is False
-    assert out["can_open_new_positions"] is False
+    assert out["execution_preconditions_allow_open"] is False
+    assert "can_open_new_positions" not in out
     assert out["trade_ready"]["execution_preconditions_met"] is False
     assert "market_not_open_for_new_positions" in out["trade_ready"]["blockers"]
 

@@ -151,8 +151,8 @@ mtdata-cli trade_var_cvar_calculate EURUSD --method ewma --horizon-bars 6 --incl
 | `lookback` | `500` | Historical bars used to build the return distribution. |
 | `horizon_bars` | `1` | Holding period in bars of `timeframe`. Default is one-bar VaR; pass `5` to match `portfolio_risk_decompose`. Multi-bar results scale the one-bar return sample rather than simulating a path. |
 | `include_incomplete` | `false` | When true, the currently forming candle can enter the return series. Default uses only completed bars. |
-| `confidence` | `0.95` | Confidence fraction (`0.95`, `0.99`); must satisfy `0 < confidence < 1`. |
-| `method` | `historical` | `historical` (empirical tail), `parametric` (Gaussian), `cornish_fisher` (skew/kurtosis-adjusted Gaussian), or `ewma` (exponentially weighted historical). |
+| `confidence` | `0.95` | Confidence fraction (`0.95`, `0.99`); must satisfy `0.5 < confidence < 1`. |
+| `method` | `historical` | `historical` (empirical tail of observed P&L), `parametric` (Gaussian), `cornish_fisher` (skew/kurtosis-adjusted Gaussian), or `ewma` (exponentially weighted historical). This empirical `historical` method is not the bootstrap used by `portfolio_risk_decompose method=bootstrap_historical`. |
 | `transform` | `log_return` | Return transform: `log_return` or `pct`. |
 | `min_observations` | `50` | Minimum aligned observations before estimating risk. EWMA and Cornish-Fisher need enough sample for their extra moments/weights; the tool reports the effective sample in the payload. |
 
@@ -172,7 +172,11 @@ when any position lacks valuation inputs or any symbol history is unavailable.
 
 Method notes:
 
-- `historical` uses the empirical tail of equally weighted sample returns.
+- `historical` uses the empirical tail of equally weighted sample returns
+  (`scenario_generation=empirical_observed_pnl`). Thin samples for the chosen
+  confidence are marked `sample_quality=insufficient` and report
+  `tail_observations`. The payload includes `data_start`, `data_end`, and
+  `as_of` for the exact return window.
 - `parametric` assumes Gaussian returns and uses sample mean/variance.
 - `cornish_fisher` starts from that Gaussian quantile and adjusts it with sample
   skewness and excess kurtosis. It is most useful when the return sample is

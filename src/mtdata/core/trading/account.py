@@ -593,6 +593,8 @@ def _run_trade_journal_request(  # noqa: C901
 ) -> Dict[str, Any]:
     period_context = _trade_journal_period_context(request)
     if period_context.get("error"):
+        if period_context.get("error_code"):
+            return period_context
         return {
             "success": False,
             "error": period_context["error"],
@@ -693,18 +695,34 @@ def _run_trade_journal_request(  # noqa: C901
             }
         page_cursor = next_cursor
 
-    def _sample_provenance(exit_deals: int) -> Dict[str, Any]:
-        items_returned = (
+    def _sample_provenance(
+        exit_deals: int,
+        *,
+        items_returned: Optional[int] = None,
+        ranked_trade_rows: int = 0,
+        unique_trade_rows: Optional[int] = None,
+        serialized_trade_rows: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        default_items = (
             min(int(exit_deals), requested_item_limit)
             if detail_mode == "full" and not request.check_only
             else 0
         )
+        if items_returned is None:
+            items_returned = default_items
+        if unique_trade_rows is None:
+            unique_trade_rows = items_returned
+        if serialized_trade_rows is None:
+            serialized_trade_rows = items_returned
         out = {
             "output_item_limit": requested_item_limit,
             "history_rows_scanned": len(raw_rows),
             "period_exit_deals_analyzed": int(exit_deals),
             "analysis_complete": not history_has_more,
-            "items_returned": items_returned,
+            "items_returned": int(items_returned),
+            "ranked_trade_rows": int(ranked_trade_rows),
+            "unique_trade_rows": int(unique_trade_rows),
+            "serialized_trade_rows": int(serialized_trade_rows),
             "items_truncated": bool(
                 detail_mode == "full"
                 and not request.check_only
@@ -942,19 +960,57 @@ def _run_trade_journal_request(  # noqa: C901
     if warnings_out:
         payload["warnings"] = warnings_out
     if detail_mode == "full":
+        item_rows = analyzed_rows[:requested_item_limit]
         payload["items"] = [
-            _trade_journal_trade_snapshot(row)
-            for row in analyzed_rows[:requested_item_limit]
+            _trade_journal_trade_snapshot(row) for row in item_rows
         ]
         payload["item_schema"] = "trade_journal_analyzed_exit.v3"
-        payload["best_trades"] = [
-            _trade_journal_trade_snapshot(row)
-            for row in ranked_best[: min(5, len(ranked_best))]
-        ]
-        payload["worst_trades"] = [
-            _trade_journal_trade_snapshot(row)
-            for row in ranked_worst[: min(5, len(ranked_worst))]
-        ]
+        ranked_cap = min(5, requested_item_limit)
+        seen_tickets = {
+            row.get("deal_ticket", row.get("ticket")) for row in item_rows
+        }
+        remaining_unique = max(0, requested_item_limit - len(item_rows))
+
+        def _ranked_trade_rows(source: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+            nonlocal remaining_unique
+            out: List[Dict[str, Any]] = []
+            for row in source[:ranked_cap]:
+                ticket = row.get("deal_ticket", row.get("ticket"))
+                if ticket in seen_tickets:
+                    out.append(
+                        {
+                            "deal_ticket": ticket,
+                            "rank_reference": True,
+                            "net_pnl": row.get("net_pnl"),
+                            "profit": row.get("profit"),
+                            "symbol": row.get("symbol"),
+                        }
+                    )
+                elif remaining_unique > 0:
+                    out.append(_trade_journal_trade_snapshot(row))
+                    seen_tickets.add(ticket)
+                    remaining_unique -= 1
+            return out
+
+        payload["best_trades"] = _ranked_trade_rows(ranked_best)
+        payload["worst_trades"] = _ranked_trade_rows(ranked_worst)
+        serialized_rows = (
+            list(payload["items"])
+            + list(payload["best_trades"])
+            + list(payload["worst_trades"])
+        )
+        unique_tickets = {
+            row.get("deal_ticket")
+            for row in serialized_rows
+            if row.get("deal_ticket") not in (None, "")
+        }
+        payload["sample_provenance"] = _sample_provenance(
+            len(analyzed_rows),
+            items_returned=len(payload["items"]),
+            ranked_trade_rows=len(payload["best_trades"]) + len(payload["worst_trades"]),
+            unique_trade_rows=len(unique_tickets),
+            serialized_trade_rows=len(serialized_rows),
+        )
     return _attach_trade_journal_units(payload, currency=currency)
 
 

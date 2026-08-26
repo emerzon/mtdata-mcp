@@ -134,6 +134,27 @@ def parse_bool_like(value: Any, *, allow_none: bool = False) -> Any:
     return UNPARSED_BOOL
 
 
+def parse_strict_bool(value: Any, *, allow_none: bool = False) -> Any:
+    """Parse only canonical ``true``/``false`` spellings.
+
+    Trading mutation flags must fail closed on convenience aliases such as
+    ``no``, ``off``, ``0``, ``yes``, ``on``, and ``1``.
+    """
+    if value is None:
+        return None if allow_none else UNPARSED_BOOL
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in ("none", "null"):
+            return None if allow_none else UNPARSED_BOOL
+        if text == "true":
+            return True
+        if text == "false":
+            return False
+    return UNPARSED_BOOL
+
+
 def coerce_optional_bool(value: Any) -> Optional[bool]:
     """Return bool/numeric broker flags as booleans, otherwise ``None``."""
     if isinstance(value, bool):
