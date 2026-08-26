@@ -4,8 +4,9 @@ import pandas as pd
 import pytest
 
 from mtdata.patterns.candlestick import (
+    _candlestick_base_strength,
     _candlestick_span_bars,
-    _candlestick_strength_score,
+    _combine_candlestick_strength,
     _discover_candlestick_pattern_methods,
     _extract_candlestick_rows,
     _is_candlestick_allowed,
@@ -66,66 +67,48 @@ class TestParseMinStrength:
             _parse_min_strength("not_a_number")
 
 
-class TestCandlestickStrengthScore:
+class TestCandlestickStrength:
     def test_robust_multibar_pattern_scores_higher_than_deprioritized_single_bar(self):
-        engulfing = _candlestick_strength_score(
+        robust_set = {"engulfing"}
+        deprioritize = {"doji"}
+        engulfing_base = _candlestick_base_strength(
             "cdl_engulfing",
-            100.0,
-            robust_set={"engulfing"},
-            deprioritize={"doji"},
+            robust_set=robust_set,
+            deprioritize=deprioritize,
         )
-        doji = _candlestick_strength_score(
+        doji_base = _candlestick_base_strength(
             "cdl_doji",
-            100.0,
-            robust_set={"engulfing"},
-            deprioritize={"doji"},
+            robust_set=robust_set,
+            deprioritize=deprioritize,
         )
+        engulfing_span = min(0.10, 0.05 * max(0, _candlestick_span_bars("cdl_engulfing") - 1))
+        doji_span = min(0.10, 0.05 * max(0, _candlestick_span_bars("cdl_doji") - 1))
+        engulfing = float(_combine_candlestick_strength(engulfing_base, engulfing_span, 0.5))
+        doji = float(_combine_candlestick_strength(doji_base, doji_span, 0.5))
 
-        # Reliability, span, detector hit and neutral geometry fallback.
         assert engulfing == pytest.approx(1.0)
         assert doji == pytest.approx(0.65)
         assert engulfing > doji
 
-    def test_raw_backend_scale_does_not_change_strength(self):
-        weak = _candlestick_strength_score(
+    def test_neutral_geometry_strength_matches_live_composition(self):
+        base = _candlestick_base_strength(
             "cdl_alpha",
-            50.0,
             robust_set=set(),
             deprioritize=set(),
         )
-        full = _candlestick_strength_score(
-            "cdl_alpha",
-            100.0,
-            robust_set=set(),
-            deprioritize=set(),
-        )
-        # pandas-ta fallback detectors may emit 1 while TA-Lib emits 100.
-        capped = _candlestick_strength_score(
-            "cdl_alpha",
-            200.0,
-            robust_set=set(),
-            deprioritize=set(),
-        )
-
-        assert weak == pytest.approx(0.75)
-        assert full == pytest.approx(0.75)
-        assert capped == pytest.approx(0.75)
+        span_bonus = min(0.10, 0.05 * max(0, _candlestick_span_bars("cdl_alpha") - 1))
+        strength = float(_combine_candlestick_strength(base, span_bonus, 0.5))
+        assert strength == pytest.approx(0.75)
 
     def test_geometry_changes_same_pattern_strength(self):
-        weak = _candlestick_strength_score(
+        base = _candlestick_base_strength(
             "cdl_alpha",
-            100.0,
             robust_set=set(),
             deprioritize=set(),
-            geometry_score=0.1,
         )
-        strong = _candlestick_strength_score(
-            "cdl_alpha",
-            100.0,
-            robust_set=set(),
-            deprioritize=set(),
-            geometry_score=0.9,
-        )
+        span_bonus = min(0.10, 0.05 * max(0, _candlestick_span_bars("cdl_alpha") - 1))
+        weak = float(_combine_candlestick_strength(base, span_bonus, 0.1))
+        strong = float(_combine_candlestick_strength(base, span_bonus, 0.9))
 
         assert weak == pytest.approx(0.59)
         assert strong == pytest.approx(0.91)

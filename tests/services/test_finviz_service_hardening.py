@@ -10,13 +10,19 @@ from mtdata.services.finviz import client as finviz_client
 from mtdata.services.finviz import pagination as finviz_pagination
 
 
-def test_compute_screener_fetch_limit_is_bounded(monkeypatch):
-    monkeypatch.setattr(svc, "_FINVIZ_PAGE_LIMIT_MAX", 500)
-
-    assert svc._compute_screener_fetch_limit(limit=50, page=1, max_rows=5000) == 51
-    assert svc._compute_screener_fetch_limit(limit=50, page=3, max_rows=120) == 120
-    assert svc._compute_screener_fetch_limit(limit=-1, page=0, max_rows=120) == 2
-    assert svc._compute_screener_fetch_limit(limit=9999, page=1, max_rows=120) == 120
+def test_compute_screener_fetch_limit_is_bounded():
+    assert finviz_pagination.compute_screener_fetch_limit(
+        limit=50, page=1, max_rows=5000, page_limit_max=500
+    ) == 51
+    assert finviz_pagination.compute_screener_fetch_limit(
+        limit=50, page=3, max_rows=120, page_limit_max=500
+    ) == 120
+    assert finviz_pagination.compute_screener_fetch_limit(
+        limit=-1, page=0, max_rows=120, page_limit_max=500
+    ) == 2
+    assert finviz_pagination.compute_screener_fetch_limit(
+        limit=9999, page=1, max_rows=120, page_limit_max=500
+    ) == 120
 
 
 def test_rate_limit_envelope_is_shared_by_finviz_endpoints(monkeypatch):

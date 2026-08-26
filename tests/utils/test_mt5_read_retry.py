@@ -236,19 +236,6 @@ class TestCopyFunctionsUseRetry:
             result = mt5_mod._mt5_copy_rates_from_pos("EURUSD", 16408, 0, 100)
         assert result == "data"
 
-    def test_copy_ticks_from_retries_on_none(self):
-        from datetime import datetime, timezone
-
-        with (
-            patch.object(mt5_mod.mt5, "copy_ticks_from", side_effect=[None, "data"]),
-            patch.object(mt5_mod, "_to_server_query_dt", return_value=datetime(2026, 1, 1)),
-            patch.object(mt5_mod, "_normalize_times_in_struct", side_effect=lambda x: x),
-            patch.object(mt5_mod, "_MT5_READ_BASE_DELAY", 0.001),
-            patch.object(mt5_mod, "_MT5_READ_MIN_SPACING", 0.0),
-        ):
-            result = mt5_mod._mt5_copy_ticks_from("EURUSD", datetime(2026, 1, 1, tzinfo=timezone.utc), 100, 1)
-        assert result == "data"
-
     def test_copy_ticks_range_retries_on_none(self):
         from datetime import datetime, timezone
 

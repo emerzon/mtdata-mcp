@@ -153,20 +153,6 @@ def _paa(a: np.ndarray, m: int) -> np.ndarray:
     return sums / counts
 
 
-def _template_hs(L: int, inverse: bool = False) -> np.ndarray:
-    """Simple H&S template over L points (z-norm target)."""
-    L = max(20, int(L))
-    x = np.linspace(0, 1, L)
-    # Shoulders around 0.7, head at 1.0 (or inverted)
-    y = 0.0 * x
-    y += 0.7 * np.exp(-((x - 0.25) ** 2) / 0.01)
-    y += 1.0 * np.exp(-((x - 0.5) ** 2) / 0.008)
-    y += 0.7 * np.exp(-((x - 0.75) ** 2) / 0.01)
-    if inverse:
-        y = -y
-    return _znorm(y)
-
-
 def _template_hs_variants(L: int, inverse: bool = False) -> Tuple[np.ndarray, ...]:
     L = max(20, int(L))
     x = np.linspace(0, 1, L)

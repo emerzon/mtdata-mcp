@@ -17,10 +17,10 @@ from mtdata.utils.minimal_output import (
 )
 from mtdata.utils.minimal_output_toon import (
     _encode_inline_array,
+    _encode_tabular,
     _is_scalar_value,
     _stringify_cell,
     _stringify_scalar,
-    format_table_toon,
 )
 
 
@@ -954,13 +954,19 @@ class TestBuildForecastMeta:
         assert result["runtime"]["timezone"]["server"]["tz"] == "Europe/Nicosia"
 
 
-class TestFormatTableToon:
+class TestEncodeTabular:
     def test_basic(self):
-        lines = format_table_toon(["name", "value"], [["a", 1], ["b", 2]])
-        assert len(lines) > 0
+        result = _encode_tabular(
+            "data",
+            ["name", "value"],
+            [{"name": "a", "value": 1}, {"name": "b", "value": 2}],
+        )
+        assert "data[2]" in result
+        assert "name" in result
 
-    def test_empty(self):
-        assert format_table_toon([], []) == []
+    def test_empty_rows(self):
+        result = _encode_tabular("data", ["x"], [])
+        assert "data[0]" in result
 
 
 class TestEncodeInlineArray:

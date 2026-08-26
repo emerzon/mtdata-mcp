@@ -535,12 +535,6 @@ def _epoch_to_ymd(epoch: int) -> str:
     return dt.strftime("%Y-%m-%d")
 
 
-def _ymd_to_epoch(ymd: str) -> int:
-    dt = _dt.datetime.strptime(str(ymd).strip(), "%Y-%m-%d")
-    dt = dt.replace(tzinfo=_dt.timezone.utc)
-    return int(dt.timestamp())
-
-
 def _us_equity_option_expiration_is_live(
     expiration: str,
     *,
@@ -670,21 +664,6 @@ def _options_expirations_unavailable_payload(
 def _build_yahoo_session() -> requests.Session:
     """Create a configured Yahoo HTTP session."""
     return requests.Session()
-
-
-def _reset_yahoo_session() -> None:
-    """Close and discard the shared Yahoo session so the next request rebuilds it."""
-    global _YAHOO_CRUMB, _YAHOO_SESSION
-    with _YAHOO_SESSION_LOCK:
-        old = _YAHOO_SESSION
-        _YAHOO_SESSION = None
-    with _YAHOO_AUTH_LOCK:
-        _YAHOO_CRUMB = None
-    if old is not None:
-        try:
-            old.close()
-        except Exception:
-            pass
 
 
 def _get_yahoo_session() -> requests.Session:

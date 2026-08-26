@@ -20,7 +20,7 @@ from mtdata.patterns.classic_impl.utils import (
     _is_converging,
     _level_close,
     _paa,
-    _template_hs,
+    _template_hs_variants,
     _tol_abs_from_close,
     _znorm,
 )
@@ -190,24 +190,27 @@ class TestDtwDistance:
         d = dtw_distance(a, b)
         assert d > 0.0
 
-class TestTemplateHs:
+class TestTemplateHsVariants:
     def test_length(self):
-        t = _template_hs(80)
-        assert len(t) == 80
+        variants = _template_hs_variants(80)
+        assert len(variants) >= 1
+        for t in variants:
+            assert len(t) == 80
 
     def test_min_length(self):
-        t = _template_hs(5)
-        assert len(t) == 20  # min is 20
+        variants = _template_hs_variants(5)
+        for t in variants:
+            assert len(t) == 20  # min is 20
 
     def test_inverse(self):
-        t = _template_hs(80, inverse=False)
-        ti = _template_hs(80, inverse=True)
+        t = _template_hs_variants(80, inverse=False)[0]
+        ti = _template_hs_variants(80, inverse=True)[0]
         # Inverted should be negated (after z-norm, they should be opposite)
         assert np.corrcoef(t, ti)[0, 1] < -0.9
 
     def test_znormed(self):
-        t = _template_hs(80)
-        assert abs(t.mean()) < 1e-6
+        for t in _template_hs_variants(80):
+            assert abs(t.mean()) < 1e-6
 
 
 class TestComputeAtr:

@@ -595,33 +595,6 @@ def _encode_tabular(
     return "\n".join(lines)
 
 
-def format_table_toon(
-    headers: List[str],
-    rows: List[List[Optional[Any]]],
-    name: str = "data",
-    *,
-    simplify_numbers: bool = True,
-    decimals: Optional[int] = None,
-) -> List[str]:
-    if not headers or not rows:
-        return []
-    cols = [str(h) for h in headers]
-    items: List[Dict[str, Any]] = []
-    for row in rows:
-        item: Dict[str, Any] = {}
-        for idx, col in enumerate(cols):
-            item[col] = row[idx] if idx < len(row) else None
-        items.append(item)
-    return _encode_tabular(
-        name,
-        cols,
-        items,
-        indent=0,
-        simplify_numbers=simplify_numbers,
-        decimals=decimals,
-    ).splitlines()
-
-
 def _encode_inline_array(
     key: str,
     items: List[Any],

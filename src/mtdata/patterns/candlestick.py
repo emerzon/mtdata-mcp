@@ -220,29 +220,6 @@ def _candlestick_base_strength(
     return float(max(0.0, min(1.0, base)))
 
 
-def _candlestick_strength_score(
-    pattern_name: str,
-    raw_signal: float,
-    *,
-    robust_set: set[str],
-    deprioritize: set[str],
-    geometry_score: float = 0.5,
-) -> float:
-    raw = abs(float(raw_signal))
-    if not np.isfinite(raw) or raw <= 0.0:
-        return 0.0
-    span_bars = _candlestick_span_bars(pattern_name)
-    base = _candlestick_base_strength(
-        pattern_name,
-        robust_set=robust_set,
-        deprioritize=deprioritize,
-    )
-    span_bonus = min(0.10, 0.05 * max(0, span_bars - 1))
-    detector_bonus = 0.05
-    geometry = float(np.clip(float(geometry_score), 0.0, 1.0))
-    return float(_combine_candlestick_strength(base, span_bonus, geometry, detector_bonus))
-
-
 def _combine_candlestick_strength(
     base: Any,
     span_bonus: Any,

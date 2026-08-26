@@ -9,12 +9,24 @@ import requests
 
 from mtdata.services import options_service as osvc
 
+_EXPIRY_A = int(dt.datetime(2026, 4, 17, tzinfo=dt.timezone.utc).timestamp())
+_EXPIRY_B = int(dt.datetime(2026, 5, 15, tzinfo=dt.timezone.utc).timestamp())
+
 
 @pytest.fixture(autouse=True)
 def _default_options_provider(monkeypatch):
     monkeypatch.setattr(osvc.options_data_config, "provider", "yahoo")
     monkeypatch.setattr(osvc.options_data_config, "api_key", None)
     monkeypatch.setattr(osvc.options_data_config, "base_url", "https://api.tradier.com/v1")
+
+
+@pytest.fixture(autouse=True)
+def _restore_yahoo_session():
+    original_session = osvc._YAHOO_SESSION
+    original_crumb = osvc._YAHOO_CRUMB
+    yield
+    osvc._YAHOO_SESSION = original_session
+    osvc._YAHOO_CRUMB = original_crumb
 
 
 def test_to_numeric_logs_non_empty_conversion_failures(caplog):
@@ -129,8 +141,8 @@ def test_option_contract_metadata_marks_current_two_sided_quote_usable(
 
 
 def test_get_options_expirations_parses_payload(monkeypatch):
-    expiry_a = osvc._ymd_to_epoch("2026-04-17")
-    expiry_b = osvc._ymd_to_epoch("2026-05-15")
+    expiry_a = _EXPIRY_A
+    expiry_b = _EXPIRY_B
     monkeypatch.setattr(osvc._time, "time", lambda: 1_700_000_120.0)
 
     monkeypatch.setattr(
@@ -209,8 +221,8 @@ def test_get_options_chain_rejects_empty_expiration_snapshot(monkeypatch):
 
 
 def test_get_options_chain_filters_and_selects_expiration(monkeypatch):
-    expiry_a = osvc._ymd_to_epoch("2026-04-17")
-    expiry_b = osvc._ymd_to_epoch("2026-05-15")
+    expiry_a = _EXPIRY_A
+    expiry_b = _EXPIRY_B
 
     def fake_fetch(symbol, expiry_epoch=None):
         if expiry_epoch is None:
@@ -331,7 +343,7 @@ def test_get_options_chain_filters_and_selects_expiration(monkeypatch):
 def test_options_chain_separates_fresh_underlying_from_stale_zero_sided_contracts(
     monkeypatch,
 ):
-    expiry = osvc._ymd_to_epoch("2026-04-17")
+    expiry = _EXPIRY_A
     now_epoch = 1_700_000_900
     stale_contract_epoch = 1_699_910_000
     monkeypatch.setattr(osvc._time, "time", lambda: float(now_epoch))
@@ -563,7 +575,7 @@ def test_option_selection_metadata_uses_normalized_pagination():
 
 
 def test_get_options_chain_rejects_unavailable_expiration(monkeypatch):
-    expiry = osvc._ymd_to_epoch("2026-04-17")
+    expiry = _EXPIRY_A
     monkeypatch.setattr(
         osvc,
         "_fetch_yahoo_options_payload",
@@ -738,7 +750,7 @@ def test_normalize_tradier_options_maps_greeks(monkeypatch):
 def test_configured_tradier_provider_without_token_falls_back_to_yahoo(monkeypatch):
     monkeypatch.setattr(osvc.options_data_config, "provider", "tradier")
     monkeypatch.setattr(osvc.options_data_config, "api_key", None)
-    expiry = osvc._ymd_to_epoch("2026-04-17")
+    expiry = _EXPIRY_A
     monkeypatch.setattr(
         osvc,
         "_fetch_yahoo_options_payload",
@@ -771,7 +783,7 @@ def test_configured_tradier_provider_without_token_falls_back_to_yahoo(monkeypat
 
 def test_invalid_provider_selection_is_explicit_on_yahoo_fallback(monkeypatch):
     monkeypatch.setattr(osvc.options_data_config, "provider", "yahho")
-    expiry = osvc._ymd_to_epoch("2026-04-17")
+    expiry = _EXPIRY_A
     monkeypatch.setattr(
         osvc,
         "_fetch_yahoo_options_payload",
@@ -796,7 +808,7 @@ def test_invalid_provider_selection_is_explicit_on_yahoo_fallback(monkeypatch):
 def test_get_options_chain_falls_back_to_yahoo_when_tradier_runtime_error(monkeypatch):
     monkeypatch.setattr(osvc.options_data_config, "provider", "auto")
     monkeypatch.setattr(osvc.options_data_config, "api_key", "token")
-    expiry = osvc._ymd_to_epoch("2026-04-17")
+    expiry = _EXPIRY_A
     monkeypatch.setattr(
         osvc,
         "_fetch_tradier_expirations_payload",
@@ -965,26 +977,6 @@ def test_build_yahoo_session_returns_fresh_session():
     session = osvc._build_yahoo_session()
     assert isinstance(session, requests.Session)
     session.close()
-
-
-def test_reset_yahoo_session_clears_singleton(monkeypatch):
-    sentinel = osvc._build_yahoo_session()
-    monkeypatch.setattr(osvc, "_YAHOO_SESSION", sentinel)
-    monkeypatch.setattr(osvc, "_YAHOO_CRUMB", "stale-crumb")
-
-    osvc._reset_yahoo_session()
-    assert osvc._YAHOO_SESSION is None
-    assert osvc._YAHOO_CRUMB is None
-
-
-def test_reset_yahoo_session_tolerates_already_none():
-    original = osvc._YAHOO_SESSION
-    try:
-        osvc._YAHOO_SESSION = None
-        osvc._reset_yahoo_session()
-        assert osvc._YAHOO_SESSION is None
-    finally:
-        osvc._YAHOO_SESSION = original
 
 
 def test_get_yahoo_session_delegates_to_builder(monkeypatch):
@@ -1213,7 +1205,7 @@ def test_filter_option_contracts_applies_strike_and_moneyness_before_limit():
 
 
 def test_get_options_chain_propagates_underlying_quote_envelope(monkeypatch):
-    expiry = osvc._ymd_to_epoch("2026-04-17")
+    expiry = _EXPIRY_A
     monkeypatch.setattr(osvc._time, "time", lambda: 1_700_000_120.0)
 
     def fake_fetch(_symbol, expiry_epoch=None):

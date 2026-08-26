@@ -8,6 +8,7 @@ import pytest
 
 from mtdata.services.finviz import api as svc
 from mtdata.services.finviz import dates as finviz_dates
+from mtdata.services.finviz import pagination as finviz_pagination
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -24,7 +25,7 @@ def _mock_finviz_stock(**overrides):
     return stock
 
 # ---------------------------------------------------------------------------
-# _sanitize_pagination / _compute_screener_fetch_limit
+# _sanitize_pagination / compute_screener_fetch_limit
 # ---------------------------------------------------------------------------
 
 class TestSanitizePagination:
@@ -53,15 +54,15 @@ class TestSanitizePagination:
 
 class TestComputeScreenerFetchLimit:
     def test_normal(self):
-        r = svc._compute_screener_fetch_limit(50, 2, 5000)
+        r = finviz_pagination.compute_screener_fetch_limit(50, 2, 5000)
         assert r == 101
 
     def test_caps_at_max(self):
-        r = svc._compute_screener_fetch_limit(5000, 100, 5000)
+        r = finviz_pagination.compute_screener_fetch_limit(5000, 100, 5000)
         assert r == 5000
 
     def test_floor_at_one(self):
-        r = svc._compute_screener_fetch_limit(0, 0, 5000)
+        r = finviz_pagination.compute_screener_fetch_limit(0, 0, 5000)
         assert r >= 1
 
 # ---------------------------------------------------------------------------
@@ -74,7 +75,7 @@ class TestResolveDateRange:
             "mtdata.services.finviz.dates._finviz_market_date",
             return_value=datetime.date(2026, 1, 1),
         ):
-            d_from, d_to = svc._resolve_date_range(
+            d_from, d_to = finviz_dates.resolve_date_range(
                 date_from=None,
                 date_to=None,
                 default_days=7,
@@ -83,7 +84,7 @@ class TestResolveDateRange:
         assert d_to == "2026-01-08"
 
     def test_explicit_range(self):
-        d_from, d_to = svc._resolve_date_range(date_from="2024-06-01", date_to="2024-06-15", default_days=7)
+        d_from, d_to = finviz_dates.resolve_date_range(date_from="2024-06-01", date_to="2024-06-15", default_days=7)
         assert d_from == "2024-06-01"
         assert d_to == "2024-06-15"
 
@@ -92,7 +93,7 @@ class TestResolveDateRange:
             "mtdata.services.finviz.dates._finviz_market_date",
             return_value=datetime.date(2024, 6, 1),
         ):
-            result = svc._resolve_date_range(
+            result = finviz_dates.resolve_date_range(
                 date_from=None,
                 date_to="2024-06-15",
                 default_days=7,
@@ -102,15 +103,15 @@ class TestResolveDateRange:
 
     def test_bad_from_raises(self):
         with pytest.raises(ValueError, match="Invalid start"):
-            svc._resolve_date_range(date_from="not-a-date", date_to=None, default_days=7)
+            finviz_dates.resolve_date_range(date_from="not-a-date", date_to=None, default_days=7)
 
     def test_bad_to_raises(self):
         with pytest.raises(ValueError, match="Invalid end"):
-            svc._resolve_date_range(date_from="2024-06-01", date_to="bad", default_days=7)
+            finviz_dates.resolve_date_range(date_from="2024-06-01", date_to="bad", default_days=7)
 
     def test_malformed_iso_suffix_raises(self):
         with pytest.raises(ValueError, match="Invalid start"):
-            svc._resolve_date_range(
+            finviz_dates.resolve_date_range(
                 date_from="2024-06-01T12:34:56junk",
                 date_to=None,
                 default_days=7,
@@ -118,24 +119,24 @@ class TestResolveDateRange:
 
     def test_to_before_from_raises(self):
         with pytest.raises(ValueError, match="end must be on or after start"):
-            svc._resolve_date_range(date_from="2024-06-15", date_to="2024-06-01", default_days=7)
+            finviz_dates.resolve_date_range(date_from="2024-06-15", date_to="2024-06-01", default_days=7)
 
 class TestAlignToMondayIfWeekend:
     def test_saturday(self):
-        assert svc._align_to_next_monday_if_weekend("2024-06-08") == "2024-06-10"
+        assert finviz_dates.align_to_next_monday_if_weekend("2024-06-08") == "2024-06-10"
 
     def test_sunday(self):
-        assert svc._align_to_next_monday_if_weekend("2024-06-09") == "2024-06-10"
+        assert finviz_dates.align_to_next_monday_if_weekend("2024-06-09") == "2024-06-10"
 
     def test_weekday_unchanged(self):
-        assert svc._align_to_next_monday_if_weekend("2024-06-10") == "2024-06-10"
+        assert finviz_dates.align_to_next_monday_if_weekend("2024-06-10") == "2024-06-10"
 
     def test_iso_datetime_string(self):
-        assert svc._align_to_next_monday_if_weekend("2024-06-09T12:34:56") == "2024-06-10"
+        assert finviz_dates.align_to_next_monday_if_weekend("2024-06-09T12:34:56") == "2024-06-10"
 
     def test_bad_iso_datetime_suffix_raises(self):
         with pytest.raises(ValueError, match="Invalid date_from"):
-            svc._align_to_next_monday_if_weekend("2024-06-09T12:34:56junk")
+            finviz_dates.align_to_next_monday_if_weekend("2024-06-09T12:34:56junk")
 
 class TestDatesModuleIsoParsing:
     def test_market_date_uses_new_york_before_utc_midnight(self):

@@ -30,12 +30,6 @@ class TestPatternStatusHelpers:
         assert _count_patterns_with_status(rows, "completed") == 1
         assert _count_patterns_with_status(rows, "broken") == 1
 
-    def test_resolve_elliott_pattern_status_uses_recent_window(self):
-        from mtdata.core.patterns_support import _resolve_elliott_pattern_status
-
-        assert _resolve_elliott_pattern_status(8, n_bars=10, recent_bars=3) == "forming"
-        assert _resolve_elliott_pattern_status(6, n_bars=10, recent_bars=3) == "completed"
-
 
 # ── _apply_config_to_obj ────────────────────────────────────────────────
 

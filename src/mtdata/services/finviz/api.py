@@ -34,9 +34,7 @@ from .utils import (
     crypto_price_display,
 )
 
-# Private aliases keep existing tests/call sites patchable.
-_resolve_date_range = resolve_date_range
-_align_to_next_monday_if_weekend = align_to_next_monday_if_weekend
+# Private alias keeps existing tests/call sites patchable.
 _apply_finvizfinance_timeout_patch = apply_finvizfinance_timeout_patch
 
 
@@ -204,18 +202,6 @@ def _sanitize_pagination(limit: int, page: int) -> tuple[int, int]:
     from .pagination import sanitize_pagination
 
     return sanitize_pagination(limit, page, page_limit_max=_FINVIZ_PAGE_LIMIT_MAX)
-
-
-def _compute_screener_fetch_limit(limit: int, page: int, max_rows: int) -> int:
-    """Rows to fetch from finvizfinance screener to satisfy current page safely."""
-    from .pagination import compute_screener_fetch_limit
-
-    return compute_screener_fetch_limit(
-        limit,
-        page,
-        max_rows,
-        page_limit_max=_FINVIZ_PAGE_LIMIT_MAX,
-    )
 
 
 def _paginate_finviz_records(

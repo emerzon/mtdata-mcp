@@ -230,23 +230,6 @@ def _visible_pattern_rows(
     ]
 
 
-def _resolve_elliott_pattern_status(
-    end_index: Any,
-    *,
-    n_bars: int,
-    recent_bars: int,
-) -> str:
-    try:
-        recent = max(1, int(recent_bars))
-    except Exception:
-        recent = 1
-    try:
-        end_idx = int(end_index)
-    except Exception:
-        end_idx = -1
-    return "forming" if end_idx >= int(max(0, n_bars - recent)) else "completed"
-
-
 def _filter_non_actionable_elliott_warnings(
     warnings_in: Any,
     *,

@@ -122,7 +122,6 @@ _DS_ERRORS = f'{_DS_PKG}.errors'
 _GUARD = f'{_DS}._symbol_ready_guard'
 _RATES_FROM = f'{_DS}._mt5_copy_rates_from'
 _RATES_RANGE = f'{_DS}._mt5_copy_rates_range'
-_TICKS_FROM = f'{_DS_TICKS}._mt5_copy_ticks_from'
 _TICKS_RANGE = f'{_DS_TICKS}._mt5_copy_ticks_range'
 _CACHED_INFO = f'{_DS}.get_symbol_info_cached'
 _RESOLVE_CTZ = f'{_DS}._resolve_client_tz'
@@ -144,7 +143,7 @@ __all__ = [
     '_mock_symbol_guard', '_mock_symbol_guard_error',
     '_make_rates', '_make_rates_array', '_make_ticks',
     '_DS', '_DS_PKG', '_DS_TICKS', '_DS_ERRORS', '_GUARD', '_RATES_FROM', '_RATES_RANGE',
-    '_TICKS_FROM', '_TICKS_RANGE', '_CACHED_INFO',
+    '_TICKS_RANGE', '_CACHED_INFO',
     '_RESOLVE_CTZ', '_PARSE_START', '_ESTIMATE_WARMUP',
     '_APPLY_TI', '_SIMPLIFY_EXT', '_MT5_CONFIG',
     '_TICKS_GUARD', '_TICKS_CACHED_INFO', '_TICKS_RESOLVE_CTZ',

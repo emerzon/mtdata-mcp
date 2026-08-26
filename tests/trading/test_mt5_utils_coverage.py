@@ -45,7 +45,6 @@ from mtdata.utils.mt5 import (
     _mt5_copy_rates_from,
     _mt5_copy_rates_from_pos,
     _mt5_copy_rates_range,
-    _mt5_copy_ticks_from,
     _mt5_copy_ticks_range,
     _mt5_epoch_to_utc,
     _normalize_object_time_rows,
@@ -383,9 +382,11 @@ class TestCopyWrappers:
 
     def test_copy_ticks_from(self):
         _mt5_mock.copy_ticks_from.return_value = None
-        with patch("mtdata.utils.mt5._to_server_query_dt", return_value=datetime(2024, 1, 1)):
-            with patch("mtdata.utils.mt5._normalize_times_in_struct", return_value=None):
-                result = _mt5_copy_ticks_from("EURUSD", datetime(2024, 1, 1), 100, 0)
+        with patch.dict(sys.modules, {"MetaTrader5": _mt5_mock}):
+            with patch("mtdata.utils.mt5._timestamp_mode_for_symbol", return_value="native"):
+                with patch("mtdata.utils.mt5._to_server_query_dt", return_value=datetime(2024, 1, 1)):
+                    with patch("mtdata.utils.mt5._normalize_times_in_struct", return_value=None):
+                        result = MT5Adapter().copy_ticks_from("EURUSD", datetime(2024, 1, 1), 100, 0)
         assert result is None
 
     def test_copy_rates_from_pos(self):
