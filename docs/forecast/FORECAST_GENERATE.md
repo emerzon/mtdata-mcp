@@ -171,7 +171,7 @@ Examples:
 mtdata-cli forecast_generate EURUSD --horizon 12 --method mlf_lightgbm --features '{"include":["close","volume"]}' --dimred '{"method":"pca","params":{"n_components":5}}'
 ```
 
-Tip: the Web UI exposes a broader method list via `GET /api/dimred/methods` (for example: `svd` (TruncatedSVD), `umap`, `isomap`), depending on what is installed (see [../WEB_API.md](../WEB_API.md)).
+Tip: `GET /api/dimred/methods` lists additional reducers (for example `svd` (TruncatedSVD), `umap`, `isomap`) depending on what is installed (see [../WEB_API.md](../WEB_API.md)). The focused Web UI forecast panel is univariate and does not apply dimred; use CLI, MCP, or the Tools runner when you need features plus reduction.
 
 ---
 

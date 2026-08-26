@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getErrorMessage, getRadar, getSessionStrip } from '../api/client'
-import { radarPanelPlacementClass, type LayoutBreakpoint } from '../lib/layout'
-import { useEscapeKey } from '../lib/useEscapeKey'
+import type { LayoutBreakpoint } from '../lib/layout'
+import { WorkspacePanelShell } from './WorkspacePanelShell'
 import { loadJSON, saveJSON } from '../lib/storage'
 import {
   WATCHLIST_MAX,
@@ -48,7 +48,6 @@ export function RadarPanel({
     normalizeWatchlist(loadJSON<string[]>(WATCHLIST_STORAGE_KEY))
   )
   const [draft, setDraft] = useState('')
-  useEscapeKey(open, onClose)
 
   const persist = (next: string[]) => {
     setWatchlist(next)
@@ -90,35 +89,25 @@ export function RadarPanel({
     return map
   }, [radarQuery.data?.rows])
 
-  if (!open) return null
-
-  const panelClass = radarPanelPlacementClass(layoutBreakpoint)
   const session = sessionQuery.data
 
   return (
-    <>
-      {layoutBreakpoint === 'mobile' && (
-        <button
-          type="button"
-          className="fixed inset-0 z-20 bg-slate-950/50 backdrop-blur-[1px]"
-          aria-label="Dismiss watchlist"
-          onClick={onClose}
-        />
-      )}
-      <div className={`${panelClass} animate-slide-in-right`} role="dialog" aria-modal="true" aria-label="Watchlist radar">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 shrink-0">
-          <div>
-            <h2 className="text-sm font-medium text-slate-100">Watchlist</h2>
-            <p className="text-[11px] text-slate-500">Activity on your list, not opportunity.</p>
-          </div>
-          <button className="text-slate-400 hover:text-slate-200 p-2 min-h-9 min-w-9" onClick={onClose} aria-label="Close watchlist">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+    <WorkspacePanelShell
+      open={open}
+      onClose={onClose}
+      layoutBreakpoint={layoutBreakpoint}
+      side="left"
+      label="Watchlist radar"
+      dismissLabel="Dismiss watchlist"
+      closeLabel="Close watchlist"
+      header={
+        <div>
+          <h2 className="text-sm font-medium text-slate-100">Watchlist</h2>
+          <p className="text-[11px] text-slate-500">Activity on your list, not opportunity.</p>
         </div>
-
-        <div className="flex-1 overflow-y-auto overscroll-contain min-h-0">
+      }
+      bodyClassName="flex-1 overflow-y-auto overscroll-contain min-h-0"
+    >
           <div className="px-4 py-3 border-b border-slate-800 space-y-1 text-[11px] text-slate-400">
             {session?.account && (
               <div>
@@ -235,8 +224,6 @@ export function RadarPanel({
           {watchlist.length === 0 && (
             <div className="px-4 py-6 text-xs text-slate-500">Add a broker symbol to start a list.</div>
           )}
-        </div>
-      </div>
-    </>
+    </WorkspacePanelShell>
   )
 }

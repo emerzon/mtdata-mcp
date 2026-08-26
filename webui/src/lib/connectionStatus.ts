@@ -1,6 +1,6 @@
 /**
  * Pure connection / readiness status for the chart workspace chrome.
- * Driven by /api/v1/health and /api/v1/ready responses (or fetch failures).
+ * Driven by a single /api/v1/ready query (or fetch failure).
  */
 
 export type ConnectionStatusKind = 'checking' | 'ok' | 'api-down' | 'mt5-not-ready'
@@ -13,45 +13,35 @@ export type ConnectionStatus = {
   hint?: string
 }
 
+export type ConnectionReadyState = 'pending' | 'ok' | 'mt5-not-ready' | 'error'
+
 export type ConnectionStatusInput = {
-  /** null = still loading / unknown */
-  healthOk: boolean | null
-  /** null = still loading / unknown; only meaningful when healthOk is true */
-  readyOk: boolean | null
-  healthError?: string | null
+  readyState: ConnectionReadyState
   readyMessage?: string | null
 }
 
 /**
- * Resolve API liveness + MT5 readiness into a non-blocking chrome status.
- * Health failure wins over readiness (cannot talk to API).
+ * Resolve one readiness query into a non-blocking chrome status.
+ * pending=checking, 200=ok, 503=mt5-not-ready, transport/auth/unexpected=api-down.
  */
 export function resolveConnectionStatus(input: ConnectionStatusInput): ConnectionStatus {
-  if (input.healthOk === null && input.readyOk === null) {
+  if (input.readyState === 'pending') {
     return {
       kind: 'checking',
       label: 'Connecting…',
-      hint: 'Checking API health and MT5 readiness.',
+      hint: 'Checking API and MT5 readiness.',
     }
   }
 
-  if (input.healthOk === false) {
+  if (input.readyState === 'error') {
     return {
       kind: 'api-down',
       label: 'API down',
-      hint: input.healthError?.trim() || 'Cannot reach /api/v1/health. Is mtdata-webapi running?',
+      hint: input.readyMessage?.trim() || 'Cannot reach /api/v1/ready. Is mtdata-webapi running?',
     }
   }
 
-  if (input.healthOk === true && input.readyOk === null) {
-    return {
-      kind: 'checking',
-      label: 'API ok…',
-      hint: 'API is up; checking MT5 readiness.',
-    }
-  }
-
-  if (input.readyOk === false) {
+  if (input.readyState === 'mt5-not-ready') {
     return {
       kind: 'mt5-not-ready',
       label: 'MT5 not ready',
@@ -64,6 +54,6 @@ export function resolveConnectionStatus(input: ConnectionStatusInput): Connectio
   return {
     kind: 'ok',
     label: 'Connected',
-    hint: 'API healthy and MT5 readiness reported OK.',
+    hint: 'API reachable and MT5 readiness reported OK.',
   }
 }

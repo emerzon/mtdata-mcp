@@ -189,33 +189,21 @@ export type SupportResistanceResponse = {
 // Forecast Types
 // ============================================================================
 
+/** Compact dedicated-panel forecast row from POST /forecast/price (detail defaults to compact). */
+export type CompactForecastRow = {
+  time?: string
+  value?: number
+  price?: number
+  return?: number
+  lower_price?: number
+  upper_price?: number
+  lower?: number
+  upper?: number
+}
+
+/** Compact dedicated-panel forecast payload. Tools runner uses generic invoke JSON, not this type. */
 export type ForecastPayload = {
-  times?: number[]
-  forecast_epoch?: number[]
-  forecast_time?: string[]
-  forecast_price?: number[]
-  forecast_return?: number[]
-  lower_price?: number[]
-  upper_price?: number[]
-  forecast_quantiles?: Record<string, number[]>
-  forecast?: Array<{
-    time?: string
-    value?: number
-    price?: number
-    return?: number
-    lower_price?: number
-    upper_price?: number
-    lower?: number
-    upper?: number
-  }>
-  uncertainty?: {
-    intervals?: Array<{
-      time?: string
-      forecast?: number
-      low?: number
-      high?: number
-    }>
-  }
+  forecast?: CompactForecastRow[]
   quantity?: 'price' | 'return' | 'volatility'
   data_window?: {
     last_observation?: string | number
@@ -309,17 +297,6 @@ export type WaveletsResponse = {
   families: string[]
   wavelets: string[]
   by_family: Record<string, string[]>
-}
-
-export type SktimeEstimator = {
-  name: string
-  class_path: string
-}
-
-export type SktimeEstimatorsResponse = {
-  available: boolean
-  estimators: SktimeEstimator[]
-  error?: string
 }
 
 export type StoredModelInfo = {

@@ -1,17 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
-import { getErrorMessage, healthCheck, readyCheck } from '../api/client'
-import { resolveConnectionStatus } from '../lib/connectionStatus'
+import { getErrorMessage, readyCheck } from '../api/client'
+import { resolveConnectionStatus, type ConnectionReadyState } from '../lib/connectionStatus'
 
 const POLL_MS = 30_000
 
 export function ConnectionStatus() {
-  const health = useQuery({
-    queryKey: ['api-health'],
-    queryFn: ({ signal }) => healthCheck(signal),
-    refetchInterval: POLL_MS,
-    retry: 1,
-  })
-
   const ready = useQuery({
     queryKey: ['api-ready'],
     queryFn: ({ signal }) => readyCheck(signal),
@@ -19,30 +12,19 @@ export function ConnectionStatus() {
     retry: 1,
   })
 
-  const healthOk =
-    health.isLoading && !health.data && !health.error
-      ? null
-      : health.isSuccess && health.data?.status === 'ok'
-        ? true
-        : health.isError || (health.isSuccess && health.data?.status !== 'ok')
-          ? false
-          : null
-
-  const readyOk =
-    healthOk !== true
-      ? null
-      : ready.isLoading && !ready.data
-        ? null
-        : ready.isSuccess
-          ? ready.data.ok
-          : ready.isError
-            ? false
-            : null
+  const readyState: ConnectionReadyState =
+    ready.isPending && !ready.data && !ready.error
+      ? 'pending'
+      : ready.isError
+        ? 'error'
+        : ready.isSuccess && ready.data.ok
+          ? 'ok'
+          : ready.isSuccess
+            ? 'mt5-not-ready'
+            : 'error'
 
   const status = resolveConnectionStatus({
-    healthOk,
-    readyOk,
-    healthError: health.error ? getErrorMessage(health.error) : null,
+    readyState,
     readyMessage:
       ready.data?.payload?.message ||
       ready.data?.payload?.detail ||

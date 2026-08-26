@@ -1,13 +1,11 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
-  getDenoiseMethods,
   getErrorMessage,
   getTimeframes,
-  getWavelets,
   searchInstruments,
 } from '../../api/client'
-import { chartDenoiseFromMethod } from '../../lib/denoiseSpec'
+import { DenoiseModal } from '../../components/DenoiseModal'
 import {
   CHART_INDICATOR_IDS,
   DEFAULT_CHART_INDICATORS,
@@ -18,7 +16,7 @@ import {
 } from '../../lib/indicatorSpec'
 import { loadJSON } from '../../lib/storage'
 import { useDismissiblePanel } from '../../lib/useDismissiblePanel'
-import type { DenoiseMethodInfo, DenoiseSpecUI } from '../../types'
+import type { DenoiseSpecUI } from '../../types'
 import { ChevronDown, IndicatorIcon } from './toolbarIcons'
 
 export function SymbolSelector({
@@ -236,99 +234,24 @@ export function DenoiseSelector({
     <div className="relative">
       <button
         className={`toolbar-btn ${value?.method ? 'text-orange-400' : ''}`}
-        onClick={() => setOpen((value) => !value)}
+        onClick={() => setOpen(true)}
         disabled={disabled}
         title="Chart denoising"
+        aria-label="Chart denoising"
       >
         <span>Filter</span>
         <ChevronDown />
       </button>
-      {open && (
-        <DenoiseDropdown
-          value={value}
-          onChange={(denoise) => {
-            onChange(denoise)
-            setOpen(false)
-          }}
-          onClose={() => setOpen(false)}
-        />
-      )}
-    </div>
-  )
-}
-
-function DenoiseDropdown({
-  value,
-  onChange,
-  onClose,
-}: {
-  value?: DenoiseSpecUI
-  onChange: (value?: DenoiseSpecUI) => void
-  onClose: () => void
-}) {
-  const ref = useDismissiblePanel(onClose)
-  const { data: methodsData } = useQuery({ queryKey: ['denoise_methods'], queryFn: getDenoiseMethods })
-  const { data: waveletsData } = useQuery({
-    queryKey: ['wavelets'],
-    queryFn: getWavelets,
-    enabled: value?.method === 'wavelet',
-  })
-
-  const methods = (methodsData?.methods ?? []).filter((method) => method.available)
-  const wavelets = waveletsData?.wavelets ?? []
-
-  const handleMethodSelect = (method: string) => {
-    if (method === '') {
-      onChange(undefined)
-      return
-    }
-    const meta = methods.find((item: DenoiseMethodInfo) => item.method === method)
-    onChange(chartDenoiseFromMethod(method, meta, value))
-  }
-
-  return (
-    <div ref={ref} className="absolute top-full right-0 mt-1 w-56 bg-slate-900 border border-slate-700 rounded-lg shadow-xl overflow-hidden z-50">
-      <div className="px-3 py-2 text-xs text-slate-400 border-b border-slate-700 font-medium">Chart Denoising</div>
-      <div className="max-h-64 overflow-y-auto">
-        <button
-          className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-800 ${
-            !value?.method ? 'text-sky-400' : 'text-slate-300'
-          }`}
-          onClick={() => handleMethodSelect('')}
-        >
-          None (raw data)
-        </button>
-        {methods.map((method) => (
-          <button
-            key={method.method}
-            className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-800 ${
-              method.method === value?.method ? 'text-sky-400' : 'text-slate-300'
-            }`}
-            onClick={() => handleMethodSelect(method.method)}
-          >
-            {method.method}
-            <span className="ml-2 text-slate-500 text-xs">{method.description}</span>
-          </button>
-        ))}
-      </div>
-      {value?.method === 'wavelet' && wavelets.length > 0 && (
-        <div className="border-t border-slate-700 px-3 py-2">
-          <label className="text-xs text-slate-400">Wavelet</label>
-          <select
-            className="w-full mt-1 bg-slate-800 text-slate-200 text-sm rounded px-2 py-1 border border-slate-700"
-            value={(value.params?.wavelet as string) || 'db4'}
-            onChange={(event) =>
-              onChange({ ...value, params: { ...value.params, wavelet: event.target.value } })
-            }
-          >
-            {wavelets.map((wavelet) => (
-              <option key={wavelet} value={wavelet}>
-                {wavelet}
-              </option>
-            ))}
-          </select>
-        </div>
-      )}
+      <DenoiseModal
+        open={open}
+        title="Chart Denoising"
+        value={value}
+        onClose={() => setOpen(false)}
+        onApply={(denoise) => {
+          onChange(denoise)
+          setOpen(false)
+        }}
+      />
     </div>
   )
 }

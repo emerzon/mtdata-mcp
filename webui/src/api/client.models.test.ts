@@ -47,7 +47,7 @@ describe('getModels / readyCheck client surface', () => {
     expect(result.count).toBe(1)
   })
 
-  it('readyCheck treats non-2xx as not ok without throwing', async () => {
+  it('readyCheck treats 503 as not ok without throwing', async () => {
     getMock.mockResolvedValueOnce({
       status: 503,
       data: { status: 'not_ready', message: 'MT5 down' },
@@ -56,6 +56,11 @@ describe('getModels / readyCheck client surface', () => {
     const result = await readyCheck()
     expect(result.ok).toBe(false)
     expect(result.payload.message).toBe('MT5 down')
+    const validateStatus = getMock.mock.calls[0][1].validateStatus as (status: number) => boolean
+    expect(validateStatus(200)).toBe(true)
+    expect(validateStatus(503)).toBe(true)
+    expect(validateStatus(401)).toBe(false)
+    expect(validateStatus(500)).toBe(false)
   })
 
   it('readyCheck marks 200 as ok', async () => {

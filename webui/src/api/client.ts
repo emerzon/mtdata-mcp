@@ -10,7 +10,6 @@ import type {
   DenoiseMethodsMeta,
   DimredMethodsMeta,
   WaveletsResponse,
-  SktimeEstimatorsResponse,
   ModelsResponse,
   ReadyResponse,
   ForecastPayload,
@@ -194,11 +193,6 @@ export async function getWavelets(): Promise<WaveletsResponse> {
   return data
 }
 
-export async function getSktimeEstimators(): Promise<SktimeEstimatorsResponse> {
-  const { data } = await api.get<SktimeEstimatorsResponse>('sktime/estimators')
-  return data
-}
-
 export async function getModels(method?: string, signal?: AbortSignal): Promise<ModelsResponse> {
   const { data } = await api.get<ModelsResponse>('models', {
     params: method ? { method } : undefined,
@@ -318,22 +312,18 @@ export async function composeTradeIdea(body: {
 }
 
 // ============================================================================
-// Health / Readiness
+// Readiness
 // ============================================================================
 
-export async function healthCheck(signal?: AbortSignal): Promise<{ service: string; status: string }> {
-  const { data } = await api.get<{ service: string; status: string }>('health', { signal })
-  return data
-}
-
 /**
- * MT5 readiness probe. Resolves with the JSON body even on HTTP 503 so the UI
- * can show a non-blocking "not ready" state without treating it as a hard crash.
+ * MT5 readiness probe. Resolves with the JSON body on HTTP 200 and the
+ * intentional 503 (MT5 not ready). Transport errors, 401/403, and unexpected
+ * 5xx reject so the UI can treat those as API down.
  */
 export async function readyCheck(signal?: AbortSignal): Promise<{ ok: boolean; payload: ReadyResponse }> {
   const { data, status } = await api.get<ReadyResponse>('ready', {
     signal,
-    validateStatus: () => true,
+    validateStatus: (next) => (next >= 200 && next < 300) || next === 503,
   })
   const payload = data && typeof data === 'object' ? data : {}
   const ok = status >= 200 && status < 300

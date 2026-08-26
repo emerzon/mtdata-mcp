@@ -16,6 +16,7 @@ import type {
   ChartOverlay,
   ForecastPriceBody,
 } from '../types'
+import { mapCompactForecastToSeries } from '../lib/compactForecast'
 import { loadJSON, saveJSON } from '../lib/storage'
 import { formatDateTime } from '../lib/utils'
 import {
@@ -185,11 +186,6 @@ export function useSupportResistance(symbol: string, timeframe: string) {
 // Forecast State Hook
 // ============================================================================
 
-const DIMRED_METHODS = new Set([
-  'mlf_rf', 'mlf_lightgbm', 'nhits', 'nbeatsx', 'tft', 'patchtst',
-  'chronos_bolt', 'timesfm', 'ensemble',
-])
-
 export type ForecastSettings = {
   method: string
   horizon: number
@@ -198,8 +194,6 @@ export type ForecastSettings = {
   ci_alpha: number
   params: Record<string, unknown>
   denoise?: DenoiseSpecUI
-  dimredMethod?: string
-  dimredParams?: Record<string, unknown>
 }
 
 const DEFAULT_FORECAST_SETTINGS: ForecastSettings = {
@@ -236,8 +230,6 @@ export function loadForecastSettings(symbol: string, timeframe: string): Forecas
     ci_alpha: saved.ci_alpha ?? DEFAULT_FORECAST_SETTINGS.ci_alpha,
     params: saved.params ?? saved.methodParams ?? {},
     denoise: saved.denoise,
-    dimredMethod: saved.dimredMethod,
-    dimredParams: saved.dimredParams,
   }
 }
 
@@ -253,16 +245,7 @@ export function useForecastSettings(symbol: string, timeframe: string) {
     saveJSON(storageKey, settings)
   }, [storageKey, settings])
 
-  const supportsDimred = DIMRED_METHODS.has(settings.method)
-
-  // Clear dimred when method doesn't support it
-  useEffect(() => {
-    if (!supportsDimred && (settings.dimredMethod || settings.dimredParams)) {
-      setSettings(prev => ({ ...prev, dimredMethod: undefined, dimredParams: undefined }))
-    }
-  }, [supportsDimred, settings.dimredMethod, settings.dimredParams])
-
-  return { settings, setSettings, supportsDimred }
+  return { settings, setSettings }
 }
 
 // ============================================================================
@@ -317,9 +300,6 @@ export function useForecast(
           as_of: kind === 'full' ? undefined : anchor ? formatDateTime(anchor) : undefined,
           params: Object.keys(settings.params).length ? settings.params : undefined,
           denoise: settings.denoise,
-          dimred: settings.dimredMethod
-            ? { method: settings.dimredMethod, params: settings.dimredParams }
-            : undefined,
         }
 
         const res = await forecastPrice(body)
@@ -330,11 +310,12 @@ export function useForecast(
         }
 
         if (currentRunId !== runId.current || runRequestKey !== requestKeyRef.current) return
-        const compactRows = payload.forecast ?? []
-        const hasChartPrice =
-          payload.forecast_price?.some(Number.isFinite) ||
-          compactRows.some((row) => Number.isFinite(row.price ?? row.value))
-        if (!hasChartPrice) {
+        try {
+          const series = mapCompactForecastToSeries(payload.forecast ?? [])
+          if (!series.values.length) {
+            throw new Error('compact forecast has no chart points')
+          }
+        } catch {
           setError(
             settings.quantity === 'return'
               ? 'The return forecast did not include a reconstructed price path for the price chart.'

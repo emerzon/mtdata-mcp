@@ -34,7 +34,7 @@ The UI should not be a thin demo. It should be the default interactive surface f
 - **Live market:** tick poll (bid / ask / last), live incomplete candle, reload and empty/error status surface
 - **Overlays:** pivots, support/resistance, indicators, confluence, volume profile, trade ideas, and read-only exposure
 - **Preprocessing:** chart-level denoise with method metadata UI
-- **Analysis panel:** price forecast, volatility forecast, rolling backtest (with advanced options: dimred, denoise, params)
+- **Analysis panel:** price forecast, volatility forecast, rolling backtest (with advanced options: denoise, params)
 - **Discovery:** persistent watchlist radar, session strip, trained-model browser, and schema-driven Tools runner
 - **Auth:** in-memory Bearer token for remote/tokenized API access
 - **Stack:** React 19, Vite, Tailwind, TanStack Query, lightweight-charts, axios → `/api/v1`

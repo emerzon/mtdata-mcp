@@ -14,8 +14,8 @@ import {
   type ToolCatalogEntry,
   type ToolParamValues,
 } from '../lib/toolCatalog'
-import { forecastPanelPlacementClass, type LayoutBreakpoint } from '../lib/layout'
-import { useEscapeKey } from '../lib/useEscapeKey'
+import type { LayoutBreakpoint } from '../lib/layout'
+import { WorkspacePanelShell } from './WorkspacePanelShell'
 
 type Props = {
   open: boolean
@@ -41,8 +41,6 @@ export function ToolsRunnerPanel({
   const [isRunning, setIsRunning] = useState(false)
   const [runError, setRunError] = useState<string | null>(null)
   const [resultText, setResultText] = useState<string | null>(null)
-
-  useEscapeKey(open, onClose)
 
   const catalogQuery = useQuery({
     queryKey: ['tools-catalog'],
@@ -113,55 +111,30 @@ export function ToolsRunnerPanel({
     setConfirm(false)
   }, [])
 
-  if (!open) return null
-
-  const panelClass = forecastPanelPlacementClass(layoutBreakpoint)
   const needsConfirm = invocationNeedsConfirmation(selected, fields, values)
   const runnable = toolIsRunnable(selected)
   const registeredCount =
     catalogQuery.data?.pagination?.total ?? catalogQuery.data?.count ?? tools.length
 
   return (
-    <>
-      {layoutBreakpoint === 'mobile' && (
-        <button
-          type="button"
-          className="fixed inset-0 z-20 bg-slate-950/50"
-          aria-label="Dismiss tools panel"
-          onClick={onClose}
-        />
-      )}
-      <div
-        className={`${panelClass} animate-slide-in-right`}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Tools runner"
-        data-tools-runner
-      >
-        {layoutBreakpoint === 'mobile' && (
-          <div className="flex justify-center pt-2 pb-1" aria-hidden>
-            <div className="h-1 w-10 rounded-full bg-slate-700" />
-          </div>
-        )}
-
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 shrink-0">
-          <div>
-            <h2 className="text-sm font-semibold text-slate-100">All tools</h2>
-            <p className="text-[11px] text-slate-500">
-              {registeredCount} registered · schema-driven runner
-            </p>
-          </div>
-          <button
-            type="button"
-            className="text-slate-400 hover:text-slate-200 p-2 min-h-9 min-w-9"
-            onClick={onClose}
-            aria-label="Close tools panel"
-          >
-            ×
-          </button>
+    <WorkspacePanelShell
+      open={open}
+      onClose={onClose}
+      layoutBreakpoint={layoutBreakpoint}
+      label="Tools runner"
+      dismissLabel="Dismiss tools panel"
+      closeLabel="Close tools panel"
+      header={
+        <div>
+          <h2 className="text-sm font-semibold text-slate-100">All tools</h2>
+          <p className="text-[11px] text-slate-500">
+            {registeredCount} registered · schema-driven runner
+          </p>
         </div>
-
-        <div className="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden">
+      }
+      bodyClassName="flex-1 min-h-0 flex flex-col md:flex-row overflow-hidden"
+      dialogData={{ 'data-tools-runner': '' }}
+    >
           <div className="md:w-2/5 border-b md:border-b-0 md:border-r border-slate-800 flex flex-col min-h-0 max-h-[40vh] md:max-h-none">
             <div className="p-3 space-y-2 shrink-0">
               <input
@@ -347,8 +320,6 @@ export function ToolsRunnerPanel({
               </>
             )}
           </div>
-        </div>
-      </div>
-    </>
+    </WorkspacePanelShell>
   )
 }

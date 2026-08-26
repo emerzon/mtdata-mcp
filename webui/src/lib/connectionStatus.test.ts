@@ -2,51 +2,34 @@ import { describe, expect, it } from 'vitest'
 import { resolveConnectionStatus } from './connectionStatus'
 
 describe('resolveConnectionStatus', () => {
-  it('reports checking while both probes are unknown', () => {
-    const status = resolveConnectionStatus({ healthOk: null, readyOk: null })
+  it('reports checking while readiness is pending', () => {
+    const status = resolveConnectionStatus({ readyState: 'pending' })
     expect(status.kind).toBe('checking')
     expect(status.label).toMatch(/connect/i)
   })
 
-  it('reports api-down when health fails', () => {
+  it('reports api-down on transport, auth, or unexpected failure', () => {
     const status = resolveConnectionStatus({
-      healthOk: false,
-      readyOk: null,
-      healthError: 'Network Error',
+      readyState: 'error',
+      readyMessage: 'Network Error',
     })
     expect(status.kind).toBe('api-down')
     expect(status.label).toMatch(/API/i)
     expect(status.hint).toContain('Network Error')
   })
 
-  it('prefers api-down over ready failure', () => {
+  it('reports mt5-not-ready on the intentional 503', () => {
     const status = resolveConnectionStatus({
-      healthOk: false,
-      readyOk: false,
-      healthError: 'offline',
-      readyMessage: 'mt5 down',
-    })
-    expect(status.kind).toBe('api-down')
-  })
-
-  it('reports mt5-not-ready when API is up but ready fails', () => {
-    const status = resolveConnectionStatus({
-      healthOk: true,
-      readyOk: false,
+      readyState: 'mt5-not-ready',
       readyMessage: 'MT5 connection failed',
     })
     expect(status.kind).toBe('mt5-not-ready')
     expect(status.hint).toContain('MT5 connection failed')
   })
 
-  it('reports ok when both probes succeed', () => {
-    const status = resolveConnectionStatus({ healthOk: true, readyOk: true })
+  it('reports ok when readiness returns 200', () => {
+    const status = resolveConnectionStatus({ readyState: 'ok' })
     expect(status.kind).toBe('ok')
     expect(status.label).toMatch(/connected/i)
-  })
-
-  it('reports checking when health ok but ready still unknown', () => {
-    const status = resolveConnectionStatus({ healthOk: true, readyOk: null })
-    expect(status.kind).toBe('checking')
   })
 })

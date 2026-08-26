@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { composeTradeIdea, getErrorMessage } from '../api/client'
-import { forecastPanelPlacementClass, type LayoutBreakpoint } from '../lib/layout'
-import { useEscapeKey } from '../lib/useEscapeKey'
+import type { LayoutBreakpoint } from '../lib/layout'
 import type { TradeIdeaPayload } from '../types'
+import { WorkspacePanelShell } from './WorkspacePanelShell'
 
 type Props = {
   open: boolean
@@ -30,7 +30,6 @@ export function IdeaPanel({
   const [idea, setIdea] = useState<TradeIdeaPayload | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  useEscapeKey(open, onClose)
 
   const onIdeaRef = useRef(onIdea)
   const requestKey = JSON.stringify({
@@ -97,36 +96,24 @@ export function IdeaPanel({
     void run()
   }, [autoComposeKey, open, run])
 
-  if (!open) return null
-
-  const panelClass = forecastPanelPlacementClass(layoutBreakpoint)
-
   const gates = Object.entries(idea?.gates ?? {})
 
   return (
-    <>
-      {layoutBreakpoint === 'mobile' && (
-        <button
-          type="button"
-          className="fixed inset-0 z-20 bg-slate-950/50 backdrop-blur-[1px]"
-          aria-label="Dismiss idea panel"
-          onClick={onClose}
-        />
-      )}
-      <div className={`${panelClass} animate-slide-in-right`} role="dialog" aria-modal="true" aria-label="Trade idea panel">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 shrink-0">
-          <div>
-            <h2 className="text-sm font-medium text-slate-100">Idea</h2>
-            <p className="text-[11px] text-slate-500">Preview-only research. Cannot place an order.</p>
-          </div>
-          <button className="text-slate-400 hover:text-slate-200 p-2 min-h-9 min-w-9" onClick={onClose} aria-label="Close idea panel">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+    <WorkspacePanelShell
+      open={open}
+      onClose={onClose}
+      layoutBreakpoint={layoutBreakpoint}
+      label="Trade idea panel"
+      dismissLabel="Dismiss idea panel"
+      closeLabel="Close idea panel"
+      header={
+        <div>
+          <h2 className="text-sm font-medium text-slate-100">Idea</h2>
+          <p className="text-[11px] text-slate-500">Preview-only research. Cannot place an order.</p>
         </div>
-
-        <div className="flex-1 overflow-y-auto overscroll-contain p-4 min-h-0 space-y-3">
+      }
+      bodyClassName="flex-1 overflow-y-auto overscroll-contain p-4 min-h-0 space-y-3"
+    >
           <label className="block text-[11px] text-slate-500">
             Direction
             <select
@@ -221,8 +208,6 @@ export function IdeaPanel({
               )}
             </div>
           )}
-        </div>
-      </div>
-    </>
+    </WorkspacePanelShell>
   )
 }

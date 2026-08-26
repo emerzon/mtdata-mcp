@@ -14,10 +14,11 @@ React + Vite + Tailwind single-page app for chart visualization and forecast int
 | `src/api/client.ts` | Axios client for `/api/v1` (history, tick, forecast, models, health/ready, tools list/invoke) |
 | **Components** | |
 | `src/components/ApiAuthControl.tsx` | In-memory Bearer token (never persisted) |
-| `src/components/ConnectionStatus.tsx` | Non-blocking API health + MT5 readiness chip |
+| `src/components/ConnectionStatus.tsx` | Non-blocking MT5 readiness chip (`/ready` only) |
 | `src/components/ChartToolbar.tsx` | Responsive toolbar (More overflow + Tools/Forecast entry) |
 | `src/components/ChartWorkspaceStatus.tsx` | Empty / loading / error chart surface |
 | `src/components/DenoiseModal.tsx` | Denoise config modal (Esc to close) |
+| `src/components/WorkspacePanelShell.tsx` | Shared workspace drawer/sheet chrome + Escape/backdrop dismissal |
 | `src/components/ForecastPanel.tsx` | Price / volatility / backtest drawer/sheet (Esc to close) |
 | `src/components/IdeaPanel.tsx` | Preview-only trade-idea compose + send-to-chart |
 | `src/components/RadarPanel.tsx` | Persistent watchlist + session strip |
@@ -37,7 +38,8 @@ React + Vite + Tailwind single-page app for chart visualization and forecast int
 | `src/hooks/useViewportBreakpoint.ts` | mobile / tablet / desktop from window width |
 | **Lib (pure + tests)** | |
 | `src/lib/workspaceStatus.ts` | Chart surface status resolution |
-| `src/lib/connectionStatus.ts` | Health/ready chip resolution |
+| `src/lib/connectionStatus.ts` | `/ready` chip resolution |
+| `src/lib/compactForecast.ts` | Compact forecast/backtest adapters for dedicated panels |
 | `src/lib/overlayParams.ts` | Pivot / S/R query builders and clamps |
 | `src/lib/indicatorSpec.ts` | Chart indicator presets, history query, overlay mapping |
 | `src/lib/layout.ts` | Breakpoints + panel placement class helpers |

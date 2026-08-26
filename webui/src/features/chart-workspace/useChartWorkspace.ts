@@ -15,8 +15,9 @@ import {
   type ChartIndicatorSelection,
 } from '../../lib/indicatorSpec'
 import { loadJSON, saveJSON } from '../../lib/storage'
+import { mapCompactForecastToSeries } from '../../lib/compactForecast'
 import { toUtcSec } from '../../lib/time'
-import { chartWorkspaceLivePollMs, tfSeconds } from '../../lib/timeframes'
+import { chartWorkspaceLivePollMs } from '../../lib/timeframes'
 import { formatDateTime } from '../../lib/utils'
 import {
   confluencePriceLines,
@@ -304,50 +305,19 @@ export function useChartWorkspace() {
         setMetrics(null)
         return
       }
-      const compactRows: NonNullable<ForecastPayload['forecast']> | undefined = result.forecast?.length
-        ? result.forecast
-        : result.uncertainty?.intervals?.map((row) => ({
-            time: row.time,
-            value: row.forecast,
-            lower: row.low,
-            upper: row.high,
-          }))
-      const mainValues = result.forecast_price || compactRows?.map((row) => row.price ?? row.value)
-      if (
-        !mainValues?.length ||
-        !mainValues.every(
-          (value): value is number =>
-            typeof value === 'number' && Number.isFinite(value)
-        )
-      ) {
+      let series
+      try {
+        series = mapCompactForecastToSeries(result.forecast ?? [])
+      } catch {
         setForecastOverlays([])
         setMetrics(null)
         return
       }
-      const main = mainValues
-      let times: number[] = []
-
-      if (result.forecast_epoch && result.forecast_epoch.length === main.length) {
-        times = result.forecast_epoch.map((value) => toUtcSec(value))
-      } else if (
-        compactRows?.length === main.length &&
-        compactRows.every((row) => row.time)
-      ) {
-        times = compactRows.map((row) => toUtcSec(row.time!))
-      } else {
-        const step = tfSeconds(timeframe)
-        const anchorOverride = result.__anchor !== undefined ? Number(result.__anchor) : undefined
-        if (anchorOverride !== undefined && step) {
-          times = Array.from({ length: main.length }, (_, index) => anchorOverride + step * (index + 1))
-        } else {
-          const last = bars.length ? bars[bars.length - 1].time : undefined
-          if (last !== undefined && step) {
-            times = Array.from({ length: main.length }, (_, index) => last + step * (index + 1))
-          } else {
-            const fallback = (result.forecast_time || result.times || []) as (number | string)[]
-            times = fallback.map((value) => toUtcSec(value))
-          }
-        }
+      const { times, values: main, lower, upper } = series
+      if (!main.length) {
+        setForecastOverlays([])
+        setMetrics(null)
+        return
       }
 
       const overlays: ChartOverlay[] = [
@@ -359,23 +329,16 @@ export function useChartWorkspace() {
         },
       ]
 
-      const lower = result.lower_price || compactRows?.map((row) => row.lower_price ?? row.lower)
-      const upper = result.upper_price || compactRows?.map((row) => row.upper_price ?? row.upper)
-      if (
-        lower?.length === main.length &&
-        upper?.length === main.length &&
-        lower.every((value) => Number.isFinite(value)) &&
-        upper.every((value) => Number.isFinite(value))
-      ) {
+      if (lower && upper) {
         overlays.push({
           name: 'lower',
-          points: times.map((time, index) => ({ time, value: lower[index]! })),
+          points: times.map((time, index) => ({ time, value: lower[index] })),
           color: '#64748b',
           lineStyle: 'dashed',
         })
         overlays.push({
           name: 'upper',
-          points: times.map((time, index) => ({ time, value: upper[index]! })),
+          points: times.map((time, index) => ({ time, value: upper[index] })),
           color: '#64748b',
           lineStyle: 'dashed',
         })
@@ -446,7 +409,7 @@ export function useChartWorkspace() {
         setMetrics(null)
       }
     },
-    [bars, timeframe]
+    [bars]
   )
 
   const indicatorOverlays = useMemo(
