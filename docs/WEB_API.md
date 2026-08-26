@@ -272,9 +272,6 @@ List trained model artifacts currently available in the model store.
 #### `GET /api/volatility/methods`
 List available volatility models and their requirements.
 
-#### `GET /api/sktime/estimators`
-List sktime estimators (when sktime is installed).
-
 #### `POST /api/forecast/price`
 Generate price forecasts.
 

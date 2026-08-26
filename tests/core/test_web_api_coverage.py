@@ -16,7 +16,6 @@ from mtdata.bootstrap.runtime import WebApiRuntimeSettings
 from mtdata.core import web_api
 from mtdata.core.web_api import (
     _call_tool_raw,
-    _list_sktime_forecasters,
     app,
 )
 from mtdata.core.web_api_runtime import create_web_api_app, mount_webui
@@ -63,65 +62,6 @@ class TestCallToolRaw:
         fn = lambda: 42
         fn.__wrapped__ = "not_callable"
         assert _call_tool_raw(fn) is fn
-
-
-# ===========================================================================
-# _list_sktime_forecasters
-# ===========================================================================
-
-class TestListSktimeForecasters:
-    def test_sktime_not_installed(self):
-        with patch("mtdata.core.web_api._discover_sktime_forecasters", return_value={}):
-            res = _list_sktime_forecasters()
-        assert res["available"] is False
-        assert res["estimators"] == []
-        assert "No sktime forecasters" in res["error"]
-
-    def test_sktime_success(self):
-        discovered = {
-            "thetaforecaster": (
-                "ThetaForecaster",
-                "sktime.forecasting.theta.ThetaForecaster",
-            ),
-            "naiveforecaster": (
-                "NaiveForecaster",
-                "sktime.forecasting.naive.NaiveForecaster",
-            ),
-        }
-        with patch(
-            "mtdata.core.web_api._discover_sktime_forecasters",
-            return_value=discovered,
-        ):
-            res = _list_sktime_forecasters()
-        assert res["available"] is True
-        names = [e["name"] for e in res["estimators"]]
-        assert "NaiveForecaster" in names
-        assert "ThetaForecaster" in names
-        # Sorted alphabetically
-        assert names == sorted(names, key=str.lower)
-
-    def test_sktime_import_exception(self):
-        with patch(
-            "mtdata.core.web_api._discover_sktime_forecasters",
-            side_effect=RuntimeError("boom"),
-        ):
-            res = _list_sktime_forecasters()
-        assert res["available"] is False
-        assert "boom" in res["error"]
-
-    def test_sktime_aliases_are_deduplicated(self):
-        discovered = {
-            "good": ("Good", "sktime.forecasting.good.Good"),
-            "goodalias": ("Good", "sktime.forecasting.good.Good"),
-        }
-        with patch(
-            "mtdata.core.web_api._discover_sktime_forecasters",
-            return_value=discovered,
-        ):
-            res = _list_sktime_forecasters()
-        assert res["available"] is True
-        assert len(res["estimators"]) == 1
-        assert res["estimators"][0]["name"] == "Good"
 
 
 # ===========================================================================
@@ -633,18 +573,6 @@ class TestGetVolMethods:
         with patch("mtdata.core.web_api._get_vol_methods", return_value="bad"):
             res = web_api.get_vol_methods()
         assert res == {"methods": []}
-
-
-# ===========================================================================
-# GET /api/sktime/estimators
-# ===========================================================================
-
-class TestGetSktimeEstimators:
-    def test_delegates_to_list_sktime(self):
-        expected = {"available": False, "error": "sktime not installed", "estimators": []}
-        with patch("mtdata.core.web_api._list_sktime_forecasters", return_value=expected):
-            res = web_api.get_sktime_estimators()
-        assert res == expected
 
 
 # ===========================================================================

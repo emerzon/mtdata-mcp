@@ -18,7 +18,6 @@ from ..forecast.requests import (
     ForecastGenerateRequest,
     ForecastVolatilityEstimateRequest,
 )
-from ..forecast.use_cases.sktime_index import _discover_sktime_forecasters
 from ..forecast.volatility import (
     get_volatility_methods_data as _get_vol_methods,
 )
@@ -230,26 +229,6 @@ app = create_web_api_app()
 api_router = APIRouter(dependencies=[Depends(_require_api_access)])
 
 
-def _list_sktime_forecasters() -> Dict[str, Any]:
-    try:
-        discovered = _discover_sktime_forecasters()
-        items = [
-            {"name": class_name, "class_path": class_path}
-            for class_name, class_path in sorted(
-                set(discovered.values()), key=lambda item: item[0].lower()
-            )
-        ]
-        if not items:
-            return {
-                "available": False,
-                "error": "No sktime forecasters are available.",
-                "estimators": [],
-            }
-        return {"available": True, "estimators": items}
-    except Exception as exc:
-        return {"available": False, "error": str(exc), "estimators": []}
-
-
 def _call_tool_raw(func: Any) -> Any:
     return unwrap_tool_callable(func)
 
@@ -355,11 +334,6 @@ def get_models(
 @api_router.get("/volatility/methods")
 def get_vol_methods() -> Dict[str, Any]:
     return _get_vol_methods_response(get_vol_methods=_get_vol_methods)
-
-
-@api_router.get("/sktime/estimators")
-def get_sktime_estimators() -> Dict[str, Any]:
-    return _list_sktime_forecasters()
 
 
 @api_router.get("/denoise/methods")
