@@ -14,7 +14,7 @@ from ..utils.coercion import coerce_finite_float as _coerce_float
 from ..utils.market_metadata import build_tick_freshness_context
 from ..utils.mt5 import resolve_public_symbol
 from ..utils.quote import enforce_quote_execution_readiness
-from ..utils.symbol import symbol_suggestions_from_gateway
+from ..utils.symbol import looks_like_invalid_symbol_error, symbol_suggestions_from_gateway
 from ..utils.time import format_datetime_utc
 from ._mcp_instance import mcp
 from .error_envelope import build_error_payload
@@ -326,24 +326,6 @@ def _section_error_text(payload: Any) -> str:
     return ""
 
 
-def _looks_like_invalid_symbol_error(message: str, symbol: str) -> bool:
-    text = str(message or "").lower()
-    if "symbol" not in text:
-        return False
-    symbol_text = str(symbol or "").strip().lower()
-    if symbol_text and symbol_text not in text:
-        return False
-    return any(
-        phrase in text
-        for phrase in (
-            "not found",
-            "not available",
-            "unavailable",
-            "unknown symbol",
-        )
-    )
-
-
 def _snapshot_health(
     symbol: str,
     selected: tuple[str, ...],
@@ -371,7 +353,7 @@ def _snapshot_health(
                 summary["remediation"] = section["remediation"]
         section_errors[name] = summary
     invalid_symbol = any(
-        _looks_like_invalid_symbol_error(message, symbol)
+        looks_like_invalid_symbol_error(message, symbol)
         for message in errors.values()
     )
 

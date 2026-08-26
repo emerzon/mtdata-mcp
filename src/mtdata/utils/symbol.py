@@ -120,6 +120,25 @@ def match_symbol_infos(
     return list(matches[: max(1, int(limit))])
 
 
+def looks_like_invalid_symbol_error(message: str, symbol: str = "") -> bool:
+    """Return whether a downstream error message looks like an unknown symbol."""
+    text = str(message or "").lower()
+    if "symbol" not in text:
+        return False
+    symbol_text = str(symbol or "").strip().lower()
+    if symbol_text and symbol_text not in text:
+        return False
+    return any(
+        phrase in text
+        for phrase in (
+            "not found",
+            "not available",
+            "unavailable",
+            "unknown symbol",
+        )
+    )
+
+
 def symbol_suggestions_from_gateway(
     gateway: Any,
     query: str,

@@ -15,6 +15,7 @@ from ...forecast.requests import MAX_FORECAST_HORIZON
 from ...shared.schema import normalize_required_symbol
 from ...utils.barriers import barrier_prices_are_valid
 from ...utils.coercion import coerce_finite_float as _as_float
+from ...utils.symbol import looks_like_invalid_symbol_error
 from ...utils.time import format_datetime_utc
 from .._mcp_instance import mcp
 from ..error_envelope import build_error_payload
@@ -241,19 +242,6 @@ def _gate(status: str, reason: Optional[str] = None) -> Dict[str, Any]:
     if reason:
         payload["reason"] = reason
     return payload
-
-
-def _looks_like_invalid_symbol(message: str, symbol: str) -> bool:
-    text = str(message or "").lower()
-    if "symbol" not in text:
-        return False
-    symbol_text = str(symbol or "").strip().lower()
-    if symbol_text and symbol_text not in text:
-        return False
-    return any(
-        phrase in text
-        for phrase in ("not found", "not available", "unavailable", "unknown symbol")
-    )
 
 
 def _extract_quote(session: Any) -> Dict[str, Any]:
@@ -1085,7 +1073,7 @@ def run_trade_idea_compose(  # noqa: C901
     for name in early:
         payload = _run_section(name, dict(common))
         if name == "session" and isinstance(payload, dict):
-            if payload.get("error_code") == "symbol_not_found" or _looks_like_invalid_symbol(
+            if payload.get("error_code") == "symbol_not_found" or looks_like_invalid_symbol_error(
                 _section_error_text(payload),
                 symbol,
             ):
