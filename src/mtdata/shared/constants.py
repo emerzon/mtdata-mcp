@@ -58,9 +58,6 @@ DEFAULT_ROW_LIMIT = 50
 SIMPLIFY_DEFAULT_METHOD = "lttb"
 SIMPLIFY_DEFAULT_MODE = "select"
 SIMPLIFY_DEFAULT_POINTS_RATIO_FROM_LIMIT = 0.10
-SIMPLIFY_DEFAULT_RATIO = 0.25
-SIMPLIFY_DEFAULT_MIN_POINTS = 100
-SIMPLIFY_DEFAULT_MAX_POINTS = 500
 
 # Shared timeframe mapping. Values are the documented MetaTrader 5 period
 # codes so this module stays adapter-free at import time.

@@ -7,7 +7,6 @@ from mtdata.utils.simplify import (
     _apca_autotune_max_error,
     _apca_select_indices,
     _choose_simplify_points,
-    _default_target_points,
     _fallback_lttb_indices,
     _finalize_indices,
     _handle_encode_mode,
@@ -17,6 +16,7 @@ from mtdata.utils.simplify import (
     _lttb_select_indices,
     _max_line_error,
     _n_bkps_from_segments_points,
+    _normalize_simplify_spec,
     _observed_apca_max_error,
     _pla_autotune_max_error,
     _pla_select_indices,
@@ -30,19 +30,24 @@ from mtdata.utils.simplify import (
 )
 
 
-class TestDefaultTargetPoints:
-    def test_small(self):
-        result = _default_target_points(10)
-        assert 3 <= result <= 10
+class TestNormalizeSimplifySpec:
+    def test_none_passthrough(self):
+        assert _normalize_simplify_spec(None, limit=100, fallback_rows=80) is None
 
-    def test_large(self):
-        result = _default_target_points(10000)
-        assert result >= 3
-        assert result <= 10000
+    def test_injects_ten_percent_of_limit(self):
+        result = _normalize_simplify_spec({"method": "lttb"}, limit=100, fallback_rows=80)
+        assert result is not None
+        assert result["points"] == 10
+        assert result["mode"] == "select"
 
-    def test_min_3(self):
-        result = _default_target_points(2)
-        assert result >= 2  # can't exceed total
+    def test_keeps_explicit_points(self):
+        result = _normalize_simplify_spec(
+            {"method": "lttb", "points": 25},
+            limit=100,
+            fallback_rows=80,
+        )
+        assert result is not None
+        assert result["points"] == 25
 
 
 class TestChooseSimplifyPoints:
@@ -69,9 +74,8 @@ class TestChooseSimplifyPoints:
     def test_clamp_to_total(self):
         assert _choose_simplify_points(50, {"points": 200}) == 50
 
-    def test_method_only_uses_default(self):
-        result = _choose_simplify_points(200, {"method": "rdp"})
-        assert 3 <= result <= 200
+    def test_method_only_does_not_invent_a_size(self):
+        assert _choose_simplify_points(200, {"method": "rdp"}) == 200
 
 
 class TestFinalizeIndices:

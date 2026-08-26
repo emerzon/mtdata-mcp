@@ -19,8 +19,6 @@ from ...shared.constants import (
     FETCH_RETRY_ATTEMPTS,
     FETCH_RETRY_DELAY,
     SANITY_BARS_TOLERANCE,
-    SIMPLIFY_DEFAULT_MODE,
-    SIMPLIFY_DEFAULT_POINTS_RATIO_FROM_LIMIT,
     TI_NAN_WARMUP_FACTOR,
     TI_NAN_WARMUP_MIN_ADD,
     TIMEFRAME_MAP,
@@ -80,7 +78,7 @@ from ...utils.mt5 import (
     symbol_price_point as _symbol_price_point,
 )
 from ...utils.ohlcv import validate_and_clean_ohlcv_frame
-from ...utils.simplify import _simplify_dataframe_rows_ext
+from ...utils.simplify import _normalize_simplify_spec, _simplify_dataframe_rows_ext
 from ...utils.time import (
     _format_datetime_minute_explicit,
     _format_time_explicit,
@@ -1805,32 +1803,6 @@ def _format_candle_times(
             time_values = time_values.dt.tz_convert(client_tz)
         df['time'] = time_values.map(lambda value: _format_datetime_minute_explicit(value.to_pydatetime()))
     df.attrs['_tz_used_name'] = tz_used_name
-
-
-def _normalize_simplify_spec(
-    simplify: Optional[SimplifySpec],
-    *,
-    limit: int,
-    fallback_rows: int,
-) -> Optional[Dict[str, Any]]:
-    if simplify is None:
-        return None
-
-    simplify_eff = dict(simplify)
-    simplify_eff['mode'] = str(simplify_eff.get('mode', SIMPLIFY_DEFAULT_MODE)).lower().strip()
-    has_points = any(
-        key in simplify_eff and simplify_eff[key] is not None
-        for key in ("points", "target_points", "max_points", "ratio")
-    )
-    if has_points:
-        return simplify_eff
-
-    try:
-        default_pts = max(3, int(round(int(limit) * SIMPLIFY_DEFAULT_POINTS_RATIO_FROM_LIMIT)))
-    except Exception:
-        default_pts = max(3, int(round(fallback_rows * SIMPLIFY_DEFAULT_POINTS_RATIO_FROM_LIMIT)))
-    simplify_eff['points'] = default_pts
-    return simplify_eff
 
 
 def _public_simplify_meta(meta: Any) -> Optional[Dict[str, Any]]:

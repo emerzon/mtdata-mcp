@@ -50,6 +50,7 @@ from ...utils.quote import tick_value as _tick_field_value
 from ...utils.simplify import (
     _choose_simplify_points,
     _lttb_select_indices,
+    _normalize_simplify_spec,
     _select_indices_for_timeseries,
     _simplify_dataframe_rows_ext,
 )
@@ -64,7 +65,6 @@ from ...utils.utils import (
     _utc_epoch_seconds,
 )
 from .candles import (
-    _normalize_simplify_spec,
     _round_price_value,
     _round_row_price_columns,
     _timezone_label,

@@ -11,10 +11,8 @@ import pandas as pd
 import ruptures as rpt
 
 from ..shared.constants import (
-    SIMPLIFY_DEFAULT_MAX_POINTS,
-    SIMPLIFY_DEFAULT_MIN_POINTS,
     SIMPLIFY_DEFAULT_MODE,
-    SIMPLIFY_DEFAULT_RATIO,
+    SIMPLIFY_DEFAULT_POINTS_RATIO_FROM_LIMIT,
 )
 
 try:
@@ -23,22 +21,40 @@ except Exception:
     MinMaxLTTBDownsampler = None
 
 
-def _default_target_points(total: int) -> int:
-    """Default target points when simplify spec lacks explicit size.
+def _normalize_simplify_spec(
+    simplify: Optional[Dict[str, Any]],
+    *,
+    limit: int,
+    fallback_rows: int,
+) -> Optional[Dict[str, Any]]:
+    """Inject the documented 10%-of-request default when no size is given."""
+    if simplify is None:
+        return None
 
-    Uses SIMPLIFY_DEFAULT_RATIO bounded by
-    [SIMPLIFY_DEFAULT_MIN_POINTS, SIMPLIFY_DEFAULT_MAX_POINTS].
-    """
-    t = int(round(total * SIMPLIFY_DEFAULT_RATIO))
-    t = max(SIMPLIFY_DEFAULT_MIN_POINTS, min(SIMPLIFY_DEFAULT_MAX_POINTS, t))
-    return max(3, min(t, total))
+    simplify_eff = dict(simplify)
+    simplify_eff["mode"] = str(simplify_eff.get("mode", SIMPLIFY_DEFAULT_MODE)).lower().strip()
+    has_points = any(
+        key in simplify_eff and simplify_eff[key] is not None
+        for key in ("points", "target_points", "max_points", "ratio")
+    )
+    if has_points:
+        return simplify_eff
+
+    try:
+        default_pts = max(3, int(round(int(limit) * SIMPLIFY_DEFAULT_POINTS_RATIO_FROM_LIMIT)))
+    except Exception:
+        default_pts = max(
+            3, int(round(fallback_rows * SIMPLIFY_DEFAULT_POINTS_RATIO_FROM_LIMIT))
+        )
+    simplify_eff["points"] = default_pts
+    return simplify_eff
 
 
 def _choose_simplify_points(total: int, spec: Dict[str, Any]) -> int:
     """Determine target number of points from a simplify spec.
 
     Supports keys: 'points', 'max_points', 'target_points', or 'ratio' (0..1).
-    Enforces bounds [3, total]. Returns total if no effective reduction requested.
+    Enforces bounds [3, total]. Returns total if no explicit size is present.
     """
     try:
         if not spec:
@@ -59,8 +75,6 @@ def _choose_simplify_points(total: int, spec: Dict[str, Any]) -> int:
             except Exception:
                 pass
         if n is None:
-            if spec and ("method" in spec or len(spec) > 0):
-                return _default_target_points(total)
             return total
         n = max(3, min(int(n), total))
         return n
@@ -418,8 +432,6 @@ def _select_indices_for_timeseries(x: List[float], y: List[float], spec: Optiona
                     target = max(3, int(round(len(x) * r)))
             except Exception:
                 pass
-        if target is None:
-            target = _default_target_points(len(x))
         try:
             target_n = int(target) if target is not None else None
         except Exception:
@@ -459,8 +471,6 @@ def _select_indices_for_timeseries(x: List[float], y: List[float], spec: Optiona
             p = int(points) if points is not None else None
         except Exception:
             p = None
-        if p is None:
-            p = _default_target_points(len(x))
         if p is not None and p < len(x):
             idxs, me_used = _pla_autotune_max_error(x, y, p)
             meta.update(
@@ -502,8 +512,6 @@ def _select_indices_for_timeseries(x: List[float], y: List[float], spec: Optiona
             p = int(points) if points is not None else None
         except Exception:
             p = None
-        if p is None:
-            p = _default_target_points(len(x))
         if p is not None and p < len(x):
             idxs, me_used = _apca_autotune_max_error(y, p)
             meta.update(
