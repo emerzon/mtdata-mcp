@@ -288,6 +288,7 @@ def assemble_radar_payload(
         for key in (
             "universe",
             "price_change_basis",
+            "live_price_change_basis",
             "price_change_period",
             "units",
             "broker_symbol_count",

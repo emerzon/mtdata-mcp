@@ -1276,6 +1276,9 @@ class TestSymbolsTopMarkets:
         assert result["price_change_basis"] == (
             "previous_completed_close_to_latest_completed_close"
         )
+        assert result["live_price_change_basis"] == (
+            "previous_completed_close_to_live_quote_mid"
+        )
         assert result["price_change_period"] == {
             "bars": 1,
             "timeframe": "H1",
@@ -2112,6 +2115,9 @@ class TestMarketScan:
         assert result["data_as_of"]
         assert "only 1 symbols were available" in result["note"]
         assert result["units"]["price_change_pct"] == "percent (1.0 = 1%)"
+        assert result["live_price_change_basis"] == (
+            "previous_completed_close_to_live_quote_mid"
+        )
         assert result["units"]["spread_pips"] == (
             "pips (forex_only; null when not applicable)"
         )

@@ -2370,6 +2370,9 @@ def symbols_top_markets(  # noqa: C901
                 out["price_change_basis"] = (
                     "previous_completed_close_to_latest_completed_close"
                 )
+                out["live_price_change_basis"] = (
+                    "previous_completed_close_to_live_quote_mid"
+                )
                 out["price_change_period"] = {
                     "bars": 1,
                     "timeframe": timeframe,
@@ -2412,6 +2415,9 @@ def symbols_top_markets(  # noqa: C901
             out["ranking"] = "all"
             out["price_change_basis"] = (
                 "previous_completed_close_to_latest_completed_close"
+            )
+            out["live_price_change_basis"] = (
+                "previous_completed_close_to_live_quote_mid"
             )
             out["price_change_period"] = {
                 "bars": 1,
@@ -3366,6 +3372,9 @@ def market_scan(  # noqa: C901
                     "excluded_examples": quote_eligibility_examples,
                 },
                 "price_change_basis": "previous_completed_close_to_latest_completed_close",
+                "live_price_change_basis": (
+                    "previous_completed_close_to_live_quote_mid"
+                ),
                 "ranking_basis": _market_scan_ranking_basis(rank_by_value),
                 "price_change_period": {
                     "bars": 1,

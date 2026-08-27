@@ -298,6 +298,12 @@ def test_market_radar_preserves_scan_bar_comparability(detail: str) -> None:
             },
             "bar_rank_comparable": False,
             "price_change_comparable": False,
+            "price_change_basis": (
+                "previous_completed_close_to_latest_completed_close"
+            ),
+            "live_price_change_basis": (
+                "previous_completed_close_to_live_quote_mid"
+            ),
             "data_as_of_range": {
                 "oldest": "2026-08-19T19:00:00Z",
                 "newest": "2026-08-20T03:00:00Z",
@@ -321,6 +327,8 @@ def test_market_radar_preserves_scan_bar_comparability(detail: str) -> None:
     assert result["bar_time_alignment"]["comparable"] is False
     assert result["bar_rank_comparable"] is False
     assert result["price_change_comparable"] is False
+    assert result["price_change_basis"] == scan["price_change_basis"]
+    assert result["live_price_change_basis"] == scan["live_price_change_basis"]
     assert result["data_as_of_range"] == scan["data_as_of_range"]
     assert result["comparison_warning"] == scan["comparison_warning"]
 
