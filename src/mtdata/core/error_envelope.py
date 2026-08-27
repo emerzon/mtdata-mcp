@@ -272,7 +272,10 @@ def _default_error_guidance(
             ),
             "related_tools": ["forecast_models_list"],
         }
-    if operation_text in {"forecast_barrier_optimize", "forecast_barrier_prob"}:
+    if (
+        operation_text in {"forecast_barrier_optimize", "forecast_barrier_prob"}
+        and code_text != "cli_missing_required"
+    ):
         related = (
             ["forecast_barrier_prob"]
             if operation_text == "forecast_barrier_optimize"

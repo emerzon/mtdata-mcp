@@ -103,6 +103,7 @@ from .runtime.commands import (
     LIVE_TRADE_MUTATION_TOOLS,
     LIVE_TRADE_MUTATION_WARNING,
     friendly_validation_error,
+    missing_argument_guidance,
 )
 from .runtime.commands import (
     coerce_cli_scalar as _coerce_cli_scalar_impl,
@@ -767,18 +768,6 @@ _CLI_NEAR_MISS_REMEDIATIONS: Dict[tuple[str, str], str] = {
     ),
 }
 
-_CLI_MISSING_ARGUMENT_REMEDIATIONS: Dict[tuple[str, str], str] = {
-    ("labels_triple_barrier", "barriers"): (
-        "Provide --barriers as KV or JSON. Example: "
-        "'unit=pct take_profit=0.5 stop_loss=0.5'."
-    ),
-    ("trade_place", "order_type"): (
-        "Provide --order-type BUY or SELL for market orders "
-        "(--side buy/sell is also accepted), or a pending type such as BUY_LIMIT."
-    ),
-}
-
-
 def _option_tokens_from_text(text: str) -> List[str]:
     tokens: List[str] = []
     for token in str(text or "").split():
@@ -813,10 +802,9 @@ def _cli_parse_error_remediation(
         if hint:
             return hint
     if missing_required:
-        for name in missing_arguments:
-            hint = _CLI_MISSING_ARGUMENT_REMEDIATIONS.get((operation, name))
-            if hint:
-                return hint
+        hint, _example = missing_argument_guidance(operation, missing_arguments)
+        if hint:
+            return hint
         if missing_arguments:
             return "Provide: " + ", ".join(missing_arguments) + "."
     return f"Run '{help_program} --help' to inspect valid arguments."
@@ -876,6 +864,12 @@ class _CLIArgumentParser(argparse.ArgumentParser):
             "__main__.py",
         }:
             help_program = f"{self.prog} {operation}"
+        missing_example = None
+        if missing_required and missing_arguments:
+            _remediation, missing_example = missing_argument_guidance(
+                operation,
+                missing_arguments,
+            )
         payload = build_error_payload(
             message_text,
             code=(
@@ -902,6 +896,7 @@ class _CLIArgumentParser(argparse.ArgumentParser):
                     argv=sys.argv[1:],
                 )
             ),
+            example=missing_example,
             details=(
                 {"missing_arguments": missing_arguments}
                 if missing_required and missing_arguments
@@ -2206,9 +2201,10 @@ _GLOBAL_FLAG_HELP: Dict[str, str] = {
     ),
     "output_fields": (
         "--output-fields FIELD[,FIELD...]: return only selected output fields plus "
-        "success/error, symbol/timeframe, pagination, and warnings. Does not keep "
-        "unselected freshness or source fields. Use dotted paths for nested row "
-        "columns, e.g. data.time,data.close."
+        "success/error, symbol/timeframe, pagination, warnings, and quote trust "
+        "fields (time/quote_as_of, data_stale, usable_for_live_trading, source, "
+        "freshness) when present. Use dotted paths for nested row columns, "
+        "e.g. data.time,data.close."
     ),
     "json": (
         "--json: emit machine-readable JSON instead of TOON (always full precision)."

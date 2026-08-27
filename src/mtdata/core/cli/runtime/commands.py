@@ -32,6 +32,43 @@ LIVE_TRADE_MUTATION_WARNING = (
     "--dry-run false. Preview mode is the default."
 )
 
+CLI_MISSING_ARGUMENT_REMEDIATIONS: Dict[tuple[str, str], str] = {
+    ("labels_triple_barrier", "barriers"): (
+        "Provide --barriers as KV or JSON. Example: "
+        "'unit=pct take_profit=0.5 stop_loss=0.5'."
+    ),
+    ("forecast_barrier_prob", "barrier"): (
+        "Provide --barrier as KV or JSON. Example: "
+        "'kind=tp_sl,unit=pct,take_profit=0.5,stop_loss=0.5'."
+    ),
+    ("trade_place", "order_type"): (
+        "Provide --order-type BUY or SELL for market orders "
+        "(--side buy/sell is also accepted), or a pending type such as BUY_LIMIT."
+    ),
+}
+
+CLI_MISSING_ARGUMENT_EXAMPLES: Dict[tuple[str, str], str] = {
+    ("labels_triple_barrier", "barriers"): (
+        "unit=pct take_profit=0.5 stop_loss=0.5"
+    ),
+    ("forecast_barrier_prob", "barrier"): (
+        "kind=tp_sl,unit=pct,take_profit=0.5,stop_loss=0.5"
+    ),
+}
+
+
+def missing_argument_guidance(
+    cmd_name: str,
+    missing_arguments: List[str],
+) -> Tuple[Optional[str], Optional[str]]:
+    """Return copy-paste remediation and example for a missing required argument."""
+    for name in missing_arguments:
+        key = (str(cmd_name), str(name))
+        remediation = CLI_MISSING_ARGUMENT_REMEDIATIONS.get(key)
+        if remediation:
+            return remediation, CLI_MISSING_ARGUMENT_EXAMPLES.get(key)
+    return None, None
+
 
 def parse_kv_string(s: str, *, debug: Callable[[str], None]) -> Optional[Dict[str, Any]]:
     """Parse 'k=v,k2=v2' or JSON into a dict."""
@@ -348,6 +385,7 @@ def create_command_function(  # noqa: C901
         *,
         code: str = "cli_invalid_arguments",
         remediation: Optional[str] = None,
+        example: Optional[str] = None,
     ) -> Dict[str, Any]:
         text = str(message).strip() or "Invalid command input."
         if (
@@ -366,6 +404,7 @@ def create_command_function(  # noqa: C901
                     "for accepted arguments."
                 )
             ),
+            example=example,
         )
 
     def _literal_choices_for_param(param: Optional[Dict[str, Any]]) -> Optional[List[str]]:
@@ -687,15 +726,23 @@ def create_command_function(  # noqa: C901
                         message += " Use symbols_list to browse available broker symbols."
             if cmd_name in LIVE_TRADE_MUTATION_TOOLS:
                 message += f" {LIVE_TRADE_MUTATION_WARNING}"
+            missing_remediation, missing_example = missing_argument_guidance(
+                str(cmd_name),
+                missing_required,
+            )
             render_cli_result(
                 _build_cli_error(
                     message,
                     code="cli_missing_required",
                     remediation=(
-                        f"Provide: {missing_text}. Run "
-                        f"'{display_program_name(sys.argv[0])} {cmd_name} --help' "
-                        "for examples."
+                        missing_remediation
+                        or (
+                            f"Provide: {missing_text}. Run "
+                            f"'{display_program_name(sys.argv[0])} {cmd_name} --help' "
+                            "for examples."
+                        )
                     ),
+                    example=missing_example,
                 ),
                 args=args,
                 cmd_name=cmd_name,

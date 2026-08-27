@@ -360,6 +360,25 @@ def test_missing_barriers_remediation_includes_example(monkeypatch, capsys):
     assert "unit=pct take_profit=0.5 stop_loss=0.5" in captured.out
 
 
+def test_missing_barrier_prob_remediation_includes_object_example(monkeypatch, capsys):
+    from mtdata.core.cli import api as cli_api
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["mtdata-cli", "forecast_barrier_prob", "EURUSD"],
+    )
+    parser = cli_api._CLIArgumentParser(prog="mtdata-cli forecast_barrier_prob")
+
+    with pytest.raises(SystemExit, match="2"):
+        parser.error("the following arguments are required: --barrier")
+
+    captured = capsys.readouterr()
+    assert "error_code: cli_missing_required" in captured.out
+    assert "kind=tp_sl,unit=pct,take_profit=0.5,stop_loss=0.5" in captured.out
+    assert "Provide --barrier as KV or JSON" in captured.out
+
+
 def test_missing_order_type_mentions_side_alias(monkeypatch, capsys):
     from mtdata.core.cli import api as cli_api
 
