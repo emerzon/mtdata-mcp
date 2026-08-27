@@ -12,7 +12,9 @@ import argparse
 import calendar
 import copy
 import hashlib
+import importlib.metadata
 import json
+import math
 import os
 import platform
 import re
@@ -25,7 +27,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 SCHEMA_VERSION = 1
-HARNESS_VERSION = "0.1.0"
+HARNESS_VERSION = "0.2.0"
 RESEARCH_STAGES = (
     "audit",
     "screen",
@@ -201,6 +203,7 @@ class RunContext:
     timeout: float
     max_commands: int | None
     fail_fast: bool
+    enforce_execution_integrity: bool
 
 
 def utc_now() -> str:
@@ -213,6 +216,47 @@ def _canonical_json(value: Any) -> str:
 
 def _sha256_json(value: Any) -> str:
     return hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+_PACKAGE_DISTRIBUTIONS = (
+    "mtdata-mcp",
+    "numpy",
+    "pandas",
+    "mlforecast",
+    "lightgbm",
+    "scikit-learn",
+    "pandas-ta-classic",
+    "TA-Lib",
+)
+
+
+def _package_version_snapshot() -> dict[str, dict[str, str | None]]:
+    versions: dict[str, dict[str, str | None]] = {}
+    for distribution in _PACKAGE_DISTRIBUTIONS:
+        try:
+            version = importlib.metadata.version(distribution)
+        except importlib.metadata.PackageNotFoundError:
+            versions[distribution] = {"status": "missing", "version": None}
+        else:
+            versions[distribution] = {"status": "installed", "version": version}
+    return versions
+
+
+def _runtime_identity_snapshot() -> dict[str, Any]:
+    return {
+        "python": sys.version,
+        "python_executable": str(Path(sys.executable).resolve()),
+        "platform": platform.platform(),
+        "package_versions": _package_version_snapshot(),
+    }
 
 
 def _slug(value: Any) -> str:
@@ -378,6 +422,33 @@ def _month_end_shards(window_name: str, window: Mapping[str, Any]) -> list[dict[
     return shards
 
 
+def _screen_shards(
+    window_name: str,
+    window: Mapping[str, Any],
+    sharding: Any,
+) -> list[dict[str, str]]:
+    policy = str(sharding or "month_end").strip().lower()
+    if policy in {"month_end", "month_end_plus_exact_window_end"}:
+        return _month_end_shards(window_name, window)
+    if policy != "window_end":
+        raise HarnessError(
+            "screen.sharding must be 'month_end' or 'window_end' "
+            "('month_end_plus_exact_window_end' remains a backward-compatible alias)"
+        )
+    start = date.fromisoformat(str(window["start"]))
+    end = date.fromisoformat(str(window["end"]))
+    if end < start:
+        raise HarnessError(f"Window {window_name!r} ends before it starts")
+    return [
+        {
+            "id": "window-end",
+            "start": start.isoformat(),
+            "end": end.isoformat(),
+            "kind": "exact_window_end",
+        }
+    ]
+
+
 _TIMEFRAME_MINUTES = {
     "M1": 1,
     "M2": 2,
@@ -412,15 +483,26 @@ def _continuous_bars(start: str, end: str, timeframe: str) -> int:
     return inclusive_minutes // minutes
 
 
-def _resolve_shard_steps(value: Any, shard: Mapping[str, str], timeframe: str, horizon: int) -> int:
+def _resolve_shard_steps(
+    value: Any,
+    shard: Mapping[str, str],
+    timeframe: str,
+    horizon: int,
+    spacing: int,
+    *,
+    history_reserve: int = 0,
+) -> int:
     if str(value).lower() != "auto_month":
         steps = int(value)
     else:
-        shard_bars = _continuous_bars(shard["start"], shard["end"], timeframe)
-        # Leave one complete horizon as a feed-gap margin.  BTC brokers can omit
-        # maintenance bars; consuming the theoretical 24/7 maximum could make the
-        # rolling-origin selector reach back into the preceding monthly shard.
-        steps = max(1, (shard_bars // horizon) - 1)
+        shard_bars = (
+            _continuous_bars(shard["start"], shard["end"], timeframe)
+            - int(history_reserve)
+        )
+        # The CLI fetches lookback + steps*spacing + horizon bars.  Reserving one
+        # full spacing interval beyond the first anchor also gives monthly shards
+        # the same feed-gap margin as the historical spacing==horizon behavior.
+        steps = max(1, (shard_bars - horizon) // spacing)
     if steps < 1:
         raise HarnessError(f"Shard {shard['id']} is shorter than horizon={horizon}")
     if steps > 200:
@@ -428,6 +510,142 @@ def _resolve_shard_steps(value: Any, shard: Mapping[str, str], timeframe: str, h
             f"Full shard {shard['id']} needs {steps} anchors, above mtdata's 200-step limit; use a coarser timeframe or split the shard"
         )
     return steps
+
+
+def _positive_screen_spacing(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise HarnessError("screen.spacing_bars must be a positive integer")
+    return value
+
+
+def _has_nonempty_features(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    try:
+        return bool(len(value))
+    except (TypeError, ValueError):
+        return bool(value)
+
+
+def _split_feature_tokens(value: Any) -> list[str]:
+    if isinstance(value, (list, tuple)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if not isinstance(value, str):
+        return []
+    tokens: list[str] = []
+    current: list[str] = []
+    depth = 0
+    for character in value:
+        if character == "(":
+            depth += 1
+        elif character == ")" and depth:
+            depth -= 1
+        if depth == 0 and character in {",", " "}:
+            token = "".join(current).strip()
+            if token:
+                tokens.append(token)
+            current = []
+        else:
+            current.append(character)
+    token = "".join(current).strip()
+    if token:
+        tokens.append(token)
+    return tokens
+
+
+def _semantic_feature_token(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value).lower())
+
+
+def _feature_expectations(value: Any) -> dict[str, Any] | None:
+    if not isinstance(value, Mapping) or not value:
+        return None
+    semantic_columns: list[dict[str, str]] = []
+    complete = True
+    observed = False
+
+    include_value = value.get("include")
+    if include_value is None:
+        include_value = value.get("exog")
+    observed = bool(include_value)
+    include_tokens = _split_feature_tokens(include_value)
+    if include_value and not include_tokens:
+        complete = False
+    for token in include_tokens:
+        if token.lower() in {"all", "ohlcv", "price", "volume"}:
+            complete = False
+            continue
+        observed = True
+        semantic_columns.append(
+            {
+                "kind": "observed_column",
+                "requested": token,
+                "semantic_id": _semantic_feature_token(token),
+            }
+        )
+
+    indicators_value = value.get("indicators")
+    if indicators_value is None:
+        indicators_value = value.get("ti")
+    observed = observed or bool(indicators_value)
+    indicator_tokens = _split_feature_tokens(indicators_value)
+    if indicators_value and not indicator_tokens:
+        complete = False
+    simple_indicators = {"rsi", "roc", "natr"}
+    for indicator in indicator_tokens:
+        match = re.fullmatch(
+            r"(?P<name>[a-zA-Z][a-zA-Z0-9_]*)\(\s*(?P<period>[0-9]+)\s*\)",
+            indicator,
+        )
+        if match is None or match.group("name").lower() not in simple_indicators:
+            complete = False
+            continue
+        observed = True
+        semantic_columns.append(
+            {
+                "kind": "indicator",
+                "requested": indicator,
+                "semantic_id": _semantic_feature_token(
+                    f"{match.group('name')}{match.group('period')}"
+                ),
+            }
+        )
+
+    calendar_columns = {
+        "hour": ("hr_sin", "hr_cos"),
+        "hr": ("hr_sin", "hr_cos"),
+        "dow": ("dow_sin", "dow_cos"),
+        "wday": ("dow_sin", "dow_cos"),
+        "weekday": ("dow_sin", "dow_cos"),
+        "dayofweek": ("dow_sin", "dow_cos"),
+    }
+    future_value = value.get("future_covariates")
+    future_tokens = _split_feature_tokens(future_value)
+    if future_value and not future_tokens:
+        complete = False
+    for requested in future_tokens:
+        columns = calendar_columns.get(requested.lower())
+        if columns is None:
+            complete = False
+            continue
+        semantic_columns.extend(
+            {
+                "kind": "calendar",
+                "requested": requested,
+                "semantic_id": _semantic_feature_token(column),
+            }
+            for column in columns
+        )
+
+    return {
+        "complete": complete,
+        "n_features": len(semantic_columns) if complete else None,
+        "semantic_columns": semantic_columns,
+        "has_observed_features": observed,
+        "observed_future_policy": value.get("observed_future_policy"),
+    }
 
 
 def _json_arg(value: Any) -> str:
@@ -478,6 +696,29 @@ def build_audit_specs(config: Mapping[str, Any]) -> list[CommandSpec]:
             {"kind": "catalog"},
         ),
     ]
+    raw_indicator_descriptions = audit.get("indicator_descriptions", [])
+    if not isinstance(raw_indicator_descriptions, list):
+        raise HarnessError("audit.indicator_descriptions must be a list of indicator names")
+    indicator_command_ids: set[str] = set()
+    for raw_name in raw_indicator_descriptions:
+        if not isinstance(raw_name, str) or not raw_name.strip():
+            raise HarnessError(
+                "audit.indicator_descriptions entries must be non-empty strings"
+            )
+        name = raw_name.strip()
+        command_id = f"indicator-{_slug(name)}"
+        if command_id in indicator_command_ids:
+            raise HarnessError(
+                "audit.indicator_descriptions entries must have distinct canonical names"
+            )
+        indicator_command_ids.add(command_id)
+        specs.append(
+            CommandSpec(
+                command_id,
+                ("indicators_describe", name, "--detail", "full"),
+                {"kind": "indicator_description", "indicator": name},
+            )
+        )
     for timeframe in timeframes:
         suffix = _slug(timeframe)
         common = (symbol, "--timeframe", timeframe)
@@ -603,7 +844,12 @@ def build_screen_specs(config: Mapping[str, Any]) -> list[CommandSpec]:
         raise HarnessError(f"Unknown screen window {window_name!r}")
     if bool(windows[window_name].get("locked")):
         raise HarnessError("The locked holdout cannot be used by the screen stage")
-    shards = _month_end_shards(window_name, windows[window_name])
+    sharding_policy = str(screen.get("sharding") or "month_end").strip().lower()
+    shards = _screen_shards(
+        window_name,
+        windows[window_name],
+        sharding_policy,
+    )
     timeframes = [str(item) for item in screen.get("timeframes", ["H1"])]
     horizons = [int(item) for item in screen.get("horizons", [12])]
     quantities = [str(item) for item in screen.get("quantities", ["price"])]
@@ -617,22 +863,47 @@ def build_screen_specs(config: Mapping[str, Any]) -> list[CommandSpec]:
         for method in variant.get("methods", methods):
             _reject_external_pretrained_method(method)
     steps_setting = screen.get("steps_per_shard", "auto_month")
+    explicit_spacing = (
+        _positive_screen_spacing(screen["spacing_bars"])
+        if screen.get("spacing_bars") is not None
+        else None
+    )
     detail = str(screen.get("detail", "full"))
+    if detail != "full":
+        raise HarnessError(
+            "screen.detail must be 'full' so every research command preserves "
+            "anchor-level forecast and actual paths"
+        )
     specs: list[CommandSpec] = []
     for shard in shards:
         for timeframe in timeframes:
             for horizon in horizons:
                 if horizon < 1:
                     raise HarnessError("Screen horizons must be positive")
-                steps = _resolve_shard_steps(steps_setting, shard, timeframe, horizon)
+                spacing = explicit_spacing if explicit_spacing is not None else horizon
                 for quantity in quantities:
                     for lookback in lookbacks:
+                        steps = _resolve_shard_steps(
+                            steps_setting,
+                            shard,
+                            timeframe,
+                            horizon,
+                            spacing,
+                            history_reserve=(
+                                lookback if sharding_policy == "window_end" else 0
+                            ),
+                        )
+                        if steps > 1 and spacing < horizon:
+                            raise HarnessError(
+                                "screen.spacing_bars must be greater than or equal to "
+                                f"horizon={horizon} when steps_per_shard is greater than 1"
+                            )
                         available_bars = _continuous_bars(
                             str(windows[window_name]["start"]),
                             shard["end"],
                             timeframe,
                         )
-                        required_bars = lookback + (steps * horizon) + horizon
+                        required_bars = lookback + (steps * spacing) + horizon
                         if available_bars < required_bars:
                             # Never fill an early development shard with observations
                             # from the stress window merely to satisfy a long lookback.
@@ -640,6 +911,30 @@ def build_screen_specs(config: Mapping[str, Any]) -> list[CommandSpec]:
                         for raw_variant in variants:
                             variant = dict(raw_variant or {})
                             variant_id = _slug(variant.get("id", "raw"))
+                            variant_features = variant.get("features")
+                            feature_contract_required = _has_nonempty_features(
+                                variant_features
+                            )
+                            feature_expectations = _feature_expectations(
+                                variant_features
+                            )
+                            if feature_contract_required:
+                                if detail != "full":
+                                    raise HarnessError(
+                                        "Feature-bearing screen variants require "
+                                        "screen.detail='full' so per-anchor paths and "
+                                        "consumption evidence can be verified"
+                                    )
+                                if (
+                                    not isinstance(feature_expectations, Mapping)
+                                    or feature_expectations.get("complete") is not True
+                                ):
+                                    raise HarnessError(
+                                        f"Feature-bearing screen variant {variant_id!r} "
+                                        "cannot be fully verified by the harness; use "
+                                        "explicit supported include columns, rsi/roc/natr "
+                                        "periods, and hour/dow calendar covariates"
+                                    )
                             command_id = _slug(
                                 f"{window_name}-{shard['id']}-{timeframe}-h{horizon}-{quantity}-lb{lookback}-{variant_id}"
                             )
@@ -654,7 +949,7 @@ def build_screen_specs(config: Mapping[str, Any]) -> list[CommandSpec]:
                                 "--steps",
                                 str(steps),
                                 "--spacing",
-                                str(horizon),
+                                str(spacing),
                                 "--lookback",
                                 str(lookback),
                                 "--methods",
@@ -685,9 +980,20 @@ def build_screen_specs(config: Mapping[str, Any]) -> list[CommandSpec]:
                                         "quantity": quantity,
                                         "lookback": lookback,
                                         "steps": steps,
+                                        "spacing": spacing,
+                                        "detail": detail,
                                         "training_floor": str(windows[window_name]["start"]),
                                         "methods": variant_methods,
                                         "variant": variant_id,
+                                        "feature_contract_required": feature_contract_required,
+                                        "features": variant_features,
+                                        "feature_expectations": feature_expectations,
+                                        "params": variant.get("params"),
+                                        "params_per_method": variant.get(
+                                            "params_per_method"
+                                        ),
+                                        "denoise": variant.get("denoise"),
+                                        "dimred": variant.get("dimred"),
                                     },
                                 )
                             )
@@ -813,6 +1119,7 @@ def build_validation_specs(config: Mapping[str, Any], candidate: Mapping[str, An
                 validation.get("steps_per_shard", "auto_month"),
                 shard,
                 str(candidate["timeframe"]),
+                int(candidate["horizon"]),
                 int(candidate["horizon"]),
             )
             candidate_args = _candidate_argv(candidate, include_params=False)
@@ -1111,6 +1418,7 @@ def build_holdout_specs(config: Mapping[str, Any], candidate: Mapping[str, Any])
             shard,
             str(candidate["timeframe"]),
             int(candidate["horizon"]),
+            int(candidate["horizon"]),
         )
         candidate_args = _candidate_argv(candidate, include_params=False)
         candidate_args.insert(candidate_args.index("--quantity"), baseline_method)
@@ -1284,8 +1592,171 @@ def _plan_digest(specs: Sequence[CommandSpec]) -> str:
     )
 
 
-def _new_manifest(run_id: str, config: Mapping[str, Any], run_dir: Path) -> dict[str, Any]:
+_SOURCE_INTEGRITY_ERROR_CODE = "BTC-SOURCE-INTEGRITY"
+
+
+def _git_source_state() -> dict[str, Any]:
+    repo_root = Path(__file__).resolve().parents[1]
+
+    def _git(*arguments: str) -> str:
+        completed = subprocess.run(
+            ["git", *arguments],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+            shell=False,
+        )
+        if completed.returncode != 0:
+            detail = (completed.stderr or completed.stdout or "git command failed").strip()
+            raise HarnessError(
+                f"{_SOURCE_INTEGRITY_ERROR_CODE}: could not inspect repository source: {detail}"
+            )
+        return completed.stdout.strip()
+
+    head = _git("rev-parse", "HEAD")
+    tracked_status = _git("status", "--porcelain", "--untracked-files=no")
+    untracked_runtime_files = _git(
+        "ls-files",
+        "--others",
+        "--exclude-standard",
+        "--",
+        "src",
+        "scripts",
+        "mtdata",
+        "mtdata.py",
+        "sitecustomize.py",
+        "usercustomize.py",
+    ).splitlines()
+    source_status = {
+        "tracked_status": tracked_status,
+        "untracked_runtime_files": untracked_runtime_files,
+    }
+    return {
+        "git_head": head,
+        "tracked_tree_dirty": bool(tracked_status),
+        "untracked_runtime_files": untracked_runtime_files,
+        "source_tree_dirty": bool(tracked_status or untracked_runtime_files),
+        "source_status_sha256": _sha256_json(source_status),
+        "captured_at": utc_now(),
+    }
+
+
+def _source_integrity_error(reason: str) -> HarnessError:
+    return HarnessError(
+        f"{_SOURCE_INTEGRITY_ERROR_CODE}: {reason}. Remediation: start a new run "
+        "from one clean committed HEAD; use only issue list to inspect an old run"
+    )
+
+
+def _is_read_only_issue_list(args: argparse.Namespace) -> bool:
+    return args.action == "issue" and getattr(args, "issue_action", None) == "list"
+
+
+def _enforce_source_integrity(args: argparse.Namespace) -> None:
+    if _is_read_only_issue_list(args):
+        return
+    current = _git_source_state()
+    current_runtime = _runtime_identity_snapshot()
+    args._verified_source_state = current
+    args._verified_runtime_identity = current_runtime
+    if args.resume:
+        if args.run_dir is None:
+            return
+        manifest_path = Path(args.run_dir).resolve() / "manifest.json"
+        if not manifest_path.exists():
+            return
+        manifest = _load_json(manifest_path)
+        recorded = manifest.get("source") if isinstance(manifest, Mapping) else None
+        if not isinstance(recorded, Mapping):
+            raise _source_integrity_error("resumed run has no recorded source state")
+        if recorded.get("source_tree_dirty") is not False:
+            raise _source_integrity_error("resumed run was created from a dirty source tree")
+        if current.get("source_tree_dirty") is not False:
+            raise _source_integrity_error("current source tree is dirty")
+        if recorded.get("git_head") != current.get("git_head"):
+            raise _source_integrity_error(
+                "current git HEAD differs from the run's recorded source HEAD"
+            )
+        recorded_runtime = manifest.get("runtime")
+        if not isinstance(recorded_runtime, Mapping):
+            raise _source_integrity_error("resumed run has no recorded runtime identity")
+        for key, expected in current_runtime.items():
+            if recorded_runtime.get(key) != expected:
+                raise _source_integrity_error(
+                    f"current runtime {key} differs from the run's recorded value"
+                )
+    elif not args.dry_run and current.get("source_tree_dirty") is not False:
+        raise _source_integrity_error("new executable run requires a clean source tree")
+    args._execution_integrity_verified = True
+
+
+def _execution_integrity_error(context: RunContext) -> str | None:
+    if not context.enforce_execution_integrity:
+        return None
+    recorded_source = context.manifest.get("source")
+    recorded_runtime = context.manifest.get("runtime")
+    if not isinstance(recorded_source, Mapping) or not isinstance(
+        recorded_runtime, Mapping
+    ):
+        return f"{_SOURCE_INTEGRITY_ERROR_CODE}: study provenance is incomplete"
+    try:
+        current_source = _git_source_state()
+        current_runtime = _runtime_identity_snapshot()
+    except HarnessError as exc:
+        return str(exc)
+    if recorded_source.get("source_tree_dirty") is not False:
+        return (
+            f"{_SOURCE_INTEGRITY_ERROR_CODE}: study was not pinned to a clean "
+            "source tree"
+        )
+    if current_source.get("source_tree_dirty") is not False:
+        return f"{_SOURCE_INTEGRITY_ERROR_CODE}: source tree changed during execution"
+    if current_source.get("git_head") != recorded_source.get("git_head"):
+        return f"{_SOURCE_INTEGRITY_ERROR_CODE}: git HEAD changed during execution"
+    for key, expected in current_runtime.items():
+        if recorded_runtime.get(key) != expected:
+            return (
+                f"{_SOURCE_INTEGRITY_ERROR_CODE}: runtime {key} changed during "
+                "execution"
+            )
+    return None
+
+
+def _assert_execution_integrity(context: RunContext) -> None:
+    if error := _execution_integrity_error(context):
+        raise _source_integrity_error(error.split(": ", 1)[-1])
+
+
+def _new_manifest(
+    run_id: str,
+    config: Mapping[str, Any],
+    run_dir: Path,
+    *,
+    source_state: Mapping[str, Any] | None = None,
+    runtime_identity: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
     now = utc_now()
+    runtime = dict(runtime_identity or _runtime_identity_snapshot())
+    runtime.update(
+        {
+            "mtdata_invocation": [
+                str(Path(sys.executable).resolve()),
+                "-m",
+                "mtdata",
+                "--json",
+            ],
+            "cuda_visible_devices": str(
+                config.get("runtime", {}).get("cuda_visible_devices", "0,1")
+            ),
+            "cuda_visibility_scope": "child_process_only",
+            "gpu_device_probe": (
+                "forecast catalog only; mtdata has no dedicated GPU inventory CLI command"
+            ),
+        }
+    )
     return {
         "schema_version": SCHEMA_VERSION,
         "harness_version": HARNESS_VERSION,
@@ -1294,23 +1765,31 @@ def _new_manifest(run_id: str, config: Mapping[str, Any], run_dir: Path) -> dict
         "status": "active",
         "created_at": now,
         "updated_at": now,
-        "runtime": {
-            "python": sys.version,
-            "python_executable": str(Path(sys.executable).resolve()),
-            "platform": platform.platform(),
-            "mtdata_invocation": [str(Path(sys.executable).resolve()), "-m", "mtdata", "--json"],
-            "cuda_visible_devices": str(config.get("runtime", {}).get("cuda_visible_devices", "0,1")),
-            "cuda_visibility_scope": "child_process_only",
-            "gpu_device_probe": "forecast catalog only; mtdata has no dedicated GPU inventory CLI command",
-        },
+        "source": dict(source_state or _git_source_state()),
+        "runtime": runtime,
         "safety": {
             "research_only": True,
             "symbol_allowlist": ["BTCUSD"],
             "trade_command_prefixes_forbidden": list(FORBIDDEN_COMMAND_PREFIXES),
             "shell_command_forbidden": True,
             "subprocess_shell": False,
-            "isolated_model_store": "model_store",
-            "isolated_jobs_db": "forecast_jobs.sqlite",
+            "isolated_model_store": "model_store/<stage>/<command>/attempt-N",
+            "isolated_jobs_db": "jobs/<stage>/<command>/attempt-N.sqlite",
+            "attempt_store_reuse": False,
+            "attempt_isolation_stages": [
+                "audit",
+                "screen",
+                "tune",
+                "validate",
+                "holdout",
+            ],
+            "lifecycle_store_exempt_stages": ["materialize", "shadow"],
+            "lifecycle_model_store": "model_store/lifecycle",
+            "lifecycle_jobs_db": "forecast_jobs.sqlite",
+            "lifecycle_store_exemption_reason": (
+                "shadow require_existing intentionally reads the model materialized "
+                "in the shared lifecycle store"
+            ),
             "no_trade_execution": True,
             "mt5_market_data_only": True,
             "external_pretrained_methods_forbidden": sorted(EXTERNALLY_PRETRAINED_METHODS),
@@ -1385,7 +1864,9 @@ def _new_manifest(run_id: str, config: Mapping[str, Any], run_dir: Path) -> dict
             "raw": "raw",
             "normalized": "normalized",
             "model_store": "model_store",
-            "jobs_db": "forecast_jobs.sqlite",
+            "lifecycle_model_store": "model_store/lifecycle",
+            "jobs": "jobs",
+            "lifecycle_jobs_db": "forecast_jobs.sqlite",
         },
         "config_revisions": [],
         "stages": {stage: {"status": "not_started", "commands": {}} for stage in RESEARCH_STAGES},
@@ -1613,6 +2094,9 @@ def prepare_context(args: argparse.Namespace) -> RunContext:
     run_dir = Path(args.run_dir) if args.run_dir is not None else DEFAULT_OUTPUT_ROOT / run_id
     run_dir = run_dir.resolve()
     manifest_path = run_dir / "manifest.json"
+    read_only_issue_list = _is_read_only_issue_list(args)
+    if read_only_issue_list and not manifest_path.exists():
+        raise HarnessError("issue list requires an existing study manifest")
     if manifest_path.exists():
         if not args.resume:
             raise HarnessError(f"Study already exists at {run_dir}; pass --resume to use it")
@@ -1621,13 +2105,29 @@ def prepare_context(args: argparse.Namespace) -> RunContext:
             raise HarnessError("Stored manifest must be a JSON object")
         manifest = dict(loaded_manifest)
         run_id = str(manifest.get("run_id") or run_id)
-        config = _resolve_config(Path(args.config) if args.config else None, run_dir)
+        config = (
+            {}
+            if read_only_issue_list
+            else _resolve_config(Path(args.config) if args.config else None, run_dir)
+        )
     else:
         if args.resume:
             raise HarnessError(f"No study manifest exists at {run_dir}")
         run_dir.mkdir(parents=True, exist_ok=True)
         config = _resolve_config(Path(args.config) if args.config else None)
-        manifest = _new_manifest(run_id, config, run_dir)
+        verified_source = getattr(args, "_verified_source_state", None)
+        verified_runtime = getattr(args, "_verified_runtime_identity", None)
+        manifest = _new_manifest(
+            run_id,
+            config,
+            run_dir,
+            source_state=(
+                verified_source if isinstance(verified_source, Mapping) else None
+            ),
+            runtime_identity=(
+                verified_runtime if isinstance(verified_runtime, Mapping) else None
+            ),
+        )
     context = RunContext(
         run_dir=run_dir,
         manifest_path=manifest_path,
@@ -1637,7 +2137,13 @@ def prepare_context(args: argparse.Namespace) -> RunContext:
         timeout=float(args.timeout),
         max_commands=args.max_commands,
         fail_fast=bool(args.fail_fast),
+        enforce_execution_integrity=bool(
+            getattr(args, "_execution_integrity_verified", False)
+        )
+        and not bool(args.dry_run),
     )
+    if read_only_issue_list:
+        return context
     protocol = context.manifest.setdefault("protocol", {})
     if not isinstance(protocol, dict):
         raise HarnessError("Stored manifest protocol must be a JSON object")
@@ -1651,7 +2157,16 @@ def prepare_context(args: argparse.Namespace) -> RunContext:
             "self_reported_interval_summaries_are_approval_evidence": False,
         }
     )
-    for directory in ("raw", "normalized", "model_store", "tuning", "materializations", "config_revisions"):
+    for directory in (
+        "raw",
+        "normalized",
+        "model_store",
+        "model_store/lifecycle",
+        "jobs",
+        "tuning",
+        "materializations",
+        "config_revisions",
+    ):
         (run_dir / directory).mkdir(parents=True, exist_ok=True)
     if not (run_dir / "issues.json").exists():
         _atomic_write_json(run_dir / "issues.json", _empty_issue_ledger(run_id))
@@ -1661,10 +2176,152 @@ def prepare_context(args: argparse.Namespace) -> RunContext:
     return context
 
 
-def _command_environment(context: RunContext) -> dict[str, str]:
+_ATTEMPT_ISOLATION_ERROR_CODE = "BTC-ATTEMPT-ISOLATION"
+_ATTEMPT_INVENTORY_MAX_FILES = 256
+_ATTEMPT_ISOLATION_EXEMPT_STAGES = frozenset({"materialize", "shadow"})
+
+
+def _prepare_attempt_isolation(
+    context: RunContext,
+    stage: str,
+    command_id: str,
+    attempt: int,
+) -> dict[str, Any]:
+    stage_slug = _slug(stage)
+    command_slug = _slug(command_id)
+    model_store = (
+        context.run_dir
+        / "model_store"
+        / stage_slug
+        / command_slug
+        / f"attempt-{attempt}"
+    )
+    jobs_db = (
+        context.run_dir
+        / "jobs"
+        / stage_slug
+        / command_slug
+        / f"attempt-{attempt}.sqlite"
+    )
+    if model_store.exists() or jobs_db.exists():
+        raise HarnessError(
+            f"{_ATTEMPT_ISOLATION_ERROR_CODE}: attempt paths already exist for "
+            f"{stage}/{command_id} attempt {attempt}; prior attempts are never reused"
+        )
+    model_store.mkdir(parents=True, exist_ok=False)
+    jobs_db.parent.mkdir(parents=True, exist_ok=True)
+    if any(model_store.iterdir()) or jobs_db.exists():
+        raise HarnessError(
+            f"{_ATTEMPT_ISOLATION_ERROR_CODE}: fresh attempt paths contain preexisting files"
+        )
+    return {
+        "attempt": attempt,
+        "model_store_path": _relative(model_store, context.run_dir),
+        "jobs_db_path": _relative(jobs_db, context.run_dir),
+        "preexisting_files": 0,
+        "model_store": model_store,
+        "jobs_db": jobs_db,
+    }
+
+
+def _attempt_post_call_inventory(
+    context: RunContext,
+    isolation: Mapping[str, Any],
+) -> tuple[dict[str, Any], str | None]:
+    model_store = Path(isolation["model_store"])
+    jobs_db = Path(isolation["jobs_db"])
+    files = sorted(
+        (path for path in model_store.rglob("*") if path.is_file()),
+        key=lambda path: path.as_posix(),
+    )
+    job_entries = sorted(
+        (
+            path
+            for path in jobs_db.parent.iterdir()
+            if path.name.startswith(jobs_db.name)
+        ),
+        key=lambda path: path.as_posix(),
+    )
+    invalid_job_entries = [
+        path for path in job_entries if path.is_symlink() or not path.is_file()
+    ]
+    if invalid_job_entries:
+        return (
+            {
+                "max_files": _ATTEMPT_INVENTORY_MAX_FILES,
+                "files_observed": len(files) + len(job_entries),
+                "files": [],
+                "complete": False,
+            },
+            f"{_ATTEMPT_ISOLATION_ERROR_CODE}: jobs attempt output contains "
+            "a symbolic link or non-file entry",
+        )
+    files.extend(job_entries)
+    if len(files) > _ATTEMPT_INVENTORY_MAX_FILES:
+        return (
+            {
+                "max_files": _ATTEMPT_INVENTORY_MAX_FILES,
+                "files_observed": len(files),
+                "files": [],
+                "complete": False,
+            },
+            f"{_ATTEMPT_ISOLATION_ERROR_CODE}: post-call attempt inventory has "
+            f"{len(files)} files, above the {_ATTEMPT_INVENTORY_MAX_FILES}-file bound",
+        )
+    entries: list[dict[str, Any]] = []
+    try:
+        for path in files:
+            if path.is_symlink():
+                return (
+                    {
+                        "max_files": _ATTEMPT_INVENTORY_MAX_FILES,
+                        "files_observed": len(files),
+                        "files": entries,
+                        "complete": False,
+                    },
+                    f"{_ATTEMPT_ISOLATION_ERROR_CODE}: attempt output contains a symbolic link",
+                )
+            entries.append(
+                {
+                    "path": _relative(path, context.run_dir),
+                    "size": path.stat().st_size,
+                    "sha256": _sha256_file(path),
+                }
+            )
+    except OSError as exc:
+        return (
+            {
+                "max_files": _ATTEMPT_INVENTORY_MAX_FILES,
+                "files_observed": len(files),
+                "files": entries,
+                "complete": False,
+            },
+            f"{_ATTEMPT_ISOLATION_ERROR_CODE}: could not inventory attempt output: {exc}",
+        )
+    return (
+        {
+            "max_files": _ATTEMPT_INVENTORY_MAX_FILES,
+            "files_observed": len(files),
+            "files": entries,
+            "complete": True,
+        },
+        None,
+    )
+
+
+def _command_environment(
+    context: RunContext,
+    isolation: Mapping[str, Any] | None,
+) -> dict[str, str]:
     environment = os.environ.copy()
-    environment["MTDATA_MODEL_STORE"] = str((context.run_dir / "model_store").resolve())
-    environment["MTDATA_FORECAST_JOBS_DB"] = str((context.run_dir / "forecast_jobs.sqlite").resolve())
+    if isolation is None:
+        model_store = context.run_dir / "model_store" / "lifecycle"
+        jobs_db = context.run_dir / "forecast_jobs.sqlite"
+    else:
+        model_store = Path(isolation["model_store"])
+        jobs_db = Path(isolation["jobs_db"])
+    environment["MTDATA_MODEL_STORE"] = str(model_store.resolve())
+    environment["MTDATA_FORECAST_JOBS_DB"] = str(jobs_db.resolve())
     environment["MTDATA_MODEL_TTL_DAYS"] = "3650"
     environment["MTDATA_OUTPUT_FORMAT"] = "json"
     environment["PYTHONUNBUFFERED"] = "1"
@@ -1715,8 +2372,36 @@ def _shard_contract_error(spec: CommandSpec, payload: Any) -> str | None:
     return None
 
 
-def _raw_path(context: RunContext, stage: str, command_id: str) -> Path:
+def _planned_raw_path(context: RunContext, stage: str, command_id: str) -> Path:
     return context.run_dir / "raw" / stage / f"{_slug(command_id)}.json"
+
+
+def _attempt_raw_path(
+    context: RunContext,
+    stage: str,
+    command_id: str,
+    attempt: int,
+) -> Path:
+    return (
+        context.run_dir
+        / "raw"
+        / _slug(stage)
+        / _slug(command_id)
+        / f"attempt-{attempt}.json"
+    )
+
+
+def _raw_path(context: RunContext, stage: str, command_id: str) -> Path:
+    record = (
+        context.manifest.get("stages", {})
+        .get(stage, {})
+        .get("commands", {})
+        .get(command_id, {})
+    )
+    raw_path_text = record.get("raw_path") if isinstance(record, Mapping) else None
+    if isinstance(raw_path_text, str) and raw_path_text:
+        return context.run_dir / raw_path_text
+    return _planned_raw_path(context, stage, command_id)
 
 
 def _record_automatic_issue(
@@ -1896,17 +2581,698 @@ def _explicit_anchor_contract_error(payload: Any) -> str | None:
     return None
 
 
+def _screen_features_requested(
+    metadata: Mapping[str, Any],
+    argv: Sequence[str],
+) -> bool:
+    if metadata.get("feature_contract_required") is True:
+        return True
+    if str(metadata.get("kind") or "") != "baseline_screen":
+        return False
+    try:
+        raw_features = argv[argv.index("--features") + 1]
+    except (ValueError, IndexError):
+        return False
+    try:
+        parsed_features = json.loads(str(raw_features))
+    except json.JSONDecodeError:
+        parsed_features = raw_features
+    return _has_nonempty_features(parsed_features)
+
+
+def _strict_nonnegative_int(value: Any) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
+def _finite_horizon_vector(value: Any, horizon: int) -> bool:
+    if not isinstance(value, (list, tuple)) or len(value) != horizon:
+        return False
+    for item in value:
+        if isinstance(item, bool):
+            return False
+        try:
+            numeric = float(item)
+        except (TypeError, ValueError):
+            return False
+        if not math.isfinite(numeric):
+            return False
+    return True
+
+
+def _finite_number(value: Any) -> bool:
+    if isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def _canonical_utc_timestamp(value: Any) -> str | None:
+    if not isinstance(value, str) or not value.strip():
+        return None
+    text_value = value.strip()
+    try:
+        parsed = datetime.fromisoformat(text_value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0):
+        return None
+    return parsed.astimezone(timezone.utc).isoformat(timespec="seconds").replace(
+        "+00:00", "Z"
+    )
+
+
+def _semantic_columns_match(
+    selected_columns: Sequence[str],
+    expected_columns: Sequence[Mapping[str, str]],
+) -> bool:
+    remaining = [_semantic_feature_token(column) for column in selected_columns]
+    for expected in expected_columns:
+        token = str(expected.get("semantic_id") or "")
+        match_index = next(
+            (
+                index
+                for index, actual in enumerate(remaining)
+                if actual == token
+            ),
+            None,
+        )
+        if match_index is None:
+            return False
+        remaining.pop(match_index)
+    return not remaining
+
+
+def _feature_collection_contract_error(
+    payload: Mapping[str, Any],
+    results: Mapping[str, Any],
+    planned_methods: Sequence[str],
+    expected_tests: int,
+) -> str | None:
+    expected_method_count = len(planned_methods)
+    expected_anchor_count = expected_method_count * expected_tests
+    top_level_counts = {
+        "methods_total": expected_method_count,
+        "methods_succeeded": expected_method_count,
+        "methods_complete": expected_method_count,
+        "methods_partial": 0,
+        "methods_failed": 0,
+        "anchor_tests_planned": expected_anchor_count,
+        "anchor_tests_succeeded": expected_anchor_count,
+        "anchor_tests_failed": 0,
+    }
+    for key, expected in top_level_counts.items():
+        if _strict_nonnegative_int(payload.get(key)) != expected:
+            return (
+                f"Feature-bearing screen result reports {key}={payload.get(key)!r}, "
+                f"expected {expected}"
+            )
+    if {str(method) for method in results} != {
+        str(method) for method in planned_methods
+    }:
+        return "Feature-bearing screen result method set differs from the planned methods"
+    return None
+
+
+def _screen_detail_evidence(
+    method_name: str,
+    detail_row: Any,
+    *,
+    quantity: str,
+    horizon: int,
+    lookback: int,
+) -> tuple[str | None, str | None, Any]:
+    if not isinstance(detail_row, Mapping) or detail_row.get("success") is not True:
+        return f"Screen method {method_name!r} has a non-successful detail", None, None
+    if _strict_nonnegative_int(detail_row.get("training_bars_used")) != lookback:
+        return f"Screen method {method_name!r} used unexpected training bars", None, None
+    anchor = _canonical_utc_timestamp(detail_row.get("anchor"))
+    if anchor is None:
+        return f"Screen method {method_name!r} has an invalid UTC anchor", None, None
+    if quantity == "volatility":
+        if not _finite_number(detail_row.get("forecast_sigma")):
+            return f"Screen method {method_name!r} has an invalid forecast value", None, None
+        if not _finite_number(detail_row.get("realized_sigma")):
+            return f"Screen method {method_name!r} has an invalid actual value", None, None
+        return None, anchor, float(detail_row["realized_sigma"])
+    if not _finite_horizon_vector(detail_row.get("forecast"), horizon):
+        return f"Screen method {method_name!r} has an invalid forecast path", None, None
+    if not _finite_horizon_vector(detail_row.get("actual"), horizon):
+        return f"Screen method {method_name!r} has an invalid actual path", None, None
+    return None, anchor, [float(item) for item in detail_row["actual"]]
+
+
+def _screen_anchor_grid_error(
+    metadata: Mapping[str, Any],
+    method_name: str,
+    anchors: Sequence[str],
+    horizon: int,
+) -> str | None:
+    if len(set(anchors)) != len(anchors):
+        return f"Screen method {method_name!r} contains duplicate anchors"
+    timeframe = str(metadata.get("timeframe") or "")
+    spacing = _strict_nonnegative_int(metadata.get("spacing"))
+    timeframe_minutes = _TIMEFRAME_MINUTES.get(timeframe)
+    parsed = [datetime.fromisoformat(value.replace("Z", "+00:00")) for value in anchors]
+    if len(parsed) > 1 and spacing and timeframe_minutes:
+        expected_delta = timedelta(minutes=spacing * timeframe_minutes)
+        if any(
+            current - previous != expected_delta
+            for previous, current in zip(parsed, parsed[1:])
+        ):
+            return f"Screen method {method_name!r} has a shifted or gapped anchor grid"
+    shard = metadata.get("shard")
+    if isinstance(shard, Mapping):
+        try:
+            shard_start = datetime.combine(
+                date.fromisoformat(str(shard["start"])),
+                datetime.min.time(),
+                tzinfo=timezone.utc,
+            )
+            shard_limit = datetime.combine(
+                date.fromisoformat(str(shard["end"])) + timedelta(days=1),
+                datetime.min.time(),
+                tzinfo=timezone.utc,
+            )
+        except (KeyError, ValueError):
+            return "Screen command has malformed shard bounds"
+        target_delta = timedelta(minutes=horizon * (timeframe_minutes or 0))
+        if any(anchor < shard_start or anchor + target_delta >= shard_limit for anchor in parsed):
+            return (
+                f"Screen method {method_name!r} has an anchor or target outside "
+                "its registered shard"
+            )
+    expected_anchors = metadata.get("expected_anchors")
+    if expected_anchors is not None and (
+        not isinstance(expected_anchors, list) or list(anchors) != expected_anchors
+    ):
+        return f"Screen method {method_name!r} differs from the frozen anchor grid"
+    return None
+
+
+def _screen_method_evidence(
+    metadata: Mapping[str, Any],
+    method_name: str,
+    result: Any,
+    *,
+    expected_tests: int,
+    horizon: int,
+    lookback: int,
+) -> tuple[str | None, list[str], list[Any]]:
+    if not isinstance(result, Mapping):
+        return f"Screen result omitted planned method {method_name!r}", [], []
+    complete = (
+        result.get("success") is True
+        and result.get("complete_success") is True
+        and result.get("status") == "complete"
+        and _strict_nonnegative_int(result.get("num_tests")) == expected_tests
+        and _strict_nonnegative_int(result.get("successful_tests")) == expected_tests
+    )
+    if not complete:
+        return f"Screen method {method_name!r} was not complete on every anchor", [], []
+    details = result.get("details")
+    if not isinstance(details, list) or len(details) != expected_tests:
+        return f"Screen method {method_name!r} omitted full anchor details", [], []
+    anchors: list[str] = []
+    actuals: list[Any] = []
+    for detail_row in details:
+        error, anchor, actual = _screen_detail_evidence(
+            method_name,
+            detail_row,
+            quantity=str(metadata.get("quantity") or "price"),
+            horizon=horizon,
+            lookback=lookback,
+        )
+        if error or anchor is None:
+            return error or "Screen detail evidence is incomplete", [], []
+        anchors.append(anchor)
+        actuals.append(actual)
+    return _screen_anchor_grid_error(metadata, method_name, anchors, horizon), anchors, actuals
+
+
+def _screen_collection_contract_error(
+    metadata: Mapping[str, Any],
+    payload: Any,
+) -> str | None:
+    if str(metadata.get("kind") or "") != "baseline_screen":
+        return None
+    if not isinstance(payload, Mapping):
+        return "Screen result is not a JSON object"
+    if payload.get("complete_success") is not True or payload.get("status") != "complete":
+        return "Screen result did not report complete_success/status=complete"
+    results = payload.get("results")
+    planned_methods = metadata.get("methods")
+    expected_tests = _strict_nonnegative_int(metadata.get("steps"))
+    horizon = _strict_nonnegative_int(metadata.get("horizon"))
+    lookback = _strict_nonnegative_int(metadata.get("lookback"))
+    if not isinstance(results, Mapping):
+        return "Screen result omitted per-method results"
+    if not isinstance(planned_methods, list) or not planned_methods:
+        return "Screen command omitted its planned method list"
+    if expected_tests is None or expected_tests < 1:
+        return "Screen command has an invalid planned anchor count"
+    if horizon is None or horizon < 1 or lookback is None or lookback < 1:
+        return "Screen command has invalid horizon/lookback metadata"
+    collection_error = _feature_collection_contract_error(
+        payload, results, planned_methods, expected_tests
+    )
+    if collection_error:
+        return collection_error.replace("Feature-bearing screen", "Screen")
+    reference: tuple[list[str], list[Any]] | None = None
+    for method in planned_methods:
+        error, anchors, actuals = _screen_method_evidence(
+            metadata,
+            str(method),
+            results.get(str(method)),
+            expected_tests=expected_tests,
+            horizon=horizon,
+            lookback=lookback,
+        )
+        if error:
+            return error
+        if reference is None:
+            reference = anchors, actuals
+        elif reference != (anchors, actuals):
+            return "Screen methods do not share identical anchor/actual evidence"
+    return None
+
+
+def _feature_usage_contract_error(
+    method_name: str,
+    usage: Any,
+    *,
+    num_tests: int | None,
+    successful_tests: int | None,
+    expected_tests: int,
+    horizon: int,
+    expectations: Any,
+) -> str | None:
+    if not isinstance(usage, Mapping):
+        return f"Feature-bearing screen method {method_name!r} omitted feature_usage"
+    anchors_verified = _strict_nonnegative_int(usage.get("anchors_verified"))
+    future_rows = _strict_nonnegative_int(usage.get("future_rows"))
+    n_features = _strict_nonnegative_int(usage.get("n_features"))
+    if usage.get("status") != "consumed":
+        return f"Feature-bearing screen method {method_name!r} did not attest status=consumed"
+    if usage.get("historical_consumed") is not True:
+        return f"Feature-bearing screen method {method_name!r} did not consume historical features"
+    if usage.get("future_consumed") is not True:
+        return f"Feature-bearing screen method {method_name!r} did not consume future features"
+    if not (anchors_verified == num_tests == successful_tests == expected_tests):
+        return (
+            f"Feature-bearing screen method {method_name!r} has inconsistent verified, "
+            "planned, or successful anchor counts"
+        )
+    if future_rows != horizon:
+        return (
+            f"Feature-bearing screen method {method_name!r} reports future_rows="
+            f"{future_rows!r}, expected horizon={horizon}"
+        )
+    if not isinstance(expectations, Mapping):
+        return "Feature-bearing screen command omitted semantic feature expectations"
+    if expectations.get("complete") is not True:
+        return "Feature-bearing screen feature expectations are incomplete"
+    expected_n_features = _strict_nonnegative_int(expectations.get("n_features"))
+    if n_features != expected_n_features:
+        return (
+            f"Feature-bearing screen method {method_name!r} reports n_features="
+            f"{n_features!r}, expected {expected_n_features} from the variant"
+        )
+    selected_columns = usage.get("selected_columns")
+    expected_columns = expectations.get("semantic_columns")
+    if (
+        not isinstance(selected_columns, list)
+        or not isinstance(expected_columns, list)
+        or not _semantic_columns_match(selected_columns, expected_columns)
+    ):
+        return (
+            f"Feature-bearing screen method {method_name!r} selected columns "
+            "do not match the variant's semantic feature set"
+        )
+    if expectations.get("has_observed_features") is not True:
+        return None
+    if expectations.get("observed_future_policy") != "carry_forward":
+        return "Observed screen features must preregister carry_forward policy"
+    if usage.get("observed_feature_lag_bars") != 1:
+        return (
+            f"Feature-bearing screen method {method_name!r} did not attest "
+            "a one-bar observed feature lag"
+        )
+    if usage.get("observed_future_policy") != "carry_forward":
+        return (
+            f"Feature-bearing screen method {method_name!r} did not attest "
+            "carry_forward observed features"
+        )
+    return None
+
+
+def _feature_detail_contract_error(
+    method_name: str,
+    details: Any,
+    *,
+    detail_mode: str,
+    successful_tests: int | None,
+    lookback: int,
+    horizon: int,
+    method_usage: Mapping[str, Any],
+    expected_params: Mapping[str, Any] | None,
+) -> str | None:
+    if detail_mode != "full":
+        return (
+            f"Feature-bearing screen method {method_name!r} was not requested "
+            "with detail=full"
+        )
+    if not isinstance(details, list):
+        return f"Feature-bearing screen method {method_name!r} omitted full details"
+    if len(details) != successful_tests:
+        return (
+            f"Feature-bearing screen method {method_name!r} detail count differs "
+            "from successful_tests"
+        )
+    for detail_row in details:
+        if not isinstance(detail_row, Mapping) or detail_row.get("success") is not True:
+            return f"Feature-bearing screen method {method_name!r} has a non-successful detail"
+        if _strict_nonnegative_int(detail_row.get("training_bars_used")) != lookback:
+            return (
+                f"Feature-bearing screen method {method_name!r} used an unexpected "
+                "number of training bars"
+            )
+        if not _finite_horizon_vector(detail_row.get("forecast"), horizon):
+            return f"Feature-bearing screen method {method_name!r} has an invalid forecast path"
+        if not _finite_horizon_vector(detail_row.get("actual"), horizon):
+            return f"Feature-bearing screen method {method_name!r} has an invalid actual path"
+        anchor_usage = detail_row.get("feature_usage")
+        if not isinstance(anchor_usage, Mapping):
+            return (
+                f"Feature-bearing screen method {method_name!r} omitted per-anchor "
+                "feature_usage"
+            )
+        for key in (
+            "status",
+            "historical_consumed",
+            "future_consumed",
+            "future_rows",
+            "n_features",
+            "selected_columns",
+            "observed_feature_lag_bars",
+            "observed_future_policy",
+        ):
+            if method_usage.get(key) != anchor_usage.get(key):
+                return (
+                    f"Feature-bearing screen method {method_name!r} has inconsistent "
+                    f"per-anchor feature_usage.{key}"
+                )
+        historical_rows = _strict_nonnegative_int(anchor_usage.get("historical_rows"))
+        historical_min = _strict_nonnegative_int(method_usage.get("historical_rows_min"))
+        historical_max = _strict_nonnegative_int(method_usage.get("historical_rows_max"))
+        if (
+            historical_rows is None
+            or historical_min is None
+            or historical_max is None
+            or not historical_min <= historical_rows <= historical_max
+        ):
+            return (
+                f"Feature-bearing screen method {method_name!r} has inconsistent "
+                "per-anchor historical feature rows"
+            )
+        params_used = detail_row.get("params_used")
+        if not isinstance(params_used, Mapping):
+            return f"Feature-bearing screen method {method_name!r} omitted params_used"
+        if isinstance(expected_params, Mapping):
+            for key, expected_value in expected_params.items():
+                if params_used.get(key) != expected_value:
+                    return (
+                        f"Feature-bearing screen method {method_name!r} did not use "
+                        f"the preregistered parameter {key!r}"
+                    )
+    return None
+
+
+def _screen_feature_contract_error(
+    metadata: Mapping[str, Any],
+    argv: Sequence[str],
+    payload: Any,
+) -> str | None:
+    if not _screen_features_requested(metadata, argv):
+        return None
+    if not isinstance(payload, Mapping):
+        return "Feature-bearing screen result is not a JSON object"
+    if payload.get("complete_success") is not True or payload.get("status") != "complete":
+        return "Feature-bearing screen result did not report complete_success/status=complete"
+    results = payload.get("results")
+    if not isinstance(results, Mapping):
+        return "Feature-bearing screen result omitted per-method results"
+    planned_methods = metadata.get("methods")
+    if not isinstance(planned_methods, list) or not planned_methods:
+        return "Feature-bearing screen command omitted its planned method list"
+    horizon = _strict_nonnegative_int(metadata.get("horizon"))
+    expected_tests = _strict_nonnegative_int(metadata.get("steps"))
+    lookback = _strict_nonnegative_int(metadata.get("lookback"))
+    if (
+        horizon is None
+        or horizon < 1
+        or expected_tests is None
+        or expected_tests < 1
+        or lookback is None
+        or lookback < 1
+    ):
+        return "Feature-bearing screen command has invalid horizon/lookback/anchor counts"
+    collection_error = _feature_collection_contract_error(
+        payload,
+        results,
+        planned_methods,
+        expected_tests,
+    )
+    if collection_error:
+        return collection_error
+    expectations = metadata.get("feature_expectations")
+    raw_params_per_method = metadata.get("params_per_method")
+    params_per_method = (
+        raw_params_per_method if isinstance(raw_params_per_method, Mapping) else {}
+    )
+    global_params = metadata.get("params")
+    for method in planned_methods:
+        method_name = str(method)
+        result = results.get(method_name)
+        if not isinstance(result, Mapping):
+            return f"Feature-bearing screen result omitted planned method {method_name!r}"
+        if (
+            result.get("success") is not True
+            or result.get("complete_success") is not True
+            or result.get("status") != "complete"
+        ):
+            return f"Feature-bearing screen method {method_name!r} was not complete"
+        num_tests = _strict_nonnegative_int(result.get("num_tests"))
+        successful_tests = _strict_nonnegative_int(result.get("successful_tests"))
+        usage_error = _feature_usage_contract_error(
+            method_name,
+            result.get("feature_usage"),
+            num_tests=num_tests,
+            successful_tests=successful_tests,
+            expected_tests=expected_tests,
+            horizon=horizon,
+            expectations=expectations,
+        )
+        if usage_error:
+            return usage_error
+        detail_error = _feature_detail_contract_error(
+            method_name,
+            result.get("details"),
+            detail_mode=str(metadata.get("detail") or "full"),
+            successful_tests=successful_tests,
+            lookback=lookback,
+            horizon=horizon,
+            method_usage=result["feature_usage"],
+            expected_params=(
+                params_per_method.get(method_name)
+                if isinstance(params_per_method.get(method_name), Mapping)
+                else global_params
+                if isinstance(global_params, Mapping)
+                else None
+            ),
+        )
+        if detail_error:
+            return detail_error
+    return None
+
+
+_FEATURE_CONSUMPTION_ERROR_CODE = "BTC-FEATURE-CONSUMPTION"
+_SCREEN_EVIDENCE_ERROR_CODE = "BTC-SCREEN-EVIDENCE"
+_RAW_INTEGRITY_ERROR_CODE = "BTC-RAW-INTEGRITY"
+
+
+def _verified_recorded_raw_path(
+    context: RunContext,
+    stage: str,
+    command_id: str,
+    record: Mapping[str, Any],
+) -> Path:
+    raw_path_text = record.get("raw_path")
+    expected_hash = record.get("raw_sha256")
+    if not isinstance(raw_path_text, str) or not raw_path_text:
+        raise HarnessError(
+            f"{_RAW_INTEGRITY_ERROR_CODE}: recorded command "
+            f"{stage}/{command_id} has no raw_path"
+        )
+    if not isinstance(expected_hash, str) or re.fullmatch(r"[0-9a-f]{64}", expected_hash) is None:
+        raise HarnessError(
+            f"{_RAW_INTEGRITY_ERROR_CODE}: recorded command "
+            f"{stage}/{command_id} has no valid raw_sha256"
+        )
+    raw_path = (context.run_dir / raw_path_text).resolve()
+    try:
+        raw_path.relative_to(context.run_dir.resolve())
+    except ValueError as exc:
+        raise HarnessError(
+            f"{_RAW_INTEGRITY_ERROR_CODE}: raw_path for {stage}/{command_id} "
+            "escapes the study directory"
+        ) from exc
+    if not raw_path.is_file():
+        raise HarnessError(
+            f"{_RAW_INTEGRITY_ERROR_CODE}: raw output for recorded command "
+            f"{stage}/{command_id} is missing"
+        )
+    actual_hash = _sha256_file(raw_path)
+    if actual_hash != expected_hash:
+        raise HarnessError(
+            f"{_RAW_INTEGRITY_ERROR_CODE}: raw SHA-256 mismatch for completed "
+            f"command {stage}/{command_id}"
+        )
+    return raw_path
+
+
+def _verify_command_raw_history(
+    context: RunContext,
+    stage: str,
+    command_id: str,
+    record: Mapping[str, Any],
+) -> Path:
+    current_path = _verified_recorded_raw_path(
+        context,
+        stage,
+        command_id,
+        record,
+    )
+    attempts = record.get("attempt_artifacts")
+    if not isinstance(attempts, list) or not attempts:
+        raise HarnessError(
+            f"{_RAW_INTEGRITY_ERROR_CODE}: recorded command {stage}/{command_id} "
+            "has no immutable attempt history"
+        )
+    observed_paths: set[str] = set()
+    for index, attempt in enumerate(attempts, start=1):
+        if not isinstance(attempt, Mapping):
+            raise HarnessError(
+                f"{_RAW_INTEGRITY_ERROR_CODE}: attempt history entry {index} for "
+                f"{stage}/{command_id} is malformed"
+            )
+        attempt_path = _verified_recorded_raw_path(
+            context,
+            stage,
+            f"{command_id} attempt {index}",
+            attempt,
+        )
+        relative_path = _relative(attempt_path, context.run_dir)
+        if relative_path in observed_paths:
+            raise HarnessError(
+                f"{_RAW_INTEGRITY_ERROR_CODE}: attempt history for "
+                f"{stage}/{command_id} reuses a raw path"
+            )
+        observed_paths.add(relative_path)
+    latest = attempts[-1]
+    if (
+        latest.get("raw_path") != record.get("raw_path")
+        or latest.get("raw_sha256") != record.get("raw_sha256")
+    ):
+        raise HarnessError(
+            f"{_RAW_INTEGRITY_ERROR_CODE}: current raw pointer for "
+            f"{stage}/{command_id} does not match its latest attempt"
+        )
+    return current_path
+
+
+def _recorded_success_contract_error(
+    stage: str,
+    command_id: str,
+    record: Mapping[str, Any],
+    envelope: Any,
+) -> str | None:
+    if not isinstance(envelope, Mapping):
+        return "Recorded raw envelope is not a JSON object"
+    if envelope.get("status") != "completed":
+        return "Recorded completed command has a non-completed raw envelope"
+    if envelope.get("stage") != stage or envelope.get("command_id") != command_id:
+        return "Recorded raw envelope stage/command identity does not match the manifest"
+    invocation = envelope.get("invocation")
+    argv = record.get("argv")
+    if (
+        not isinstance(invocation, list)
+        or not isinstance(argv, list)
+        or invocation[-len(argv) :] != argv
+    ):
+        return "Recorded raw invocation does not match the manifest command"
+    if envelope.get("metadata") != record.get("metadata", {}):
+        return "Recorded raw metadata does not match the manifest command"
+    returncode = _strict_nonnegative_int(envelope.get("returncode"))
+    payload = envelope.get("payload")
+    if returncode != 0 or not _payload_succeeded(payload, returncode):
+        return "Recorded completed command does not contain a successful payload"
+    metadata = record.get("metadata")
+    if not isinstance(metadata, Mapping):
+        return "Recorded command metadata is malformed"
+    spec = CommandSpec(
+        command_id,
+        tuple(str(item) for item in argv),
+        metadata,
+    )
+    shard_error = _shard_contract_error(spec, payload)
+    if shard_error:
+        return shard_error
+    screen_error = (
+        _screen_collection_contract_error(metadata, payload)
+        if stage == "screen"
+        else None
+    )
+    if screen_error:
+        return f"{_SCREEN_EVIDENCE_ERROR_CODE}: {screen_error}"
+    feature_error = (
+        _screen_feature_contract_error(metadata, spec.argv, payload)
+        if stage == "screen"
+        else None
+    )
+    if feature_error:
+        return f"{_FEATURE_CONSUMPTION_ERROR_CODE}: {feature_error}"
+    return _explicit_anchor_contract_error(payload)
+
+
 def execute_spec(context: RunContext, stage: str, spec: CommandSpec) -> bool | None:
     """Execute one registered command; return True, False, or None for dry-run."""
     _validate_research_command(spec.argv)
+    _assert_execution_integrity(context)
     stage_record = context.manifest["stages"][stage]
     command_record = stage_record["commands"][spec.command_id]
-    raw_path = _raw_path(context, stage, spec.command_id)
-    if command_record.get("status") == "completed" and raw_path.exists():
+    prior_status = command_record.get("status")
+    if prior_status == "running":
+        raise HarnessError(
+            f"{_RAW_INTEGRITY_ERROR_CODE}: command {stage}/{spec.command_id} has "
+            "an interrupted attempt without a finalized raw envelope; start a new run"
+        )
+    if prior_status in {"completed", "failed"}:
+        _verify_command_raw_history(
+            context,
+            stage,
+            spec.command_id,
+            command_record,
+        )
+    if prior_status == "completed":
         return True
     invocation = [sys.executable, "-m", "mtdata", "--json", *spec.argv]
     known_secrets = _secret_values()
     if context.dry_run:
+        raw_path = _planned_raw_path(context, stage, spec.command_id)
         envelope = {
             "schema_version": SCHEMA_VERSION,
             "stage": stage,
@@ -1923,16 +3289,58 @@ def execute_spec(context: RunContext, stage: str, spec: CommandSpec) -> bool | N
         _save_manifest(context)
         return None
 
+    attempt = int(command_record.get("attempts", 0)) + 1
+    raw_path = _attempt_raw_path(context, stage, spec.command_id, attempt)
+    if raw_path.exists():
+        raise HarnessError(
+            f"{_RAW_INTEGRITY_ERROR_CODE}: immutable raw attempt path already "
+            f"exists for {stage}/{spec.command_id} attempt {attempt}"
+        )
+    isolation = (
+        _prepare_attempt_isolation(
+            context,
+            stage,
+            spec.command_id,
+            attempt,
+        )
+        if stage not in _ATTEMPT_ISOLATION_EXEMPT_STAGES
+        else None
+    )
+    if isolation is None:
+        isolation_record: dict[str, Any] = {
+            "attempt": attempt,
+            "policy": "shared_materialize_shadow_lifecycle_store",
+            "model_store_path": "model_store/lifecycle",
+            "jobs_db_path": "forecast_jobs.sqlite",
+            "attempt_isolation_exempt": True,
+        }
+    else:
+        isolation_record = {
+            "attempt": attempt,
+            "policy": "fresh_command_attempt",
+            "model_store_path": isolation["model_store_path"],
+            "jobs_db_path": isolation["jobs_db_path"],
+            "preexisting_files": isolation["preexisting_files"],
+            "attempt_isolation_exempt": False,
+        }
     command_record["status"] = "running"
-    command_record["attempts"] = int(command_record.get("attempts", 0)) + 1
+    command_record["attempts"] = attempt
     command_record["started_at"] = utc_now()
+    command_record["model_store_path"] = isolation_record["model_store_path"]
+    command_record["jobs_db_path"] = isolation_record["jobs_db_path"]
+    attempt_artifacts = command_record.setdefault("attempt_artifacts", [])
+    if not isinstance(attempt_artifacts, list):
+        raise HarnessError(
+            f"{_ATTEMPT_ISOLATION_ERROR_CODE}: command attempt history is malformed"
+        )
+    attempt_artifacts.append(isolation_record)
     _save_manifest(context)
     started = time.perf_counter()
     try:
         completed = subprocess.run(
             invocation,
             cwd=Path(__file__).resolve().parents[1],
-            env=_command_environment(context),
+            env=_command_environment(context, isolation),
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -1956,10 +3364,50 @@ def execute_spec(context: RunContext, stage: str, spec: CommandSpec) -> bool | N
         stderr = str(exc.stderr or "")
         payload = None
         parse_error = f"mtdata command exceeded {context.timeout:g} seconds"
+    if isolation is None:
+        post_call_inventory = {
+            "complete": False,
+            "exempt": True,
+            "reason": "shared_materialize_shadow_lifecycle_store",
+        }
+        inventory_error = None
+    else:
+        post_call_inventory, inventory_error = _attempt_post_call_inventory(
+            context,
+            isolation,
+        )
+    post_execution_integrity_error = _execution_integrity_error(context)
+    isolation_record["post_call_inventory"] = post_call_inventory
+    if inventory_error:
+        isolation_record["inventory_error"] = inventory_error
     finished = utc_now()
-    contract_error = None
-    if parse_error is None:
-        contract_error = _shard_contract_error(spec, payload) or _explicit_anchor_contract_error(payload)
+    contract_error = post_execution_integrity_error
+    if parse_error is None and contract_error is None:
+        screen_contract_error = (
+            _screen_collection_contract_error(spec.metadata, payload)
+            if stage == "screen"
+            else None
+        )
+        feature_contract_error = (
+            _screen_feature_contract_error(spec.metadata, spec.argv, payload)
+            if stage == "screen"
+            else None
+        )
+        contract_error = (
+            inventory_error
+            or _shard_contract_error(spec, payload)
+            or (
+                f"{_SCREEN_EVIDENCE_ERROR_CODE}: {screen_contract_error}"
+                if screen_contract_error
+                else None
+            )
+            or (
+                f"{_FEATURE_CONSUMPTION_ERROR_CODE}: {feature_contract_error}"
+                if feature_contract_error
+                else None
+            )
+            or _explicit_anchor_contract_error(payload)
+        )
     success = parse_error is None and contract_error is None and _payload_succeeded(payload, returncode)
     safe_payload = redact(payload, known_secrets=known_secrets)
     envelope = {
@@ -1975,6 +3423,7 @@ def execute_spec(context: RunContext, stage: str, spec: CommandSpec) -> bool | N
         "returncode": returncode,
         "payload": safe_payload,
         "stderr": _redact_text(stderr, known_secrets),
+        "attempt_isolation": isolation_record,
     }
     if parse_error:
         envelope["parse_error"] = parse_error
@@ -1982,6 +3431,9 @@ def execute_spec(context: RunContext, stage: str, spec: CommandSpec) -> bool | N
     if contract_error:
         envelope["contract_error"] = contract_error
     _atomic_write_json(raw_path, envelope)
+    raw_sha256 = _sha256_file(raw_path)
+    isolation_record["raw_path"] = _relative(raw_path, context.run_dir)
+    isolation_record["raw_sha256"] = raw_sha256
     _record_anchor_contract_issue(context, stage, spec, safe_payload, raw_path)
     command_record.update(
         {
@@ -1990,6 +3442,8 @@ def execute_spec(context: RunContext, stage: str, spec: CommandSpec) -> bool | N
             "duration_seconds": envelope["duration_seconds"],
             "returncode": returncode,
             "raw_path": _relative(raw_path, context.run_dir),
+            "raw_sha256": raw_sha256,
+            "post_call_inventory": post_call_inventory,
         }
     )
     if not success:
@@ -2091,10 +3545,18 @@ def write_normalized_stage(context: RunContext, stage: str) -> dict[str, Any]:
             "metadata": record.get("metadata", {}),
             "attempts": record.get("attempts", 0),
             "raw_path": record.get("raw_path"),
+            "raw_sha256": record.get("raw_sha256"),
+            "model_store_path": record.get("model_store_path"),
+            "jobs_db_path": record.get("jobs_db_path"),
+            "post_call_inventory": record.get("post_call_inventory"),
         }
         raw_path_text = record.get("raw_path")
         if raw_path_text:
-            raw_path = context.run_dir / str(raw_path_text)
+            raw_path = (
+                _verify_command_raw_history(context, stage, command_id, record)
+                if record.get("status") in {"completed", "failed"}
+                else context.run_dir / str(raw_path_text)
+            )
             if raw_path.exists():
                 envelope = _load_json(raw_path)
                 if isinstance(envelope, Mapping):
@@ -2104,18 +3566,39 @@ def write_normalized_stage(context: RunContext, stage: str) -> dict[str, Any]:
                         row["parse_error"] = envelope.get("parse_error")
                     if envelope.get("contract_error"):
                         row["contract_error"] = envelope.get("contract_error")
-                    row["result"] = _summarize_payload(envelope.get("payload"))
+                    payload = envelope.get("payload")
+                    recorded_contract_error = (
+                        _recorded_success_contract_error(
+                            stage,
+                            command_id,
+                            record,
+                            envelope,
+                        )
+                        if record.get("status") == "completed"
+                        else None
+                    )
+                    if recorded_contract_error:
+                        row["status"] = "failed"
+                        row["contract_error"] = recorded_contract_error
+                        if isinstance(record, dict):
+                            record["status"] = "failed"
+                            record["error"] = recorded_contract_error
+                    row["result"] = _summarize_payload(payload)
         rows.append(row)
     counts: dict[str, int] = {}
     for row in rows:
         status = str(row.get("status") or "unknown")
         counts[status] = counts.get(status, 0) + 1
+    normalized_status = stage_record.get("status")
+    if any(row.get("status") == "failed" for row in rows):
+        normalized_status = "failed"
+        stage_record["status"] = "failed"
     normalized = {
         "schema_version": SCHEMA_VERSION,
         "run_id": context.manifest.get("run_id"),
         "stage": stage,
         "generated_at": utc_now(),
-        "status": stage_record.get("status"),
+        "status": normalized_status,
         "config_hash": stage_record.get("config_hash"),
         "plan_digest": stage_record.get("plan_digest"),
         "counts": counts,
@@ -2136,6 +3619,8 @@ def _run_command_stage(
     allow_append: bool = False,
     continuous: bool = False,
 ) -> int:
+    if not specs:
+        raise HarnessError(f"Stage {stage!r} produced an empty command plan")
     _register_specs(
         context,
         stage,
@@ -2144,6 +3629,35 @@ def _run_command_stage(
         allow_append=allow_append,
     )
     stage_record = context.manifest["stages"][stage]
+    for command_id, record in stage_record.get("commands", {}).items():
+        if isinstance(record, Mapping) and record.get("status") in {
+            "completed",
+            "failed",
+        }:
+            raw_path = _verify_command_raw_history(
+                context,
+                stage,
+                str(command_id),
+                record,
+            )
+            if record.get("status") == "completed":
+                stored_error = _recorded_success_contract_error(
+                    stage,
+                    str(command_id),
+                    record,
+                    _load_json(raw_path),
+                )
+                if stored_error:
+                    if isinstance(record, dict):
+                        record["status"] = "failed"
+                        record["error"] = stored_error
+                    stage_record["status"] = "failed"
+                    write_normalized_stage(context, stage)
+                    _save_manifest(context)
+                    raise HarnessError(
+                        f"Recorded command {stage}/{command_id} failed "
+                        f"revalidation: {stored_error}"
+                    )
     stage_record["attempts"] = int(stage_record.get("attempts", 0)) + 1
     stage_record.setdefault("started_at", utc_now())
     stage_record["status"] = "planned" if context.dry_run else "running"
@@ -2162,8 +3676,7 @@ def _run_command_stage(
         outcome = execute_spec(context, stage, spec)
         if outcome is False:
             failures += 1
-            if context.fail_fast:
-                break
+            break
 
     statuses = {
         command_id: record.get("status")
@@ -3387,10 +4900,6 @@ def _materialization_artifact(
         command_record = context.manifest["stages"]["materialize"]["commands"][spec.command_id]
         command_record.update({"status": "failed", "error": error})
         context.manifest["stages"]["materialize"]["status"] = "failed"
-        if isinstance(envelope, dict):
-            envelope["status"] = "failed"
-            envelope["contract_error"] = error
-            _atomic_write_json(raw_path, envelope)
         append_issue(
             context.run_dir,
             {
@@ -3798,6 +5307,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.timeout <= 0:
         parser.error("--timeout must be positive")
     try:
+        _enforce_source_integrity(args)
         context = prepare_context(args)
         if args.action == "audit":
             result = run_audit(context)

@@ -173,10 +173,9 @@ def test_inconsistent_explicit_partial_counts_fail_command_contract(
     )
 
     assert experiment.execute_spec(context, "screen", spec) is False
+    record = context.manifest["stages"]["screen"]["commands"][spec.command_id]
     raw = json.loads(
-        (context.run_dir / "raw" / "screen" / "inconsistent-partial-anchors.json").read_text(
-            encoding="utf-8"
-        )
+        (context.run_dir / record["raw_path"]).read_text(encoding="utf-8")
     )
     assert "disagree" in raw["contract_error"]
     ledger = json.loads((context.run_dir / "issues.json").read_text(encoding="utf-8"))

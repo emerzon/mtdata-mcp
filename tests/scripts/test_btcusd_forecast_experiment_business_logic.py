@@ -234,11 +234,20 @@ def test_dry_run_preregisters_then_resume_skips_completed_command(
 ) -> None:
     run_dir = tmp_path / "study"
     calls: list[tuple[list[str], dict]] = []
+    clean_source = {
+        "git_head": "a" * 40,
+        "tracked_tree_dirty": False,
+        "untracked_runtime_files": [],
+        "source_tree_dirty": False,
+        "source_status_sha256": hashlib.sha256(b"").hexdigest(),
+        "captured_at": "2026-08-27T00:00:00Z",
+    }
 
     def fake_run(invocation: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         calls.append((list(invocation), dict(kwargs)))
         return _completed(invocation, {"success": True, "symbol": "BTCUSD"})
 
+    monkeypatch.setattr(experiment, "_git_source_state", lambda: clean_source)
     monkeypatch.setattr(experiment.subprocess, "run", fake_run)
 
     assert (
@@ -291,11 +300,16 @@ def test_dry_run_preregisters_then_resume_skips_completed_command(
     assert calls[0][0][:4] == [sys.executable, "-m", "mtdata", "--json"]
     assert calls[0][0][4] == "symbols_describe"
     assert calls[0][1]["shell"] is False
-    assert Path(calls[0][1]["env"]["MTDATA_MODEL_STORE"]) == run_dir / "model_store"
-    assert Path(calls[0][1]["env"]["MTDATA_FORECAST_JOBS_DB"]) == run_dir / "forecast_jobs.sqlite"
+    assert Path(calls[0][1]["env"]["MTDATA_MODEL_STORE"]) == (
+        run_dir / "model_store" / "audit" / "symbol" / "attempt-1"
+    )
+    assert Path(calls[0][1]["env"]["MTDATA_FORECAST_JOBS_DB"]) == (
+        run_dir / "jobs" / "audit" / "symbol" / "attempt-1.sqlite"
+    )
     assert calls[0][1]["env"]["CUDA_VISIBLE_DEVICES"] == "0,1"
 
-    first_raw = run_dir / "raw" / "audit" / "symbol.json"
+    first_record = resumed_manifest["stages"]["audit"]["commands"]["symbol"]
+    first_raw = run_dir / first_record["raw_path"]
     first_contents = first_raw.read_text(encoding="utf-8")
     assert json.loads(first_contents)["payload"]["success"] is True
     assert (run_dir / "normalized" / "audit.json").exists()
@@ -408,7 +422,8 @@ def test_failed_non_json_cli_call_persists_raw_output_and_automatic_issue(
     monkeypatch.setattr(experiment.subprocess, "run", fake_run)
 
     assert experiment.execute_spec(context, "audit", spec) is False
-    raw = json.loads((context.run_dir / "raw" / "audit" / "bad-json.json").read_text(encoding="utf-8"))
+    record = context.manifest["stages"]["audit"]["commands"][spec.command_id]
+    raw = json.loads((context.run_dir / record["raw_path"]).read_text(encoding="utf-8"))
     assert raw["status"] == "failed"
     assert "not valid JSON" in raw["parse_error"]
     ledger = json.loads((context.run_dir / "issues.json").read_text(encoding="utf-8"))
