@@ -120,6 +120,7 @@ These are **not** tutorials. They track coverage and dependency work.
 | [DEPENDENCY_MIGRATION.md](DEPENDENCY_MIGRATION.md) | Python 3.14 package snapshot |
 | [PUBLISHING.md](PUBLISHING.md) | PyPI + Official MCP Registry publish sequence (emerzon) |
 | [STYLE.md](STYLE.md) | Docs persona and page contract |
+| [BTCUSD_FORECAST_RESEARCH.md](BTCUSD_FORECAST_RESEARCH.md) | BTCUSD forecast experiment contract and product-friction ledger |
 
 ## Common workflows (recipes)
 
