@@ -623,6 +623,13 @@ class TestNormalizeTradePayload:
         assert "order" not in result
 
     def test_successful_trade_place_preview_keeps_decision_prices(self):
+        candidate_risk = {
+            "status": "ok",
+            "risk_currency": 5.34,
+            "risk_pct_of_equity": 0.1552,
+            "reward_currency": 4.66,
+            "reward_risk_ratio": 0.8727,
+        }
         payload = {
             "success": True,
             "dry_run": True,
@@ -638,6 +645,7 @@ class TestNormalizeTradePayload:
             "tp_distance_pips": 199.0,
             "margin_required": 123.45,
             "margin_sufficient": True,
+            "candidate_risk": candidate_risk,
             "units": {"sl_distance_pips": "pip_count"},
         }
 
@@ -657,6 +665,7 @@ class TestNormalizeTradePayload:
             "tp_distance_pips",
             "margin_required",
             "margin_sufficient",
+            "candidate_risk",
             "units",
         ):
             assert result[key] == payload[key]

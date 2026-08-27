@@ -592,6 +592,9 @@ class TestTradeClose:
         assert out.get("error_code") != "preview_blocked"
         assert out["would_send_order"] is False
         assert out["operation"] == "close_symbol_positions"
+        assert out["matched_positions_count"] == 0
+        assert out["empty"] is True
+        assert out["no_action"] is True
         assert out["symbol"] == "EURUSD"
         mock_close.assert_called_once_with(
             symbol="EURUSD",

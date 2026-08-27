@@ -1137,6 +1137,18 @@ def _candidate_risk_preview_fields(
     return candidate_risk
 
 
+def _split_pending_validation_error(
+    validation_error: Optional[Dict[str, Any]],
+) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    """Separate pending-entry failures from protective-level failures."""
+    if validation_error is None:
+        return None, None
+    error_text = str(validation_error.get("error") or "").lower()
+    if error_text.startswith(("stop_loss", "take_profit")):
+        return None, validation_error
+    return validation_error, None
+
+
 def build_trade_place_dry_run_preview(
     *,
     symbol: str,
@@ -1358,16 +1370,26 @@ def build_trade_place_dry_run_preview(
             stop_loss=None if normalized_sl is None else float(normalized_sl),
             take_profit=None if normalized_tp is None else float(normalized_tp),
         )
+    protection_error = validation_error
     if pending:
+        pending_entry_error, protection_error = _split_pending_validation_error(
+            validation_error
+        )
         out["pending_levels_valid"] = validation_error is None
+        out["pending_entry_valid"] = pending_entry_error is None
+        out["pending_entry_error"] = (
+            pending_entry_error.get("error")
+            if pending_entry_error is not None
+            else None
+        )
         if validation_error is not None:
             out["pending_levels_error"] = validation_error.get("error")
             out["preview_error"] = validation_error.get("error")
             out["preview_error_code"] = "invalid_pending_order_levels"
     if normalized_sl is not None or normalized_tp is not None:
-        out["sl_tp_valid"] = validation_error is None
-        if validation_error is not None:
-            out["sl_tp_error"] = validation_error.get("error")
+        out["sl_tp_valid"] = protection_error is None
+        if protection_error is not None:
+            out["sl_tp_error"] = protection_error.get("error")
 
     # MT5's margin calculator accepts the active BUY/SELL action, even when
     # previewing a pending order.  Passing BUY_LIMIT/SELL_STOP constants can

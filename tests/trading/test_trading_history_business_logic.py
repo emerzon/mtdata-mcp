@@ -2592,8 +2592,26 @@ def test_trade_journal_ranked_lists_do_not_duplicate_full_item_rows() -> None:
     )
     item_tickets = {item["deal_ticket"] for item in out["items"]}
     for row in out["best_trades"] + out["worst_trades"]:
-        if row.get("rank_reference"):
-            assert row["deal_ticket"] in item_tickets
+        assert row.get("rank_reference") is True
+    assert item_tickets
+
+
+def test_trade_journal_ranked_lists_always_reference_global_extrema() -> None:
+    rows = [
+        {"ticket": 1, "symbol": "EURUSD", "entry": "Out", "profit": 5.0},
+        {"ticket": 2, "symbol": "EURUSD", "entry": "Out", "profit": 2.0},
+        {"ticket": 3, "symbol": "EURUSD", "entry": "Out", "profit": 1.0},
+        {"ticket": 4, "symbol": "EURUSD", "entry": "Out", "profit": 100.0},
+        {"ticket": 5, "symbol": "EURUSD", "entry": "Out", "profit": -50.0},
+    ]
+    with patch(
+        "mtdata.core.trading.account._run_trade_history_request",
+        return_value={"success": True, "count": len(rows), "items": rows},
+    ):
+        out = trade_journal_analyze(limit=3, detail="full", __cli_raw=True)
+
+    assert out["best_trades"][0]["net_pnl"] == out["summary"]["best_trade"]
+    assert out["worst_trades"][0]["net_pnl"] == out["summary"]["worst_trade"]
 
 
 def test_trade_journal_analyze_filters_best_worst_by_pnl_sign() -> None:

@@ -883,6 +883,66 @@ def test_pending_dry_run_rejects_invalid_price_before_quote_resolution(
 
 
 @pytest.mark.parametrize(
+    ("order_type", "entry_price", "stop_loss", "take_profit"),
+    [
+        ("BUY_LIMIT", 1.1010, 1.0800, 1.1200),
+        ("BUY_STOP", 1.0990, 1.0800, 1.1200),
+        ("SELL_LIMIT", 1.0990, 1.1200, 1.0800),
+        ("SELL_STOP", 1.1010, 1.1200, 1.0800),
+    ],
+)
+def test_pending_entry_error_does_not_misclassify_valid_protection(
+    order_type,
+    entry_price,
+    stop_loss,
+    take_profit,
+):
+    now = datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc).timestamp()
+    gateway = MagicMock()
+    gateway.adapter = SimpleNamespace(order_calc_margin=MagicMock(return_value=20.0))
+    gateway.ORDER_TYPE_BUY = 0
+    gateway.ORDER_TYPE_SELL = 1
+    gateway.ORDER_TYPE_BUY_LIMIT = 2
+    gateway.ORDER_TYPE_SELL_LIMIT = 3
+    gateway.ORDER_TYPE_BUY_STOP = 4
+    gateway.ORDER_TYPE_SELL_STOP = 5
+    gateway.symbol_info.return_value = SimpleNamespace(
+        visible=True,
+        volume_min=0.01,
+        volume_max=100.0,
+        volume_step=0.01,
+        point=0.0001,
+        digits=4,
+        trade_stops_level=0,
+        trade_freeze_level=0,
+    )
+    gateway.symbol_info_tick.return_value = SimpleNamespace(
+        bid=1.0999,
+        ask=1.1001,
+        time=now,
+    )
+    gateway.account_info.return_value = SimpleNamespace(margin_free=1_000.0)
+
+    with patch("mtdata.core.trading.orders._stdlib_time.time", return_value=now):
+        result = build_trade_place_dry_run_preview(
+            symbol="EURUSD",
+            volume=0.1,
+            order_type=order_type,
+            pending=True,
+            price=entry_price,
+            stop_loss=stop_loss,
+            take_profit=take_profit,
+            gateway=gateway,
+        )
+
+    assert result["pending_levels_valid"] is False
+    assert result["pending_entry_valid"] is False
+    assert result["pending_entry_error"] == result["preview_error"]
+    assert result["sl_tp_valid"] is True
+    assert "sl_tp_error" not in result
+
+
+@pytest.mark.parametrize(
     ("order_type", "entry_price", "expected_action"),
     [
         ("BUY_LIMIT", 1.099, 0),

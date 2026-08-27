@@ -966,31 +966,18 @@ def _run_trade_journal_request(  # noqa: C901
         ]
         payload["item_schema"] = "trade_journal_analyzed_exit.v3"
         ranked_cap = min(5, requested_item_limit)
-        seen_tickets = {
-            row.get("deal_ticket", row.get("ticket")) for row in item_rows
-        }
-        remaining_unique = max(0, requested_item_limit - len(item_rows))
 
         def _ranked_trade_rows(source: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-            nonlocal remaining_unique
-            out: List[Dict[str, Any]] = []
-            for row in source[:ranked_cap]:
-                ticket = row.get("deal_ticket", row.get("ticket"))
-                if ticket in seen_tickets:
-                    out.append(
-                        {
-                            "deal_ticket": ticket,
-                            "rank_reference": True,
-                            "net_pnl": row.get("net_pnl"),
-                            "profit": row.get("profit"),
-                            "symbol": row.get("symbol"),
-                        }
-                    )
-                elif remaining_unique > 0:
-                    out.append(_trade_journal_trade_snapshot(row))
-                    seen_tickets.add(ticket)
-                    remaining_unique -= 1
-            return out
+            return [
+                {
+                    "deal_ticket": row.get("deal_ticket", row.get("ticket")),
+                    "rank_reference": True,
+                    "net_pnl": row.get("net_pnl"),
+                    "profit": row.get("profit"),
+                    "symbol": row.get("symbol"),
+                }
+                for row in source[:ranked_cap]
+            ]
 
         payload["best_trades"] = _ranked_trade_rows(ranked_best)
         payload["worst_trades"] = _ranked_trade_rows(ranked_worst)
@@ -1001,7 +988,7 @@ def _run_trade_journal_request(  # noqa: C901
         )
         unique_tickets = {
             row.get("deal_ticket")
-            for row in serialized_rows
+            for row in payload["items"]
             if row.get("deal_ticket") not in (None, "")
         }
         payload["sample_provenance"] = _sample_provenance(

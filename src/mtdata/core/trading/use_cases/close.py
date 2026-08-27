@@ -565,6 +565,17 @@ def _run_trade_close_once(  # noqa: C901
                 preview["would_cancel_pending_order"] = matched_pending > 0
                 if matched_pending == 0:
                     preview.setdefault("no_action", True)
+                    preview.setdefault("empty", True)
+            else:
+                matched_positions = _leg_count(
+                    preview,
+                    "matched_count",
+                    "would_send_orders",
+                )
+                preview["matched_positions_count"] = matched_positions
+                preview["empty"] = matched_positions == 0
+                if matched_positions == 0:
+                    preview.setdefault("no_action", True)
         if request.ticket is not None:
             preview["ticket"] = request.ticket
             preview["ticket_resolution"] = (

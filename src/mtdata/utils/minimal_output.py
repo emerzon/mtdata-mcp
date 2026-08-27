@@ -1036,6 +1036,7 @@ def _normalize_trade_payload(  # noqa: C901
             "margin_required_when_filled",
             "margin_free",
             "margin_sufficient",
+            "candidate_risk",
             "units",
         ):
             _maybe_add_trade_key(out, key, payload.get(key))
