@@ -994,6 +994,7 @@ def _normalize_trade_payload(  # noqa: C901
     _maybe_add_trade_key(out, "symbol", payload.get("symbol"))
     if "symbol" not in out:
         _maybe_add_trade_key(out, "symbol", payload.get("target_symbol"))
+    _maybe_add_trade_key(out, "symbol_input", payload.get("symbol_input"))
     _maybe_add_trade_key(out, "order_type", payload.get("order_type"))
     _maybe_add_trade_key(out, "pending", payload.get("pending"))
     _maybe_add_trade_key(out, "action", payload.get("action"))

@@ -105,6 +105,34 @@ def test_public_trade_place_generates_and_logs_correlation_id(caplog):
     )
 
 
+def test_public_trade_place_resolves_slash_alias_before_preview() -> None:
+    request = TradePlaceRequest(symbol="EUR/USD", volume=0.1, order_type="BUY")
+    gateway = MagicMock()
+    gateway.symbols_get.return_value = [MagicMock(name="EURUSD")]
+    gateway.symbols_get.return_value[0].name = "EURUSD"
+
+    def fake_run_trade_place(resolved_request, **kwargs):
+        return {"success": True, "preview_ok": True}
+
+    with (
+        patch(
+            "mtdata.core.trading.create_trading_gateway",
+            return_value=gateway,
+        ),
+        patch(
+            "mtdata.core.trading.run_trade_place",
+            side_effect=fake_run_trade_place,
+        ) as run_trade_place_mock,
+    ):
+        result = trade_place(request=request, __cli_raw=True)
+
+    resolved_request = run_trade_place_mock.call_args.args[0]
+    assert resolved_request.symbol == "EURUSD"
+    assert result["symbol"] == "EURUSD"
+    assert result["symbol_input"] == "EUR/USD"
+    gateway.ensure_connection.assert_called_once_with()
+
+
 def test_trade_place_replay_links_current_original_and_mt5_ids(caplog):
     store = _FakeIdempotencyStore()
     place_market_order = MagicMock(

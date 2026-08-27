@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from typing import Any, Callable, Dict, Optional
 
-from ...utils.mt5 import ensure_mt5_connection_or_raise, mt5_adapter
+from ...utils.mt5 import (
+    ensure_mt5_connection_or_raise,
+    mt5_adapter,
+    resolve_public_symbol,
+)
 from ..mt5_gateway import MT5Gateway, mt5_connection_error
 
 
@@ -74,3 +78,33 @@ def trading_connection_error(
         create_trading_gateway(gateway),
         operation="trading",
     )
+
+
+def resolve_trading_symbol_request(
+    request: Any,
+    gateway: "MT5TradingGateway",
+) -> tuple[Any, Optional[str]]:
+    """Resolve a request's public symbol alias at the broker boundary.
+
+    Canonical alphanumeric inputs already follow the public normalization
+    policy and can proceed without an extra catalog read. Inputs containing
+    separators or broker suffix punctuation require the connected broker
+    catalog so an unambiguous alias can be resolved safely.
+    """
+    requested = str(getattr(request, "symbol", None) or "").strip()
+    if not requested or requested.isalnum():
+        return request, None
+
+    try:
+        gateway.ensure_connection()
+        canonical, symbol_input = resolve_public_symbol(
+            requested,
+            gateway=gateway,
+        )
+    except Exception:
+        # Preserve the normal tool-specific connection/error path.
+        return request, None
+
+    if canonical == requested:
+        return request, symbol_input
+    return request.model_copy(update={"symbol": canonical}), symbol_input

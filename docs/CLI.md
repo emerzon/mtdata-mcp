@@ -751,6 +751,13 @@ previews (`dry_run=true`); only `--dry-run false` submits the order to MT5.
 See [TRADING_SAFETY.md](TRADING_SAFETY.md) for the dry-run-first workflow,
 account guardrails, and broker behavior.
 
+Public symbol aliases with separators, such as `EUR/USD`, are resolved against
+the connected broker catalog before report, session, position/order-read, and
+order-preview calls. When the alias is unambiguous, responses use the canonical
+broker name in `symbol` and preserve the request spelling in `symbol_input`.
+Use the exact broker symbol from `symbols_list` when compact aliases are
+ambiguous (for example, when a broker exposes multiple suffixed variants).
+
 Accepted `order_type` values (case-insensitive; `-` or space is normalized to `_`):
 `BUY`, `SELL`, `BUY_LIMIT`, `BUY_STOP`, `BUY_STOP_LIMIT`, `SELL_LIMIT`,
 `SELL_STOP`, `SELL_STOP_LIMIT`. MT5 numeric constants and `ORDER_TYPE_*` names

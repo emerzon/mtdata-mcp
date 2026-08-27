@@ -1,4 +1,5 @@
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -201,6 +202,71 @@ def test_trade_session_request_normalizes_symbol_once_for_nested_reads() -> None
     assert seen["pending"] == ["EURUSD"]
     assert result["state"] == "flat"
     assert result["trade_ready"]["readiness_status"] == "ready"
+
+
+def test_trade_session_context_resolves_slash_alias_for_every_nested_read() -> None:
+    seen = {"ticker": [], "open": [], "pending": [], "tradability": []}
+    gateway = MagicMock()
+    gateway.symbols_get.return_value = [SimpleNamespace(name="EURUSD")]
+
+    def _ticker(symbol, detail="compact"):
+        seen["ticker"].append(symbol)
+        return {
+            "success": True,
+            "symbol": symbol,
+            "usable_for_live_trading": True,
+            "data_stale": False,
+        }
+
+    def _open(request):
+        seen["open"].append(request.symbol)
+        return {"success": True, "count": 0, "items": []}
+
+    def _pending(request):
+        seen["pending"].append(request.symbol)
+        return {"success": True, "count": 0, "items": []}
+
+    def _tradability(symbol):
+        seen["tradability"].append(symbol)
+        return {"can_open_new_positions": True}
+
+    with patch(
+        "mtdata.core.trading.context.create_trading_gateway",
+        return_value=gateway,
+    ), patch(
+        "mtdata.core.trading.context.trade_account_info",
+        new=lambda: {
+            "success": True,
+            "execution_ready": True,
+            "equity": 1_000.0,
+            "margin": 0.0,
+            "margin_free": 1_000.0,
+        },
+    ), patch(
+        "mtdata.core.trading.context.market_ticker",
+        new=_ticker,
+    ), patch(
+        "mtdata.core.trading.context.trade_get_open",
+        new=_open,
+    ), patch(
+        "mtdata.core.trading.context.trade_get_pending",
+        new=_pending,
+    ), patch(
+        "mtdata.core.trading.context._trade_session_tradability",
+        new=_tradability,
+    ):
+        result = _raw_trade_session_context("EUR/USD", detail="full")
+
+    assert result["symbol"] == "EURUSD"
+    assert result["symbol_input"] == "EUR/USD"
+    assert seen == {
+        "ticker": ["EURUSD"],
+        "open": ["EURUSD", None],
+        "pending": ["EURUSD"],
+        "tradability": ["EURUSD"],
+    }
+    assert result["trade_ready"]["readiness_status"] == "ready"
+    gateway.ensure_connection.assert_called_once_with()
 
 
 def test_trade_session_context_compacts_nested_sections_by_default() -> None:

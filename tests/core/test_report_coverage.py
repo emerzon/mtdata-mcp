@@ -961,6 +961,31 @@ def test_report_generate_logs_finish_event(monkeypatch, caplog):
     )
 
 
+def test_report_generate_uses_canonical_symbol_and_preserves_alias(monkeypatch):
+    from mtdata.core import report as report_mod
+
+    raw = _unwrap(report_mod.report_generate)
+    seen = []
+    monkeypatch.setattr(report_mod, "_report_connection_error", lambda: None)
+    monkeypatch.setattr(
+        report_mod,
+        "resolve_public_symbol",
+        lambda symbol: ("EURUSD", symbol),
+    )
+
+    def fake_run_report_generate(request, **kwargs):
+        seen.append(request.symbol)
+        return {"success": True, "sections": {}}
+
+    monkeypatch.setattr(report_mod, "run_report_generate", fake_run_report_generate)
+
+    out = raw(request=report_mod.ReportGenerateRequest(symbol="EUR/USD"))
+
+    assert seen == ["EURUSD"]
+    assert out["symbol"] == "EURUSD"
+    assert out["symbol_input"] == "EUR/USD"
+
+
 def test_report_generate_compact_structured_payload(monkeypatch):
     from mtdata.core import report as report_mod
 

@@ -105,6 +105,7 @@ _TRADE_PLACE_PREVIEW_KEYS = (
     "no_action_reason",
     "would_send_order",
     "symbol",
+    "symbol_input",
     "order_type",
     "pending",
     "order_type_category",

@@ -17,7 +17,7 @@ from .._mcp_instance import mcp
 from ..output_contract import build_pagination_meta, resolve_output_contract
 from ..runtime_metadata import run_mt5_logged_operation
 from . import comments, validation
-from .gateway import create_trading_gateway
+from .gateway import create_trading_gateway, resolve_trading_symbol_request
 from .requests import TradeGetOpenRequest, TradeGetPendingRequest
 from .use_cases import (
     run_trade_get_open,
@@ -1649,8 +1649,12 @@ def trade_get_open(
     """
     def _run() -> Dict[str, Any]:
         gateway = create_trading_gateway()
-        raw = run_trade_get_open(
+        resolved_request, symbol_input = resolve_trading_symbol_request(
             request,
+            gateway,
+        )
+        raw = run_trade_get_open(
+            resolved_request,
             gateway=gateway,
             use_client_tz=lambda: False,
             format_time_minimal=format_epoch_utc,
@@ -1662,7 +1666,7 @@ def trade_get_open(
         account_currency = account_currency_from_gateway(gateway)
         out = _normalize_trade_read_output(
             raw,
-            request=request,
+            request=resolved_request,
             kind="open_positions",
             account_currency=account_currency,
         )
@@ -1672,7 +1676,10 @@ def trade_get_open(
             gateway,
             account_currency=account_currency,
         )
-        _project_open_position_rows(out, request=request)
+        _project_open_position_rows(out, request=resolved_request)
+        if symbol_input is not None:
+            out["symbol"] = resolved_request.symbol
+            out["symbol_input"] = symbol_input
         return out
 
     return run_mt5_logged_operation(
@@ -1694,9 +1701,13 @@ def trade_get_pending(
     """
     def _run() -> Dict[str, Any]:
         gateway = create_trading_gateway()
-        return _normalize_trade_read_output(
+        resolved_request, symbol_input = resolve_trading_symbol_request(
+            request,
+            gateway,
+        )
+        out = _normalize_trade_read_output(
             run_trade_get_pending(
-                request,
+                resolved_request,
                 gateway=gateway,
                 use_client_tz=lambda: False,
                 format_time_minimal=format_epoch_utc,
@@ -1705,10 +1716,14 @@ def trade_get_pending(
                 normalize_limit=_normalize_limit,
                 comment_row_metadata=comments._comment_row_metadata,
             ),
-            request=request,
+            request=resolved_request,
             kind="pending_orders",
             account_currency=account_currency_from_gateway(gateway),
         )
+        if symbol_input is not None:
+            out["symbol"] = resolved_request.symbol
+            out["symbol_input"] = symbol_input
+        return out
 
     return run_mt5_logged_operation(
         logger,

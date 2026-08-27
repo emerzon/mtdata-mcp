@@ -15,6 +15,7 @@ from ..market_status import _check_symbol_market_status
 from ..output_contract import ensure_common_meta
 from ..runtime_metadata import attach_mt5_source
 from .account import trade_account_info
+from .gateway import create_trading_gateway, resolve_trading_symbol_request
 from .positions import trade_get_open, trade_get_pending
 from .requests import (
     TradeGetOpenRequest,
@@ -384,6 +385,7 @@ def _compact_trade_session_context_payload(payload: Dict[str, Any]) -> Dict[str,
         for key in (
             "success",
             "symbol",
+            "symbol_input",
             "as_of",
             "assembled_at",
             "timezone",
@@ -602,17 +604,24 @@ def trade_session_context(request: TradeSessionContextRequest) -> Dict[str, Any]
     """
 
     def _run() -> Dict[str, Any]:
+        gateway = create_trading_gateway()
+        resolved_request, symbol_input = resolve_trading_symbol_request(
+            request,
+            gateway,
+        )
+        symbol = resolved_request.symbol
+
         # Un-wrap original functions if necessary to bypass double-logging or async mcp wrappers
         acc_func = getattr(trade_account_info, "__wrapped__", trade_account_info)
         quote_func = getattr(market_ticker, "__wrapped__", market_ticker)
         open_func = getattr(trade_get_open, "__wrapped__", trade_get_open)
         pending_func = getattr(trade_get_pending, "__wrapped__", trade_get_pending)
 
-        account_res = acc_func() if request.include_account else None
-        quote_res = quote_func(symbol=request.symbol, detail=request.detail)
-        tradability = _trade_session_tradability(request.symbol)
+        account_res = acc_func() if resolved_request.include_account else None
+        quote_res = quote_func(symbol=symbol, detail=resolved_request.detail)
+        tradability = _trade_session_tradability(symbol)
 
-        open_req = TradeGetOpenRequest(symbol=request.symbol)
+        open_req = TradeGetOpenRequest(symbol=symbol)
         open_res = open_func(request=open_req)
 
         portfolio_open_res = None
@@ -621,7 +630,7 @@ def trade_session_context(request: TradeSessionContextRequest) -> Dict[str, Any]
         except Exception:
             portfolio_open_res = None
 
-        pending_req = TradeGetPendingRequest(symbol=request.symbol)
+        pending_req = TradeGetPendingRequest(symbol=symbol)
         pending_res = pending_func(request=pending_req)
 
         for section in (quote_res, open_res, pending_res):
@@ -629,16 +638,21 @@ def trade_session_context(request: TradeSessionContextRequest) -> Dict[str, Any]
                 return ensure_common_meta(
                     {
                         "success": False,
-                        "error": section.get("error") or f"Symbol '{request.symbol}' was not found.",
+                        "error": section.get("error") or f"Symbol '{symbol}' was not found.",
                         "error_code": "symbol_not_found",
-                        "symbol": request.symbol,
+                        "symbol": symbol,
+                        **(
+                            {"symbol_input": symbol_input}
+                            if symbol_input is not None
+                            else {}
+                        ),
                         "remediation": section.get("remediation"),
                         "related_tools": section.get("related_tools", ["symbols_list"]),
                     },
                     tool_name="trade_session_context",
                 )
 
-        if request.include_account:
+        if resolved_request.include_account:
             account_res, account_failed = _sanitize_trade_session_section_error(
                 account_res,
                 label="account context",
@@ -689,7 +703,7 @@ def trade_session_context(request: TradeSessionContextRequest) -> Dict[str, Any]
         assembled_at = format_datetime_utc(datetime.now(timezone.utc))
         payload = {
             "success": True,
-            "symbol": request.symbol,
+            "symbol": symbol,
             "as_of": assembled_at,
             "assembled_at": assembled_at,
             "timezone": "UTC",
@@ -700,6 +714,8 @@ def trade_session_context(request: TradeSessionContextRequest) -> Dict[str, Any]
             "quote": quote_res,
             "quote_quality": _build_quote_quality(quote_res),
         }
+        if symbol_input is not None:
+            payload["symbol_input"] = symbol_input
         if isinstance(quote_res, dict) and isinstance(quote_res.get("source"), dict):
             payload["source"] = dict(quote_res["source"])
         payload = attach_mt5_source(payload)
@@ -717,7 +733,7 @@ def trade_session_context(request: TradeSessionContextRequest) -> Dict[str, Any]
         if other_positions_count is not None:
             payload["portfolio_positions_count"] = portfolio_positions_count
             payload["other_positions_count"] = other_positions_count
-        if request.include_account:
+        if resolved_request.include_account:
             payload["account"] = account_res
             payload["trade_ready"] = _build_trade_ready(
                 account_res,
@@ -732,11 +748,11 @@ def trade_session_context(request: TradeSessionContextRequest) -> Dict[str, Any]
                 ]
         if partial_failure:
             payload["partial_failure"] = True
-        if request.detail == "compact":
+        if resolved_request.detail == "compact":
             payload = _compact_trade_session_context_payload(payload)
         else:
             # For full detail, strip redundant envelope fields from nested sections
-            if request.include_account:
+            if resolved_request.include_account:
                 payload["account"] = _strip_nested_envelope(payload["account"])
             payload["open_positions"] = _strip_nested_envelope(payload["open_positions"])
             payload["pending_orders"] = _strip_nested_envelope(payload["pending_orders"])

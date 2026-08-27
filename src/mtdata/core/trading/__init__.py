@@ -20,6 +20,7 @@ from .execution import (
     _modify_position,
     _resolve_close_dry_run_target,
 )
+from .gateway import create_trading_gateway, resolve_trading_symbol_request
 from .ideas import trade_idea_compose
 from .orders import (
     _place_market_order,
@@ -61,15 +62,15 @@ def trade_place(request: TradePlaceRequest) -> dict:
       replays also identify the original invocation.
     """
     correlation_id = new_request_id()
-    return run_mt5_logged_operation(
-        logger,
-        operation="trade_place",
-        correlation_id=correlation_id,
-        symbol=request.symbol,
-        order_type=request.order_type,
-        volume=request.volume,
-        func=lambda: run_trade_place(
+
+    def _run() -> dict:
+        gateway = create_trading_gateway()
+        resolved_request, symbol_input = resolve_trading_symbol_request(
             request,
+            gateway,
+        )
+        result = run_trade_place(
+            resolved_request,
             normalize_order_type_input=validation._normalize_order_type_input,
             normalize_pending_expiration=time._normalize_pending_expiration,
             prevalidate_trade_place_market_input=validation._prevalidate_trade_place_market_input,
@@ -79,7 +80,22 @@ def trade_place(request: TradePlaceRequest) -> dict:
             safe_int_ticket=validation._safe_int_ticket,
             build_dry_run_preview=build_trade_place_dry_run_preview,
             correlation_id=correlation_id,
-        ),
+        )
+        if isinstance(result, dict):
+            result = dict(result)
+            result["symbol"] = resolved_request.symbol
+            if symbol_input is not None:
+                result["symbol_input"] = symbol_input
+        return result
+
+    return run_mt5_logged_operation(
+        logger,
+        operation="trade_place",
+        correlation_id=correlation_id,
+        symbol=request.symbol,
+        order_type=request.order_type,
+        volume=request.volume,
+        func=_run,
     )
 
 

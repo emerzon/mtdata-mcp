@@ -1,7 +1,7 @@
 import logging
 from typing import Any, Dict, Union
 
-from ...utils.mt5 import ensure_mt5_connection_or_raise
+from ...utils.mt5 import ensure_mt5_connection_or_raise, resolve_public_symbol
 from .._mcp_instance import mcp
 from ..error_envelope import build_error_payload
 from ..mt5_gateway import create_mt5_gateway, mt5_connection_error
@@ -101,14 +101,22 @@ def report_generate(
         connection_error = _report_connection_error()
         if connection_error is not None:
             return connection_error
+        resolved_symbol, symbol_input = resolve_public_symbol(request.symbol)
+        resolved_request = request.model_copy(update={"symbol": resolved_symbol})
         report = run_report_generate(
-            request,
+            resolved_request,
             format_number=format_number,
             get_indicator_value=_get_indicator_value,
             report_error_payload=_report_error_payload,
             append_diagnostic_warning=_append_diagnostic_warning,
         )
-        return _attach_report_compute_hint(report, request)
+        report = _attach_report_compute_hint(report, resolved_request)
+        if isinstance(report, dict):
+            report = dict(report)
+            report["symbol"] = resolved_symbol
+            if symbol_input is not None:
+                report["symbol_input"] = symbol_input
+        return report
 
     return run_mt5_logged_operation(
         logger,
