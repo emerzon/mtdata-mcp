@@ -8,6 +8,7 @@ research-protocol limitations so follow-up work can be prioritized without
 mistaking an experimental result for a product guarantee.
 
 **Related:** [Forecasting](FORECAST.md) · [Backtesting](forecast/BACKTESTING.md) ·
+[Iteration 4 preregistration](BTCUSD_FORECAST_ITERATION_4.md) ·
 [Uncertainty](forecast/UNCERTAINTY.md) · [Known limitations](LIMITATIONS.md)
 
 > **Safety:** This study is read-only. Its automation rejects `trade_*` commands
@@ -93,6 +94,43 @@ It therefore remains a development lead rather than evidence of forecast skill.
 Return AutoETS at H12 reduced zero-return RMSE by only 0.15% and 0.27% in the
 two blocks. The pooled improvement (0.17%) is too small to be practically
 useful, and its paired error wins (53/104) do not support a skill claim.
+
+### Dense return/direction checkpoint: 2022-07 through 2024-06
+
+Iteration 3A then used daily, non-overlapping origins in four half-year shards.
+All eight raw price/return commands completed 400 of 400 planned fits. The
+matched samples contained 363 A and 364 B price anchors, and 365 A and 364 B
+return anchors after disclosed boundary deduplication.
+
+Price Holt H24 remained inferior to naive persistence. In A it increased RMSE
+10.28% and MAE 11.49%, with 136 lower-absolute-error wins versus 227 losses
+(`p=2.06e-6`) and 45.7% directional accuracy. In B it increased RMSE 3.76% and
+MAE 7.76%, with 49.2% directional accuracy (Wilson 95% interval 44.1%-54.3%)
+and a 5-bps week-bootstrap mean-return interval of -0.211% to 0.304%.
+
+Return AutoETS H12 was also rejected. Its A error was slightly worse than the
+zero-return control and the only mechanically eligible A threshold was the
+65th-percentile score. Frozen on B, that threshold called only 29.1% of anchors,
+below the 30% floor. Its 56.6% ordinary accuracy concealed balanced accuracy of
+0.498 and a 58/2/43/3 TP/TN/FP/FN split, which was effectively an always-long
+signal. Its 5-bps week-bootstrap mean-return interval crossed zero.
+
+A causal denoising matrix compared raw Holt with EMA, standard and robust
+Kalman, KAMA, Hampel, and SuperSmoother variants. No A variant cleared the
+registered gate, so raw Holt was the fallback. The B denoising files had already
+been generated before that A-only rule was written; they remain unparsed and
+the entire denoising matrix is exploratory only.
+
+The first installed-library `mlf_lightgbm` feature smoke completed one finite
+H6 forecast using RSI(14) and EMA(20), but backtest output discarded the
+consumption proof. Research stopped, BTC-R028 was fixed and committed, and no
+further MT5 feature call was made under the defective contract.
+
+The ignored evidence bundle is
+`backtests/btcusd_forecast/iter3a_dev_56330646/`. Its manifest SHA-256 is
+`15cb964fbaa77cec4d861e49d891c2530dd7ccd69ff88a1033862bea68252bb2`;
+all 50 listed artifact hashes were independently reverified. Transient model
+caches are excluded.
 
 The local evidence bundle is stored under
 `backtests/btcusd_forecast/20260827_iter2_dev_expanded/`. It contains raw
