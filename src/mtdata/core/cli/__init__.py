@@ -195,6 +195,19 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         with redirect_stdout(output_buffer):
             status = _run_api()
+    except SystemExit as exc:
+        rendered_output = output_buffer.getvalue()
+        sys.stdout.write(rendered_output)
+        status = int(exc.code or 0) if isinstance(exc.code, (int, type(None))) else 1
+        if status == 0 and rendered_output:
+            store_catalog_output(
+                command=normalized_command,
+                argv=effective_argv,
+                program=program,
+                output=rendered_output,
+            )
+            return 0
+        raise
     except BaseException:
         sys.stdout.write(output_buffer.getvalue())
         raise

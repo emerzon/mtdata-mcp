@@ -92,14 +92,18 @@ def test_catalog_cache_miss_still_pins_pre_bootstrap_fingerprint(
     assert fingerprints == ["checked"]
 
 
-def test_only_non_help_catalog_invocations_are_cacheable() -> None:
+def test_catalog_and_help_invocations_are_cacheable() -> None:
     assert catalog_cache.is_cacheable_catalog_invocation(
         "forecast-list-methods",
         ["forecast-list-methods", "--json"],
     )
-    assert not catalog_cache.is_cacheable_catalog_invocation(
+    assert catalog_cache.is_cacheable_catalog_invocation(
         "forecast_list_methods",
         ["forecast_list_methods", "--help"],
+    )
+    assert catalog_cache.is_cacheable_catalog_invocation(
+        "market_ticker",
+        ["market_ticker", "--help"],
     )
     assert not catalog_cache.is_cacheable_catalog_invocation(
         "market_ticker",

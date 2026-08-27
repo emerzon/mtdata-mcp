@@ -142,7 +142,7 @@ def parse_kv_or_json(obj: Any) -> Dict[str, Any]:
         s = obj.strip()
         if not s:
             return {}
-        if (s.startswith('{') and s.endswith('}')) or (s.startswith('[') and s.endswith(']')):
+        if s.startswith(('{', '[')):
             try:
                 parsed = json.loads(s)
                 if isinstance(parsed, dict):
@@ -159,63 +159,50 @@ def parse_kv_or_json(obj: Any) -> Dict[str, Any]:
                             break
                     if ok:
                         return out_pairs
-                # Non-dict JSON: fall back to token parsing for robustness
-            except Exception:
-                # Fallback to simple token parser inside braces; list-shaped JSON
-                # should just fall through to return {}.
-                if s.startswith('{') and s.endswith('}'):
-                    s = s.strip().strip('{}').strip()
-                else:
-                    return {}
+                raise ValueError("JSON mapping input must be an object or list of pairs.")
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Malformed JSON mapping: {exc.msg}.") from exc
         # Parse k=v / k:v assignments. Commas split assignments only when a new key follows.
         import re
+        if re.fullmatch(r"[A-Za-z]:[\\/].*", s):
+            return {}
         out: Dict[str, Any] = {}
         pair_pattern = re.compile(
             r'(?:^|[\s,])([A-Za-z_][\w.\-]*)\s*([=:])\s*(.*?)\s*(?=(?:[\s,]+[A-Za-z_][\w.\-]*\s*[=:])|$)'
         )
-        for m in pair_pattern.finditer(s):
+        matches = list(pair_pattern.finditer(s))
+        if not matches:
+            raise ValueError("Malformed mapping; use JSON or complete key=value pairs.")
+
+        cursor = 0
+        for m in matches:
+            unmatched = s[cursor:m.start()]
+            if unmatched.strip(" \t\r\n,"):
+                raise ValueError(
+                    f"Malformed mapping fragment: {unmatched.strip()!r}; "
+                    "use complete key=value pairs."
+                )
             k = str(m.group(1) or '').strip()
             v = str(m.group(3) or '').strip().strip(',')
             # Avoid Windows drive paths like "C:\foo".
             if len(k) == 1 and v.startswith(("\\", "/")):
-                continue
+                raise ValueError(f"Malformed mapping fragment: {m.group(0).strip()!r}.")
+            if not v or v.startswith(("=", ":")):
+                raise ValueError(
+                    f"Malformed value for {k!r}; use exactly one assignment operator."
+                )
+            if k in out:
+                raise ValueError(f"Duplicate mapping key: {k!r}.")
             out[k] = coerce_cli_scalar(v)
-        if out:
-            return out
-
-        # Legacy token parser fallback for partially malformed inputs.
-        toks = [tok for tok in s.split() if tok]
-        i = 0
-        while i < len(toks):
-            tok = toks[i].strip().strip(',')
-            if not tok:
-                i += 1
-                continue
-            if '=' in tok:
-                k, v = tok.split('=', 1)
-                out[k.strip()] = coerce_cli_scalar(v.strip().strip(','))
-                i += 1
-                continue
-            # Support "k:v" tokens (avoid Windows drive paths like "C:\\foo")
-            if ':' in tok and not tok.endswith(':') and tok.count(':') == 1:
-                k, v = tok.split(':', 1)
-                if len(k) == 1 and v.startswith(("\\", "/")):
-                    i += 1
-                    continue
-                out[k.strip()] = coerce_cli_scalar(v.strip().strip(','))
-                i += 1
-                continue
-            if tok.endswith(':'):
-                key = tok[:-1].strip()
-                val = ''
-                if i + 1 < len(toks):
-                    val = toks[i + 1].strip().strip(',')
-                    i += 2
-                else:
-                    i += 1
-                out[key] = coerce_cli_scalar(val)
-                continue
-            i += 1
+            cursor = m.end()
+        trailing = s[cursor:]
+        if trailing.strip(" \t\r\n,"):
+            raise ValueError(
+                f"Malformed mapping fragment: {trailing.strip()!r}; "
+                "use complete key=value pairs."
+            )
+        if trailing.count(",") > 1 or ",," in s:
+            raise ValueError("Malformed mapping delimiter; remove duplicate commas.")
         return out
     return {}
 

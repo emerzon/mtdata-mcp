@@ -54,9 +54,9 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "or epoch for UTC epoch seconds."
     ),
     ("data_fetch_candles", "selection"): (
-        "Range pagination anchor: start returns the earliest matching candles; "
-        "end returns the latest matching candles. Omit for start when a range is "
-        "provided, otherwise the latest candles are returned."
+        "Range pagination anchor: first_n returns the earliest matching candles; "
+        "last_n returns the latest matching candles. Omit for first_n when a "
+        "range is provided, otherwise the latest candles are returned."
     ),
     ("data_fetch_ticks", "timestamp_format"): (
         "Format each MT5 tick event's `time` value as ISO in CLIENT_TZ "
@@ -64,8 +64,8 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "or UTC epoch seconds."
     ),
     ("data_fetch_ticks", "selection"): (
-        "Range snapshot anchor: latest returns the newest matching ticks; earliest "
-        "returns the oldest. Omit for latest."
+        "Range snapshot anchor: last_n returns the newest matching ticks; first_n "
+        "returns the oldest. Omit for last_n."
     ),
     ("data_fetch_ticks", "start"): (
         "Inclusive range start (dateparser). Date-only and calendar phrases "

@@ -623,7 +623,6 @@ def add_dynamic_arguments(  # noqa: C901
 
         required_symbol_alias = (
             param["required"]
-            and param == param_info["params"][0]
             and str(param["name"]) in {"symbol", "symbols"}
         )
         if required_symbol_alias:

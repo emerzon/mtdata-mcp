@@ -38,9 +38,8 @@ def is_cacheable_catalog_invocation(
 ) -> bool:
     """Return whether an argv can be replayed as a static catalog query."""
     normalized = str(command or "").strip().lower().replace("-", "_")
-    if normalized not in CACHEABLE_CATALOG_COMMANDS:
-        return False
-    return not any(str(token) in {"-h", "--help"} for token in argv)
+    help_requested = any(str(token) in {"-h", "--help"} for token in argv)
+    return help_requested or normalized in CACHEABLE_CATALOG_COMMANDS
 
 
 def _cache_directory() -> Path:

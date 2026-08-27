@@ -843,19 +843,6 @@ class _CLIArgumentParser(argparse.ArgumentParser):
                     + ", ".join(missing_arguments)
                     + "."
                 )
-        market_depth_disabled = (
-            "market_depth_fetch" in message_text
-            and str(os.getenv("MTDATA_ENABLE_MARKET_DEPTH_FETCH") or "")
-            .strip()
-            .lower()
-            not in {"1", "true", "yes", "on"}
-        )
-        if market_depth_disabled:
-            message_text = (
-                "market_depth_fetch is disabled; set "
-                "MTDATA_ENABLE_MARKET_DEPTH_FETCH=1 before starting the CLI. "
-                "The broker must also provide Level 2/DOM data."
-            )
         program_parts = str(self.prog or "").split()
         last_program_part = program_parts[-1] if program_parts else ""
         operation = (
@@ -867,6 +854,19 @@ class _CLIArgumentParser(argparse.ArgumentParser):
             requested_command = _resolve_raw_cli_command(sys.argv[1:])
             if requested_command:
                 operation = requested_command
+        market_depth_disabled = (
+            operation == "market_depth_fetch"
+            and str(os.getenv("MTDATA_ENABLE_MARKET_DEPTH_FETCH") or "")
+            .strip()
+            .lower()
+            not in {"1", "true", "yes", "on"}
+        )
+        if market_depth_disabled:
+            message_text = (
+                "market_depth_fetch is disabled; set "
+                "MTDATA_ENABLE_MARKET_DEPTH_FETCH=1 before starting the CLI. "
+                "The broker must also provide Level 2/DOM data."
+            )
         help_program = str(self.prog)
         if operation != "cli" and last_program_part in {
             "mtdata",
@@ -1919,6 +1919,10 @@ _COMMAND_USAGE_EXAMPLES: Dict[str, Tuple[str, Optional[str]]] = {
         f"{CLI_PROGRAM} market_radar --symbols EURUSD,GBPUSD,XAUUSD --timeframe H1",
         f"{CLI_PROGRAM} market_radar --timeframe H1",
     ),
+    "market_status": (
+        f"{CLI_PROGRAM} market_status --symbol EURUSD",
+        f"{CLI_PROGRAM} market_status --venue NYSE",
+    ),
     "trade_idea_compose": (
         f"{CLI_PROGRAM} trade_idea_compose EURUSD --timeframe H1 --horizon 12 --template quick",
         f"{CLI_PROGRAM} trade_idea_compose EURUSD --direction long --template standard --risk-pct 0.5",
@@ -1932,8 +1936,8 @@ _COMMAND_USAGE_EXAMPLES: Dict[str, Tuple[str, Optional[str]]] = {
         f"{CLI_PROGRAM} trade_modify --ticket 123456789 --stop-loss 60500 --take-profit 62500",
     ),
     "trade_place": (
-        f"{CLI_PROGRAM} trade_place BTCUSD --volume 0.01 --order-type BUY --stop-loss SL_BELOW_BID --take-profit TP_ABOVE_ASK",
-        f"{CLI_PROGRAM} trade_place BTCUSD --volume 0.01 --order-type SELL --stop-loss SL_ABOVE_ASK --take-profit TP_BELOW_BID",
+        f"{CLI_PROGRAM} trade_place EURUSD --volume 0.01 --order-type BUY --stop-loss 1.00 --take-profit 2.00 --dry-run true",
+        f"{CLI_PROGRAM} trade_place EURUSD --volume 0.01 --order-type SELL --stop-loss 2.00 --take-profit 1.00 --dry-run true",
     ),
     "trade_close": (
         f"{CLI_PROGRAM} trade_close --ticket 123456789",
@@ -2291,6 +2295,9 @@ def _print_extended_help(functions: Dict[str, ToolInfo], query: str) -> None:
             if not p["required"]
         ]
         base_example, advanced_example = _build_usage_examples(name, func_info)
+        base_example = base_example.replace(CLI_PROGRAM, program, 1)
+        if advanced_example:
+            advanced_example = advanced_example.replace(CLI_PROGRAM, program, 1)
         print(name)
         if summary:
             print(f"  Summary: {summary}")
@@ -2330,7 +2337,6 @@ def _resolve_raw_cli_command(argv: Sequence[str]) -> str:
     switches = {"--json", "--help", "-h"}
     valued_options = {
         "--output-fields",
-        "--output_fields",
         "--precision",
         "--timeframe",
     }
@@ -2709,16 +2715,27 @@ def main():  # noqa: C901
                 )
 
             if getattr(args, "print_config", False):
-                config_output = _format_result_for_cli(
-                    {"forecast_generate": request.model_dump(mode="json")},
-                    fmt=_resolve_cli_formatter(args),
-                    verbose=True,
-                    cmd_name="forecast_generate",
-                    precision=getattr(args, "precision", None),
+                from ...forecast.use_cases import run_forecast_generate
+
+                validation = run_forecast_generate(
+                    request,
+                    forecast_impl=lambda **_kwargs: {"success": True},
+                    log_events=False,
                 )
-                if config_output:
-                    _write_cli_text(config_output)
-                return 0
+                if validation.get("success") is False or validation.get("error"):
+                    return _render_cli_result_status(
+                        validation,
+                        args=args,
+                        cmd_name="forecast_generate",
+                    )
+                return _render_cli_result_status(
+                    {
+                        "success": True,
+                        "forecast_generate": request.model_dump(mode="json"),
+                    },
+                    args=args,
+                    cmd_name="forecast_generate",
+                )
 
             if request.async_mode and _INTERACTIVE_SHELL_SESSION_DEPTH <= 0:
                 return _render_cli_result_status(

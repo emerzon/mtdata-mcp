@@ -773,7 +773,7 @@ mtdata-cli trade_place BTCUSD --volume 0.03 --order-type BUY_STOP_LIMIT --price 
 # SELL: stop-loss above ask, take-profit below bid.
 # Absolute crypto prices expire; substitute levels from market_ticker.
 mtdata-cli market_ticker BTCUSD
-mtdata-cli trade_place BTCUSD --volume 0.01 --order-type BUY --stop-loss SL_BELOW_BID --take-profit TP_ABOVE_ASK --dry-run true
+mtdata-cli trade_place EURUSD --volume 0.01 --order-type BUY --stop-loss 1.00 --take-profit 2.00 --dry-run true
 ```
 
 ### Trade Execution Controls

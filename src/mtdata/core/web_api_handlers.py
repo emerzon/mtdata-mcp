@@ -504,7 +504,15 @@ def get_history_response(  # noqa: C901
                         code="denoise_params_invalid",
                         operation="get_history",
                     )
-            payload = parse_kv_or_json(stripped_params)
+            try:
+                payload = parse_kv_or_json(stripped_params)
+            except ValueError as exc:
+                raise _http_error(
+                    400,
+                    str(exc),
+                    code="denoise_params_invalid",
+                    operation="get_history",
+                ) from exc
             if not payload and stripped_params != "{}":
                 raise _http_error(
                     400,

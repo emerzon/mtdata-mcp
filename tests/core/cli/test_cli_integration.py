@@ -65,6 +65,23 @@ from mtdata.core.cli.api import (
 
 
 class TestMain:
+    def test_root_option_error_is_not_reclassified_as_disabled_feature(self, capsys):
+        from mtdata.core.cli.api import _CLIArgumentParser
+
+        parser = _CLIArgumentParser(prog="mtdata-cli")
+        subparsers = parser.add_subparsers(dest="command")
+        subparsers.add_parser("market_depth_fetch")
+        subparsers.add_parser("tools_list")
+
+        argv = ["--precison", "full", "tools_list", "--json"]
+        with patch("sys.argv", ["cli.py", *argv]), pytest.raises(SystemExit):
+            parser.parse_args(argv)
+
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["error_code"] == "cli_invalid_arguments"
+        assert payload["operation"] == "cli"
+        assert "market_depth_fetch is disabled" not in payload["error"]
+
     def test_standard_parser_classifies_missing_required_arguments(self, capsys):
         from mtdata.core.cli.api import _CLIArgumentParser
 
@@ -1486,6 +1503,30 @@ class TestMain:
         assert "--symbol" in out
 
     @patch("mtdata.core.cli.api.discover_tools")
+    def test_required_symbol_alias_does_not_depend_on_parameter_order(
+        self, mock_discover, capsys
+    ):
+        def conformal(lookback: int = 100, *, symbol: str, **_kwargs):
+            return {"success": True, "symbol": symbol, "lookback": lookback}
+
+        mock_discover.return_value = {
+            "conformal": {
+                "func": conformal,
+                "meta": {"description": "Conformal intervals"},
+            },
+        }
+
+        with patch("sys.argv", ["cli.py", "conformal", "EURUSD", "--json"]):
+            assert main() == 0
+        assert json.loads(capsys.readouterr().out)["symbol"] == "EURUSD"
+
+        with patch(
+            "sys.argv", ["cli.py", "conformal", "--symbol", "EURUSD", "--json"]
+        ):
+            assert main() == 0
+        assert json.loads(capsys.readouterr().out)["symbol"] == "EURUSD"
+
+    @patch("mtdata.core.cli.api.discover_tools")
     def test_required_symbol_accepts_flag_form(self, mock_discover):
         def market_ticker(symbol: str, **_kwargs):
             return {"success": True, "symbol": symbol}
@@ -2378,7 +2419,62 @@ class TestForecastGenerateIntegration:
         assert result == 0
         mock_fn.assert_not_called()
         payload = json.loads(capsys.readouterr().out)
+        assert payload["success"] is True
         assert payload["forecast_generate"]["symbol"] == "EURUSD"
+
+    @patch("mtdata.core.cli.api.discover_tools")
+    def test_forecast_generate_print_config_validates_and_projects(
+        self, mock_discover, capsys
+    ):
+        mock_fn = MagicMock(return_value={"forecast": [1.0]})
+        mock_fn.__module__ = "mtdata.core.server"
+        mock_fn.__name__ = "forecast_generate"
+        mock_fn.__doc__ = "Generate forecasts."
+        mock_discover.return_value = {
+            "forecast_generate": {
+                "func": mock_fn,
+                "meta": {"description": "Generate forecasts"},
+            },
+        }
+
+        with patch(
+            "sys.argv",
+            [
+                "cli.py",
+                "forecast_generate",
+                "EURUSD",
+                "--method",
+                "theta",
+                "--params",
+                "p=2",
+                "--print-config",
+                "--json",
+            ],
+        ):
+            invalid_status = main()
+        invalid = json.loads(capsys.readouterr().out)
+        assert invalid_status == 1
+        assert invalid["error_code"] == "unknown_parameter"
+
+        with patch(
+            "sys.argv",
+            [
+                "cli.py",
+                "forecast_generate",
+                "EURUSD",
+                "--print-config",
+                "--output-fields",
+                "forecast_generate.method",
+                "--json",
+            ],
+        ):
+            projected_status = main()
+        projected = json.loads(capsys.readouterr().out)
+        assert projected_status == 0
+        assert projected == {
+            "success": True,
+            "forecast_generate": {"method": "theta"},
+        }
 
     @patch("mtdata.core.cli.api.discover_tools")
     def test_forecast_generate_json_format(self, mock_discover, capsys):
@@ -3161,6 +3257,28 @@ class TestHelpSuggestions:
         assert "python -m mtdata --help" in out
         assert "python -m mtdata tools_list --search foobar --json" in out
 
+    def test_extended_help_examples_use_invoked_program_name(self, capsys, monkeypatch):
+        monkeypatch.setattr(
+            "sys.argv",
+            [r"C:\Users\Admin\Documents\Code\mtdata\src\mtdata\__main__.py"],
+        )
+
+        def market_status(symbol: Optional[str] = None, venue: Optional[str] = None):
+            return None
+
+        fns = {
+            "market_status": {
+                "func": market_status,
+                "meta": {"description": "Market status"},
+                "_cli_func_info": get_function_info(market_status),
+            },
+        }
+        _print_extended_help(fns, "market_status")
+        out = capsys.readouterr().out
+        assert "Example: python -m mtdata market_status --symbol EURUSD" in out
+        assert "Example+: python -m mtdata market_status --venue NYSE" in out
+        assert "mtdata-cli market_status" not in out
+
 
 # ========================================================================
 # _argparse_color_enabled
@@ -3592,7 +3710,7 @@ def test_help_search_indexes_reviewed_examples():
         }
     }
 
-    assert [row[0] for row in _match_commands(functions, "sl_below_bid")] == [
+    assert [row[0] for row in _match_commands(functions, "stop-loss 1.00")] == [
         "trade_place"
     ]
 

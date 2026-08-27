@@ -69,6 +69,16 @@ class TestParseKvOrJson(unittest.TestCase):
         out = parse_kv_or_json(r"C:\Users\Admin")
         self.assertEqual(out, {})
 
+    def test_rejects_partially_consumed_mapping(self):
+        for value in (
+            "n_sims 20 seed=42",
+            "broken n_sims=20 seed=42",
+            "n_sims=20,,seed=42",
+            "n_sims==20 seed=42",
+        ):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                parse_kv_or_json(value)
+
 
 if __name__ == "__main__":
     unittest.main()
