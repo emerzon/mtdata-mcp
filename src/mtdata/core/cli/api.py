@@ -42,7 +42,7 @@ from .._mcp_tools import (
     _select_output_fields,
 )
 from .._mcp_tools import get_tool_registry as get_registered_tools
-from ..error_envelope import build_error_payload
+from ..error_envelope import build_error_payload, normalize_error_payload
 from ..output_contract import resolve_output_contract
 from ..output_serialization import json_default as _json_default
 from ..request_context import ensure_request_id_scope
@@ -230,7 +230,9 @@ def _invoke_cli_tool_function(
 ) -> Any:
     report_request = kwargs.get("request") if cmd_name == "report_generate" else None
     replay_progress = bool(getattr(report_request, "progress", False))
+    bound_request_id = None
     with ensure_request_id_scope() as request_id:
+        bound_request_id = request_id
         try:
             with _capture_runtime_warnings() as warning_records:
                 with _suppress_cli_side_output(
@@ -282,27 +284,36 @@ def _invoke_cli_tool_function(
         seen.add(text)
         warning_texts.append(text)
 
-    if not warning_texts:
-        return result
-    if isinstance(result, dict):
-        out = dict(result)
-        combined: List[str] = []
-        existing = out.get("warnings")
-        if isinstance(existing, list):
-            for item in existing:
-                item_text = str(item).strip()
-                if item_text and item_text not in combined:
-                    combined.append(item_text)
-        elif isinstance(existing, str):
-            existing_text = existing.strip()
-            if existing_text:
-                combined.append(existing_text)
-        for item in warning_texts:
-            if item not in combined:
-                combined.append(item)
-        out["warnings"] = combined
-        return out
-    return {"success": True, "data": result, "warnings": warning_texts}
+    if warning_texts:
+        if isinstance(result, dict):
+            out = dict(result)
+            combined: List[str] = []
+            existing = out.get("warnings")
+            if isinstance(existing, list):
+                for item in existing:
+                    item_text = str(item).strip()
+                    if item_text and item_text not in combined:
+                        combined.append(item_text)
+            elif isinstance(existing, str):
+                existing_text = existing.strip()
+                if existing_text:
+                    combined.append(existing_text)
+            for item in warning_texts:
+                if item not in combined:
+                    combined.append(item)
+            out["warnings"] = combined
+            result = out
+        else:
+            result = {"success": True, "data": result, "warnings": warning_texts}
+
+    if isinstance(result, dict) and _result_has_tool_error(result):
+        result = normalize_error_payload(
+            result,
+            default_code="tool_error",
+            request_id=bound_request_id,
+            operation=cmd_name,
+        )
+    return result
 
 
 from ...shared.constants import TIMEFRAME_MAP

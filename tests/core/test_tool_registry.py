@@ -188,6 +188,27 @@ def test_cli_error_envelope_matches_transport_log_request_id(caplog):
     assert current_request_id() is None
 
 
+def test_cli_normalizes_bare_invalid_input_envelope():
+    def fail():
+        return {
+            "success": False,
+            "error": "Provide at least one symbol or MT5 group for correlation analysis.",
+            "error_code": "invalid_input",
+        }
+
+    result = _invoke_cli_tool_function(
+        fail,
+        args=None,
+        cmd_name="correlation_matrix",
+        kwargs={},
+    )
+
+    assert result["error_code"] == "invalid_input"
+    assert result["operation"] == "correlation_matrix"
+    assert result["request_id"]
+    assert "correlation_matrix --help" in result["remediation"]
+
+
 def test_cli_report_progress_replays_only_structured_stderr():
     def report_probe(*, request):
         print("incidental stdout")

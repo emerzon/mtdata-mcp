@@ -306,6 +306,29 @@ def _default_error_guidance(
         }
     if "insufficient" in code_text:
         return dict(_ERROR_GUIDANCE["insufficient_data"])
+    if code_text == "invalid_input":
+        help_target = operation_text or "this operation"
+        return {
+            "remediation": (
+                f"Use {help_target} --help and retry with accepted arguments."
+            ),
+            "documentation": canonical_documentation_url("docs/CLI.md"),
+        }
+    if code_text == "tool_error":
+        if operation_text.startswith("options_"):
+            return {
+                "remediation": (
+                    "Retry, or run options_provider_status to inspect provider "
+                    "configuration and fallback."
+                ),
+                "related_tools": ["options_provider_status"],
+            }
+        return {
+            "remediation": (
+                "Retry the request, or inspect the error details and related "
+                "tools for the failing operation."
+            ),
+        }
     return {}
 
 

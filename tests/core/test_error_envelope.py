@@ -152,6 +152,56 @@ def test_generic_method_errors_use_the_failing_operation_help():
     assert "related_tools" not in out
 
 
+def test_invalid_input_errors_point_to_operation_help():
+    out = build_error_payload(
+        "Provide at least one symbol or MT5 group for correlation analysis.",
+        code="invalid_input",
+        operation="correlation_matrix",
+    )
+
+    assert out["remediation"] == (
+        "Use correlation_matrix --help and retry with accepted arguments."
+    )
+    assert out["documentation"].endswith("/docs/CLI.md")
+
+
+def test_generic_tool_error_includes_retry_guidance():
+    out = build_error_payload(
+        "Failed to compute ranking.",
+        code="tool_error",
+        operation="market_scan",
+    )
+
+    assert "Retry the request" in out["remediation"]
+
+
+def test_options_tool_error_points_to_provider_status():
+    out = build_error_payload(
+        "Failed to fetch options chain: Yahoo options provider failed.",
+        code="tool_error",
+        operation="options_chain",
+    )
+
+    assert "options_provider_status" in out["remediation"]
+    assert out["related_tools"] == ["options_provider_status"]
+
+
+def test_normalize_error_payload_fills_invalid_input_guidance():
+    out = normalize_error_payload(
+        {
+            "success": False,
+            "error": "Provide at least one symbol or MT5 group for correlation analysis.",
+            "error_code": "invalid_input",
+        },
+        operation="correlation_matrix",
+        request_id="req-invalid",
+    )
+
+    assert out["error_code"] == "invalid_input"
+    assert out["request_id"] == "req-invalid"
+    assert "correlation_matrix --help" in out["remediation"]
+
+
 def test_normalize_error_payload_promotes_domain_code_field():
     out = normalize_error_payload(
         {
