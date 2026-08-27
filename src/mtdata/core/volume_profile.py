@@ -128,7 +128,7 @@ def _resolve_profile_window(
         if end and end_dt is None:
             return {"error": f"Could not parse end datetime {end!r}"}
         assert end_dt is not None
-        start_dt = end_dt - timedelta(days=1)
+        start_dt = end_dt - timedelta(hours=4)
         return {
             "start": start_dt.isoformat(sep=" ", timespec="seconds"),
             "end": end if end else end_dt.isoformat(sep=" ", timespec="seconds"),
@@ -792,6 +792,7 @@ def _profile_detail_payload(profile: Dict[str, Any], detail: str) -> Dict[str, A
     keys = [
         "success",
         "symbol",
+        "profile_warning",
         "profile_source",
         "source",
         "source_decision",
@@ -1226,6 +1227,10 @@ def compute_volume_profile_payload(  # noqa: C901
         profile["proxy_prices"] = ["low", "close", "high"]
         profile["allocation_method"] = "equal_weight"
         profile["volume_is_synthetic"] = True
+        profile["profile_warning"] = (
+            "SYNTHETIC M1 PROXY; not a tick volume profile. Volume is split "
+            "equally across each bar's low/close/high."
+        )
     selected_diagnostics = selected.get("diagnostics")
     selected_reason = None
     if isinstance(selected_diagnostics, dict):
@@ -1420,7 +1425,7 @@ def volume_profile_levels(  # noqa: PLR0913
 ) -> Dict[str, Any]:
     """Compute volume-profile POC, VAH, and VAL from ticks or M1-bar approximation.
 
-    With no window arguments, the profile covers the latest 24 hours and fetches
+    With no window arguments, the profile covers the latest 4 hours and fetches
     at most 50,000 ticks. `source="auto"` uses bounded raw ticks for short windows and falls back to
     M1-bar approximation for larger windows. `lookback` is always a bar count and
     requires `timeframe`; use `max_ticks` to cap tick rows. When `timeframe` is

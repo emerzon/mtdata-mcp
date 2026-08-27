@@ -486,7 +486,7 @@ def test_fetch_tick_rows_retains_latest_rows_in_bounded_window(monkeypatch):
     assert result["diagnostics"]["tick_limit_reached"] is True
 
 
-def test_default_profile_window_is_bounded_to_24_hours(monkeypatch):
+def test_default_profile_window_is_bounded_to_four_hours(monkeypatch):
     fixed_now = vp.datetime(2026, 7, 14, 16, 30)
     monkeypatch.setattr(vp, "_utc_now_naive", lambda: fixed_now)
 
@@ -498,7 +498,7 @@ def test_default_profile_window_is_bounded_to_24_hours(monkeypatch):
     )
 
     assert window == {
-        "start": "2026-07-13 16:30:00",
+        "start": "2026-07-14 12:30:00",
         "end": "2026-07-14 16:30:00",
     }
 
