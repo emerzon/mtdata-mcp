@@ -5,13 +5,14 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, Field, FiniteFloat, field_validator, model_validator
 
 from ..shared.schema import (
     DetailLiteral,
     TimeframeLiteral,
     normalize_optional_symbol,
     normalize_required_symbol,
+    reject_removed_field,
     validate_complete_time_window,
 )
 from ..utils.utils import _parse_end_datetime, _parse_start_datetime
@@ -251,13 +252,29 @@ class StrategyValidateRequest(BaseModel):
         ge=0.0,
         description="Required round-trip spread assumption when cost_model is fixed.",
     )
-    commission_bps: float = Field(0.0, ge=0.0)
-    slippage_bps: float = Field(0.0, ge=0.0)
+    commission_bps_per_side: FiniteFloat = Field(
+        0.0,
+        ge=0.0,
+        description=(
+            "Commission in basis points per fill side, deducted twice per "
+            "simulated round-trip."
+        ),
+    )
+    slippage_bps: FiniteFloat = Field(1.0, ge=0.0)
     bootstrap_samples: int = Field(500, ge=100, le=5_000)
     seed: int = Field(42, ge=0, le=4_294_967_295)
     significance_alpha: float = Field(0.05, gt=0.0, lt=0.5)
     min_positive_fold_share: float = Field(0.8, ge=0.0, le=1.0)
     detail: DetailLiteral = "compact"
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_removed_commission_field(cls, values: Any) -> Any:
+        return reject_removed_field(
+            values,
+            field_name="commission_bps",
+            replacement="commission_bps_per_side",
+        )
 
     @field_validator("symbol")
     @classmethod

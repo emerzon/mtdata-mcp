@@ -506,6 +506,7 @@ def run_strategy_backtest(
             max_hold_bars=request.max_hold_bars,
             cost_model=request.cost_model,
             spread_bps=request.spread_bps,
+            commission_bps_per_side=request.commission_bps_per_side,
             slippage_bps=request.slippage_bps,
         )
     except Exception as exc:

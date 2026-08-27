@@ -658,9 +658,9 @@ mtdata-cli forecast_optimize_hints EURUSD --timeframes H1 H4 D1 --methods theta 
 
 ### Backtest Trading Rules
 ```bash
-mtdata-cli strategy_backtest EURUSD --timeframe H1 --strategy sma_cross --fast-period 10 --slow-period 30 --lookback 300 --cost-model fixed --spread-bps 1.2 --json
+mtdata-cli strategy_backtest EURUSD --timeframe H1 --strategy sma_cross --fast-period 10 --slow-period 30 --lookback 300 --cost-model fixed --spread-bps 1.2 --commission-bps-per-side 0.25 --json
 
-mtdata-cli strategy_backtest EURUSD --timeframe H1 --strategy rsi_reversion --rsi-length 14 --oversold 30 --overbought 70 --position-mode long_only --cost-model fixed --spread-bps 1.2 --json
+mtdata-cli strategy_backtest EURUSD --timeframe H1 --strategy rsi_reversion --rsi-length 14 --oversold 30 --overbought 70 --position-mode long_only --cost-model fixed --spread-bps 1.2 --commission-bps-per-side 0.25 --json
 
 # For a controlled constant instead of historical bar spreads:
 mtdata-cli strategy_backtest EURUSD --cost-model fixed --spread-bps 1.2 --json
@@ -675,6 +675,11 @@ zero costs. `historical_bar_spread` still fails closed unless every required
 bar has a usable spread. The `fixed` model requires an explicit `spread_bps`;
 it never substitutes a current quote into historical trades unless you chose
 `auto`.
+Both `strategy_backtest` and `strategy_validate` name commission
+`commission_bps_per_side` and deduct it twice per round trip. Their default
+commission is zero and their default slippage is 1 bps per fill side. Barrier
+and tuning searches require explicit costs when the objective uses trading
+metrics, so an omitted search cost is not silently replaced with these defaults.
 `strategy_validate` may evaluate with at least some historical
 spread observations, but coverage below 90% prevents a positive evidence
 classification. Select `fixed` with an explicit spread for controlled

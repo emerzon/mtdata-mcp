@@ -386,9 +386,13 @@ _TRADE_BACKTEST_UNITS = {
     "path_directional_calls_made": "count",
     "path_directional_opportunities": "count",
     "slippage_bps": "basis_points",
+    "slippage_cost_bps": "basis_points",
     "spread_bps": "basis_points",
     "spread_bps_round_trip": "basis_points",
+    "spread_cost_bps": "basis_points",
     "commission_bps_per_side": "basis_points",
+    "commission_cost_bps": "basis_points",
+    "round_trip_cost_bps": "basis_points",
     "successful_tests": "count",
     "num_tests": "count",
     "trades_observed": "count",
@@ -1090,6 +1094,7 @@ def _build_strategy_trade(
     exit_price: float,
     slippage_bps: float,
     spread_bps: float,
+    commission_bps_per_side: float,
     spread_cost_available: bool,
     spread_cost_source: str,
     exit_reason: str,
@@ -1099,10 +1104,12 @@ def _build_strategy_trade(
     if gross_return <= -0.999:
         gross_return = -0.999
     slip = float(abs(slippage_bps) or 0.0) / 10000.0
+    commission = float(abs(commission_bps_per_side) or 0.0) / 10000.0
     return_after_known_costs = (
         gross_return
         - (float(abs(spread_bps) or 0.0) / 10000.0)
         - (2.0 * slip)
+        - (2.0 * commission)
     )
     if return_after_known_costs <= -0.999:
         return_after_known_costs = -0.999
@@ -1128,6 +1135,8 @@ def _build_strategy_trade(
         "spread_cost_status": "included" if spread_cost_available else "missing",
         "spread_cost_source": spread_cost_source,
         "slippage_cost_bps": 2.0 * float(abs(slippage_bps) or 0.0),
+        "commission_cost_bps": 2.0
+        * float(abs(commission_bps_per_side) or 0.0),
         "return_gross": gross_return,
         "return_after_known_costs": return_after_known_costs,
     }
@@ -1434,6 +1443,7 @@ def strategy_backtest(  # noqa: C901
     max_hold_bars: Optional[int] = None,
     cost_model: Literal["auto", "historical_bar_spread", "fixed"] = "auto",
     spread_bps: Optional[float] = None,
+    commission_bps_per_side: float = 0.0,
     slippage_bps: float = 1.0,
 ) -> Dict[str, Any]:
     try:
@@ -1454,6 +1464,7 @@ def strategy_backtest(  # noqa: C901
             "max_hold_bars": max_hold_bars,
             "cost_model": cost_model,
             "spread_bps": spread_bps,
+            "commission_bps_per_side": commission_bps_per_side,
             "slippage_bps": slippage_bps,
         }
         strategy_value = str(strategy or "sma_cross").strip().lower()
@@ -1767,6 +1778,7 @@ def strategy_backtest(  # noqa: C901
                     exit_price=float(action_price),
                     slippage_bps=float(slippage_bps),
                     spread_bps=float(trade_spread_bps),
+                    commission_bps_per_side=float(commission_bps_per_side),
                     spread_cost_available=spread_cost_available,
                     spread_cost_source=trade_spread_source,
                     exit_reason=exit_reason,
@@ -1817,6 +1829,7 @@ def strategy_backtest(  # noqa: C901
                     exit_price=float(final_exit_price),
                     slippage_bps=float(slippage_bps),
                     spread_bps=float(trade_spread_bps),
+                    commission_bps_per_side=float(commission_bps_per_side),
                     spread_cost_available=spread_cost_available,
                     spread_cost_source=trade_spread_source,
                     exit_reason="end_of_data",
@@ -1880,6 +1893,7 @@ def strategy_backtest(  # noqa: C901
             steps=1,
             spacing=1,
             slippage_bps=float(slippage_bps),
+            commission_bps_per_side=float(commission_bps_per_side),
             detail=detail_mode,
         )
 
@@ -1897,6 +1911,7 @@ def strategy_backtest(  # noqa: C901
         _params: Dict[str, Any] = {
             "lookback": int(lookback),
             "slippage_bps": float(slippage_bps),
+            "commission_bps_per_side": float(commission_bps_per_side),
             "cost_model": cost_model_value,
             **_strategy_params,
         }
@@ -1967,6 +1982,16 @@ def strategy_backtest(  # noqa: C901
         known_cost_return_available = bool(
             cost_model_complete or cost_applied_trade_count > 0
         )
+        if cost_model_complete and effective_cost_model == "historical_bar_spread":
+            cost_quality = "observed"
+        elif cost_model_complete and cost_model_value == "fixed":
+            cost_quality = "user_assumption"
+        elif cost_model_complete and pricing_cost_model == "fixed":
+            cost_quality = "imputed"
+        elif observed_cost_trade_count or imputed_cost_trade_count:
+            cost_quality = "mixed"
+        else:
+            cost_quality = "unavailable"
         summary_returns = (
             {
                 "net_return": return_after_known_costs,
@@ -2026,6 +2051,7 @@ def strategy_backtest(  # noqa: C901
                 if cost_model_complete
                 else "incomplete_transaction_costs"
             ),
+            "cost_quality": cost_quality,
             "cost_model": {
                 "type": effective_cost_model,
                 "requested_type": cost_model_value,
@@ -2039,8 +2065,11 @@ def strategy_backtest(  # noqa: C901
                 "observed_cost_coverage_pct": observed_cost_coverage_pct,
                 "imputed_cost_coverage_pct": imputed_cost_coverage_pct,
                 "slippage_bps_per_side": float(slippage_bps),
+                "commission_bps_per_side": float(commission_bps_per_side),
                 "round_trip_cost_bps": (
-                    reported_spread_cost_bps + float(slippage_bps) * 2.0
+                    reported_spread_cost_bps
+                    + float(slippage_bps) * 2.0
+                    + float(commission_bps_per_side) * 2.0
                     if reported_spread_cost_bps is not None
                     else None
                 ),
@@ -2120,7 +2149,7 @@ def strategy_backtest(  # noqa: C901
             and auto_selection_reason == "incomplete_historical_spread_coverage"
         ):
             result.setdefault("warnings", []).append(
-                "Historical bar spread coverage was incomplete "
+                "Cost quality is imputed: historical bar spread coverage was incomplete "
                 f"({round(historical_spread_coverage * 100.0, 2)}%); "
                 "auto used a conservative fixed spread estimate from "
                 f"{fixed_spread_source} ({fixed_spread_bps:g} bps round-trip)."

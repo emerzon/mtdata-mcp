@@ -398,6 +398,14 @@ class StrategyBacktestRequest(_PublicForecastRequest):
             "when using auto or historical_bar_spread."
         ),
     )
+    commission_bps_per_side: FiniteFloat = Field(
+        0.0,
+        ge=0.0,
+        description=(
+            "Commission in basis points per fill side, deducted twice per "
+            "simulated round-trip. The default 0 means no commission."
+        ),
+    )
     slippage_bps: FiniteFloat = Field(1.0, ge=0.0)
 
     @model_validator(mode="after")

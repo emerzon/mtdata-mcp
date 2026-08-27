@@ -176,6 +176,7 @@ def test_strategy_backtest_default_uses_historical_bar_spread(monkeypatch):
     assert out["cost_model"]["spread_source"] == "mt5_historical_bar_spread"
     assert out["cost_model"]["selection_reason"] == "complete_historical_spread_coverage"
     assert out["cost_model"]["complete"] is True
+    assert out["cost_quality"] == "observed"
     assert "spread_bps" not in out["parameters"]
     assert out["metrics"]["metrics_reliability"] in {"low", "medium", "high"}
 
@@ -218,6 +219,8 @@ def test_strategy_backtest_default_auto_falls_back_to_conservative_fixed(
     )
     assert out["cost_model"]["complete"] is True
     assert out["cost_model"]["spread_bps_round_trip"] == pytest.approx(1.8182)
+    assert out["cost_quality"] == "imputed"
+    assert any("Cost quality is imputed" in warning for warning in out["warnings"])
     assert any("conservative fixed spread" in warning for warning in out["warnings"])
     assert "summary" in out
 
@@ -359,6 +362,7 @@ def test_strategy_backtest_compact_mode_excludes_trades(monkeypatch):
     assert out["usage"] == "research_only"
     assert "usable_for_live_trading" not in out
     assert out["price_basis"] == "broker_chart_price"
+    assert out["cost_quality"] == "user_assumption"
     assert out["cost_model"] == {
         "type": "fixed",
         "requested_type": "fixed",
@@ -372,10 +376,12 @@ def test_strategy_backtest_compact_mode_excludes_trades(monkeypatch):
         "observed_cost_coverage_pct": 0.0,
         "imputed_cost_coverage_pct": 100.0,
         "slippage_bps_per_side": 1.0,
+        "commission_bps_per_side": 0.0,
         "round_trip_cost_bps": 2.0,
         "complete": True,
     }
     assert StrategyBacktestRequest(symbol="EURUSD").slippage_bps == 1.0
+    assert StrategyBacktestRequest(symbol="EURUSD").commission_bps_per_side == 0.0
     assert StrategyBacktestRequest(symbol="EURUSD").cost_model == "auto"
     assert out["signal_status"] == "not_actionable"
     assert "last_signal" not in out
@@ -391,6 +397,36 @@ def test_strategy_backtest_compact_mode_excludes_trades(monkeypatch):
     assert len(out["units"]) < len(forecast_backtest._backtest_units())
     assert "trades" not in out, "compact mode should not include trades array"
     assert "trade_sample" not in out
+
+
+def test_strategy_backtest_deducts_commission_on_both_sides(monkeypatch):
+    monkeypatch.setattr(
+        forecast_backtest,
+        "_fetch_history",
+        lambda *args, **kwargs: _history_from_closes(
+            [1.0, 1.0, 1.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0]
+        ),
+    )
+
+    out = forecast_backtest.strategy_backtest(
+        symbol="EURUSD",
+        lookback=8,
+        fast_period=2,
+        slow_period=3,
+        detail="full",
+        cost_model="fixed",
+        spread_bps=0.0,
+        slippage_bps=0.0,
+        commission_bps_per_side=2.5,
+    )
+
+    trade = out["trades"][0]
+    assert out["cost_quality"] == "user_assumption"
+    assert out["cost_model"]["commission_bps_per_side"] == 2.5
+    assert out["cost_model"]["round_trip_cost_bps"] == 5.0
+    assert out["parameters"]["commission_bps_per_side"] == 2.5
+    assert trade["commission_cost_bps"] == 5.0
+    assert trade["return_net"] == pytest.approx(trade["return_gross"] - 0.0005)
 
 
 def test_strategy_backtest_compact_explains_low_trade_sample(monkeypatch):
@@ -794,6 +830,7 @@ def test_core_strategy_backtest_wrapper_routes_request(monkeypatch):
             "symbol": kwargs["symbol"],
             "start": kwargs["start"],
             "end": kwargs["end"],
+            "commission_bps_per_side": kwargs["commission_bps_per_side"],
         },
     )
 
@@ -804,6 +841,7 @@ def test_core_strategy_backtest_wrapper_routes_request(monkeypatch):
             lookback=50,
             start="2023-01-01",
             end="2023-12-31",
+            commission_bps_per_side=0.25,
         )
     )
 
@@ -812,6 +850,7 @@ def test_core_strategy_backtest_wrapper_routes_request(monkeypatch):
     assert out["symbol"] == "EURUSD"
     assert out["start"] == "2023-01-01"
     assert out["end"] == "2023-12-31"
+    assert out["commission_bps_per_side"] == 0.25
 
 
 def test_strategy_backtest_request_rejects_invalid_ma_periods():

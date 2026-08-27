@@ -599,7 +599,9 @@ def validate_strategies(  # noqa: C901
                 "windows, or switch the candidate to sma_cross_event/ema_cross_event."
             ),
         }
-    round_trip_bps = spread_bps + 2.0 * (request.commission_bps + request.slippage_bps)
+    round_trip_bps = spread_bps + 2.0 * (
+        request.commission_bps_per_side + request.slippage_bps
+    )
     purge = int(request.purge_bars or 0)
     embargo = int(
         request.embargo_bars
@@ -1005,7 +1007,7 @@ def validate_strategies(  # noqa: C901
             "requested_type": request.cost_model,
             "source": spread_source,
             "spread_bps": spread_bps,
-            "commission_bps_per_side": request.commission_bps,
+            "commission_bps_per_side": request.commission_bps_per_side,
             "slippage_bps_per_side": request.slippage_bps,
             "round_trip_bps": round_trip_bps,
             "window": spread_window,

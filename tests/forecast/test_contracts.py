@@ -43,6 +43,7 @@ def test_contract_inventory_assigns_expected_owners() -> None:
     assert matrix["strategy_backtest"]["fast_period"] == "strategy"
     assert matrix["strategy_backtest"]["cost_model"] == "evaluation"
     assert matrix["strategy_backtest"]["spread_bps"] == "evaluation"
+    assert matrix["strategy_backtest"]["commission_bps_per_side"] == "evaluation"
     assert matrix["forecast_optimize_hints"]["timeframes"] == "data_preparation"
     assert matrix["forecast_optimize_hints"]["lookback"] == "data_preparation"
 

@@ -168,8 +168,12 @@ a reason distinguishing unavailable forecasts from an uncrossed threshold.
 
 `strategy_backtest` also defaults to `cost_model=auto`. When you want a
 controlled constant instead, pass `--cost-model fixed --spread-bps <value>`
-to either tool. The explicit `historical_bar_spread` policy does not run a
-backtest unless historical spread coverage is complete.
+to either tool. Both strategy tools accept `commission_bps_per_side`, deducted
+on entry and exit, and default to zero commission plus 1 bps slippage per side.
+The explicit `historical_bar_spread` policy does not run a backtest unless
+historical spread coverage is complete. `strategy_backtest` reports
+`cost_quality=observed`, `imputed`, or `user_assumption` beside its result
+status so an auto-selected fixed spread cannot look like observed history.
 
 Same-bar TP/SL touches default to `sl_first` and are echoed in the result.
 `max_drawdown` is always the non-negative peak-to-trough return magnitude, in

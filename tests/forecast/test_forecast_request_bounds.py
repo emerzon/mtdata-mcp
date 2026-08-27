@@ -104,6 +104,12 @@ def test_backtest_requests_reject_invalid_slippage(value) -> None:
         StrategyBacktestRequest(symbol="EURUSD", slippage_bps=value)
 
 
+@pytest.mark.parametrize("value", [-1.0, float("nan"), float("inf")])
+def test_strategy_backtest_rejects_invalid_commission(value) -> None:
+    with pytest.raises(ValidationError, match="commission_bps_per_side"):
+        StrategyBacktestRequest(symbol="EURUSD", commission_bps_per_side=value)
+
+
 def test_forecast_backtest_and_tune_accept_explicit_spread_and_commission() -> None:
     backtest = ForecastBacktestRequest(
         symbol="EURUSD",

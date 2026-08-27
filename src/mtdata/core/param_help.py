@@ -1045,6 +1045,10 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "Fixed round-trip spread cost in basis points; required when "
         "cost_model=fixed and invalid with auto or historical_bar_spread."
     ),
+    ("strategy_backtest", "commission_bps_per_side"): (
+        "Commission per fill side in basis points, deducted twice per simulated "
+        "round trip; defaults to zero."
+    ),
     ("strategy_validate", "strategy"): (
         "Single built-in strategy shortcut. Use candidates for parameterized or "
         "mixed validation sets."
@@ -1082,7 +1086,7 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
     ("labels_triple_barrier", "as_of"): (
         "Point-in-time cutoff for labeled history. Cannot be combined with start/end."
     ),
-    ("strategy_validate", "commission_bps"): (
+    ("strategy_validate", "commission_bps_per_side"): (
         "Commission per fill side in basis points; validation applies it twice per "
         "round trip."
     ),

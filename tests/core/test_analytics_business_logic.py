@@ -2017,6 +2017,7 @@ def test_strategy_validation_returns_walk_forward_oos_metrics() -> None:
         n_splits=3,
         cost_model="fixed",
         spread_bps=1.0,
+        commission_bps_per_side=0.25,
         bootstrap_samples=100,
         seed=7,
         detail="full",
@@ -2033,6 +2034,9 @@ def test_strategy_validation_returns_walk_forward_oos_metrics() -> None:
     assert result["validation"]["extra_purge_bars"] == 0
     assert result["validation"]["protocol"] == "anchored_expanding_fixed_candidate_oos"
     assert result["validation"]["execution_timing"] == "next_bar_open"
+    assert result["cost_model"]["commission_bps_per_side"] == 0.25
+    assert result["cost_model"]["slippage_bps_per_side"] == 1.0
+    assert result["cost_model"]["round_trip_bps"] == 3.5
     assert result["rankings"][0]["id"] == "cross"
     assert result["rankings"][0]["strategy"] == "sma_cross"
     assert result["rankings"][0]["effective_parameters"] == {
@@ -2364,6 +2368,31 @@ def test_strategy_validation_historical_model_rejects_explicit_spread() -> None:
                 }
             ],
             spread_bps=1.25,
+        )
+
+
+def test_strategy_validation_rejects_removed_commission_name() -> None:
+    with pytest.raises(ValueError, match="commission_bps_per_side"):
+        StrategyValidateRequest(
+            symbol="EURUSD",
+            strategy="sma_cross",
+            commission_bps=0.25,
+        )
+
+
+@pytest.mark.parametrize("value", [-1.0, float("nan"), float("inf")])
+def test_strategy_validation_rejects_invalid_per_side_costs(value) -> None:
+    with pytest.raises(ValueError):
+        StrategyValidateRequest(
+            symbol="EURUSD",
+            strategy="sma_cross",
+            commission_bps_per_side=value,
+        )
+    with pytest.raises(ValueError):
+        StrategyValidateRequest(
+            symbol="EURUSD",
+            strategy="sma_cross",
+            slippage_bps=value,
         )
 
 
