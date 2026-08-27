@@ -1457,6 +1457,15 @@ def calibrate_heston_quantlib_from_options(  # noqa: C901
             ),
             "contract_quality_rejections": contract_quality_rejections,
             "pricing_usability_failures": ["unusable_option_contract_inputs"],
+            "next_tool": "options_provider_status",
+            "remediation": (
+                "Retry during an active session when the provider supplies at "
+                "least five current, timestamped, two-sided contract quotes from "
+                "the spot snapshot, or run options_provider_status to configure "
+                "and verify a real-time provider. Delayed or asynchronous quotes "
+                "are intentionally rejected because calibrated parameters feed "
+                "pricing."
+            ),
             "warnings": [
                 (
                     "Calibration was not attempted because fewer than five "
