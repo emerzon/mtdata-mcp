@@ -526,11 +526,11 @@ def test_forecast_generate_defaults_to_compact_payload(monkeypatch):
         "direction_interval_excludes_last_price": None,
         "direction_interval_basis": "not_available",
         "direction_interpretation": "point_estimate_only",
-        "point_estimate_direction": "bullish",
         "direction_status": "unconfirmed",
         "direction_actionable": False,
         "direction_suppressed_reason": "forecast_uncertainty_not_available",
     }
+    assert "point_estimate_direction" not in out["forecast_vs_last_price"]
     assert out["signal_status"] == "not_actionable"
     assert out["uncertainty"] == {
         "status": "not_requested",
@@ -937,11 +937,11 @@ def test_forecast_generate_rounds_price_outputs_to_symbol_digits(monkeypatch):
         "direction_interval_excludes_last_price": None,
         "direction_interval_basis": "not_available",
         "direction_interpretation": "point_estimate_only",
-        "point_estimate_direction": "bullish",
         "direction_status": "unconfirmed",
         "direction_actionable": False,
         "direction_suppressed_reason": "forecast_uncertainty_not_available",
     }
+    assert "point_estimate_direction" not in out["forecast_vs_last_price"]
     assert out["signal_status"] == "not_actionable"
     assert "forecast_price" not in out
     assert out["forecast"] == [

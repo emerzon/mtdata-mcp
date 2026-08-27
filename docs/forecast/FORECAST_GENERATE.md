@@ -109,9 +109,10 @@ fetches its configured search depth plus the required window/horizon overhead.
 Not every method can produce a native interval. The default native Theta call is
 a point forecast; request an interval explicitly only when the selected method
 supports it. When a requested interval is
-unavailable, the result is explicitly `signal_status: not_actionable` and keeps
-any model drift under `point_estimate_direction` instead of publishing a
-directional claim. Use `forecast_conformal_intervals` to calibrate empirical
+unavailable, the result is explicitly `signal_status: not_actionable`. Compact
+output omits `point_estimate_direction` when uncertainty was not requested so a
+point path is not mistaken for a trade bias. Full detail still keeps the
+research label. Use `forecast_conformal_intervals` to calibrate empirical
 bands for point-only methods such as the native Theta fallback.
 
 When price intervals are available, `direction` is published only when the

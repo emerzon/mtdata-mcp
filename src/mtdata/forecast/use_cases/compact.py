@@ -1352,11 +1352,17 @@ def _apply_forecast_generate_detail(  # noqa: C901
         else None
     )
     price_context = payload.get("forecast_vs_last_price")
-    if price_context:
+    if isinstance(price_context, dict):
+        price_context = dict(price_context)
         if path_flatness:
             price_context["direction"] = "neutral"
             price_context["direction_basis"] = "flat_path"
             price_context["direction_suppressed_reason"] = "flat_path"
+        if (
+            str(price_context.get("direction_suppressed_reason") or "")
+            == "forecast_uncertainty_not_available"
+        ):
+            price_context.pop("point_estimate_direction", None)
         compact["forecast_vs_last_price"] = price_context
     if path_flatness:
         compact.update(path_flatness)
