@@ -3268,6 +3268,23 @@ def market_scan(  # noqa: C901
                 )
             else:
                 message = "No symbols matched the requested market scan filters."
+                filter_reason_parts = []
+                if rsi_below is not None:
+                    filter_reason_parts.append(f"RSI < {rsi_below:g}")
+                if rsi_above is not None:
+                    filter_reason_parts.append(f"RSI > {rsi_above:g}")
+                if min_tick_volume is not None:
+                    filter_reason_parts.append(
+                        f"tick_volume >= {min_tick_volume:g}"
+                    )
+                evaluated = int(stats["evaluated_symbols"])
+                if evaluated > 0 and filter_reason_parts:
+                    message = (
+                        f"No symbols matched the requested market scan filters "
+                        f"(all {evaluated} evaluated; none had "
+                        + " and ".join(filter_reason_parts)
+                        + ")."
+                    )
             if stale_rows:
                 message = (
                     f"{message} Returned rows: "
@@ -3371,7 +3388,8 @@ def market_scan(  # noqa: C901
                 out["summary"]["empty"] = True
                 out["visible_symbols"] = int(visible_symbol_count)
                 out["broker_symbols"] = int(broker_symbol_count)
-                if universe_value == "visible":
+                evaluated = int(stats["evaluated_symbols"])
+                if universe_value == "visible" and evaluated == 0:
                     out["remediation"] = (
                         "The default scan covers Market Watch symbols. Add symbols "
                         "to Market Watch, pass explicit --symbols, or use --universe "
@@ -3381,6 +3399,12 @@ def market_scan(  # noqa: C901
                         f"{out['message']} Market Watch has "
                         f"{visible_symbol_count} visible symbol(s) out of "
                         f"{broker_symbol_count} broker symbol(s)."
+                    )
+                elif evaluated > 0:
+                    out["remediation"] = (
+                        "Relax the scan filters first (for example --rsi-below or "
+                        "--min-tick-volume). Widen Market Watch or pass --universe "
+                        "all only when evaluated_symbols is 0."
                     )
             return _attach_market_scan_source(
                 attach_collection_contract(
