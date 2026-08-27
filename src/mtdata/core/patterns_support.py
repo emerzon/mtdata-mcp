@@ -1124,6 +1124,23 @@ _HIGHLIGHT_KEYS = (
     "confidence", "time", "bar_index", "price", "target_price", "invalidation_price",
 )
 
+_NON_ACTIONABLE_HIGHLIGHT_LIFECYCLES = {
+    "target_reached",
+    "expired",
+    "historical",
+}
+
+
+def _is_actionable_highlight_row(row: Dict[str, Any]) -> bool:
+    lifecycle = str(row.get("lifecycle") or "").strip().lower()
+    if lifecycle in _NON_ACTIONABLE_HIGHLIGHT_LIFECYCLES:
+        return False
+    bias_scope = str(row.get("bias_scope") or "").strip().lower()
+    if bias_scope == "historical_structure":
+        return False
+    signal_status = str(row.get("signal_status") or "").strip().lower()
+    return signal_status not in {"not_actionable", "blocked"}
+
 # Section weight multipliers for highlight ranking
 _SECTION_WEIGHT = {
     "classic": 1.0,
@@ -1293,6 +1310,8 @@ def _build_highlights(
         })
 
     for row in payload.get("harmonic", {}).get("patterns", []):
+        if not _is_actionable_highlight_row(row):
+            continue
         candidates.append({
             "section": "harmonic",
             "timeframe": row.get("timeframe"),
@@ -1447,6 +1466,18 @@ def _compact_all_mode_payload(
             "patterns": trimmed,
         }
         bias = section.get("signal_bias")
+        if section_name == "harmonic" and rows:
+            actionable_rows = [row for row in rows if _is_actionable_highlight_row(row)]
+            if not actionable_rows:
+                status, blocker, reason = _aggregate_non_signal_pattern_status(rows)
+                result.update(
+                    {
+                        "pattern_status": status,
+                        "blocker": blocker,
+                        "bias_suppressed_reason": reason,
+                    }
+                )
+                bias = None
         if bias:
             result["signal_bias"] = bias
         for key in ("active_levels", "latest_breakouts"):

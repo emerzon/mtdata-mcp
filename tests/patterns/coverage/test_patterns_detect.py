@@ -1550,6 +1550,72 @@ class TestRelevanceScoring:
         sections = [h["section"] for h in highlights]
         assert "classic" in sections
 
+    def test_build_highlights_excludes_inactive_harmonic_structures(self):
+        from mtdata.core.patterns_support import _build_highlights
+
+        payload = {
+            "harmonic": {
+                "patterns": [
+                    {
+                        "name": "Bearish ABCD",
+                        "bias": "bearish",
+                        "status": "completed",
+                        "confidence": 0.944,
+                        "relevance": 0.94,
+                        "timeframe": "H1",
+                        "end_date": "2026-08-27T02:00Z",
+                        "lifecycle": "target_reached",
+                        "bias_scope": "historical_structure",
+                    },
+                    {
+                        "name": "Bullish Gartley",
+                        "bias": "bullish",
+                        "status": "completed",
+                        "confidence": 0.8,
+                        "relevance": 0.8,
+                        "timeframe": "H1",
+                        "end_date": "2026-08-27T10:00Z",
+                        "lifecycle": "active",
+                        "bias_scope": "active_signal",
+                    },
+                ]
+            }
+        }
+
+        highlights = _build_highlights(payload, limit=3)
+
+        assert [row["name"] for row in highlights] == ["Bullish Gartley"]
+
+    def test_all_mode_suppresses_harmonic_bias_when_only_target_reached(self):
+        from mtdata.core.patterns_support import _compact_all_mode_payload
+
+        row = {
+            "name": "Bearish ABCD",
+            "bias": "bearish",
+            "status": "completed",
+            "confidence": 0.944,
+            "relevance": 0.94,
+            "timeframe": "H1",
+            "end_date": "2026-08-27T02:00Z",
+            "lifecycle": "target_reached",
+            "bias_scope": "historical_structure",
+            "is_recent": True,
+        }
+        payload = {
+            "symbol": "EURUSD",
+            "harmonic": {
+                "patterns": [row],
+                "signal_bias": {"net_bias": "bearish", "net_score": -0.944},
+            },
+        }
+
+        compact = _compact_all_mode_payload(payload)
+
+        harmonic = compact["harmonic"]
+        assert "signal_bias" not in harmonic
+        assert harmonic["pattern_status"] == "target_reached"
+        assert harmonic["blocker"] == "target_reached"
+
     def test_build_highlights_deduplicates_before_diversity_cap(self):
         from mtdata.core.patterns_support import _build_highlights
 
