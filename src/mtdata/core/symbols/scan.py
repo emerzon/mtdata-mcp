@@ -4,6 +4,7 @@ import logging
 import math
 import re
 import time
+from datetime import datetime, timezone
 from typing import (
     Annotated,
     Any,
@@ -41,6 +42,8 @@ from ...utils.market_metadata import (
 from ...utils.mt5 import (
     MT5ConnectionError,
     _compact_symbol_name,
+    _ensure_symbol_ready,
+    _mt5_copy_rates_from,
     _mt5_copy_rates_from_pos,
     _symbol_ready_guard,
     _symbol_visibility_snapshot_guard,
@@ -409,6 +412,7 @@ def _market_scan_completed_rates(
         return completed
 
     now_epoch = float(time.time())
+    _ensure_symbol_ready(symbol)
     rates = _completed(
         _mt5_copy_rates_from_pos(symbol, mt5_timeframe, 0, requested + 1),
         now_epoch=now_epoch,
@@ -431,10 +435,15 @@ def _market_scan_completed_rates(
         and age_seconds > _market_scan_stale_bar_seconds(timeframe)
     ):
         refreshed = _completed(
-            _mt5_copy_rates_from_pos(symbol, mt5_timeframe, 0, requested + 1),
+            _mt5_copy_rates_from(
+                symbol,
+                mt5_timeframe,
+                datetime.fromtimestamp(now_epoch, tz=timezone.utc),
+                requested + 1,
+            ),
             now_epoch=now_epoch,
         )
-        if refreshed is not None:
+        if refreshed is not None and len(refreshed) >= 1:
             rates = refreshed
     return rates
 
@@ -470,6 +479,7 @@ def _project_market_scan_completed_bars(
             "previous_close": _market_scan_round(previous_close, digits=digits),
             "open": _market_scan_round(open_price, digits=digits),
             "close": _market_scan_round(close_price, digits=digits),
+            "bar_close": _market_scan_round(close_price, digits=digits),
             "price_currency": str(
                 getattr(symbol, "currency_profit", "") or ""
             ).strip()
@@ -614,6 +624,7 @@ _MARKET_SCAN_UNITS = {
     "ask": "price",
     "mid": "price",
     "close": "price",
+    "bar_close": "price",
     "previous_close": "price",
     "price_change_pct": "percent (1.0 = 1%)",
     "live_price_change_pct": "percent (1.0 = 1%)",
@@ -993,11 +1004,11 @@ _TOP_MARKETS_COMPACT_SPREAD_HEADERS = [
 _TOP_MARKETS_COMPACT_BAR_HEADERS = [
     "bar_stale",
     "bar_freshness",
-    "close",
     "quote_as_of",
     "bid",
     "ask",
     "mid",
+    "bar_close",
     "tick_volume",
     "price_change_pct",
     "live_price_change_pct",
@@ -1007,11 +1018,11 @@ _TOP_MARKETS_COMPACT_HEADERS = [
     *_TOP_MARKETS_COMPACT_BASE_HEADERS,
     "bar_stale",
     "bar_freshness",
-    "close",
     "quote_as_of",
     "bid",
     "ask",
     "mid",
+    "bar_close",
     "spread_pct",
     "spread_points",
     "tick_volume",
@@ -1054,7 +1065,7 @@ _TOP_MARKETS_COMPACT_VOLUME_HEADERS = [
     "time",
     "bar_stale",
     "bar_freshness",
-    "close",
+    "bar_close",
     "tick_volume",
     "price_change_pct",
 ]
@@ -3172,7 +3183,8 @@ def market_scan(  # noqa: C901
             compact_headers = [
                 "symbol",
                 "asset_class",
-                "close",
+                "bar_close",
+                "bar_stale",
                 "time",
                 "quote_as_of",
                 "bid",

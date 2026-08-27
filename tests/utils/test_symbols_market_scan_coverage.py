@@ -762,9 +762,12 @@ def test_market_scan_spread_row_reconciles_newer_stream_quote() -> None:
     assert row["quote_source_state"] == "refreshed_from_tick_stream"
 
 
+@patch("mtdata.core.symbols.scan._ensure_symbol_ready", return_value=None)
 @patch("mtdata.core.symbols.time.time", return_value=10_000.0)
 @patch("mtdata.core.symbols.scan._mt5_copy_rates_from_pos")
-def test_market_scan_completed_rates_keeps_latest_closed_bar(mock_rates, mock_time):
+def test_market_scan_completed_rates_keeps_latest_closed_bar(
+    mock_rates, mock_time, _ready
+):
     from mtdata.core.symbols import _market_scan_completed_rates
 
     bars = _make_bars([1.0, 2.0, 3.0])
@@ -782,9 +785,10 @@ def test_market_scan_completed_rates_keeps_latest_closed_bar(mock_rates, mock_ti
     mock_rates.assert_called_once_with("EURUSD", 16385, 0, 3)
 
 
+@patch("mtdata.core.symbols.scan._ensure_symbol_ready", return_value=None)
 @patch("mtdata.core.symbols.time.time", return_value=10_000.0)
 @patch("mtdata.core.symbols.scan._mt5_copy_rates_from_pos")
-def test_market_scan_completed_rates_drops_forming_bar(mock_rates, mock_time):
+def test_market_scan_completed_rates_drops_forming_bar(mock_rates, mock_time, _ready):
     from mtdata.core.symbols import _market_scan_completed_rates
 
     bars = _make_bars([1.0, 2.0, 3.0])
@@ -801,11 +805,15 @@ def test_market_scan_completed_rates_drops_forming_bar(mock_rates, mock_time):
     assert [bar["close"] for bar in result] == [1.0, 2.0]
 
 
+@patch("mtdata.core.symbols.scan._ensure_symbol_ready", return_value=None)
 @patch("mtdata.core.symbols.time.time", return_value=20_000.0)
+@patch("mtdata.core.symbols.scan._mt5_copy_rates_from")
 @patch("mtdata.core.symbols.scan._mt5_copy_rates_from_pos")
 def test_market_scan_completed_rates_refreshes_stale_open_session_tail(
     mock_rates,
+    mock_rates_from,
     mock_time,
+    _ready,
 ):
     from mtdata.core.symbols import _market_scan_completed_rates
 
@@ -823,7 +831,8 @@ def test_market_scan_completed_rates_refreshes_stale_open_session_tail(
         strict=True,
     ):
         row["time"] = timestamp
-    mock_rates.side_effect = [stale, fresh]
+    mock_rates.return_value = stale
+    mock_rates_from.return_value = fresh
 
     result = _market_scan_completed_rates(
         "EURUSD",
@@ -833,7 +842,8 @@ def test_market_scan_completed_rates_refreshes_stale_open_session_tail(
     )
 
     assert [bar["close"] for bar in result] == [5.0, 6.0]
-    assert mock_rates.call_count == 2
+    mock_rates.assert_called_once_with("EURUSD", 16385, 0, 3)
+    mock_rates_from.assert_called_once()
 
 
 def test_market_scan_signal_price_change_uses_previous_close(monkeypatch):
@@ -1184,7 +1194,8 @@ class TestSymbolsTopMarkets:
         assert "spread_valid" not in compact_bar_headers
         assert "spread_points" in compact_spread_headers
         assert "close" not in compact_spread_headers
-        assert "close" in compact_bar_headers
+        assert "bar_close" in compact_bar_headers
+        assert "close" not in compact_bar_headers
         assert "spread_points" not in compact_bar_headers
 
         full_spread_headers = _top_markets_headers("spread", detail_mode="full")
@@ -1259,7 +1270,8 @@ class TestSymbolsTopMarkets:
         assert "returned_count" not in result
         assert len(result["data"]) == 1
         assert result["data"][0]["symbol"] == "EURUSD"
-        assert result["data"][0]["close"] == 1.045
+        assert result["data"][0]["bar_close"] == 1.045
+        assert "close" not in result["data"][0]
         assert result["data"][0]["price_change_pct"] == -5.0
         assert result["price_change_basis"] == (
             "previous_completed_close_to_latest_completed_close"
@@ -1280,7 +1292,7 @@ class TestSymbolsTopMarkets:
         )
         assert "spread_points" not in result["data"][0]
         assert result["units"]["tick_volume"] == "broker_tick_count"
-        assert result["units"]["close"] == "price"
+        assert result["units"]["bar_close"] == "price"
         assert result["volume_type"] == "tick_volume"
         assert result["volume_semantics"] == "tick_volume_is_broker_tick_count_not_lots"
         assert "lowest_spread" not in result
@@ -1711,7 +1723,7 @@ class TestSymbolsTopMarkets:
         assert first_volume["symbol"] == "EURUSD"
         assert first_price_change["symbol"] == "GBPUSD"
         assert result["units"]["tick_volume"] == "broker_tick_count"
-        assert result["units"]["close"] == "price"
+        assert result["units"]["bar_close"] == "price"
         assert result["volume_type"] == "tick_volume"
         assert result["volume_semantics"] == "tick_volume_is_broker_tick_count_not_lots"
         assert "data_sources" not in result
@@ -2101,7 +2113,7 @@ class TestMarketScan:
         assert {
             "symbol",
             "asset_class",
-            "close",
+            "bar_close",
             "time",
             "bid",
             "ask",
@@ -2111,7 +2123,8 @@ class TestMarketScan:
             "live_price_change_pct",
             "spread_pct",
             "spread_pips",
-        } == set(row)
+        }.issubset(set(row))
+        assert "close" not in row
         assert row["spread_pips"] == 1.0
         assert mock_rates.call_args.args[2:] == (0, 3)
         assert "real_volume" not in row

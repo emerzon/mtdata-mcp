@@ -36,7 +36,7 @@ _ROW_KEYS = (
     "ask",
     "mid",
     "last",
-    "close",
+    "bar_close",
     "spread",
     "spread_pips",
     "spread_pct",
@@ -153,8 +153,14 @@ def compact_radar_row(row: Any) -> Optional[Dict[str, Any]]:
     if not symbol:
         return None
     compact: Dict[str, Any] = {"symbol": symbol}
+    bar_close = row.get("bar_close")
+    if bar_close in (None, ""):
+        bar_close = row.get("close")
+    if bar_close not in (None, ""):
+        compact["bar_close"] = bar_close
+    compact["bar_stale"] = bool(row.get("bar_stale"))
     for key in _ROW_KEYS:
-        if key == "symbol":
+        if key in {"symbol", "bar_close", "bar_stale"}:
             continue
         if row.get(key) not in (None, "", []):
             compact[key] = row[key]
