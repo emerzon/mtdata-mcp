@@ -1203,10 +1203,9 @@ def _finalize_barrier_output(
     if resolved_mode == "full":
         diagnostics_payload: Dict[str, Any] = {
             "candidate_counts": {
-                "ranked_total": len(ranked_candidates or []),
-                "viable_total": len(viable_candidates or []),
-                "returned_total": len(candidates or []),
-                "results_total": len(out.get("results") or []),
+                "candidates_evaluated": len(ranked_candidates or []),
+                "candidates_viable": len(viable_candidates or []),
+                "candidates_returned": len(candidates or []),
                 "grid_total": len(grid_out or []),
             },
             "view": {
@@ -2432,7 +2431,7 @@ def forecast_barrier_optimize(  # noqa: C901
             if isinstance(selected_best, dict):
                 _annotate_candidate_metrics(selected_best, cost_per_trade=cost_per_trade)
             viable = _candidate_is_viable(selected_best, cost_per_trade=cost_per_trade)
-            viable_results_total = int(len(viable_candidates))
+            candidates_viable = int(len(viable_candidates))
             status = "ok" if viable else ("non_viable" if viability_filtered_out else ("no_candidates" if not selected_best else "non_viable"))
             status_reason = None
             if viability_filtered_out:
@@ -2546,8 +2545,9 @@ def forecast_barrier_optimize(  # noqa: C901
                     } if statistical_robustness_requested else None,
                 },
                 "results": summary_results,
-                "results_total": len(candidates),
-                "viable_results_total": viable_results_total,
+                "candidates_evaluated": len(ranked_candidates),
+                "candidates_viable": candidates_viable,
+                "candidates_returned": len(candidates),
                 "best": selected_best,
                 "viable": bool(viable),
                 "least_negative": _least_negative_ref(selected_best) if (selected_best and not viable) else None,
@@ -3580,7 +3580,7 @@ def forecast_barrier_optimize(  # noqa: C901
         if isinstance(best, dict):
             _annotate_candidate_metrics(best, cost_per_trade=cost_per_trade)
         viable = _candidate_is_viable(best, cost_per_trade=cost_per_trade)
-        viable_results_total = int(len(viable_candidates))
+        candidates_viable = int(len(viable_candidates))
         status = "ok"
         status_reason = None
         if viability_filtered_out:
@@ -3662,9 +3662,14 @@ def forecast_barrier_optimize(  # noqa: C901
                     "oos_validation_enabled": bool(enable_oos_validation_val),
                 } if statistical_robustness_requested else None,
             },
+            "simulation_seed": int(request_seed_base),
+            "simulation_seed_source": (
+                "params" if seed_provided else "derived_from_request"
+            ),
             "results": summary_results,
-            "results_total": len(candidates),
-            "viable_results_total": viable_results_total,
+            "candidates_evaluated": len(ranked_candidates),
+            "candidates_viable": candidates_viable,
+            "candidates_returned": len(candidates),
             "best": best,
             "viable": viable,
             "least_negative": _least_negative_ref(best) if (best is not None and not viable) else None,

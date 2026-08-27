@@ -170,7 +170,7 @@ class TestBarrierOptimizeBasic(_BarrierTestBase):
         self.assertEqual(result.get("optimizer"), "optuna")
         self.assertIn("optuna", result)
         self.assertGreaterEqual(result["optuna"].get("completed_trials", 0), 1)
-        self.assertGreater(result.get("results_total", 0), 0)
+        self.assertGreater(result.get("candidates_returned", 0), 0)
         self.assertTrue(result.get("grid"))
         self.assertIsInstance(result.get("best"), dict)
 
@@ -204,7 +204,7 @@ class TestBarrierOptimizeBasic(_BarrierTestBase):
         self.assertEqual(result.get("optimizer"), "optuna")
         self.assertIn("optuna", result)
         self.assertGreaterEqual(result["optuna"].get("completed_trials", 0), 1)
-        self.assertGreater(result.get("results_total", 0), 0)
+        self.assertGreater(result.get("candidates_returned", 0), 0)
         self.assertTrue(result.get("grid"))
         self.assertIsInstance(result.get("best"), dict)
 
@@ -348,7 +348,7 @@ class TestBarrierOptimizeBasic(_BarrierTestBase):
         self.assertEqual(profile.get("ratio_steps"), 4)
         self.assertEqual(profile.get("vol_steps"), 4)
         self.assertFalse(profile.get("refine"))
-        self.assertEqual(result.get("results_total"), 16)
+        self.assertEqual(result.get("candidates_returned"), 16)
 
     def test_forecast_barrier_optimize_parses_bool_flags_from_params(self):
         self._set_flat_history(1.0)

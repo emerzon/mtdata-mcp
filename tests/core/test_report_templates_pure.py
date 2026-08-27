@@ -1051,8 +1051,9 @@ class TestTemplateBasic:
             "status_reason": "No candidate passed the viability filter.",
             "recommendation": "avoid",
             "mathematically_viable": False,
-            "results_total": 0,
-            "viable_results_total": 0,
+            "candidates_evaluated": 0,
+            "candidates_viable": 0,
+            "candidates_returned": 0,
             "execution_blockers": ["optimizer_non_viable"],
         }
         mock_raw.return_value = dict(decision)

@@ -170,13 +170,22 @@ class TestBarrierOptimizeOutputGrid(_BarrierTestBase):
                 return_grid=True,
             )
         self.assertTrue(result["success"])
-        self.assertIn("results_total", result)
-        self.assertEqual(result["results_total"], len(result["grid"]))
+        self.assertIn("candidates_returned", result)
+        self.assertEqual(result["candidates_returned"], len(result["grid"]))
+        self.assertGreaterEqual(
+            result["candidates_evaluated"], result["candidates_viable"]
+        )
+        self.assertGreaterEqual(
+            result["candidates_evaluated"], result["candidates_returned"]
+        )
         self.assertLessEqual(len(result["results"]), 10)
         self.assertGreaterEqual(len(result["grid"]), len(result["results"]))
         self.assertEqual(result.get("output_mode"), "full")
         self.assertIn("diagnostics", result)
-        self.assertEqual(result["diagnostics"]["candidate_counts"]["returned_total"], result["results_total"])
+        self.assertEqual(
+            result["diagnostics"]["candidate_counts"]["candidates_returned"],
+            result["candidates_returned"],
+        )
         self.assertEqual(result["diagnostics"]["candidate_counts"]["grid_total"], len(result["grid"]))
 
     def test_forecast_barrier_optimize_volatility_grid(self):

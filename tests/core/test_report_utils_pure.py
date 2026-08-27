@@ -469,8 +469,9 @@ class TestSummarizeBarrierGrid:
     def test_non_viable_decision_survives_empty_candidate_grid(self):
         grid = {
             "results": [],
-            "results_total": 0,
-            "viable_results_total": 0,
+            "candidates_evaluated": 0,
+            "candidates_viable": 0,
+            "candidates_returned": 0,
             "best": None,
             "status": "non_viable",
             "status_reason": "No candidate passed the viability filter.",
@@ -488,8 +489,9 @@ class TestSummarizeBarrierGrid:
             "recommendation": "avoid",
             "mathematically_viable": False,
             "usable_for_live_trading": False,
-            "results_total": 0,
-            "viable_results_total": 0,
+            "candidates_evaluated": 0,
+            "candidates_viable": 0,
+            "candidates_returned": 0,
             "execution_blockers": ["optimizer_non_viable"],
             "note": "no viable barrier candidates",
         }
@@ -550,6 +552,38 @@ class TestSummarizeBarrierGrid:
         result = summarize_barrier_grid(grid)
         assert result.get("caution") == "conflict warning"
         assert result.get("selection_warnings") == ["w1"]
+
+    def test_preserves_barrier_lineage_for_report_timestamping(self):
+        grid = {
+            "best": {"tp": 1.0, "sl": 0.5},
+            "data_as_of": "2026-08-27T17:00Z",
+            "data_stale": False,
+            "timezone": "UTC",
+            "timeframe": "H1",
+            "horizon": 12,
+            "history_window": {
+                "start": "2026-08-01T00:00Z",
+                "end": "2026-08-27T17:00Z",
+                "bars_used": 500,
+            },
+            "reference_price_time": "2026-08-27T17:01Z",
+            "reference_quote_source": "symbol_info_tick",
+            "method": "mc_gbm",
+            "simulation_seed": 42,
+            "simulation_seed_source": "params",
+            "compute_profile": {"seed": 42, "seed_source": "params", "n_sims": 1000},
+        }
+
+        result = summarize_barrier_grid(grid)
+
+        assert result["lineage"]["data_as_of"] == "2026-08-27T17:00Z"
+        assert result["lineage"]["history_window"]["bars_used"] == 500
+        assert result["lineage"]["simulation_seed"] == 42
+        assert result["lineage"]["simulation"] == {
+            "n_sims": 1000,
+            "seed": 42,
+            "seed_source": "params",
+        }
 
 
 # ---------------------------------------------------------------------------

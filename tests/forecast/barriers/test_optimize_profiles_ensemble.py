@@ -509,7 +509,7 @@ class TestBarrierOptimizeProfilesEnsemble(_BarrierTestBase):
         self.assertTrue(result["success"])
         self.assertTrue(result["no_candidates"])
         self.assertIsNone(result["best"])
-        self.assertEqual(result["results_total"], 0)
+        self.assertEqual(result["candidates_returned"], 0)
         self.assertEqual(result.get("barrier_sanity_filtered"), 1)
 
 

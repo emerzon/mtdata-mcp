@@ -41,6 +41,29 @@ def test_barrier_best_summary_keeps_text_and_structured_fields_aligned():
     assert "ev_edge_conflict=true" in details
 
 
+def test_barrier_best_summary_keeps_nontradable_decision_fields():
+    from mtdata.core.report.use_cases import _build_barrier_best_summary
+
+    details, entry = _build_barrier_best_summary(
+        {"tp": 0.4, "sl": 0.2, "ev": 0.01},
+        decision={
+            "status": "ok",
+            "recommendation": "avoid",
+            "mathematically_viable": True,
+            "tradable": False,
+            "usable_for_live_trading": False,
+            "execution_blockers": ["trading_costs_incomplete"],
+        },
+        direction="short",
+        format_number=str,
+    )
+
+    assert entry["tradable"] is False
+    assert entry["usable_for_live_trading"] is False
+    assert entry["execution_blockers"] == ["trading_costs_incomplete"]
+    assert "tradable=False" in details
+
+
 def test_sections_status_preserves_intentional_omissions():
     from mtdata.core.report.use_cases import _build_sections_status
 
@@ -105,8 +128,9 @@ def test_sections_status_marks_all_non_viable_barriers_partial():
         "status": "non_viable",
         "recommendation": "avoid",
         "mathematically_viable": False,
-        "results_total": 0,
-        "viable_results_total": 0,
+        "candidates_evaluated": 0,
+        "candidates_viable": 0,
+        "candidates_returned": 0,
         "execution_blockers": ["optimizer_non_viable"],
     }
 
@@ -784,8 +808,9 @@ def test_non_viable_barrier_decision_survives_compact_report():
         "recommendation": "avoid",
         "mathematically_viable": False,
         "usable_for_live_trading": False,
-        "results_total": 0,
-        "viable_results_total": 0,
+        "candidates_evaluated": 0,
+        "candidates_viable": 0,
+        "candidates_returned": 0,
         "execution_blockers": ["optimizer_non_viable"],
     }
     with patch(
@@ -2929,6 +2954,27 @@ def test_report_data_as_of_labels_oldest_section_fallback():
         "as_of": "2026-08-17T21:00:00Z",
         "as_of_basis": "oldest_selected_section_timestamp",
         "oldest_section_data_as_of": "2026-08-17T21:00:00Z",
+    }
+
+
+def test_report_data_as_of_uses_barrier_lineage_when_it_is_the_only_section():
+    from mtdata.core.report.use_cases import _derive_report_timestamp_contract
+
+    assert _derive_report_timestamp_contract(
+        {
+            "barriers": {
+                "long": {
+                    "lineage": {
+                        "data_as_of": "2026-08-27T17:00:00Z",
+                        "timeframe": "H1",
+                    }
+                }
+            }
+        }
+    ) == {
+        "as_of": "2026-08-27T17:00:00Z",
+        "as_of_basis": "oldest_selected_section_timestamp",
+        "oldest_section_data_as_of": "2026-08-27T17:00:00Z",
     }
 
 

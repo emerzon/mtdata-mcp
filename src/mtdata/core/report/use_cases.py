@@ -848,13 +848,36 @@ def _round_compact_summary_value(value: Any, *, significant_digits: int = 6) -> 
 def _build_barrier_best_summary(
     best: Dict[str, Any],
     *,
+    decision: Any = None,
     direction: Any = None,
     include_direction_field: bool = False,
     format_number: Callable[[Any], str],
 ) -> tuple[List[str], Dict[str, Any]]:
     """Build matching text and structured summaries for one barrier candidate."""
     details: List[str] = []
-    entry: Dict[str, Any] = {}
+    entry: Dict[str, Any] = {
+        key: decision[key]
+        for key in (
+            "status",
+            "status_reason",
+            "recommendation",
+            "recommendation_reason",
+            "mathematically_viable",
+            "viable",
+            "tradable",
+            "usable_for_live_trading",
+            "candidates_evaluated",
+            "candidates_viable",
+            "candidates_returned",
+            "execution_blockers",
+            "actionability",
+            "actionability_reason",
+        )
+        if isinstance(decision, dict) and key in decision
+    }
+    for key in ("status", "recommendation", "tradable", "usable_for_live_trading"):
+        if key in entry:
+            details.append(f"{key}={entry[key]}")
     if direction:
         direction_text = str(direction)
         details.append(f"dir={direction_text}")
@@ -2527,8 +2550,9 @@ def run_report_generate(  # noqa: C901
                                     "viable",
                                     "tradable",
                                     "usable_for_live_trading",
-                                    "results_total",
-                                    "viable_results_total",
+                                    "candidates_evaluated",
+                                    "candidates_viable",
+                                    "candidates_returned",
                                     "execution_blockers",
                                     "actionability",
                                     "actionability_reason",
@@ -2540,6 +2564,7 @@ def run_report_generate(  # noqa: C901
                             continue
                         details, barrier_entry = _build_barrier_best_summary(
                             best,
+                            decision=sub,
                             direction=dname,
                             format_number=format_number,
                         )
@@ -2556,6 +2581,7 @@ def run_report_generate(  # noqa: C901
                     if best:
                         details, barrier_entry = _build_barrier_best_summary(
                             best,
+                            decision=bar,
                             direction=direction,
                             include_direction_field=True,
                             format_number=format_number,

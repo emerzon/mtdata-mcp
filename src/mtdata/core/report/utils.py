@@ -452,8 +452,9 @@ _BARRIER_DECISION_FIELDS = (
     'viable',
     'tradable',
     'usable_for_live_trading',
-    'results_total',
-    'viable_results_total',
+    'candidates_evaluated',
+    'candidates_viable',
+    'candidates_returned',
     'execution_blockers',
     'actionability',
     'actionability_reason',
@@ -471,6 +472,44 @@ def _barrier_decision_summary(grid: Any) -> Dict[str, Any]:
     }
 
 
+def _barrier_lineage_summary(grid: Any) -> Dict[str, Any]:
+    if not isinstance(grid, dict):
+        return {}
+    lineage = {
+        key: grid[key]
+        for key in (
+            'data_as_of',
+            'data_as_of_epoch',
+            'data_stale',
+            'data_freshness_seconds',
+            'timezone',
+            'timeframe',
+            'horizon',
+            'history_window',
+            'history_bars_used',
+            'last_observation_close_time',
+            'reference_price_time',
+            'reference_quote_source',
+            'last_price_source',
+            'method',
+            'simulation_seed',
+            'simulation_seed_source',
+            'trading_costs',
+        )
+        if grid.get(key) not in (None, [], {})
+    }
+    compute_profile = grid.get('compute_profile')
+    if isinstance(compute_profile, dict):
+        simulation = {
+            key: compute_profile[key]
+            for key in ('profile', 'n_sims', 'n_seeds', 'paths_evaluated', 'seed', 'seed_source')
+            if compute_profile.get(key) is not None
+        }
+        if simulation:
+            lineage['simulation'] = simulation
+    return lineage
+
+
 def summarize_barrier_grid(grid: Dict[str, Any], top_k: int = 3) -> Dict[str, Any]:
     try:
         best = grid.get('best') if isinstance(grid, dict) else None
@@ -482,7 +521,11 @@ def summarize_barrier_grid(grid: Dict[str, Any], top_k: int = 3) -> Dict[str, An
             except Exception:
                 pass
             top = items[:top_k]
-        out = _barrier_decision_summary(grid)
+        lineage = _barrier_lineage_summary(grid)
+        out = {
+            **_barrier_decision_summary(grid),
+            **({'lineage': lineage} if lineage else {}),
+        }
         direction = grid.get('direction') if isinstance(grid, dict) else None
         if direction:
             out['direction'] = direction

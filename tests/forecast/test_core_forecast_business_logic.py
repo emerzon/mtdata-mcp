@@ -4187,8 +4187,9 @@ def test_forecast_barrier_optimize_compact_trims_blocked_status_noise():
     def fake_optimize(**_kwargs):
         return {
             "success": True,
-            "results_total": 0,
-            "viable_results_total": 0,
+            "candidates_evaluated": 0,
+            "candidates_viable": 0,
+            "candidates_returned": 0,
             "best": None,
             "viable": False,
             "no_candidates": True,
@@ -4222,8 +4223,9 @@ def test_forecast_barrier_optimize_compact_trims_blocked_status_noise():
     assert out["status"] == "non_viable"
     assert out["status_reason"] == reason
     assert out["tradable"] is False
-    assert out["results_total"] == 0
-    assert out["viable_results_total"] == 0
+    assert out["candidates_evaluated"] == 0
+    assert out["candidates_viable"] == 0
+    assert out["candidates_returned"] == 0
     assert out["best"] is None
     assert out["reference_price"] == 1.16606
     assert out["usable_for_live_trading"] is False
