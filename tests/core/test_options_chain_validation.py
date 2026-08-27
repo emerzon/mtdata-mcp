@@ -31,6 +31,39 @@ def test_heston_compact_keeps_provider_and_american_limitation():
     assert result["selected_exercise_styles"] == ["american"]
 
 
+def test_compact_options_chain_omits_unusable_priced_rows() -> None:
+    payload = {
+        "success": True,
+        "symbol": "AAPL",
+        "option_chain_quality": "unusable",
+        "option_chain_live_usable": False,
+        "option_contract_quote_usable_count": 0,
+        "option_contract_count": 20,
+        "options": [
+            {"strike": 300.0, "bid": 3.05, "ask": 3.25, "last": 3.17},
+        ],
+        "warnings": [],
+    }
+
+    compact = options_mod._apply_options_detail(
+        payload,
+        detail="compact",
+        kind="chain",
+    )
+    full = options_mod._apply_options_detail(
+        payload,
+        detail="full",
+        kind="chain",
+    )
+
+    assert compact["success"] is True
+    assert compact["option_chain_quality"] == "unusable"
+    assert compact["options"] == []
+    assert compact["options_omitted"] == "unusable_quotes"
+    assert any("unusable" in str(item) for item in compact["warnings"])
+    assert len(full["options"]) == 1
+
+
 def test_options_chain_rejects_quote_usable_only_before_provider_query(monkeypatch):
     monkeypatch.setattr(options_mod, "_options_chain_provider_gate", lambda _: None)
     queried = {"called": False}
