@@ -240,6 +240,7 @@ def _rank_correlation_pairs(
                 method=method,
                 samples=300,
                 block_size=block_size,
+                seed=42,
                 confidence=per_pair_confidence,
             )
             if low is None or high is None:

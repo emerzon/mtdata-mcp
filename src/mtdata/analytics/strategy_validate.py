@@ -793,9 +793,11 @@ def validate_strategies(  # noqa: C901
         kurt = float(kurtosis(arr, fisher=False, bias=False)) if len(arr) > 3 and moment_scale > 1e-12 else 3.0
         psr_denom = math.sqrt(max(1e-12, 1.0 - skewness * per_trade_sharpe + ((kurt - 1.0) / 4.0) * per_trade_sharpe**2))
         deflated_probability = float(norm.cdf((per_trade_sharpe - expected_max) * math.sqrt(max(1, len(arr) - 1)) / psr_denom))
-        expectancy_ci = _bootstrap_mean_ci(arr.tolist(), request.bootstrap_samples)
+        expectancy_ci = _bootstrap_mean_ci(
+            arr.tolist(), request.bootstrap_samples, request.seed
+        )
         mean_return_p_value = _block_bootstrap_positive_mean_p_value(
-            arr.tolist(), request.bootstrap_samples
+            arr.tolist(), request.bootstrap_samples, request.seed
         )
         fold_expectancies = [item["net_expectancy"] for item in fold_rows]
         folds_evaluated = int(len(fold_rows))
@@ -992,6 +994,13 @@ def validate_strategies(  # noqa: C901
         "rankings": ranked,
         "candidate_counts": candidate_counts,
         "validation": validation,
+        "bootstrap_samples": int(request.bootstrap_samples),
+        "bootstrap_seed": int(request.seed),
+        "seed_source": (
+            "request"
+            if "seed" in getattr(request, "model_fields_set", set())
+            else "deterministic_default"
+        ),
         "cost_model": {
             "requested_type": request.cost_model,
             "source": spread_source,

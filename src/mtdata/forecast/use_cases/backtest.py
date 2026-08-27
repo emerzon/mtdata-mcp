@@ -54,6 +54,11 @@ def _compact_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:  # noqa:
     raw_results = result.get("results")
     if not isinstance(raw_results, dict):
         return result
+    history_policy_ok = result.get("history_policy_ok") is not False
+    history_policy_reason = str(
+        result.get("history_policy_reason")
+        or "history_preprocessing_not_deployable"
+    )
 
     metric_digits = {
         "avg_rmse": 6,
@@ -210,6 +215,11 @@ def _compact_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:  # noqa:
                 method_out["sample_notice"] = sample_notice
         if isinstance(details, list) and not metrics_unavailable:
             method_out["details_count"] = len(details)
+        if not history_policy_ok:
+            method_out["history_policy_ok"] = False
+            method_out["deployment_eligible"] = False
+            method_out["forecast_reliability"] = "low"
+            method_out["forecast_reliability_reason"] = history_policy_reason
         ranked_row = dict(method_out)
         ranked_row["_sort_metric"] = _sort_metric(method_payload.get("avg_rmse"))
         method_summaries.append(ranked_row)
@@ -276,7 +286,13 @@ def _compact_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:  # noqa:
         eligible = score is not None and row.get("success") is not False
         ranked_row: Dict[str, Any] = {
             "method": method,
-            "ranking_status": "ranked" if eligible else "unranked",
+            "ranking_status": (
+                "research_only"
+                if eligible and not history_policy_ok
+                else "ranked"
+                if eligible
+                else "unranked"
+            ),
         }
         if eligible:
             rank += 1
@@ -290,9 +306,27 @@ def _compact_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:  # noqa:
                     "trading_metrics_available": trading_metrics_available,
                 }
             )
-            if not trading_metrics_available:
+            if not history_policy_ok:
+                ranked_row.update(
+                    {
+                        "deployment_eligible": False,
+                        "history_policy_ok": False,
+                        "forecast_reliability": "low",
+                        "forecast_reliability_reason": history_policy_reason,
+                    }
+                )
                 ranked_row["selection_warning"] = (
+                    "research_only_noncausal_preprocessing_not_deployable"
+                )
+            if not trading_metrics_available:
+                trading_warning = (
                     "ranking_uses_forecast_error_only; trading metrics are unavailable"
+                )
+                existing_warning = ranked_row.get("selection_warning")
+                ranked_row["selection_warning"] = (
+                    f"{existing_warning}; {trading_warning}"
+                    if existing_warning
+                    else trading_warning
                 )
                 if _is_explicit_false(row.get("metrics_available")) and row.get(
                     "metrics_reason"
@@ -328,6 +362,10 @@ def _compact_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:  # noqa:
         "scope": "non_failed_methods_with_finite_avg_rmse",
         "note": "Trading metrics do not affect rank; inspect results for method details.",
     }
+    if not history_policy_ok:
+        compact_out["ranking"]["deployment_eligible"] = False
+        compact_out["ranking"]["status"] = "research_only"
+        compact_out["ranking"]["blocker"] = history_policy_reason
     compact_out["ranked_methods"] = ranked_methods
     compact_out["results"] = {
         str(row.get("method")): {

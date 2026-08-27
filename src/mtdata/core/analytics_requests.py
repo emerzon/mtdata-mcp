@@ -254,6 +254,7 @@ class StrategyValidateRequest(BaseModel):
     commission_bps: float = Field(0.0, ge=0.0)
     slippage_bps: float = Field(0.0, ge=0.0)
     bootstrap_samples: int = Field(500, ge=100, le=5_000)
+    seed: int = Field(42, ge=0, le=4_294_967_295)
     significance_alpha: float = Field(0.05, gt=0.0, lt=0.5)
     min_positive_fold_share: float = Field(0.8, ge=0.0, le=1.0)
     detail: DetailLiteral = "compact"

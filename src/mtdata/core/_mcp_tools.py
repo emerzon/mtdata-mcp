@@ -1777,11 +1777,20 @@ def _recording_tool_decorator(*dargs, **dkwargs):  # type: ignore[override]  # n
                 else:
                     out = func(*a, **kw)
             except Exception as exc:
+                is_denoise_error = (
+                    exc.__class__.__name__
+                    in {"DenoiseCausalityError", "DenoiseColumnError"}
+                    or "non-causal and requires the explicit opt-in" in str(exc)
+                )
                 request_id = None
                 try:
                     request_id = build_error_payload(
                         str(exc),
-                        code="tool_execution_error",
+                        code=(
+                            "denoise_invalid_configuration"
+                            if is_denoise_error
+                            else "tool_execution_error"
+                        ),
                         operation=getattr(func, "__name__", "tool"),
                         details={"tool": getattr(func, "__name__", "tool")},
                     )["request_id"]
@@ -1796,10 +1805,21 @@ def _recording_tool_decorator(*dargs, **dkwargs):  # type: ignore[override]  # n
                     pass
                 out = build_error_payload(
                     str(exc),
-                    code="tool_execution_error",
+                    code=(
+                        "denoise_invalid_configuration"
+                        if is_denoise_error
+                        else "tool_execution_error"
+                    ),
                     request_id=request_id,
                     operation=getattr(func, "__name__", "tool"),
                     details={"tool": getattr(func, "__name__", "tool")},
+                    remediation=(
+                        "Run denoise_describe for the method and provide a supported "
+                        "causality; non-causal methods require causality=zero_phase."
+                        if is_denoise_error
+                        else None
+                    ),
+                    related_tools=["denoise_describe"] if is_denoise_error else None,
                 )
 
             if isinstance(out, dict):

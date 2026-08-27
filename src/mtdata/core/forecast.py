@@ -846,6 +846,17 @@ def _forecast_connection_error() -> Optional[Dict[str, Any]]:
 
 def _forecast_error_payload(message: Any, *, operation: str) -> Dict[str, Any]:
     message_text = str(message)
+    if "non-causal and requires the explicit opt-in" in message_text:
+        return build_error_payload(
+            message_text,
+            code="denoise_invalid_configuration",
+            operation=operation,
+            remediation=(
+                "Run denoise_describe for the method and provide a supported "
+                "causality; non-causal methods require causality=zero_phase."
+            ),
+            related_tools=["denoise_describe"],
+        )
     if isinstance(message, ModelCompatibilityError):
         return build_error_payload(
             message_text,

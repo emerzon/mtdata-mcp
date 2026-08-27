@@ -2570,6 +2570,11 @@ def forecast_backtest(  # noqa: C901
             return {
                 "error": f"Invalid denoise configuration: {exc}",
                 "error_code": "denoise_invalid_configuration",
+                "remediation": (
+                    "Run denoise_describe for the method and provide a supported "
+                    "causality; non-causal methods require causality=zero_phase."
+                ),
+                "related_tools": ["denoise_describe"],
             }
 
         data_contract = DataPreparationContract(

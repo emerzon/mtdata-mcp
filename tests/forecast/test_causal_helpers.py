@@ -31,7 +31,41 @@ from mtdata.core.causal.correlation import (
     _build_correlation_summary,
     _rank_correlation_pairs,
 )
+from mtdata.core.causal.cross import _block_bootstrap_correlation_ci
 from mtdata.core.output_contract import related_tools_for
+
+
+def test_cross_correlation_bootstrap_seed_is_reproducible_and_configurable():
+    left = np.linspace(0.0, 1.0, 80)
+    right = left + np.sin(np.arange(80)) * 0.1
+
+    first = _block_bootstrap_correlation_ci(
+        left,
+        right,
+        method="pearson",
+        samples=100,
+        block_size=8,
+        seed=7,
+    )
+    repeated = _block_bootstrap_correlation_ci(
+        left,
+        right,
+        method="pearson",
+        samples=100,
+        block_size=8,
+        seed=7,
+    )
+    changed = _block_bootstrap_correlation_ci(
+        left,
+        right,
+        method="pearson",
+        samples=100,
+        block_size=8,
+        seed=8,
+    )
+
+    assert first == repeated
+    assert changed != first
 
 
 def test_cointegration_pair_uses_stable_left_dependent_orientation():

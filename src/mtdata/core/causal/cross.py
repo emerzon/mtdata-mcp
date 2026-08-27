@@ -48,6 +48,7 @@ _CROSS_CORRELATION_REQUEST_KEYS = frozenset(
         "transform",
         "min_overlap",
         "bootstrap_samples",
+        "seed",
         "include_incomplete",
         "detail",
     }
@@ -96,13 +97,14 @@ def _block_bootstrap_correlation_ci(
     method: str,
     samples: int,
     block_size: int,
+    seed: int,
     confidence: float = 0.95,
 ) -> tuple[Optional[float], Optional[float]]:
     n = int(min(left.size, right.size))
     if n < 8 or samples < 20:
         return None, None
     block = max(2, min(int(block_size), n))
-    rng = np.random.default_rng(42)
+    rng = np.random.default_rng(seed)
     values: List[float] = []
     max_start = max(1, n - block + 1)
     blocks_needed = int(math.ceil(n / float(block)))
@@ -134,6 +136,7 @@ def cross_correlation(  # noqa: C901
     transform: Literal["log_return", "pct", "diff", "level", "log_level"] = "log_return",
     min_overlap: Annotated[int, Field(ge=2)] = 50,
     bootstrap_samples: Annotated[int, Field(ge=20, le=2000)] = 300,
+    seed: Annotated[int, Field(ge=0, le=4_294_967_295)] = 42,
     include_incomplete: bool = False,
     detail: DetailLiteral = "compact",
 ) -> Dict[str, Any]:
@@ -157,6 +160,7 @@ def cross_correlation(  # noqa: C901
             "transform": transform,
             "min_overlap": int(min_overlap),
             "bootstrap_samples": int(bootstrap_samples),
+            "seed": int(seed),
             "include_incomplete": bool(include_incomplete),
             "detail": detail,
         }
@@ -326,6 +330,7 @@ def cross_correlation(  # noqa: C901
             method=method_value,
             samples=int(bootstrap_samples),
             block_size=block_size,
+            seed=int(seed),
             confidence=per_lag_confidence,
         )
         best_item = dict(best)
@@ -378,6 +383,7 @@ def cross_correlation(  # noqa: C901
                     method=method_value,
                     samples=int(bootstrap_samples),
                     block_size=block_size,
+                    seed=int(seed),
                     confidence=per_lag_confidence,
                 )
                 significant = bool(
@@ -443,6 +449,7 @@ def cross_correlation(  # noqa: C901
                 "alignment_ok": alignment_ok,
                 "max_lag": int(max_lag),
                 "bootstrap_samples": int(bootstrap_samples),
+                "bootstrap_seed": int(seed),
                 "bootstrap_block_size": int(block_size),
                 "lag_tests": int(lag_tests),
                 "ci_familywise_confidence": familywise_confidence,

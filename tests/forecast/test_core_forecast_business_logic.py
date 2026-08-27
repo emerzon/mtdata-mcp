@@ -1904,6 +1904,36 @@ def test_run_forecast_backtest_handles_numpy_metrics_available_false():
     assert "details_count" not in row
 
 
+def test_compact_backtest_marks_noncausal_rankings_research_only():
+    result = forecast_use_cases._compact_backtest_result(
+        {
+            "success": True,
+            "history_policy_ok": False,
+            "history_policy_reason": "zero_phase_denoise_uses_future_observations",
+            "results": {
+                "naive": {
+                    "success": True,
+                    "avg_rmse": 0.01,
+                    "metrics_available": True,
+                    "forecast_reliability": "adequate",
+                }
+            },
+        }
+    )
+
+    method = result["results"]["naive"]
+    assert method["deployment_eligible"] is False
+    assert method["forecast_reliability"] == "low"
+    assert method["forecast_reliability_reason"] == (
+        "zero_phase_denoise_uses_future_observations"
+    )
+    ranked = result["ranked_methods"][0]
+    assert ranked["ranking_status"] == "research_only"
+    assert ranked["deployment_eligible"] is False
+    assert "noncausal_preprocessing_not_deployable" in ranked["selection_warning"]
+    assert result["ranking"]["status"] == "research_only"
+
+
 def test_run_forecast_backtest_routes_date_range_to_impl():
     captured = {}
 

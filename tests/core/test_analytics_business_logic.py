@@ -2005,6 +2005,7 @@ def test_strategy_validation_returns_walk_forward_oos_metrics() -> None:
         cost_model="fixed",
         spread_bps=1.0,
         bootstrap_samples=100,
+        seed=7,
         detail="full",
     )
     result = validate_strategies(request, gateway)
@@ -2190,11 +2191,16 @@ def test_strategy_validation_marks_skipped_requested_folds_partial(
         cost_model="fixed",
         spread_bps=1.0,
         bootstrap_samples=100,
+        seed=7,
         detail="full",
     )
 
     result = validate_strategies(request, gateway)
     candidate = result["rankings"][0]
+
+    assert result["bootstrap_samples"] == 100
+    assert result["bootstrap_seed"] == 7
+    assert result["seed_source"] == "request"
 
     assert candidate["evaluation_status"] == "partial"
     assert candidate["folds_requested"] == 2
