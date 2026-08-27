@@ -208,6 +208,31 @@ def test_required_symbol_help_shows_positional_and_flag_forms() -> None:
     assert "Trading symbol (e.g. EURUSD). (required)" in help_text
 
 
+def test_required_symbol_help_does_not_duplicate_existing_marker() -> None:
+    parser = argparse.ArgumentParser()
+    func_info = {
+        "params": [
+            {
+                "name": "symbol",
+                "type": str,
+                "required": True,
+                "default": None,
+            }
+        ]
+    }
+
+    add_dynamic_arguments(
+        parser,
+        func_info,
+        param_docs={"symbol": "Trading symbol. (required)"},
+        cmd_name="forecast_tune_optuna",
+    )
+
+    help_text = _strip_ansi(parser.format_help())
+    assert help_text.count("(required)") == 2
+    assert "(required) (required)" not in help_text
+
+
 def test_disabled_market_depth_parse_error_explains_gate(monkeypatch, capsys):
     from mtdata.core.cli import api as cli_api
 

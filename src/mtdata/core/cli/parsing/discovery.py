@@ -558,6 +558,12 @@ def add_dynamic_arguments(  # noqa: C901
     """Add CLI arguments for an introspected function schema."""
     has_mapping_param = False
 
+    def _required_help(value: Any, fallback: str) -> str:
+        help_text = str(value or fallback).strip()
+        if "(required)" not in help_text.lower():
+            help_text = f"{help_text} (required)"
+        return help_text
+
     def _extra_option_flags(param_name: str, cmd_name_value: Optional[str]) -> tuple[str, ...]:
         extras: list[str] = []
         if cmd_name_value == "trade_history" and param_name == "position_ticket":
@@ -613,7 +619,7 @@ def add_dynamic_arguments(  # noqa: C901
         if is_required_option:
             kwargs["required"] = True
             kwargs["default"] = argparse.SUPPRESS
-            kwargs["help"] = f"{kwargs.get('help') or param['name']} (required)"
+            kwargs["help"] = _required_help(kwargs.get("help"), str(param["name"]))
 
         is_optional_bool = param.get("type") is bool and not param.get("required", False)
         allow_optional_positional = (
@@ -645,8 +651,8 @@ def add_dynamic_arguments(  # noqa: C901
                 else "?"
             )
             positional_kwargs["default"] = argparse.SUPPRESS
-            positional_kwargs["help"] = (
-                f"{positional_kwargs.get('help') or param['name']} (required)"
+            positional_kwargs["help"] = _required_help(
+                positional_kwargs.get("help"), str(param["name"])
             )
             parser.add_argument(param["name"], **positional_kwargs)
             option_kwargs = dict(kwargs)
@@ -677,7 +683,9 @@ def add_dynamic_arguments(  # noqa: C901
                 and str(param["name"]) == "symbols"
             ):
                 positional_kwargs["nargs"] = "+"
-            positional_kwargs["help"] = f"{positional_kwargs.get('help') or param['name']} (required)"
+            positional_kwargs["help"] = _required_help(
+                positional_kwargs.get("help"), str(param["name"])
+            )
             parser.add_argument(param["name"], **positional_kwargs)
         elif allow_optional_positional:
             positional_kwargs = {k: v for k, v in kwargs.items() if k in ("help", "type", "choices", "metavar")}
