@@ -136,21 +136,16 @@ class MLForecastMethod(ForecastMethod):
 
         p = dict(params or {})
         exog_used = exog if exog is not None else p.get("exog_used")
-        exog_future_arr = p.get("exog_future")
         reporter = ProgressReporter(progress_callback, total_steps=3)
         reporter.stage(0, "Preparing mlforecast training data", force=True)
         if cancel_token is not None:
             cancel_token.raise_if_cancelled()
 
-        Y_df, X_df, Xf_df = _create_training_dataframes(
-            series.values, horizon, exog_used, exog_future_arr
+        # Future covariates are prediction inputs, not training inputs. Stored
+        # artifacts and async jobs must be trainable from historical inputs alone.
+        Y_df, X_df, _ = _create_training_dataframes(
+            series.values, horizon, exog_used
         )
-        if (X_df is None) != (Xf_df is None):
-            raise ValueError(
-                "Exogenous feature mismatch: training exog "
-                f"{'absent' if X_df is None else 'present'} but future exog "
-                f"{'absent' if Xf_df is None else 'present'}"
-            )
 
         model = self._get_model(p)
         lags = p.get('lags')
@@ -188,6 +183,18 @@ class MLForecastMethod(ForecastMethod):
         from ..common import _extract_forecast_values, _resolve_trained_forecast_frames
 
         p = dict(params or {})
+        historical_exog = kwargs.get("exog_used")
+        if historical_exog is None:
+            historical_exog = p.get("exog_used")
+        future_exog = kwargs.get("exog_future")
+        if future_exog is None:
+            future_exog = exog_future if exog_future is not None else p.get("exog_future")
+        if (historical_exog is None) != (future_exog is None):
+            raise ValueError(
+                "Exogenous feature mismatch: historical exog "
+                f"{'absent' if historical_exog is None else 'present'} but future exog "
+                f"{'absent' if future_exog is None else 'present'}"
+            )
         Y_df, X_df, Xf_df = _resolve_trained_forecast_frames(
             series,
             horizon,

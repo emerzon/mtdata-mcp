@@ -53,8 +53,9 @@ def test_mlforecast_forecast_with_default_lags_exog_and_internal_param_filter(mo
             calls["predict"] = {"h": h, "X_df": X_df, **kwargs}
             return pd.DataFrame(
                 {
-                    "unique_id": ["ts", "other", "ts"],
-                    "dummy_ml": [1.0, 100.0, 2.0],
+                    "unique_id": ["ts", "ts", "ts"],
+                    "ds": [6, 7, 8],
+                    "dummy_ml": [11.0, 12.0, 13.0],
                 }
             )
 
@@ -62,20 +63,10 @@ def test_mlforecast_forecast_with_default_lags_exog_and_internal_param_filter(mo
     fake_ml_mod.MLForecast = FakeMLForecast
     monkeypatch.setitem(sys.modules, "mlforecast", fake_ml_mod)
 
-    Y_df = pd.DataFrame({"unique_id": ["ts"], "ds": [1], "y": [1.0]})
-    X_df = pd.DataFrame({"unique_id": ["ts"], "ds": [1], "x1": [9.0]})
-    Xf_df = pd.DataFrame({"unique_id": ["ts"], "ds": [2], "x1": [10.0]})
-    monkeypatch.setattr(common_mod, "_create_training_dataframes", lambda *args, **kwargs: (Y_df, X_df, Xf_df))
-    monkeypatch.setattr(
-        common_mod,
-        "_extract_forecast_values",
-        lambda Yf, horizon, method_name: np.array([11.0, 12.0, 13.0], dtype=float),
-    )
-
-    exog_used = pd.DataFrame({"x1": [0.1, 0.2, 0.3]})
-    exog_future = pd.DataFrame({"x1": [0.4, 0.5, 0.6]})
+    exog_used = np.arange(6, dtype=float).reshape(-1, 1)
+    exog_future = np.array([[10.0], [11.0], [12.0]])
     out = _DummyMLMethod().forecast(
-        pd.Series([1.0, 2.0, 3.0]),
+        pd.Series([1.0, 2.0, 3.0, 4.0, 5.0, 6.0]),
         horizon=3,
         seasonality=5,
         params={
@@ -94,10 +85,75 @@ def test_mlforecast_forecast_with_default_lags_exog_and_internal_param_filter(mo
     assert calls["init"]["freq"] == 1
     assert calls["init"]["lags"] == [1, 2, 3, 4, 5]
     # MLForecast 1.x: historical exog are merged into the train frame
-    assert list(calls["fit"]["df"].columns) == ["unique_id", "ds", "y", "x1"]
+    assert list(calls["fit"]["df"].columns) == ["unique_id", "ds", "y", "x0"]
+    assert calls["fit"]["df"]["x0"].tolist() == exog_used[:, 0].tolist()
     assert calls["fit"]["static_features"] == []
     assert calls["predict"]["h"] == 3
-    assert calls["predict"]["X_df"] is Xf_df
+    assert calls["predict"]["X_df"]["x0"].tolist() == exog_future[:, 0].tolist()
+
+
+def test_mlforecast_train_accepts_historical_exog_without_future_exog(monkeypatch):
+    calls = {}
+
+    class FakeMLForecast:
+        def __init__(self, models, freq, lags):
+            calls["init"] = {"models": models, "freq": freq, "lags": lags}
+
+        def fit(self, df, static_features=None, **kwargs):
+            calls["fit"] = {"df": df, "static_features": static_features, "kwargs": kwargs}
+
+    fake_ml_mod = ModuleType("mlforecast")
+    fake_ml_mod.MLForecast = FakeMLForecast
+    monkeypatch.setitem(sys.modules, "mlforecast", fake_ml_mod)
+
+    method = _DummyMLMethod()
+    monkeypatch.setattr(method, "serialize_artifact", lambda _artifact: b"artifact")
+    exog_used = np.arange(8, dtype=float).reshape(-1, 1)
+
+    result = method.train(
+        pd.Series(np.linspace(1.0, 2.0, 8)),
+        horizon=2,
+        seasonality=3,
+        params={},
+        exog=exog_used,
+    )
+
+    assert result.artifact_bytes == b"artifact"
+    assert result.params_used == {"lags": [1, 2, 3]}
+    assert calls["fit"]["df"]["x0"].tolist() == exog_used[:, 0].tolist()
+    assert calls["fit"]["static_features"] == []
+
+
+@pytest.mark.parametrize(
+    ("exog_used", "exog_future", "expected_message"),
+    [
+        (
+            np.ones((4, 1)),
+            None,
+            "historical exog present but future exog absent",
+        ),
+        (
+            None,
+            np.ones((2, 1)),
+            "historical exog absent but future exog present",
+        ),
+    ],
+)
+def test_mlforecast_prediction_rejects_exog_presence_mismatch(
+    exog_used,
+    exog_future,
+    expected_message,
+):
+    with pytest.raises(ValueError, match=expected_message):
+        _DummyMLMethod().predict_with_model(
+            object(),
+            pd.Series([1.0, 2.0, 3.0, 4.0]),
+            horizon=2,
+            seasonality=1,
+            params={},
+            exog_used=exog_used,
+            exog_future=exog_future,
+        )
 
 
 def test_mlforecast_forecast_without_exog_uses_simple_fit_and_predict(monkeypatch):
@@ -130,7 +186,7 @@ def test_mlforecast_forecast_without_exog_uses_simple_fit_and_predict(monkeypatc
         pd.Series([1.0, 2.0]),
         horizon=1,
         seasonality=0,
-        params={"lags": [2, 4], "exog_future": "internal"},
+        params={"lags": [2, 4]},
     )
 
     assert np.allclose(out.forecast, [9.0])
