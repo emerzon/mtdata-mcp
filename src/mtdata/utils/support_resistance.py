@@ -2440,6 +2440,7 @@ def merge_support_resistance_results(  # noqa: C901
         "qualification_basis": "episodes",
         "score_basis": {
             "scale": "unbounded_nonnegative",
+            "higher_is_stronger": True,
             "definition": (
                 "base reaction, recency, and volume strength minus breakout "
                 "penalties plus role-reversal and multi-timeframe bonuses"
@@ -2447,6 +2448,9 @@ def merge_support_resistance_results(  # noqa: C901
             "comparison": (
                 "rank within this response; use strength_score_normalized for "
                 "a relative 0-to-1 scale"
+            ),
+            "strength_rank": (
+                "1 is strongest among levels of the same type in this response"
             ),
         },
         "units": {
@@ -2648,6 +2652,7 @@ def compact_support_resistance_payload(payload: Dict[str, Any]) -> Dict[str, Any
         "source_bar_open",
         "timezone",
         "timeframes_analyzed",
+        "score_basis",
         "units",
         "input_bar_policy",
     ):
@@ -3009,6 +3014,7 @@ def compute_support_resistance_levels(
         "qualification_basis": "episodes",
         "score_basis": {
             "scale": "unbounded_nonnegative",
+            "higher_is_stronger": True,
             "definition": (
                 "base reaction, recency, and volume strength minus breakout "
                 "penalties plus role-reversal and multi-timeframe bonuses"
@@ -3016,6 +3022,9 @@ def compute_support_resistance_levels(
             "comparison": (
                 "rank within this response; use strength_score_normalized for "
                 "a relative 0-to-1 scale"
+            ),
+            "strength_rank": (
+                "1 is strongest among levels of the same type in this response"
             ),
         },
         "units": {

@@ -549,12 +549,22 @@ def test_compact_support_resistance_levels_keep_strength_context() -> None:
             "limit": 200,
             "max_distance_pct": 5.0,
             "min_touches": 2,
+            "score_basis": {
+                "scale": "unbounded_nonnegative",
+                "higher_is_stronger": True,
+                "strength_rank": "1 is strongest within type",
+            },
             "units": {"distance_pct": "percent (1.0 = 1%)"},
         }
     )
 
     level = compact["supports"][0]
     assert compact["units"]["distance_pct"] == "percent (1.0 = 1%)"
+    assert compact["score_basis"] == {
+        "scale": "unbounded_nonnegative",
+        "higher_is_stronger": True,
+        "strength_rank": "1 is strongest within type",
+    }
     assert level == {
         "type": "support",
         "value": 1.095,
