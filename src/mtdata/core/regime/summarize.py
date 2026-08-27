@@ -533,6 +533,11 @@ def _mark_collapsed_state_confidence(payload: Dict[str, Any]) -> Dict[str, Any]:
             for key in ("direction", "stat_label", "trading_interpretation"):
                 description.pop(key, None)
             description["label_quality"] = "unidentifiable_state_collapse"
+    last_transition = payload.get("last_transition")
+    if isinstance(last_transition, dict):
+        last_transition["from_label"] = "unidentifiable"
+        last_transition["to_label"] = "unidentifiable"
+        last_transition["label_quality"] = "unidentifiable_state_collapse"
     payload["status"] = "unidentifiable"
     payload["signal_status"] = "not_actionable"
     return payload

@@ -47,6 +47,31 @@ def test_finite_raw_kurtosis_handles_extreme_and_degenerate_values() -> None:
     )
 
 
+def test_collapsed_state_suppression_covers_last_transition() -> None:
+    from mtdata.core.regime.summarize import _mark_collapsed_state_confidence
+
+    payload = {
+        "last_transition": {
+            "from_regime": 1,
+            "to_regime": 0,
+            "at": "2026-08-26T19:00Z",
+            "from_label": "volatile_range",
+            "to_label": "quiet_range",
+        }
+    }
+
+    result = _mark_collapsed_state_confidence(payload)
+
+    assert result["last_transition"] == {
+        "from_regime": 1,
+        "to_regime": 0,
+        "at": "2026-08-26T19:00Z",
+        "from_label": "unidentifiable",
+        "to_label": "unidentifiable",
+        "label_quality": "unidentifiable_state_collapse",
+    }
+
+
 # ---------------------------------------------------------------------------
 # _consolidate_payload tests
 # ---------------------------------------------------------------------------
