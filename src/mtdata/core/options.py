@@ -769,31 +769,12 @@ def _apply_options_detail(
             if key in out
         }
         options = out.get("options")
-        live_usable = compact.get("option_chain_live_usable") is True
-        usable_count = compact.get("option_contract_quote_usable_count")
-        quality = str(compact.get("option_chain_quality") or "")
-        hide_unusable_rows = (
-            live_usable is False
-            and (usable_count == 0 or quality == "unusable")
-        )
-        if hide_unusable_rows:
-            compact["options"] = []
-            compact["options_omitted"] = "unusable_quotes"
-            compact.setdefault("warnings", [])
-            if isinstance(compact["warnings"], list):
-                note = (
-                    "Compact output omitted priced contract rows because "
-                    "option_chain_quality is unusable. Pass --detail full to "
-                    "inspect the delayed marks."
-                )
-                if note not in compact["warnings"]:
-                    compact["warnings"] = [*compact["warnings"], note]
-        elif isinstance(options, list):
+        if isinstance(options, list):
             compact["options"] = [
                 _compact_option_contract(
                     row,
                     include_uniform_terms=True,
-                    include_freshness=False,
+                    include_freshness=True,
                 )
                 for row in options
             ]

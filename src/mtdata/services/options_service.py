@@ -596,11 +596,14 @@ def _select_options_expiration(
     """Return (chosen, status, defaulted) for a listed expiration."""
     if requested not in (None, ""):
         chosen = str(requested).strip()
-        status = (
-            "listed"
-            if _us_equity_option_expiration_is_live(chosen, now=now)
-            else "expired"
-        )
+        if chosen not in expirations:
+            status = "unlisted"
+        else:
+            status = (
+                "listed"
+                if _us_equity_option_expiration_is_live(chosen, now=now)
+                else "expired"
+            )
         return chosen, status, False
     listed = [
         item
@@ -631,10 +634,14 @@ def _expiration_not_listed_payload(
         "provider": provider,
         "symbol": symbol,
         "expiration": expiration,
-        "expiration_status": expiration_status,
-        "expiration_lifecycle": (
-            "active" if expiration_status == "listed" else "expired"
+        "expiration_status": "unlisted",
+        "expiration_listing_status": "unlisted",
+        "expiration_date_status": (
+            "future"
+            if _us_equity_option_expiration_is_live(expiration)
+            else "expired"
         ),
+        "expiration_lifecycle": "unlisted",
         "expirations": list(expirations),
         "remediation": (
             "Choose a date from expirations or omit expiration to use the next "
@@ -847,6 +854,38 @@ def _provider_error_from_payload(payload: Any) -> Optional[ValueError]:
     return None
 
 
+def _is_options_data_not_found(error: BaseException) -> bool:
+    message = str(error).lower()
+    return "no options data found" in message
+
+
+def _options_data_not_found_payload(
+    *,
+    operation: str,
+    error: BaseException,
+    provider: str,
+    configured_provider: str,
+    provider_attempts: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    symbol = str(error).rsplit(" for ", 1)[-1].strip()
+    return {
+        "success": False,
+        "error": f"Failed to fetch {operation}: {error}",
+        "error_code": "options_data_not_found",
+        "retryable": False,
+        "classification": "unknown_symbol_or_no_listed_options",
+        "symbol": symbol,
+        "provider": provider,
+        "configured_provider": configured_provider,
+        "provider_attempts": provider_attempts,
+        "remediation": (
+            "Confirm the underlier with options_expirations or use a US-listed "
+            "equity ticker such as AAPL."
+        ),
+        "related_tools": ["options_expirations", "symbols_list"],
+    }
+
+
 def _provider_failure_message(
     failures: List[tuple[str, BaseException]],
 ) -> str:
@@ -965,6 +1004,19 @@ def _run_options_provider_query(
                     exc,
                 )
                 continue
+            if _is_options_data_not_found(exc):
+                return _options_data_not_found_payload(
+                    operation=operation,
+                    error=exc,
+                    provider=provider,
+                    configured_provider=configured_provider,
+                    provider_attempts=[
+                        _provider_attempt_metadata(
+                            item_provider, success=False, error=error
+                        )
+                        for item_provider, error in failures
+                    ],
+                )
             return _provider_error_payload(
                 ValueError(_provider_failure_message(failures)),
                 operation=operation,
@@ -976,10 +1028,10 @@ def _run_options_provider_query(
                 ],
             )
 
-        if (
-            isinstance(payload, dict)
-            and payload.get("error_code") == "options_expiration_not_listed"
-        ):
+        if isinstance(payload, dict) and payload.get("error_code") in {
+            "options_expiration_not_listed",
+            "options_data_not_found",
+        }:
             return payload
 
         provider_error = _provider_error_from_payload(payload)

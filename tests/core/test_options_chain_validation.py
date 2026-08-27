@@ -31,7 +31,7 @@ def test_heston_compact_keeps_provider_and_american_limitation():
     assert result["selected_exercise_styles"] == ["american"]
 
 
-def test_compact_options_chain_omits_unusable_priced_rows() -> None:
+def test_compact_options_chain_keeps_unusable_priced_rows_with_safety_flags() -> None:
     payload = {
         "success": True,
         "symbol": "AAPL",
@@ -40,7 +40,15 @@ def test_compact_options_chain_omits_unusable_priced_rows() -> None:
         "option_contract_quote_usable_count": 0,
         "option_contract_count": 20,
         "options": [
-            {"strike": 300.0, "bid": 3.05, "ask": 3.25, "last": 3.17},
+            {
+                "strike": 300.0,
+                "bid": 3.05,
+                "ask": 3.25,
+                "last": 3.17,
+                "quote_freshness": "unknown",
+                "quote_usable_for_live_analysis": False,
+                "last_trade_recent_and_market_two_sided": False,
+            },
         ],
         "warnings": [],
     }
@@ -58,9 +66,18 @@ def test_compact_options_chain_omits_unusable_priced_rows() -> None:
 
     assert compact["success"] is True
     assert compact["option_chain_quality"] == "unusable"
-    assert compact["options"] == []
-    assert compact["options_omitted"] == "unusable_quotes"
-    assert any("unusable" in str(item) for item in compact["warnings"])
+    assert compact["options"] == [
+        {
+            "strike": 300.0,
+            "last": 3.17,
+            "bid": 3.05,
+            "ask": 3.25,
+            "quote_freshness": "unknown",
+            "last_trade_recent_and_market_two_sided": False,
+            "quote_usable_for_live_analysis": False,
+        }
+    ]
+    assert "options_omitted" not in compact
     assert len(full["options"]) == 1
 
 

@@ -618,9 +618,48 @@ def test_get_options_chain_rejects_unavailable_expiration(monkeypatch):
     assert out["provider"] == "yahoo"
     assert out["symbol"] == "AAPL"
     assert out["expiration"] == "2000-01-21"
-    assert out["expiration_status"] == "expired"
+    assert out["expiration_status"] == "unlisted"
+    assert out["expiration_listing_status"] == "unlisted"
+    assert out["expiration_date_status"] == "expired"
+    assert out["expiration_lifecycle"] == "unlisted"
     assert out["expirations"] == ["2026-04-17"]
     assert out["related_tools"] == ["options_expirations"]
+
+
+def test_future_unlisted_expiration_is_not_labelled_active(monkeypatch):
+    monkeypatch.setattr(
+        osvc,
+        "_fetch_yahoo_options_payload",
+        lambda symbol, expiry_epoch=None: {
+            "expirationDates": [_EXPIRY_A],
+            "quote": {"regularMarketPrice": 100.5, "currency": "USD"},
+        },
+    )
+
+    out = osvc.get_options_chain(symbol="AAPL", expiration="2099-01-17")
+
+    assert out["error_code"] == "options_expiration_not_listed"
+    assert out["expiration_status"] == "unlisted"
+    assert out["expiration_listing_status"] == "unlisted"
+    assert out["expiration_date_status"] == "future"
+    assert out["expiration_lifecycle"] == "unlisted"
+
+
+def test_provider_query_preserves_no_data_classification(monkeypatch):
+    monkeypatch.setattr(osvc.options_data_config, "provider", "yahoo")
+
+    out = osvc._run_options_provider_query(
+        operation="options expirations",
+        yahoo_func=lambda: (_ for _ in ()).throw(
+            ValueError("No options data found for NOTAREAL")
+        ),
+        tradier_func=lambda: {},
+    )
+
+    assert out["error_code"] == "options_data_not_found"
+    assert out["retryable"] is False
+    assert out["classification"] == "unknown_symbol_or_no_listed_options"
+    assert out["symbol"] == "NOTAREAL"
 
 
 def test_get_options_expirations_uses_configured_tradier_provider(monkeypatch):
