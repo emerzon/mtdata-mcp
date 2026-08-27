@@ -424,7 +424,7 @@ def test_empty_and_nonempty_candle_results_share_structural_keys() -> None:
     assert "price_basis" in nonempty
 
 
-def test_compact_tick_spread_flags_reconcile_with_coherent_percentage() -> None:
+def test_compact_tick_spread_flags_reconcile_with_snapshot_percentage() -> None:
     result = run_data_fetch_ticks(
         DataFetchTicksRequest(
             symbol="EURUSD",
@@ -467,7 +467,7 @@ def test_compact_tick_spread_flags_reconcile_with_coherent_percentage() -> None:
                 "complete_ticks": 4,
                 "incomplete_ticks": 0,
                 "total_ticks": 4,
-                "coherent_spread_sample_count": 1,
+                "valid_spread_sample_count": 3,
             },
         },
     )
@@ -479,14 +479,14 @@ def test_compact_tick_spread_flags_reconcile_with_coherent_percentage() -> None:
         if row.get("spread_sample_eligible", row.get("spread_snapshot_valid"))
     )
     assert snapshot_valid == 3
-    assert eligible == 1
-    assert result["data"][0]["spread_sample_eligible"] is False
-    assert result["data"][1]["spread_sample_eligible"] is False
+    assert eligible == 3
+    assert "spread_sample_eligible" not in result["data"][0]
+    assert "spread_sample_eligible" not in result["data"][1]
     assert "spread_sample_eligible" not in result["data"][2]
-    assert result["coherent_spread_sample_pct"] == 25.0
-    assert result["spread_quality_basis"] == "coherent_bid_ask_updates"
+    assert result["valid_spread_sample_pct"] == 75.0
+    assert result["spread_quality_basis"] == "valid_two_sided_quote_snapshots"
     assert round((eligible / len(result["data"])) * 100.0, 2) == result[
-        "coherent_spread_sample_pct"
+        "valid_spread_sample_pct"
     ]
     for row in result["data"]:
         assert "spread_valid" not in row

@@ -507,8 +507,8 @@ class TestFetchTicks(unittest.TestCase):
         self.assertIsNone(result['data'][2]['spread'])
         self.assertNotIn('quote_type', result['data'][0])
         self.assertEqual(result['data_quality']['one_sided_updates'], 2)
-        self.assertEqual(result['data_quality']['coherent_spread_sample_count'], 1)
-        self.assertEqual(result['data_quality']['zero_spread_ticks'], 0)
+        self.assertEqual(result['data_quality']['valid_spread_sample_count'], 1)
+        self.assertEqual(result['data_quality']['zero_spread_ticks'], 2)
         self.assertAlmostEqual(result['stats']['spread']['mean'], 0.0002)
 
     @patch(_TICKS_RANGE)
@@ -516,12 +516,12 @@ class TestFetchTicks(unittest.TestCase):
     @patch(_RESOLVE_CTZ, return_value=None)
     @patch(_GUARD, _mock_symbol_guard)
     @patch("mtdata.utils.market_metadata.closed_session_context", return_value=None)
-    def test_one_sided_latest_tick_uses_reconciled_execution_quote(
+    def test_one_sided_update_keeps_complete_snapshot_executable(
         self, mock_meta_session, mock_ctz, mock_info, mock_ticks
     ):
         ticks = _make_ticks(2)
         ticks[0].update({"bid": 1.1000, "ask": 1.1002, "flags": 6})
-        ticks[1].update({"bid": 1.1001, "ask": 1.1001, "flags": 2})
+        ticks[1].update({"bid": 1.1001, "ask": 1.1002, "flags": 2})
         mock_ticks.return_value = ticks
 
         with patch(f'{_DS}.time.time', return_value=_NOW_TS + 1.0):
@@ -530,14 +530,11 @@ class TestFetchTicks(unittest.TestCase):
         self.assertTrue(result['usable_for_live_trading'])
         self.assertEqual(
             result['usable_for_live_trading_basis'],
-            'quote_age_market_session_and_reconciled_spread',
+            'quote_age_market_session_and_positive_spread',
         )
-        self.assertEqual(result['execution_quote']['bid'], 1.1001)
-        self.assertEqual(result['execution_quote']['ask'], 1.1002)
-        self.assertEqual(
-            result['execution_quote']['spread_basis'],
-            'reconciled_one_sided_update',
-        )
+        self.assertTrue(result['data'][-1]['spread_sample_eligible'])
+        self.assertEqual(result['last_quote']['spread'], 0.0001)
+        self.assertNotIn('execution_quote', result)
 
     @patch(f'{_DS}.time.time', return_value=_NOW_TS + 1.0)
     @patch(_TICKS_RANGE)
@@ -562,7 +559,7 @@ class TestFetchTicks(unittest.TestCase):
     @patch(_CACHED_INFO, return_value=SimpleNamespace(digits=5))
     @patch(_RESOLVE_CTZ, return_value=None)
     @patch(_GUARD, _mock_symbol_guard)
-    def test_coherent_zero_spread_is_excluded_from_spread_samples(
+    def test_locked_zero_spread_is_excluded_from_spread_samples(
         self, mock_ctz, mock_info, mock_ticks
     ):
         ticks = _make_ticks(2)
@@ -578,7 +575,7 @@ class TestFetchTicks(unittest.TestCase):
         self.assertEqual(result["data_quality"]["incomplete_quote_ticks"], 0)
         self.assertEqual(result["data_quality"]["incomplete_quote_ratio"], 0.0)
         self.assertEqual(result["data_quality"]["incomplete_quote_status"], "info")
-        self.assertEqual(result["data_quality"]["coherent_spread_sample_count"], 1)
+        self.assertEqual(result["data_quality"]["valid_spread_sample_count"], 1)
         self.assertEqual(result["data_quality"]["spread_ticks_excluded"], 1)
         self.assertNotIn("warnings", result)
         self.assertAlmostEqual(result["stats"]["spread"]["mean"], 0.0002)

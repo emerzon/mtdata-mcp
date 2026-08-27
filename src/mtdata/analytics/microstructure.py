@@ -313,6 +313,7 @@ def analyze_microstructure(  # noqa: C901
         "ticks": int(len(df)),
         "duration_seconds": duration,
         "ticks_per_second": float(len(df) / duration),
+        "tick_rate_basis": "broker_tick_updates_per_second",
         "spread": _percentiles(spread_q["spread"]),
         "quote_gap_seconds": _percentiles(q["dt"].dropna()),
         "mid_return_observations": int(q["mid_return"].notna().sum()),
@@ -534,6 +535,7 @@ def analyze_microstructure(  # noqa: C901
                 "ticks": int(len(df)),
                 "duration_seconds": duration,
                 "ticks_per_second": float(len(df) / duration),
+                "tick_rate_basis": "broker_tick_updates_per_second",
                 "spread": {
                     "latest": _round_execution_stat(latest_spread),
                     "latest_as_of": format_epoch_utc(latest_quote_epoch),
@@ -563,6 +565,9 @@ def analyze_microstructure(  # noqa: C901
             "observed_window": {
                 "start": format_epoch_utc(float(df["epoch"].iloc[0])),
                 "end": format_epoch_utc(float(df["epoch"].iloc[-1])),
+            },
+            "units": {
+                "ticks_per_second": "broker_tick_updates_per_second",
             },
             "data_quality": {
                 key: data_quality[key]
@@ -629,6 +634,7 @@ def analyze_microstructure(  # noqa: C901
             "spread_points": "broker_points",
             "spread_pips": "fx_pips_when_symbol_is_identifiable_as_forex",
             "quote_gap_seconds": "seconds",
+            "ticks_per_second": "broker_tick_updates_per_second",
             "mid_log_return_realized_volatility_observed_window": (
                 "decimal_log_return_realized_over_observed_window"
             ),

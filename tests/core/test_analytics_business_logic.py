@@ -343,6 +343,8 @@ def test_microstructure_distinguishes_trade_volume_from_quote_proxy() -> None:
     )
     assert result["success"] is True
     assert result["summary"]["feed_tier"] == "trade_volume"
+    assert result["summary"]["tick_rate_basis"] == "broker_tick_updates_per_second"
+    assert result["units"]["ticks_per_second"] == "broker_tick_updates_per_second"
     assert result["method_applicability"]["volume_impact_metrics"] is True
     assert "signed_volume_imbalance" in result["summary"]
     assert "kyle_lambda" not in result["summary"]
@@ -501,7 +503,7 @@ def test_microstructure_compact_output_omits_research_events() -> None:
     assert any("broker's tick feed" in warning for warning in result["warnings"])
 
 
-def test_microstructure_spread_distribution_excludes_non_executable_updates() -> None:
+def test_microstructure_spread_distribution_excludes_non_executable_snapshots() -> None:
     gateway = FakeGateway()
     gateway.tick_rows = _ticks(count=60)
     for index, row in enumerate(gateway.tick_rows):
@@ -525,8 +527,8 @@ def test_microstructure_spread_distribution_excludes_non_executable_updates() ->
     )
 
     assert result["summary"]["spread"]["window_median"] == pytest.approx(0.8)
-    assert result["data_quality"]["executable_spread_ticks"] == 20
-    assert result["data_quality"]["spread_ticks_excluded"] == 40
+    assert result["data_quality"]["executable_spread_ticks"] == 30
+    assert result["data_quality"]["spread_ticks_excluded"] == 30
 
 
 def test_microstructure_compact_discloses_latest_tail_coverage() -> None:
@@ -779,7 +781,7 @@ def test_tick_frame_marks_locked_quotes_as_unusable() -> None:
     gateway = FakeGateway()
     gateway.tick_rows = [
         {"time": 1, "bid": 1.1, "ask": 1.1, "flags": 2},
-        {"time": 2, "bid": 1.1, "ask": 1.1002, "flags": 6},
+        {"time": 2, "bid": 1.1, "ask": 1.1002, "flags": 2},
         {"time": 3, "bid": 1.2, "ask": 1.2, "flags": 6},
     ]
 
@@ -796,6 +798,7 @@ def test_tick_frame_marks_locked_quotes_as_unusable() -> None:
     assert math.isnan(frame.iloc[0]["mid"])
     assert math.isnan(frame.iloc[0]["spread"])
     assert bool(frame.iloc[1]["spread_valid"]) is True
+    assert bool(frame.iloc[1]["spread_sample_eligible"]) is True
     assert frame.iloc[1]["spread_quality"] == "two_sided"
     assert frame.iloc[1]["spread"] == pytest.approx(0.0002)
     assert frame.iloc[2]["spread_quality"] == "locked"

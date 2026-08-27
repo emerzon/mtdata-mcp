@@ -94,7 +94,6 @@ _COMPACT_TICK_TOP_LEVEL_FIELDS = (
     "usable_for_live_trading_basis",
     "execution_blockers",
     "last_quote",
-    "execution_quote",
     "live_max_age_seconds",
     "market_status",
     "market_status_reason",
@@ -2612,10 +2611,10 @@ def _compact_tick_rows_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     quote_completeness = _tick_quote_completeness_pct(payload)
     if quote_completeness is not None:
         compact["quote_completeness_pct"] = quote_completeness
-    coherent_spread = _tick_coherent_spread_sample_pct(payload)
-    if coherent_spread is not None:
-        compact["coherent_spread_sample_pct"] = coherent_spread
-        compact["spread_quality_basis"] = "coherent_bid_ask_updates"
+    valid_spread = _tick_valid_spread_sample_pct(payload)
+    if valid_spread is not None:
+        compact["valid_spread_sample_pct"] = valid_spread
+        compact["spread_quality_basis"] = "valid_two_sided_quote_snapshots"
     quality = _compact_tick_quality(payload)
     if quality:
         compact["quality"] = quality
@@ -2633,13 +2632,11 @@ def _tick_quote_completeness_pct(payload: Dict[str, Any]) -> Optional[float]:
     return round((float(complete) / float(total)) * 100.0, 2)
 
 
-def _tick_coherent_spread_sample_pct(payload: Dict[str, Any]) -> Optional[float]:
+def _tick_valid_spread_sample_pct(payload: Dict[str, Any]) -> Optional[float]:
     data_quality = payload.get("data_quality")
     if not isinstance(data_quality, dict):
         return None
-    valid = _as_nonnegative_int(
-        data_quality.get("coherent_spread_sample_count")
-    )
+    valid = _as_nonnegative_int(data_quality.get("valid_spread_sample_count"))
     total = _as_nonnegative_int(data_quality.get("total_ticks"))
     if valid is None or not total:
         return None
@@ -2655,7 +2652,7 @@ def _compact_tick_quality(payload: Dict[str, Any]) -> Optional[str]:
         incomplete = _as_nonnegative_int(data_quality.get("incomplete_ticks"))
         total = _as_nonnegative_int(data_quality.get("total_ticks"))
         valid = _as_nonnegative_int(
-            data_quality.get("coherent_spread_sample_count")
+            data_quality.get("valid_spread_sample_count")
         )
         if total is None:
             total = _as_nonnegative_int(payload.get("count"))
@@ -2666,7 +2663,7 @@ def _compact_tick_quality(payload: Dict[str, Any]) -> Optional[str]:
             if status and status not in {"ok", "info"}:
                 notes.append(f"quote_quality={status}")
         if valid is not None and total and valid * 2 < total:
-            notes.append(f"coherent_spreads={valid}/{total}")
+            notes.append(f"valid_spreads={valid}/{total}")
     quote_only = payload.get("feed_tier") == "quote_only"
     if payload.get("last_unavailable") is True and not quote_only:
         notes.append("last=unavailable")
@@ -2676,7 +2673,7 @@ def _compact_tick_quality(payload: Dict[str, Any]) -> Optional[str]:
     if notes:
         return "; ".join(notes)
     if valid is not None and total and valid * 2 < total:
-        return f"coherent_spreads={valid}/{total}"
+        return f"valid_spreads={valid}/{total}"
     return "ok" if quote_only else None
 
 
@@ -2763,21 +2760,7 @@ def _tick_row_spread_sample_eligible(
     *,
     snapshot_valid: bool,
 ) -> Optional[bool]:
-    """Return coherent-sample eligibility, distinct from snapshot bid/ask validity."""
-    if "spread_sample_eligible" in row:
-        return bool(row.get("spread_sample_eligible"))
-    decoded = row.get("flags_decoded")
-    if isinstance(decoded, list) and decoded:
-        quote_flags = {str(value).strip().lower() for value in decoded}
-        bid_updated = "bid" in quote_flags
-        ask_updated = "ask" in quote_flags
-        if bid_updated or ask_updated:
-            return bool(snapshot_valid and bid_updated and ask_updated)
-    update_type = str(row.get("quote_update_type") or "").strip().lower()
-    if update_type == "bid_ask_update":
-        return bool(snapshot_valid)
-    if update_type in {"bid_only_update", "ask_only_update"}:
-        return False
+    """Return eligibility from the complete bid/ask snapshot, not delta flags."""
     return bool(snapshot_valid)
 
 

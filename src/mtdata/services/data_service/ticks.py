@@ -905,9 +905,8 @@ def fetch_ticks(  # noqa: C901
         bid_update_flag = _mt5_tick_flag_value("TICK_FLAG_BID", 2)
         ask_update_flag = _mt5_tick_flag_value("TICK_FLAG_ASK", 4)
         quote_update_mask = bid_update_flag | ask_update_flag
-        has_quote_update_flags = any(flag & quote_update_mask for flag in flags)
         quote_update_types: List[str] = []
-        spread_valid_flags: List[bool] = []
+        complete_quote_flags: List[bool] = []
         bid_changed_flags: List[bool] = []
         ask_changed_flags: List[bool] = []
         for flag, quote_type in zip(flags, quote_types, strict=False):
@@ -924,14 +923,10 @@ def fetch_ticks(  # noqa: C901
             else:
                 update_type = "update_flags_unavailable"
             quote_update_types.append(update_type)
-            spread_valid_flags.append(
-                quote_type == "bid_ask"
-                and (
-                    (bid_updated and ask_updated)
-                    if has_quote_update_flags
-                    else True
-                )
-            )
+            # MT5 tick flags describe which values changed. Every MqlTick still
+            # carries the prevailing bid and ask, so a one-sided update flag does
+            # not make the opposing quote stale or the snapshot incomplete.
+            complete_quote_flags.append(quote_type == "bid_ask")
         one_sided_update_count = sum(
             update_type in {"bid_only_update", "ask_only_update"}
             for update_type in quote_update_types
@@ -943,18 +938,11 @@ def fetch_ticks(  # noqa: C901
         )
         zero_spread_count = sum(
             quote_type == "bid_ask"
-            and (
-                (bid_updated and ask_updated)
-                if has_quote_update_flags
-                else True
-            )
             and bid is not None
             and ask is not None
             and float(ask) == float(bid)
-            for quote_type, bid_updated, ask_updated, bid, ask in zip(
+            for quote_type, bid, ask in zip(
                 quote_types,
-                bid_changed_flags,
-                ask_changed_flags,
                 effective_bids,
                 effective_asks,
                 strict=False,
@@ -1067,12 +1055,12 @@ def fetch_ticks(  # noqa: C901
         df_ticks["flags"] = flags
         df_ticks["trade_event"] = trade_events
         spread_sample_eligible_flags = [
-            eligible
+            complete
             and bid is not None
             and ask is not None
             and ask > bid
-            for eligible, bid, ask in zip(
-                spread_valid_flags,
+            for complete, bid, ask in zip(
+                complete_quote_flags,
                 effective_bids,
                 effective_asks,
                 strict=False,
@@ -1118,8 +1106,8 @@ def fetch_ticks(  # noqa: C901
                     original_count - sum(spread_sample_eligible_flags)
                 ),
                 "one_sided_updates": int(one_sided_update_count),
-                "coherent_spread_sample_count": int(sum(spread_sample_eligible_flags)),
-                "spread_sample_basis": "coherent_bid_ask_updates",
+                "valid_spread_sample_count": int(sum(spread_sample_eligible_flags)),
+                "spread_sample_basis": "valid_two_sided_quote_snapshots",
                 "zero_spread_ticks": int(zero_spread_count),
                 "incomplete_quote_warning_threshold": _INCOMPLETE_TICK_WARNING_RATIO,
                 "quote_type_counts": quote_type_counts,
@@ -1135,7 +1123,7 @@ def fetch_ticks(  # noqa: C901
                 warnings_list = []
             warning = (
                 "Spread statistics exclude incomplete quote snapshots; "
-                "zero-spread counts include only coherent two-sided updates."
+                "zero-spread counts include complete locked quote snapshots."
             )
             if warning not in warnings_list:
                 warnings_list.append(warning)
@@ -1161,7 +1149,7 @@ def fetch_ticks(  # noqa: C901
                 "source_returned": int(page_source_returned),
                 "has_more": bool(page_has_more),
             }
-            payload["spread_statistics_basis"] = "coherent_bid_ask_updates"
+            payload["spread_statistics_basis"] = "valid_two_sided_quote_snapshots"
             if quote_only_feed:
                 payload["feed_tier"] = "quote_only"
             if start or end:
@@ -1229,14 +1217,6 @@ def fetch_ticks(  # noqa: C901
                 last_quote["quote_scope"] = (
                     "historical_sample" if start or end else "latest_sample"
                 )
-            execution_quote = None
-            if (
-                isinstance(last_quote, dict)
-                and last_quote.get("spread_valid") is not True
-            ):
-                execution_quote = _reconciled_execution_quote(df_ticks)
-                if execution_quote is not None:
-                    payload["execution_quote"] = execution_quote
             if isinstance(last_quote, dict) and price_point is not None:
                 spread_value = _finite_or_none(last_quote.get("spread"))
                 if spread_value is not None:
@@ -1265,12 +1245,8 @@ def fetch_ticks(  # noqa: C901
                 age_rounder=lambda value: round(value, 3),
             )
             payload.update(freshness_context)
-            quote_for_gate = execution_quote or last_quote
-            if isinstance(execution_quote, dict):
-                payload["usable_for_live_trading_basis"] = (
-                    "quote_age_market_session_and_reconciled_spread"
-                )
-            elif (
+            quote_for_gate = last_quote
+            if (
                 isinstance(quote_for_gate, dict)
                 and quote_for_gate.get("spread_valid") is True
             ):
@@ -1341,48 +1317,6 @@ def fetch_ticks(  # noqa: C901
                     if spread_quality == "locked"
                     else "unavailable"
                 ),
-            }
-
-        def _reconciled_execution_quote(
-            frame: pd.DataFrame,
-        ) -> Optional[Dict[str, Any]]:
-            if frame.empty or "quote_update_type" not in frame.columns:
-                return None
-            update_type = str(frame["quote_update_type"].iloc[-1] or "")
-            if update_type not in {"bid_only_update", "ask_only_update"}:
-                return None
-            prior = frame.iloc[:-1]
-            if "spread_sample_eligible" in prior.columns:
-                prior = prior[prior["spread_sample_eligible"].astype(bool)]
-            if prior.empty:
-                return None
-            prior_row = prior.iloc[-1]
-            latest_row = frame.iloc[-1]
-            bid = _finite_or_none(
-                latest_row.get("bid")
-                if update_type == "bid_only_update"
-                else prior_row.get("bid")
-            )
-            ask = _finite_or_none(
-                latest_row.get("ask")
-                if update_type == "ask_only_update"
-                else prior_row.get("ask")
-            )
-            if bid is None or ask is None or ask <= bid:
-                return None
-            spread = canonical_quote_spread(bid, ask)
-            mid = canonical_quote_midpoint(bid, ask)
-            if spread is None or spread <= 0.0 or mid is None:
-                return None
-            return {
-                "bid": bid,
-                "ask": ask,
-                "mid": mid,
-                "spread": spread,
-                "spread_valid": True,
-                "spread_quality": "two_sided",
-                "spread_basis": "reconciled_one_sided_update",
-                "time": latest_row.get("time"),
             }
 
         def _compact_summary_from_ticks() -> Dict[str, Any]:

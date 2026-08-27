@@ -254,12 +254,9 @@ def _tick_frame(gateway: Any, symbol: str, start: datetime, end: datetime, max_t
         (flag_values & ask_flag) != 0
     )
     two_sided_quote = (df["bid"] > 0) & (df["ask"] > df["bid"])
-    has_quote_update_flags = bool(
-        ((flag_values & (bid_flag | ask_flag)) != 0).any()
-    )
-    spread_sample_eligible = two_sided_quote & (
-        ~one_sided_update if has_quote_update_flags else True
-    )
+    # MqlTick flags identify changed fields; bid and ask remain a complete quote
+    # snapshot even when only one side changed in this event.
+    spread_sample_eligible = two_sided_quote
     incomplete_one_sided_update = one_sided_update & ~two_sided_quote
     locked_quote = (df["bid"] > 0) & (df["ask"] == df["bid"])
     inverted_quote = (df["bid"] > 0) & (df["ask"] > 0) & (df["ask"] < df["bid"])

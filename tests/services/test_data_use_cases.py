@@ -2844,7 +2844,7 @@ def test_compact_tick_row_marks_locked_quote_spread_unavailable():
     assert spread_sample is None
 
 
-def test_compact_tick_row_exposes_coherent_spread_eligibility():
+def test_compact_tick_row_uses_snapshot_eligibility_over_delta_metadata():
     row, spread_sample = _compact_tick_row(
         {
             "time": "2026-07-17T01:53:23Z",
@@ -2855,7 +2855,7 @@ def test_compact_tick_row_exposes_coherent_spread_eligibility():
     )
 
     assert row["spread_snapshot_valid"] is True
-    assert row["spread_sample_eligible"] is False
+    assert "spread_sample_eligible" not in row
     assert "spread_valid" not in row
     assert row["spread"] == pytest.approx(0.00004)
     assert spread_sample == pytest.approx(0.00004)
@@ -2938,7 +2938,6 @@ def test_run_data_fetch_ticks_compact_prunes_row_diagnostics():
                 "bid": 1.1659,
                 "ask": 1.16596,
                 "spread_snapshot_valid": True,
-                "spread_sample_eligible": False,
                 "spread": 0.00006,
                 "mid": 1.16593,
                 "volume": 3.0,
@@ -3282,7 +3281,7 @@ def test_run_data_fetch_ticks_compact_quality_uses_valid_spreads_not_field_prese
                 "complete_ticks": 4,
                 "incomplete_ticks": 0,
                 "total_ticks": 4,
-                "coherent_spread_sample_count": 1,
+                "valid_spread_sample_count": 1,
                 "one_sided_updates": 3,
                 "incomplete_quote_status": "info",
             },
@@ -3290,16 +3289,16 @@ def test_run_data_fetch_ticks_compact_quality_uses_valid_spreads_not_field_prese
     )
 
     assert result["quote_completeness_pct"] == 100.0
-    assert result["coherent_spread_sample_pct"] == 25.0
-    assert result["spread_quality_basis"] == "coherent_bid_ask_updates"
-    assert result["quality"] == "coherent_spreads=1/4"
+    assert result["valid_spread_sample_pct"] == 25.0
+    assert result["spread_quality_basis"] == "valid_two_sided_quote_snapshots"
+    assert result["quality"] == "valid_spreads=1/4"
     assert result["quality"] != "ok"
     eligible = sum(
         1
         for row in result["data"]
         if row.get("spread_sample_eligible", row.get("spread_snapshot_valid"))
     )
-    assert round((eligible / len(result["data"])) * 100.0, 2) == result["coherent_spread_sample_pct"]
+    assert round((eligible / len(result["data"])) * 100.0, 2) == result["valid_spread_sample_pct"]
 
 
 def test_run_data_fetch_ticks_summary_keeps_live_usability_verdicts():
@@ -3368,7 +3367,6 @@ def _one_row_tick_payload() -> dict:
         "price_precision": 5,
         "price_point": 0.00001,
         "last_quote": {"bid": 1.1, "ask": 1.1001, "quote_scope": "latest_sample"},
-        "execution_quote": {"bid": 1.1, "ask": 1.1001},
         "data_quality": {
             "complete_ticks": 1,
             "incomplete_ticks": 0,
