@@ -172,7 +172,7 @@ def test_equity_profile_non_price_sections_keep_observation_contract(monkeypatch
         "after_hours",
         "closed",
     }
-    assert result["exchange"] == "XNYS"
+    assert result["session_venue"] == "XNYS"
     if result["market_state"] != "open":
         assert result["observation_age_warning"]["code"] == (
             "observation_age_unknown_outside_rth"
@@ -196,6 +196,6 @@ def test_us_equity_session_context_marks_after_hours_age_unknown() -> None:
 
     assert session["observation_age_status"] == "unknown"
     assert session["market_state"] == "closed"
-    assert session["exchange"] == "XNYS"
+    assert session["session_venue"] == "XNYS"
     assert session["session_date"] == "2026-08-25"
     assert session["latest_completed_session"].startswith("2026-08-25T20:00:00")

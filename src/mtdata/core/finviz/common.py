@@ -278,7 +278,7 @@ def _us_equity_session_context(
     out: Dict[str, Any] = {
         "observation_age_status": "unknown",
         "market_state": market_state,
-        "exchange": exchange,
+        "session_venue": exchange,
         "session_timezone": str(market["timezone"]),
     }
     if market_state_reason:

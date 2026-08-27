@@ -400,11 +400,14 @@ def _check_market_status(market_id: str, now_local: datetime) -> Dict[str, Any]:
                     "status": "after_hours",
                     "local_time": _format_local_iso(now_local),
                     "message": (
-                        f"{market_id}: After-hours "
-                        f"(closing in {_format_duration(minutes_until_close)})"
+                        f"{market_id}: After-hours; electronic session ends "
+                        f"{after_hours_close_time.strftime('%H:%M')} "
+                        f"({_format_duration(minutes_until_close)} remaining)"
                     ),
                     "next_close": after_hours_close_time.isoformat(),
+                    "next_after_hours_close": after_hours_close_time.isoformat(),
                     "minutes_until_close": minutes_until_close,
+                    "minutes_until_after_hours_close": minutes_until_close,
                     **session_fields,
                 }
 
