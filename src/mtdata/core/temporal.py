@@ -1,4 +1,5 @@
 import logging
+from calendar import monthrange
 from datetime import date, datetime, timedelta
 from datetime import timezone as dt_timezone
 from typing import Annotated, Any, Dict, List, Literal, Optional, Tuple
@@ -60,6 +61,7 @@ logger = logging.getLogger(__name__)
 
 
 _TEMPORAL_RELIABLE_GROUP_BARS = 30
+_TEMPORAL_MIN_MONTH_INSTANCES = 2
 _TEMPORAL_SAMPLE_WARNING_LIMIT = 10
 _PERCENT_UNIT = "percent (1.0 = 1%)"
 _TEMPORAL_DEFAULT_LOOKBACK_DAYS = {
@@ -214,19 +216,30 @@ def _temporal_edge_status(rows: Any, best: Dict[str, Any]) -> str:
     return "highest_sample_mean"
 
 
+def _temporal_row_is_reliable(row: Dict[str, Any]) -> bool:
+    if int(row.get("bars", 0) or 0) < _TEMPORAL_RELIABLE_GROUP_BARS:
+        return False
+    minimum_instances = int(row.get("minimum_period_instances", 0) or 0)
+    if minimum_instances <= 0:
+        return True
+    return int(row.get("distinct_period_instances", 0) or 0) >= minimum_instances
+
+
 def _reliable_best(rows: Any) -> Optional[Dict[str, Any]]:
     materialized = [
         row
         for row in rows
-        if isinstance(row, dict) and row.get("avg_return_pct") is not None
+        if (
+            isinstance(row, dict)
+            and row.get("avg_return_pct") is not None
+            and _temporal_row_is_reliable(row)
+        )
     ]
     best = max(
         materialized,
         key=lambda row: float(row.get("avg_return_pct") or 0.0),
         default=None,
     )
-    if best is not None and int(best.get("bars", 0) or 0) < _TEMPORAL_RELIABLE_GROUP_BARS:
-        return None
     if best is None:
         return None
     annotated = dict(best)
@@ -414,6 +427,50 @@ def _stats_for_group(df: pd.DataFrame, volume_col: Optional[str]) -> Dict[str, A
     return out
 
 
+def _month_period_instance_metadata(
+    group: pd.DataFrame,
+    window: pd.DataFrame,
+) -> Dict[str, Any]:
+    def _dates(frame: pd.DataFrame) -> List[date]:
+        source = (
+            frame["__session_date"]
+            if "__session_date" in frame.columns
+            else frame["__dt"]
+        )
+        dates: List[date] = []
+        for value in source:
+            if pd.isna(value):
+                continue
+            if isinstance(value, datetime):
+                dates.append(value.date())
+            elif isinstance(value, date):
+                dates.append(value)
+            else:
+                dates.append(pd.Timestamp(value).date())
+        return dates
+
+    group_dates = _dates(group)
+    window_dates = _dates(window)
+    instances = {(value.year, value.month) for value in group_dates}
+    partial_instances: set[Tuple[int, int]] = set()
+    if window_dates:
+        first = min(window_dates)
+        last = max(window_dates)
+        if first.day != 1:
+            partial_instances.add((first.year, first.month))
+        if last.day != monthrange(last.year, last.month)[1]:
+            partial_instances.add((last.year, last.month))
+    partial_count = len(instances & partial_instances)
+    distinct_count = len(instances)
+    return {
+        "distinct_period_instances": distinct_count,
+        "complete_period_instances": max(0, distinct_count - partial_count),
+        "partial_period_instances": partial_count,
+        "partial_bucket": partial_count > 0,
+        "minimum_period_instances": _TEMPORAL_MIN_MONTH_INSTANCES,
+    }
+
+
 def _compact_temporal_stats(
     row: Dict[str, Any],
     *,
@@ -427,6 +484,11 @@ def _compact_temporal_stats(
         "median_return_pct",
         "win_rate_pct",
         "volatility_pct",
+        "distinct_period_instances",
+        "complete_period_instances",
+        "partial_period_instances",
+        "partial_bucket",
+        "minimum_period_instances",
     )
     if include_group and row.get("group") is not None:
         keys = ("group", *keys)
@@ -527,13 +589,24 @@ def _temporal_sample_warnings(groups: Any) -> Dict[str, Any]:
 
     def _add_row(row: Dict[str, Any], *, dimension: Optional[str] = None) -> None:
         bars = int(row.get("bars", 0) or 0)
-        if bars >= _TEMPORAL_RELIABLE_GROUP_BARS:
+        minimum_instances = int(row.get("minimum_period_instances", 0) or 0)
+        distinct_instances = int(row.get("distinct_period_instances", 0) or 0)
+        bars_too_small = bars < _TEMPORAL_RELIABLE_GROUP_BARS
+        cycles_too_small = (
+            minimum_instances > 0 and distinct_instances < minimum_instances
+        )
+        if not bars_too_small and not cycles_too_small:
             return
         warning = {
             "group_label": row.get("group_label"),
             "bars": bars,
-            "recommended_min_bars": _TEMPORAL_RELIABLE_GROUP_BARS,
         }
+        if bars_too_small:
+            warning["recommended_min_bars"] = _TEMPORAL_RELIABLE_GROUP_BARS
+        if cycles_too_small:
+            warning["distinct_period_instances"] = distinct_instances
+            warning["recommended_min_period_instances"] = minimum_instances
+            warning["partial_bucket"] = bool(row.get("partial_bucket"))
         if dimension:
             warning["dimension"] = dimension
         if row.get("group") is not None:
@@ -560,8 +633,9 @@ def _temporal_sample_warnings(groups: Any) -> Dict[str, Any]:
         "sample_warnings": shown,
         "sample_warning_count": len(rows),
         "sample_notice": (
-            "Some temporal groups have small samples; increase lookback or set "
-            "min_bars for stricter filtering."
+            "Some temporal groups lack enough bars or repeated calendar instances "
+            "for reliable ranking; increase lookback or set min_bars for stricter "
+            "filtering."
         ),
     }
 
@@ -674,6 +748,10 @@ def _compact_temporal_payload(
                     "win_rate_pct",
                     "rank_basis",
                     "edge_status",
+                    "distinct_period_instances",
+                    "complete_period_instances",
+                    "partial_bucket",
+                    "minimum_period_instances",
                 ),
             )
             out["groups"] = compact_groups
@@ -688,6 +766,10 @@ def _compact_temporal_payload(
                     "win_rate_pct",
                     "rank_basis",
                     "edge_status",
+                    "distinct_period_instances",
+                    "complete_period_instances",
+                    "partial_bucket",
+                    "minimum_period_instances",
                 ),
             )
             if best_rows:
@@ -718,6 +800,10 @@ def _compact_temporal_payload(
                         "win_rate_pct",
                         "rank_basis",
                         "edge_status",
+                        "distinct_period_instances",
+                        "complete_period_instances",
+                        "partial_bucket",
+                        "minimum_period_instances",
                     )
                     if key in best
                 }
@@ -826,6 +912,10 @@ def _standard_temporal_payload(
                     "win_rate_pct",
                     "rank_basis",
                     "edge_status",
+                    "distinct_period_instances",
+                    "complete_period_instances",
+                    "partial_bucket",
+                    "minimum_period_instances",
                 ),
             )
             out["groups"] = standard_groups
@@ -839,6 +929,10 @@ def _standard_temporal_payload(
                     "win_rate_pct",
                     "rank_basis",
                     "edge_status",
+                    "distinct_period_instances",
+                    "complete_period_instances",
+                    "partial_bucket",
+                    "minimum_period_instances",
                 ),
             )
             if best_rows:
@@ -861,7 +955,16 @@ def _standard_temporal_payload(
         if best:
             out["best"] = {
                 key: best[key]
-                for key in ("group_label", "avg_return_pct", "win_rate", "win_rate_pct")
+                for key in (
+                    "group_label",
+                    "avg_return_pct",
+                    "win_rate",
+                    "win_rate_pct",
+                    "distinct_period_instances",
+                    "complete_period_instances",
+                    "partial_bucket",
+                    "minimum_period_instances",
+                )
                 if key in best
             }
     overall = payload.get("overall")
@@ -1432,6 +1535,7 @@ def temporal_analyze(  # noqa: C901
                             _DOW_LABELS[key_int] if 0 <= key_int <= 6 else str(key)
                         )
                     elif dimension == "month":
+                        row.update(_month_period_instance_metadata(grp, grouped))
                         key_int = int(key)
                         row["group"] = key_int
                         row["group_label"] = (

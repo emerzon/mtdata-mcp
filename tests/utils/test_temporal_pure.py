@@ -1021,6 +1021,47 @@ class TestTemporalAnalyze:
         assert r.get("success") is True
         assert r["group_by"] == "month"
         assert len(r["groups"]) > 0
+        assert all("distinct_period_instances" in row for row in r["groups"])
+
+    @_apply_analyze_patches
+    def test_one_cycle_month_window_suppresses_best(self, mock_fetch, *_):
+        start = int(datetime(2024, 7, 29, tzinfo=timezone.utc).timestamp())
+        rates = _make_rates(n=500, start_epoch=start, interval=3600)
+
+        r = self._call(
+            mock_fetch,
+            rates=rates,
+            lookback=500,
+            group_by="month",
+            detail="compact",
+        )
+
+        assert r.get("success") is True
+        assert "best" not in r
+        assert {row["distinct_period_instances"] for row in r["groups"]} == {1}
+        assert all(row["partial_bucket"] is True for row in r["groups"])
+        assert all(row["complete_period_instances"] == 0 for row in r["groups"])
+        assert all(
+            row.get("recommended_min_period_instances") == 2
+            for row in r["sample_warnings"]
+        )
+
+    @_apply_analyze_patches
+    def test_multi_cycle_month_window_can_rank_best(self, mock_fetch, *_):
+        rates = _make_rates(n=800, start_epoch=1704067200, interval=86400)
+
+        r = self._call(
+            mock_fetch,
+            rates=rates,
+            lookback=1000,
+            timeframe="D1",
+            group_by="month",
+            detail="compact",
+        )
+
+        assert r.get("success") is True
+        assert r["best"]["distinct_period_instances"] >= 2
+        assert r["best"]["minimum_period_instances"] == 2
 
     @_apply_analyze_patches
     def test_group_by_all(self, mock_fetch, *_):
@@ -1148,7 +1189,6 @@ class TestTemporalAnalyze:
         assert {row["dimension"] for row in r["best"]} == {
             "dow",
             "hour",
-            "month",
             "session",
         }
         assert all("group_label" in row for row in r["best"])

@@ -111,6 +111,14 @@ weekday and month labels. The timestamp still identifies the bar-open instant,
 but changing the display timezone cannot move a daily equity session into the
 prior weekday or month.
 
+Monthly rows distinguish raw bars from repeated seasonal evidence:
+`distinct_period_instances` counts the number of calendar years contributing
+that month, `complete_period_instances` excludes partial edge months, and
+`partial_bucket` flags rows containing an incomplete edge instance. A month
+needs at least two distinct yearly instances and 30 bars before it can appear
+as `best`; shorter windows keep the descriptive rows but return a sample warning
+instead of naming a one-off fragment as a seasonal winner.
+
 ### All Grouping Dimensions (`--group-by all`)
 
 Returns day-of-week, hour, month, and session breakdowns in one call. With
@@ -148,6 +156,9 @@ Each group includes these statistics:
 | `avg_range` | Average high-low range |
 | `avg_range_pct` | Average range as percentage of close |
 | `avg_volume` | Average volume (real or tick) |
+| `distinct_period_instances` | For month grouping, number of separate yearly occurrences represented |
+| `complete_period_instances` | Month occurrences not cut by the analysis-window edges |
+| `partial_bucket` | Whether the row includes an incomplete edge-month occurrence |
 
 At `standard` and `full` detail, the top-level response also includes `overall`
 (sample-wide summary statistics) and `volume_source` (whether `real_volume` or
