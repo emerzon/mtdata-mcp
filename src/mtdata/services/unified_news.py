@@ -599,14 +599,15 @@ def _looks_like_person_surname(title: str, common_name: Optional[str]) -> bool:
 def _has_equity_entity_evidence(item: "NewsItem", context: "InstrumentContext") -> bool:
     text = item.search_text().lower()
     tokens = set(_tokenize(text))
-    ticker = str(context.symbol or "").lower()
-    compact_ticker = _compact_token(context.symbol)
-    if ticker and ticker in tokens:
-        return True
-    if compact_ticker and any(
-        compact_ticker == _compact_token(token) for token in tokens
-    ):
-        return True
+    for alias in context.aliases:
+        ticker = str(alias or "").lower()
+        compact_ticker = _compact_token(alias)
+        if ticker and ticker in tokens:
+            return True
+        if compact_ticker and any(
+            compact_ticker == _compact_token(token) for token in tokens
+        ):
+            return True
     common_name, products = _equity_common_name_and_products(context)
     if _equity_has_legal_name(text, common_name):
         return True
@@ -1248,7 +1249,10 @@ def _score_relevance(item: NewsItem, context: InstrumentContext) -> tuple[float,
     macro_sensitive_event = _is_macro_sensitive_event(item)
 
     direct_symbol = _safe_text(item.metadata.get("direct_symbol")).upper()
-    if direct_symbol and direct_symbol == context.symbol:
+    if direct_symbol and any(
+        _compact_token(direct_symbol) == _compact_token(alias)
+        for alias in context.aliases
+    ):
         score += 4.0 if context.asset_class != "equity" or _has_asset_specific_evidence(item, context) else 1.0
         matched_terms.append(context.symbol)
 
@@ -1748,7 +1752,7 @@ class FinvizNewsSource:
             out: List[NewsItem] = []
             for rank, item in enumerate(result.get("news", [])):
                 metadata: Dict[str, Any] = {
-                    "direct_symbol": context.symbol,
+                    "direct_symbol": candidate,
                     "source_rank": rank,
                 }
                 if candidate != context.symbol:

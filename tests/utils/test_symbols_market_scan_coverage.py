@@ -1519,7 +1519,11 @@ class TestSymbolsTopMarkets:
         mock_rates,
         mock_group,
     ):
-        mock_symbols_get.return_value = [_make_symbol("EURUSD", description="Euro")]
+        mock_symbols_get.return_value = [
+            _make_symbol("EURUSD", description="Euro"),
+            _make_symbol("BTCUSD", path="Crypto", description="Bitcoin"),
+            _make_symbol("DISABLED", trade_mode=0),
+        ]
         mock_tick.return_value = _make_tick(bid=1.1000, ask=1.1001)
         mock_rates.return_value = _make_bars([1.0, 1.02], tick_volume=20)
 
@@ -1531,6 +1535,11 @@ class TestSymbolsTopMarkets:
         assert result["rank_by"] == "tick_volume"
         assert result["rank_by_input"] is None
         assert result["data"]
+        assert result["broker_symbol_count"] == 3
+        assert result["tradable_symbol_count"] == 2
+        assert result["rank_comparable"] is False
+        assert result["ranking_asset_classes"] == ["crypto", "forex"]
+        assert "not a comparable traded-liquidity measure" in result["comparison_warning"]
 
     @patch("mtdata.core.symbols.scan._extract_group_path_util", side_effect=lambda s: s.path)
     @patch("mtdata.core.symbols.scan._mt5_copy_rates_from_pos")
@@ -2649,6 +2658,7 @@ class TestMarketScan:
 
         assert result["success"] is True
         assert result["missing_symbols"] == ["NOTAREALPAIR"]
+        assert result["partial_failure"] is True
         assert result["summary"]["counts"]["skipped_symbols"] == 1
         assert result["warnings"] == [
             "Requested symbol(s) not found and excluded from the scan: "

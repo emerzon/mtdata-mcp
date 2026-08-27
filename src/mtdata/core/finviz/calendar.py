@@ -1152,6 +1152,7 @@ def _finviz_calendar_row_items(
 
 def _economic_calendar_numeric_unit_label(items: Any) -> str:
     row_units: list[str] = []
+    has_untyped_numeric_row = False
     if isinstance(items, list):
         for item in items:
             if not isinstance(item, dict):
@@ -1159,7 +1160,14 @@ def _economic_calendar_numeric_unit_label(items: Any) -> str:
             unit = str(item.get("unit") or "").strip().lower()
             if unit:
                 row_units.append(unit)
+            elif any(
+                isinstance(item.get(key), (int, float))
+                for key in ("actual_value", "previous_value", "forecast_value")
+            ):
+                has_untyped_numeric_row = True
     unique_units = list(dict.fromkeys(row_units))
+    if has_untyped_numeric_row:
+        return "parsed_numeric (per-row unit; some unknown)"
     if len(unique_units) == 1:
         unit = unique_units[0]
         if unit == "percent":

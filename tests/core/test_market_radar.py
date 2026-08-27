@@ -123,6 +123,31 @@ def test_market_radar_marks_unusable_quotes() -> None:
     assert result["rows"][0]["quote_stale"] is True
 
 
+def test_market_radar_keeps_compact_clock_skew_evidence() -> None:
+    result = run_market_radar(
+        MarketRadarRequest(symbols="EURUSD"),
+        call_section=lambda name, kwargs: {
+            "success": True,
+            "data": [
+                {
+                    "symbol": "EURUSD",
+                    "bid": 1.1,
+                    "ask": 1.2,
+                    "quote_usable_for_live_trading": True,
+                    "quote_freshness_reason": "clock_skew_within_tolerance",
+                    "quote_timestamp_ahead_of_wall_clock": True,
+                    "quote_timestamp_skew_seconds": 3.0,
+                }
+            ],
+        },
+    )
+
+    row = result["rows"][0]
+    assert row["quote_freshness_reason"] == "clock_skew_within_tolerance"
+    assert row["quote_timestamp_ahead_of_wall_clock"] is True
+    assert row["quote_timestamp_skew_seconds"] == 3.0
+
+
 def test_market_radar_fails_closed_when_quote_readiness_is_missing() -> None:
     result = run_market_radar(
         MarketRadarRequest(symbols="EURUSD"),

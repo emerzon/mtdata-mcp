@@ -325,6 +325,8 @@ def test_fetch_unified_news_discloses_broker_symbol_rewrite(monkeypatch) -> None
     assert result["symbol"] == "AAPL.NAS"
     assert result["requested_symbol"] == "AAPL.NAS"
     assert result["finviz_ticker"] == "AAPL"
+    assert result["relevance_status"] == "symbol_matched"
+    assert result["related_news"][0]["metadata"]["direct_symbol"] == "AAPL"
 
 
 def test_fetch_unified_news_repairs_provider_mojibake(monkeypatch) -> None:
@@ -586,7 +588,7 @@ def test_fetch_unified_news_uses_root_ticker_for_equity_cfd_symbols(monkeypatch)
     assert result["success"] is True
     assert result["instrument"]["symbol"] == "AAPL.NAS-24"
     assert result["related_news"][0]["title"] == "Apple Inc unveils new AI features"
-    assert result["related_news"][0]["metadata"]["direct_symbol"] == "AAPL.NAS-24"
+    assert result["related_news"][0]["metadata"]["direct_symbol"] == "AAPL"
     assert result["related_news"][0]["metadata"]["source_symbol"] == "AAPL"
 
 

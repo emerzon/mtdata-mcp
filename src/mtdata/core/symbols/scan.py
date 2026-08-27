@@ -735,6 +735,37 @@ def _attach_market_scan_volume_semantics(
         out["volume_type"] = "tick_volume"
         out["volume_semantics"] = TICK_VOLUME_SEMANTICS
 
+
+def _attach_tick_volume_comparability(
+    out: Dict[str, Any],
+    rows: List[Dict[str, Any]],
+) -> None:
+    asset_classes = sorted(
+        {
+            str(row.get("asset_class") or "").strip()
+            for row in rows
+            if isinstance(row, dict) and str(row.get("asset_class") or "").strip()
+        }
+    )
+    if not asset_classes:
+        return
+    comparable = len(asset_classes) == 1
+    out["rank_comparable"] = comparable
+    out["ranking_asset_classes"] = asset_classes
+    if comparable:
+        return
+    warning = (
+        "Raw broker tick counts measure feed-update activity and are not a "
+        "comparable traded-liquidity measure across asset classes."
+    )
+    out["comparison_warning"] = warning
+    out["ranking_remediation"] = (
+        "Retry with --category or --group to rank a homogeneous universe."
+    )
+    warnings = out.setdefault("warnings", [])
+    if warning not in warnings:
+        warnings.append(warning)
+
 def _market_scan_contract_meta(
     *,
     request: Dict[str, Any],
@@ -2173,7 +2204,8 @@ def symbols_top_markets(  # noqa: C901
                 "success": True,
                 "source": source,
                 "universe": universe_value,
-                "broker_symbol_count": len(tradable_symbols),
+                "broker_symbol_count": len(all_symbols),
+                "tradable_symbol_count": len(tradable_symbols),
                 "visible_count": sum(
                     1 for symbol in tradable_symbols if bool(getattr(symbol, "visible", False))
                 ),
@@ -2230,7 +2262,8 @@ def symbols_top_markets(  # noqa: C901
             if universe_value == "visible" and len(tradable_symbols) > len(selected_symbols):
                 scan_meta["note"] = (
                     f"Ranked visible Market Watch symbols only ({len(selected_symbols)} of "
-                    f"{len(tradable_symbols)} tradable broker symbols); pass --universe all "
+                    f"{len(tradable_symbols)} tradable symbols from "
+                    f"{len(all_symbols)} broker symbols); pass --universe all "
                     "to scan the full catalog."
                 )
             if filters:
@@ -2315,6 +2348,7 @@ def symbols_top_markets(  # noqa: C901
                     )
                 )
                 _attach_top_markets_units(out, volume_rows)
+                _attach_tick_volume_comparability(out, volume_rows)
                 if detail_mode == "full":
                     out["evaluated_symbols"] = evaluated_counts["volume"]
                     out["skipped_symbols"] = metric_skips["volume"]
@@ -2508,6 +2542,7 @@ def symbols_top_markets(  # noqa: C901
                     },
                 }
             _attach_top_markets_units(out, all_rows)
+            _attach_tick_volume_comparability(out, volume_rows)
             return out
         except MT5ConnectionError as exc:
             return {"error": str(exc)}
@@ -3187,6 +3222,12 @@ def market_scan(  # noqa: C901
                 "bar_stale",
                 "time",
                 "quote_as_of",
+                "quote_age_seconds",
+                "quote_freshness_reason",
+                "quote_timestamp_ahead_of_wall_clock",
+                "quote_timestamp_in_future",
+                "quote_timestamp_skew_seconds",
+                "quote_timestamp_warning",
                 "bid",
                 "ask",
                 "spread_quality",
@@ -3374,6 +3415,8 @@ def market_scan(  # noqa: C901
             missing_symbols = list(selection_meta.get("missing_symbols") or [])
             if missing_symbols:
                 out["missing_symbols"] = missing_symbols
+                if returned_count > 0:
+                    out["partial_failure"] = True
                 out.setdefault("warnings", []).append(
                     "Requested symbol(s) not found and excluded from the scan: "
                     + ", ".join(missing_symbols)
@@ -3385,6 +3428,8 @@ def market_scan(  # noqa: C901
             if units:
                 out["units"] = units
             _attach_market_scan_volume_semantics(out, units)
+            if rank_by_value == "tick_volume":
+                _attach_tick_volume_comparability(out, table_payload["rows"])
             if "columns" in table_payload:
                 out["columns"] = table_payload["columns"]
             if (

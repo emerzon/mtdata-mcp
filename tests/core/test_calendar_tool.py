@@ -403,6 +403,17 @@ def test_economic_calendar_mixed_units_do_not_claim_percent() -> None:
     assert result["units"]["previous_value"] == "parsed_numeric (per-row unit)"
 
 
+def test_economic_calendar_typed_and_untyped_rows_keep_unknown_unit() -> None:
+    from mtdata.core.finviz.calendar import _economic_calendar_numeric_unit_label
+
+    assert _economic_calendar_numeric_unit_label(
+        [
+            {"event": "ISM Manufacturing PMI", "previous_value": 55.6},
+            {"event": "JOLTs Job Openings", "previous_value": 7_359_000, "unit": "count"},
+        ]
+    ) == "parsed_numeric (per-row unit; some unknown)"
+
+
 def test_economic_calendar_utc_midnight_is_date_only() -> None:
     from mtdata.core.finviz.calendar import _normalize_finviz_economic_calendar_time
 

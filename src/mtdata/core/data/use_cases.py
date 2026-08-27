@@ -562,26 +562,35 @@ def _attach_latest_candle_quote_freshness(
     rows = payload.get("data")
     if not isinstance(rows, list) or not rows:
         return
+    resolved_symbol = str(payload.get("symbol") or request.symbol).strip()
+    symbol_input = str(request.symbol or "").strip()
+    if resolved_symbol and symbol_input and resolved_symbol != symbol_input:
+        payload["symbol_input"] = symbol_input
     try:
         now_epoch = time.time()
-        tick, _ = resolve_quote_tick(gateway, request.symbol, now_epoch=now_epoch)
+        tick, _ = resolve_quote_tick(gateway, resolved_symbol, now_epoch=now_epoch)
         quote_context = build_tick_freshness_context(
-            request.symbol,
+            resolved_symbol,
             tick_epoch=tick_epoch(tick),
             now_epoch=now_epoch,
             item="tick",
         )
     except Exception:
         return
-    quote_stale = quote_context.get("data_stale") is True
     quote_age = quote_context.get("data_age_seconds")
+    freshness_reason = quote_context.get("freshness_reason")
+    quote_stale: Optional[bool]
+    if quote_age is None and freshness_reason is None:
+        quote_stale = None
+    else:
+        quote_stale = quote_context.get("data_stale") is True
     payload["latest_quote_stale"] = quote_stale
     payload["latest_quote_age_seconds"] = quote_age
-    payload["freshness_reason"] = quote_context.get("freshness_reason")
+    payload["freshness_reason"] = freshness_reason
     payload["freshness_basis"] = (
         "bar_policy_and_latest_quote" if quote_stale else payload.get("freshness_basis")
     )
-    if not quote_stale:
+    if quote_stale is not True:
         return
     payload["data_stale"] = True
     payload["freshness_basis"] = "bar_policy_and_latest_quote"

@@ -873,6 +873,38 @@ def test_latest_n_candles_always_emit_quote_freshness_keys(monkeypatch):
     assert "latest_quote_age_seconds" in result
 
 
+def test_latest_candles_use_resolved_symbol_for_quote_freshness(monkeypatch):
+    requested_symbols: list[str] = []
+
+    def resolve_tick(_gateway, symbol, **_kwargs):
+        requested_symbols.append(symbol)
+        return SimpleNamespace(time=10_000.0), {}
+
+    monkeypatch.setattr("mtdata.core.data.use_cases.time.time", lambda: 10_000.0)
+    monkeypatch.setattr(
+        "mtdata.core.data.use_cases.resolve_quote_tick",
+        resolve_tick,
+    )
+    request = DataFetchCandlesRequest(symbol="EUR/USD", timeframe="H1", limit=1)
+
+    result = run_data_fetch_candles(
+        request,
+        gateway=SimpleNamespace(ensure_connection=lambda: None),
+        fetch_candles_impl=lambda **_kwargs: {
+            "success": True,
+            "symbol": "EURUSD",
+            "candles": 1,
+            "data": [{"time": "2026-08-13T22:00:00Z", "close": 1.16}],
+        },
+    )
+
+    assert requested_symbols == ["EURUSD"]
+    assert result["symbol"] == "EURUSD"
+    assert result["symbol_input"] == "EUR/USD"
+    assert result["latest_quote_stale"] is False
+    assert result["latest_quote_age_seconds"] == 0.0
+
+
 def test_include_incomplete_without_forming_bar_still_marks_stale_quote(monkeypatch):
     monkeypatch.setattr("mtdata.core.data.use_cases.time.time", lambda: 10_000.0)
     monkeypatch.setattr(
