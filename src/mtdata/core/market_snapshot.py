@@ -14,7 +14,10 @@ from ..utils.coercion import coerce_finite_float as _coerce_float
 from ..utils.market_metadata import build_tick_freshness_context
 from ..utils.mt5 import resolve_public_symbol
 from ..utils.quote import enforce_quote_execution_readiness
-from ..utils.symbol import looks_like_invalid_symbol_error, symbol_suggestions_from_gateway
+from ..utils.symbol import (
+    looks_like_invalid_symbol_error,
+    symbol_suggestions_from_gateway,
+)
 from ..utils.time import format_datetime_utc
 from ._mcp_instance import mcp
 from .error_envelope import build_error_payload
@@ -748,14 +751,14 @@ def _snapshot_summary_payload(sections: Dict[str, Any]) -> Dict[str, Any]:  # no
 
     pattern_bias = _pattern_bias(patterns)
     if pattern_bias:
-        out["pattern_bias"] = pattern_bias
+        out["latest_pattern_bias"] = pattern_bias
         out["pattern_is_signal"] = False
         out["pattern_usage"] = "information_only"
         out["pattern_window_bars"] = _SNAPSHOT_PATTERN_LAST_N_BARS
     if isinstance(patterns, dict):
         for source_key, output_key in (
-            ("pattern_status", "pattern_status"),
-            ("pattern_confidence", "pattern_confidence"),
+            ("pattern_status", "latest_bar_pattern"),
+            ("pattern_confidence", "latest_match_score"),
             ("conflict", "pattern_conflict"),
             ("n_patterns", "pattern_count"),
         ):

@@ -577,7 +577,7 @@ def test_market_snapshot_summary_detail_returns_lean_snapshot(monkeypatch):
             "scan_window": {"start": "2026-01-01", "end": "2026-01-02"},
         },
         "pattern_count": 2,
-        "pattern_bias": "bullish",
+        "latest_pattern_bias": "bullish",
         "pattern_is_signal": False,
         "pattern_usage": "information_only",
         "pattern_window_bars": 3,
@@ -679,7 +679,7 @@ def test_market_snapshot_compact_defaults_to_lean_snapshot(monkeypatch):
             "current_price_as_of": "2026-01-02T00:00:01Z",
         },
         "pattern_count": 2,
-        "pattern_bias": "bullish",
+        "latest_pattern_bias": "bullish",
         "pattern_is_signal": False,
         "pattern_usage": "information_only",
         "pattern_window_bars": 3,
@@ -1054,8 +1054,9 @@ def test_market_snapshot_qualifies_uncertain_pattern_bias(monkeypatch):
 
     snapshot = result["snapshot"]
     assert "pattern_bias" not in snapshot
-    assert snapshot["pattern_status"] == "uncertain"
-    assert snapshot["pattern_confidence"] == 0.225
+    assert "latest_pattern_bias" not in snapshot
+    assert snapshot["latest_bar_pattern"] == "uncertain"
+    assert snapshot["latest_match_score"] == 0.225
     assert snapshot["pattern_conflict"] == "both_bullish_and_bearish_patterns_present"
     assert snapshot["pattern_count"] == 4
     assert snapshot["pattern_is_signal"] is False
