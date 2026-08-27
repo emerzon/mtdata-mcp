@@ -421,13 +421,13 @@ def test_market_ticker_returns_lightweight_spread_snapshot() -> None:
     assert "pricing_basis_units" not in out
     assert out["freshness"].startswith("stale, tick ")
     assert out["time"] == "2023-11-14T22:13:20Z"
-    assert out["time_epoch"] == 1700000000.0
+    assert "time_epoch" not in out
     assert out["spread"] == 1.0
     assert out["spread_points"] == 100.0
     assert "spread_pips" not in out
     assert "spread_pct_display" not in out
     assert out["data_stale"] is True
-    assert out["data_age_seconds"] > out["stale_after_seconds"]
+    assert out["data_age_seconds"] > 300
     assert out["freshness_state"] == "stale"
     assert out["usable_for_live_trading"] is False
     assert "data_age_hours" not in out
@@ -537,7 +537,7 @@ def test_market_ticker_compact_detail_omits_verbose_fields() -> None:
     assert out["time"] == "2023-11-14T22:13:20Z"
     assert "time_display" not in out
     assert out["data_stale"] is True
-    assert out["stale_after_seconds"] == 300
+    assert "stale_after_seconds" not in out
     assert "freshness_basis" not in out
     assert "data_age" not in out
     assert out["warning"] == (
@@ -746,11 +746,11 @@ def test_market_ticker_refreshes_stale_symbol_tick_from_live_stream() -> None:
 
     assert out["bid"] == 3981.46
     assert out["ask"] == 3981.57
-    assert out["time_epoch"] == now - 1.0
+    assert "time_epoch" not in out
     assert out["usable_for_live_trading"] is True
     assert out["quote_source"] == "mt5.copy_ticks_range"
     assert out["quote_source_state"] == "refreshed_from_tick_stream"
-    assert out["quote_refresh_attempted"] is True
+    assert "quote_refresh_attempted" not in out
 
 
 def test_market_ticker_prefers_stream_for_equal_timestamp_quote_conflict() -> None:

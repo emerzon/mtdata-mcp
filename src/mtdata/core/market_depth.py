@@ -153,13 +153,16 @@ def _market_depth_level_field(level: Any, *names: str) -> Any:
 
 def _compact_market_ticker_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
-    for key in (
+    skew_active = (
+        payload.get("timestamp_ahead_of_wall_clock") is True
+        or payload.get("timestamp_in_future") is True
+        or str(payload.get("freshness_reason") or "") == "future_timestamp"
+    )
+    compact_keys = (
         "success",
         "symbol",
         "symbol_input",
         "type",
-        "price_precision",
-        "point",
         "price_currency",
         "bid",
         "ask",
@@ -168,33 +171,32 @@ def _compact_market_ticker_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
         "freshness",
         "freshness_state",
         "freshness_reason",
-        "data_age_seconds",
         "data_stale",
         "usable_for_live_trading",
         "usable_for_live_trading_basis",
         "related_live_symbols",
-        "live_max_age_seconds",
-        "stale_after_seconds",
-        "timestamp_ahead_of_wall_clock",
-        "timestamp_in_future",
-        "timestamp_skew_seconds",
-        "timestamp_skew_tolerance_seconds",
         "timestamp_warning",
         "warning",
         "source",
         "quote_source",
         "quote_source_state",
+        "data_age_seconds",
         "quote_source_conflict",
-        "quote_refresh_attempted",
         "spread_valid",
         "spread_quality",
         "market_status_reason",
-        "last_unavailable",
         "quote_as_of",
         "time",
-        "time_epoch",
         "timezone",
-    ):
+    )
+    if skew_active:
+        compact_keys = compact_keys + (
+            "timestamp_ahead_of_wall_clock",
+            "timestamp_in_future",
+            "timestamp_skew_seconds",
+            "timestamp_skew_tolerance_seconds",
+        )
+    for key in compact_keys:
         if key == "freshness":
             # The full quote builder classifies live/recent/delayed/stale using
             # execution thresholds.  Keep that label rather than reducing it to
@@ -220,6 +222,8 @@ def _compact_market_ticker_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     for key in ("spread", "spread_points", "spread_pips", "spread_pct"):
         if payload.get(key) is not None:
             out[key] = payload[key]
+    if "spread_points" in out and payload.get("point") is not None:
+        out["point"] = payload.get("point")
     units = payload.get("units")
     if isinstance(units, dict):
         compact_units = {

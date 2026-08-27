@@ -500,16 +500,17 @@ def test_market_status_symbol_mode_reports_heuristic_status(monkeypatch) -> None
     assert "FX weekly sessions typically run Sun 17:00-Fri 17:00" in result[
         "heuristic_note"
     ]
-    assert result["can_open_new_positions"] is True
-    assert result["trade_mode_allows_opening"] is True
+    assert result["usable_for_live_trading"] is True
+    assert "is_tradable" not in result
+    assert "tradable_now" not in result
+    assert "can_open_new_positions" not in result
+    assert "trade_mode_allows_opening" not in result
     assert result["tick_freshness"] == "live"
     assert result["tick_available"] is True
     assert result["data_fetched_at"] == "2024-01-02T12:00:00Z"
     assert result["quote_as_of"] == "2024-01-02T12:00:00Z"
     assert result["last_tick_time"] == "2024-01-02T12:00:00Z"
     assert result["data_age_seconds"] == 0.0
-    assert result["is_tradable"] is True
-    assert result["is_tradable_confidence"] == "broker_trade_mode"
     assert result["market_clock"] == "2024-01-02T12:00:00Z"
     assert result["market_clock_timezone"] == "UTC"
     assert result["authoritative_clock"] in {"server", "utc"}
@@ -609,18 +610,23 @@ def test_market_status_blocks_new_entries_when_tick_timestamp_is_unsafe(monkeypa
     monkeypatch.setattr(market_status_mod, "datetime", FixedDateTime)
     monkeypatch.setattr(market_status_mod, "create_mt5_gateway", lambda **kwargs: Gateway())
 
-    result = raw(symbol="EURUSD")
+    compact = raw(symbol="EURUSD")
+    result = raw(symbol="EURUSD", detail="full")
 
+    assert compact["status"] == "quote_not_live_ready"
+    assert compact["usable_for_live_trading"] is False
+    assert "is_tradable" not in compact
+    assert "tradable_now" not in compact
+    assert compact["tick_freshness"] == "clock_skew"
+    assert compact["freshness_reason"] == "future_timestamp"
+    assert compact["timestamp_in_future"] is True
+    assert compact["data_fetched_at"] == compact["wall_clock_observed_at"]
+    assert compact["last_tick_time"] > compact["data_fetched_at"]
+    assert compact["data_fetched_at_basis"] == "wall_clock"
     assert result["status"] == "quote_not_live_ready"
     assert result["trade_mode_allows_opening"] is True
     assert result["can_open_new_positions"] is False
     assert result["is_tradable"] is True
-    assert result["tick_freshness"] == "clock_skew"
-    assert result["freshness_reason"] == "future_timestamp"
-    assert result["timestamp_in_future"] is True
-    assert result["data_fetched_at"] == result["wall_clock_observed_at"]
-    assert result["last_tick_time"] > result["data_fetched_at"]
-    assert result["data_fetched_at_basis"] == "wall_clock"
     assert result["tradable_now"] is False
     assert result["is_tradable_means"] == "broker_trade_mode"
 
@@ -863,9 +869,10 @@ def test_market_status_symbol_mode_blocks_weekend_opening(monkeypatch) -> None:
 
     assert result["status"] == "weekend_closed"
     assert result["reason"] == "weekend"
-    assert result["can_open_new_positions"] is False
-    assert result["trade_mode_allows_opening"] is True
-    assert result["is_tradable"] is True
+    assert result["usable_for_live_trading"] is False
+    assert "is_tradable" not in result
+    assert "can_open_new_positions" not in result
+    assert "trade_mode_allows_opening" not in result
     assert "message" not in result
 
 
@@ -904,8 +911,9 @@ def test_market_status_uses_standard_weekend_boundary_for_index_cfd(monkeypatch)
     result = raw(symbol="US30")
 
     assert result["status"] == "weekend_closed"
-    assert result["can_open_new_positions"] is False
-    assert result["is_tradable"] is True
+    assert result["usable_for_live_trading"] is False
+    assert "is_tradable" not in result
+    assert "can_open_new_positions" not in result
 
 
 def test_close_only_symbol_remains_tradable_but_cannot_open() -> None:
@@ -960,9 +968,9 @@ def test_market_status_symbol_mode_allows_crypto_on_weekend(monkeypatch) -> None
     result = raw(symbol="BTCUSD")
 
     assert result["status"] == "quote_not_live_ready"
-    assert result["can_open_new_positions"] is False
-    assert result["trade_mode_allows_opening"] is True
     assert result["usable_for_live_trading"] is False
+    assert "trade_mode_allows_opening" not in result
+    assert "can_open_new_positions" not in result
     assert result["tick_freshness"] == "recent"
     assert "FX weekly sessions" not in result["heuristic_note"]
 
@@ -998,8 +1006,9 @@ def test_market_status_symbol_mode_allows_fx_after_sunday_open(monkeypatch) -> N
     result = raw(symbol="EURUSD")
 
     assert result["status"] == "quote_not_live_ready"
-    assert result["can_open_new_positions"] is False
-    assert result["trade_mode_allows_opening"] is True
+    assert result["usable_for_live_trading"] is False
+    assert "can_open_new_positions" not in result
+    assert "trade_mode_allows_opening" not in result
 
 
 def test_market_status_symbol_mode_uses_recent_candles_for_weekend_session(

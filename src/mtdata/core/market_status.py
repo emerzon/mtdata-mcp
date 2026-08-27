@@ -1235,21 +1235,30 @@ def _compact_symbol_market_status(row: Dict[str, Any], *, detail: str) -> Dict[s
     if detail == "full":
         return row
     keys = (
+        "success",
+        "mode",
         "symbol",
+        "symbol_input",
+        "source",
+        "timezone",
         "quote_as_of",
         "data_age_seconds",
         "data_stale",
         "status",
+        "status_source",
         "status_confidence",
         "heuristic_note",
-        "is_tradable",
-        "is_tradable_confidence",
-        "is_tradable_means",
-        "tradable_now",
-        "can_open_new_positions",
-        "trade_mode_allows_opening",
         "usable_for_live_trading",
         "tick_freshness",
+        "freshness_reason",
+        "tick_available",
+        "data_fetched_at",
+        "data_fetched_at_basis",
+        "wall_clock_observed_at",
+        "last_tick_time",
+        "timestamp_in_future",
+        "timestamp_ahead_of_wall_clock",
+        "timestamp_warning",
         "market_clock",
         "market_clock_timezone",
         "authoritative_clock",
@@ -1552,6 +1561,8 @@ def market_status(  # noqa: C901
                 timezone_display=timezone_display_mode,
                 gateway=mt5_gateway,
             )
+            if not result.get("error"):
+                result = _compact_symbol_market_status(result, detail=detail_mode)
             if symbol_warnings and not result.get("error"):
                 result["warnings"] = symbol_warnings
             return attach_mt5_source(result, gateway=mt5_gateway)

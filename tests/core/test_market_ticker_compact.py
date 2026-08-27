@@ -127,7 +127,7 @@ def test_compact_ticker_keeps_market_status_and_conflict_size() -> None:
     assert result["alternate_ask"] == 1.16767
 
 
-def test_compact_ticker_keeps_last_unavailable_flag() -> None:
+def test_compact_ticker_omits_last_unavailable_flag() -> None:
     result = _compact_market_ticker_payload(
         {
             "success": True,
@@ -136,8 +136,14 @@ def test_compact_ticker_keeps_last_unavailable_flag() -> None:
             "ask": 1.2,
             "last": None,
             "last_unavailable": True,
+            "quote_refresh_attempted": True,
+            "time_epoch": 1_700_000_000,
+            "live_max_age_seconds": 10,
         }
     )
 
-    assert result["last_unavailable"] is True
+    assert "last_unavailable" not in result
+    assert "quote_refresh_attempted" not in result
+    assert "time_epoch" not in result
+    assert "live_max_age_seconds" not in result
     assert "last" not in result
