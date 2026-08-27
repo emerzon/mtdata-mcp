@@ -1050,6 +1050,14 @@ _FIELD_SELECTION_META_KEYS = frozenset(
         "history_window_limit_days",
         "history_window_floor",
         "effective_start",
+        "quote_as_of",
+        "time",
+        "data_as_of",
+        "data_stale",
+        "freshness",
+        "freshness_state",
+        "usable_for_live_trading",
+        "source",
     }
 )
 

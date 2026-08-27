@@ -64,7 +64,7 @@ PARAMETER_HELP: Final[dict[str, str]] = {
     "json": "Return structured JSON instead of default TOON text.",
     "output_fields": (
         "Comma-separated output fields to keep; preserves essential top-level "
-        "metadata and matching nested row fields."
+        "metadata, quote trust fields, and matching nested row fields."
     ),
     "page": "One-based page number for tools that expose page-based pagination.",
     "calendar": "Calendar dataset: economic, earnings, or dividends.",

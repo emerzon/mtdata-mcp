@@ -142,7 +142,11 @@ resolvable through an empty collection, so a flat account can return
 
 Field selection is authoritative across formats. JSON and TOON retain the same
 selected keys; TOON may still apply the requested numeric precision, but it
-does not run a per-tool shape compactor after projection.
+does not run a per-tool shape compactor after projection. Quote and session
+payloads also keep a trust core when those keys are present in the response:
+`quote_as_of` or `time`, `data_as_of`, `data_stale`, `freshness`,
+`freshness_state`, `usable_for_live_trading`, and `source`. Projecting
+`bid,ask,spread` therefore cannot drop the evidence that a print is stale.
 
 `json` and `output_fields` are the shared output-shaping parameters available
 across tools. A domain-specific parameter named `fields` (currently used by
@@ -159,9 +163,11 @@ an `empty_reason` such as `market_closed_weekend`, `forming_bar_excluded`, or
 the normal error envelope and a nonzero CLI exit.
 
 For a fully bounded tick range, the latest matching ticks are returned
-whether `limit` is omitted or set to the same default of 20. Historical
-tick responses label `last_quote.quote_scope` as `historical_sample` and include
-`last_quote.time`; it is the final quote in the returned sample, not a live quote.
+whether `limit` is omitted or set to the same default of 20. Compact and full
+tick responses include `last_quote` with `quote_scope` and `time`. Historical
+ranges label `last_quote.quote_scope` as `historical_sample`; latest-N queries
+use `latest_sample`. It is the final two-sided quote in the returned sample,
+not a reconstructed live book.
 Bounded tick queries probe one event beyond the page. When `pagination.has_more`
 is true, pass `pagination.next_cursor` back as `--cursor` with the same symbol,
 start, and end values. The opaque cursor uses a raw-event offset, so ticks that

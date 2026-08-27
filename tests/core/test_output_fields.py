@@ -1,6 +1,38 @@
 from mtdata.core._mcp_tools import _select_output_fields
 
 
+def test_output_fields_keeps_quote_trust_core() -> None:
+    payload = {
+        "success": True,
+        "symbol": "AAPL.NAS",
+        "bid": 314.31,
+        "ask": 314.35,
+        "spread": 0.04,
+        "quote_as_of": "2026-08-26T19:54:00Z",
+        "data_stale": True,
+        "usable_for_live_trading": False,
+        "source": {"provider": "mt5"},
+        "freshness": "stale, tick 6h 49m ago",
+        "freshness_state": "stale",
+        "time": "2026-08-26T19:54:00Z",
+        "diagnostics": {"ignored": True},
+    }
+
+    result = _select_output_fields(payload, "bid,ask,spread")
+
+    assert result["success"] is True
+    assert result["symbol"] == "AAPL.NAS"
+    assert result["bid"] == 314.31
+    assert result["ask"] == 314.35
+    assert result["spread"] == 0.04
+    assert result["quote_as_of"] == "2026-08-26T19:54:00Z"
+    assert result["data_stale"] is True
+    assert result["usable_for_live_trading"] is False
+    assert result["source"] == {"provider": "mt5"}
+    assert result["freshness_state"] == "stale"
+    assert "diagnostics" not in result
+
+
 def test_output_fields_supports_dotted_nested_paths() -> None:
     payload = {
         "success": True,

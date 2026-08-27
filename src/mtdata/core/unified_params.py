@@ -60,8 +60,9 @@ def add_global_args_to_parser(
             "metavar": "FIELD[,FIELD...]",
             "help": (
                 "Return only the selected output fields, plus success/error, "
-                "symbol/timeframe, pagination, and warnings. Does not keep "
-                "freshness, source, or other unselected trust fields."
+                "symbol/timeframe, pagination, warnings, and quote trust fields "
+                "(time/quote_as_of, data_stale, usable_for_live_trading, source, "
+                "freshness) when present."
             ),
         }
         if suppress_defaults:

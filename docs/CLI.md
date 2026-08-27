@@ -197,9 +197,11 @@ the option. `--json`, `--output-fields`, and `--precision` are the global
 presentation options.
 
 Use `--output-fields` to project the final response without changing domain
-semantics:
+semantics. Quote payloads still keep freshness, source, and
+`usable_for_live_trading` when those keys exist:
 ```bash
 mtdata-cli symbols_describe EURUSD --output-fields symbol,details.digits,details.point --json
+mtdata-cli market_ticker EURUSD --output-fields bid,ask,spread --json
 ```
 
 Bare field names address top-level keys; dotted paths address nested keys.
