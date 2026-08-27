@@ -195,6 +195,7 @@ def test_stationarity_test_combines_adf_and_kpss(monkeypatch):
     assert result["success"] is True
     assert result["conclusion"] == "stationary"
     assert {row["test"] for row in result["items"]} == {"adf", "kpss"}
+    assert {row["status"] for row in result["items"]} == {"ok"}
     assert result["analysis_window"]["bars_used"] == len(frame)
 
 

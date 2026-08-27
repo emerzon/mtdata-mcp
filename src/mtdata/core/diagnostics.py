@@ -457,6 +457,7 @@ def stationarity_test(
                         alpha=alpha,
                         bound_warning=" ".join(kpss_warnings),
                     ),
+                    "status": "ok",
                     "null_hypothesis": "stationary",
                     **({"critical_values": critical_values} if detail_mode == "full" else {}),
                 }
