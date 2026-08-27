@@ -792,6 +792,39 @@ def test_news_output_uses_relative_time_for_future_events() -> None:
     assert item["match_reason"] == {"basis": "symbol_relevance_gate"}
 
 
+def test_news_date_only_events_use_calendar_relative_labels() -> None:
+    payload = {
+        "success": True,
+        "symbol": "EURUSD",
+        "general_news": [],
+        "related_news": [],
+        "impact_news": [],
+        "upcoming_events": [
+            {
+                "title": "Jackson Hole Symposium (USD)",
+                "provider": "finviz",
+                "source": "Finviz Economic Calendar",
+                "kind": "economic_event",
+                "scheduled_at": "2026-08-27",
+                "timestamp_precision": "date_only",
+                "summary": None,
+                "category": "economic_calendar",
+                "priority": "MEDIUM",
+                "relevance_score": 1.0,
+                "importance_score": 1.0,
+            }
+        ],
+    }
+
+    result = _prepare_news_output(payload, detail="compact")
+
+    item = result["upcoming_events"][0]
+    assert item["scheduled_at"] == "2026-08-27"
+    assert item["event_time_precision"] == "date_only"
+    assert "hour" not in item["relative_time"]
+    assert "minute" not in item["relative_time"]
+
+
 def test_news_compact_related_items_explain_term_matches() -> None:
     payload = {
         "success": True,

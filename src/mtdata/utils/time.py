@@ -1,7 +1,8 @@
 """Canonical time formatting and client-timezone helpers."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 from ..shared.constants import CALENDAR_TIMEFRAMES, TIMEFRAME_SECONDS
 
@@ -131,6 +132,35 @@ def format_relative_time(value: datetime, *, now: Optional[datetime] = None) -> 
             label = f"{amount} {unit_name}{'' if amount == 1 else 's'}"
             return f"in {label}" if delta_seconds < 0 else f"{label} ago"
     return "just now"
+
+
+def format_relative_date(
+    value: date | datetime,
+    *,
+    now: Optional[datetime] = None,
+    tz: Optional[ZoneInfo] = None,
+) -> str:
+    """Format a calendar date as today/tomorrow/yesterday, not a clock countdown."""
+    calendar_tz = tz or ZoneInfo("America/New_York")
+    if isinstance(value, datetime):
+        stamp = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+        event_date = stamp.astimezone(calendar_tz).date()
+    else:
+        event_date = value
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    today = current.astimezone(calendar_tz).date()
+    delta_days = (event_date - today).days
+    if delta_days == 0:
+        return "today"
+    if delta_days == 1:
+        return "tomorrow"
+    if delta_days == -1:
+        return "yesterday"
+    if delta_days > 1:
+        return f"in {delta_days} days"
+    return f"{abs(delta_days)} days ago"
 
 
 def _format_time_minimal(epoch_seconds: float) -> str:

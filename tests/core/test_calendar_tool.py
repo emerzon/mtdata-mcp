@@ -313,6 +313,85 @@ def test_economic_calendar_maps_major_us_provider_ids() -> None:
     }
 
 
+def test_economic_calendar_units_follow_row_unit_not_percent() -> None:
+    from mtdata.core.finviz.calendar import _normalize_finviz_calendar_payload
+
+    result = _normalize_finviz_calendar_payload(
+        {
+            "success": True,
+            "items": [
+                {
+                    "event": "Continuing Jobless Claims",
+                    "date": "2026-08-26T12:30:00Z",
+                    "previous": "1.799M",
+                    "forecast": "1.825M",
+                    "country": "United States",
+                    "country_code": "US",
+                }
+            ],
+            "total": 1,
+        },
+        calendar_type="economic",
+        upcoming_only=False,
+        source_is_unpaged=True,
+        limit=20,
+        page=1,
+        detail="compact",
+    )
+
+    assert result["items"][0]["unit"] == "count"
+    assert result["units"]["previous_value"] == "parsed_numeric (count)"
+    assert "percent" not in result["units"]["previous_value"]
+
+
+def test_economic_calendar_mixed_units_do_not_claim_percent() -> None:
+    from mtdata.core.finviz.calendar import _normalize_finviz_calendar_payload
+
+    result = _normalize_finviz_calendar_payload(
+        {
+            "success": True,
+            "items": [
+                {
+                    "event": "CPI YoY",
+                    "date": "2026-08-26T12:30:00Z",
+                    "previous": "3.790%",
+                    "country": "United States",
+                    "country_code": "US",
+                },
+                {
+                    "event": "Continuing Jobless Claims",
+                    "date": "2026-08-26T12:30:00Z",
+                    "previous": "1.799M",
+                    "country": "United States",
+                    "country_code": "US",
+                },
+            ],
+            "total": 2,
+        },
+        calendar_type="economic",
+        upcoming_only=False,
+        source_is_unpaged=True,
+        limit=20,
+        page=1,
+        detail="compact",
+    )
+
+    assert result["units"]["previous_value"] == "parsed_numeric (per-row unit)"
+
+
+def test_economic_calendar_utc_midnight_is_date_only() -> None:
+    from mtdata.core.finviz.calendar import _normalize_finviz_economic_calendar_time
+
+    result = _normalize_finviz_economic_calendar_time(
+        {"event": "Jackson Hole Symposium", "date": "2026-08-27T00:00:00Z"}
+    )
+
+    assert result["event_time_precision"] == "date_only"
+    assert result["scheduled_at"] == "2026-08-27"
+    assert result["date"] == "2026-08-27"
+    assert "local_time" not in result
+
+
 def test_economic_calendar_compact_items_include_scheduled_at() -> None:
     from mtdata.core.finviz.calendar import _compact_finviz_calendar_item
 

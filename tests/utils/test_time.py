@@ -1,10 +1,11 @@
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import mtdata.utils.time as time_utils
 from mtdata.utils.time import (
     as_utc,
     format_datetime_utc,
     format_epoch_utc,
+    format_relative_date,
     format_relative_time,
     parse_iso_utc,
 )
@@ -81,3 +82,10 @@ def test_format_relative_time_handles_past_future_and_large_units() -> None:
     assert format_relative_time(now + timedelta(hours=3), now=now) == "in 3 hours"
     assert format_relative_time(now - timedelta(days=14), now=now) == "2 weeks ago"
     assert format_relative_time(now - timedelta(days=60), now=now) == "2 months ago"
+
+
+def test_format_relative_date_uses_calendar_days_not_midnight_countdown() -> None:
+    now = datetime(2026, 8, 26, 20, 42, tzinfo=timezone.utc)
+
+    assert format_relative_date(date(2026, 8, 27), now=now) == "tomorrow"
+    assert format_relative_date(date(2026, 8, 26), now=now) == "today"

@@ -141,6 +141,24 @@ def parse_finviz_datetime(
     return parsed.astimezone(datetime.timezone.utc)
 
 
+def finviz_timestamp_is_date_only(value: Any, parsed: Optional[datetime.datetime] = None) -> bool:
+    """True when a provider timestamp is a calendar date, not a clock time."""
+    text = str(value or "").strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        return True
+    if re.search(r"T00:00:00(?:Z)?$", text, flags=re.IGNORECASE):
+        return True
+    if parsed is None:
+        return False
+    utc = parsed.astimezone(datetime.timezone.utc)
+    return (
+        utc.hour == 0
+        and utc.minute == 0
+        and utc.second == 0
+        and utc.microsecond == 0
+    )
+
+
 def normalize_finviz_dates_in_rows(
     rows: List[Dict[str, Any]], *keys: str
 ) -> List[Dict[str, Any]]:

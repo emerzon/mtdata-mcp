@@ -11,7 +11,12 @@ from pydantic import Field
 
 from ..services.research.payload import stamp_provider
 from ..services.unified_news import fetch_unified_news
-from ..utils.time import format_datetime_utc, format_relative_time, parse_iso_utc
+from ..utils.time import (
+    format_datetime_utc,
+    format_relative_date,
+    format_relative_time,
+    parse_iso_utc,
+)
 from ..utils.utils import _parse_end_datetime, _parse_start_datetime
 from ._mcp_instance import mcp
 from .error_envelope import build_error_payload
@@ -82,6 +87,7 @@ _NEWS_COMPACT_ITEM_DROP_KEYS = frozenset(
         "importance_score",
         "metadata",
         "category",
+        "timestamp_precision",
     }
 )
 _NEWS_COMPACT_BROAD_LIMIT = 10
@@ -171,14 +177,34 @@ def _news_data_fetched_at() -> str:
     return format_datetime_utc(datetime.now(timezone.utc))
 
 
+def _news_event_is_date_only(value: Dict[str, Any]) -> bool:
+    precision = str(
+        value.get("event_time_precision") or value.get("timestamp_precision") or ""
+    ).strip().lower()
+    if precision == "date_only":
+        return True
+    scheduled = str(value.get("scheduled_at") or "").strip()
+    return bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", scheduled))
+
+
 def _news_compact_time_field(
     published_at_value: Any,
     *,
     metadata_relative_time: Optional[str] = None,
+    date_only: bool = False,
 ) -> tuple[Optional[str], Optional[str]]:
-    published_at = _news_datetime_utc(published_at_value)
     if metadata_relative_time:
         return "relative_time", metadata_relative_time
+    if date_only:
+        scheduled_text = str(published_at_value or "").strip()
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", scheduled_text):
+            event_date = datetime.strptime(scheduled_text, "%Y-%m-%d").date()
+            return "relative_time", format_relative_date(event_date)
+        published_at = _news_datetime_utc(published_at_value)
+        if published_at is None:
+            return None, None
+        return "relative_time", format_relative_date(published_at)
+    published_at = _news_datetime_utc(published_at_value)
     if published_at is None:
         return None, None
     relative_time = format_relative_time(published_at)
@@ -187,7 +213,7 @@ def _news_compact_time_field(
     return "time_utc", _news_time_utc_text(published_at)
 
 
-def _strip_news_compact_item_fields(
+def _strip_news_compact_item_fields(  # noqa: C901
     value: Any,
     *,
     include_relevance: bool = False,
@@ -198,24 +224,30 @@ def _strip_news_compact_item_fields(
 
     kind = str(value.get("kind") or "").strip().lower()
     economic_event = kind == "economic_event"
+    date_only = economic_event and _news_event_is_date_only(value)
     scheduled_at_value = value.get("scheduled_at")
     if economic_event and scheduled_at_value in (None, ""):
         scheduled_at_value = value.get("published_at")
 
     existing_relative_time = value.get("relative_time")
-    if isinstance(existing_relative_time, str) and existing_relative_time.strip():
+    if (
+        isinstance(existing_relative_time, str)
+        and existing_relative_time.strip()
+        and not date_only
+    ):
         time_field_name = "relative_time"
         time_field_value = existing_relative_time.strip()
     else:
         metadata_relative_time = None
         metadata = value.get("metadata")
-        if isinstance(metadata, dict):
+        if isinstance(metadata, dict) and not date_only:
             metadata_relative = metadata.get("relative_time")
             if isinstance(metadata_relative, str) and metadata_relative.strip():
                 metadata_relative_time = metadata_relative.strip()
         time_field_name, time_field_value = _news_compact_time_field(
             scheduled_at_value if economic_event else value.get("published_at"),
             metadata_relative_time=metadata_relative_time,
+            date_only=date_only,
         )
         if not time_field_name:
             existing_time_utc = value.get("time_utc")
@@ -245,7 +277,20 @@ def _strip_news_compact_item_fields(
     if not economic_event and published_at not in (None, ""):
         out["published_at"] = _news_iso_utc(published_at)
     if economic_event and scheduled_at_value not in (None, ""):
-        out["scheduled_at"] = _news_iso_utc(scheduled_at_value)
+        if date_only:
+            scheduled_text = str(scheduled_at_value).strip()
+            if re.fullmatch(r"\d{4}-\d{2}-\d{2}", scheduled_text):
+                out["scheduled_at"] = scheduled_text
+            else:
+                parsed_date = _news_datetime_utc(scheduled_at_value)
+                out["scheduled_at"] = (
+                    parsed_date.astimezone(timezone.utc).date().isoformat()
+                    if parsed_date is not None
+                    else scheduled_text
+                )
+            out["event_time_precision"] = "date_only"
+        else:
+            out["scheduled_at"] = _news_iso_utc(scheduled_at_value)
     if time_field_name and time_field_value:
         out[time_field_name] = time_field_value
     if include_relevance and value.get("relevance_score") is not None:
@@ -273,6 +318,8 @@ def _strip_news_compact_item_fields(
             "scheduled_at",
             "relative_time",
             "time_utc",
+            "event_time_precision",
+            "timestamp_precision",
         }:
             continue
         if key_text in _NEWS_COMPACT_ITEM_DROP_KEYS:
@@ -436,6 +483,11 @@ def normalize_news_output(
         if key_text in _NEWS_BUCKET_KEYS and isinstance(subvalue, list):
             if not subvalue:
                 continue
+            if (
+                key_text == "general_news"
+                and str(result.get("relevance_status") or "") == "no_symbol_specific_news"
+            ):
+                continue
             if key_text == "related_news":
                 subvalue = _compact_diversify_news_items(subvalue)
             out[key] = [
@@ -449,6 +501,16 @@ def normalize_news_output(
             continue
         out[key] = subvalue
     out.update(provenance)
+    if (
+        str(result.get("relevance_status") or "") == "no_symbol_specific_news"
+        and isinstance(result.get("general_news"), list)
+        and result.get("general_news")
+        and "general_news" not in out
+    ):
+        out["market_wide_note"] = (
+            "Market-wide headlines were omitted from compact output; "
+            "pass --detail full to include them."
+        )
     visible_bucket_keys = tuple(
         key for key in _NEWS_BUCKET_KEYS if key != "market_context"
     )

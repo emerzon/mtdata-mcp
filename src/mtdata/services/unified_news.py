@@ -36,6 +36,7 @@ from .finviz import (
 )
 from .finviz.dates import (
     FINVIZ_CALENDAR_TIMEZONE,
+    finviz_timestamp_is_date_only,
     parse_finviz_datetime,
     parse_finviz_publication_date,
 )
@@ -452,7 +453,12 @@ class NewsItem:
         if self.source_timezone is not None:
             payload["source_timezone"] = self.source_timezone
         if self.scheduled_at is not None:
-            payload["scheduled_at"] = self.scheduled_at.isoformat()
+            if self.timestamp_precision == "date_only":
+                payload["scheduled_at"] = (
+                    self.scheduled_at.astimezone(timezone.utc).date().isoformat()
+                )
+            else:
+                payload["scheduled_at"] = self.scheduled_at.isoformat()
         reference_date = self.metadata.get("reference_date") if self.metadata else None
         if isinstance(reference_date, str) and reference_date.strip():
             payload["reference_date"] = reference_date.strip()
@@ -1922,6 +1928,11 @@ class FinvizNewsSource:
                     3: "high",
                 }.get(raw_importance if isinstance(raw_importance, int) else None, "")
                 scheduled_at = _maybe_parse_finviz_datetime(item.get("date"))
+                timestamp_precision = (
+                    "date_only"
+                    if finviz_timestamp_is_date_only(item.get("date"), scheduled_at)
+                    else None
+                )
                 reference_date = _economic_reference_date(item, scheduled_at)
                 summary_parts = []
                 for display_key, item_key in (
@@ -1961,6 +1972,7 @@ class FinvizNewsSource:
                         source="Finviz Economic Calendar",
                         kind="economic_event",
                         scheduled_at=scheduled_at,
+                        timestamp_precision=timestamp_precision,
                         summary=" | ".join(summary_parts) or None,
                         category="economic_calendar",
                         priority=priority,

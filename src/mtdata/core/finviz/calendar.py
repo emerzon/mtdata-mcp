@@ -51,6 +51,7 @@ from mtdata.services.finviz import (
 )
 from mtdata.services.finviz.dates import (
     finviz_earnings_period_window,
+    finviz_timestamp_is_date_only,
     parse_finviz_earnings_date,
 )
 from mtdata.shared.schema import DetailLiteral
@@ -419,8 +420,19 @@ def _parse_finviz_calendar_time(value: Any) -> Optional[datetime]:
 
 def _normalize_finviz_economic_calendar_time(item: Dict[str, Any]) -> Dict[str, Any]:
     normalized = dict(item)
-    parsed = _parse_finviz_calendar_time(normalized.get("date"))
+    raw_value = normalized.get("date")
+    parsed = _parse_finviz_calendar_time(raw_value)
     if parsed is None:
+        return normalized
+    if finviz_timestamp_is_date_only(raw_value, parsed):
+        event_date = parsed.astimezone(timezone.utc).date().isoformat()
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(raw_value or "").strip()):
+            event_date = str(raw_value).strip()
+        normalized["event_time_precision"] = "date_only"
+        normalized["scheduled_at"] = event_date
+        normalized["date"] = event_date
+        normalized.pop("local_time", None)
+        normalized["local_timezone"] = _FINVIZ_CALENDAR_LOCAL_TIMEZONE
         return normalized
     local_dt = parsed.astimezone(_FINVIZ_CALENDAR_LOCAL_TZ)
     normalized["local_time"] = local_dt.replace(microsecond=0).isoformat()
@@ -1020,18 +1032,27 @@ def _finviz_calendar_item_is_upcoming(
 ) -> bool:
     if item.get("actual") not in (None, ""):
         return False
-    raw_date = item.get("date") or item.get("earnings_date")
+    raw_date = item.get("scheduled_at") or item.get("date") or item.get("earnings_date")
     if raw_date in (None, ""):
         return False
+    reference = now or datetime.now(timezone.utc)
+    if reference.tzinfo is None:
+        reference = reference.replace(tzinfo=timezone.utc)
+    if str(item.get("event_time_precision") or "").strip().lower() == "date_only":
+        raw_text = str(raw_date).strip()
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw_text):
+            try:
+                event_date = datetime.strptime(raw_text, "%Y-%m-%d").date()
+            except ValueError:
+                return False
+            today_ny = reference.astimezone(_FINVIZ_CALENDAR_LOCAL_TZ).date()
+            return event_date >= today_ny
     try:
         event_time = datetime.fromisoformat(str(raw_date))
     except (TypeError, ValueError):
         return False
     if event_time.tzinfo is None:
         event_time = event_time.replace(tzinfo=timezone.utc)
-    reference = now or datetime.now(timezone.utc)
-    if reference.tzinfo is None:
-        reference = reference.replace(tzinfo=timezone.utc)
     return event_time.astimezone(timezone.utc) >= reference.astimezone(timezone.utc)
 
 
@@ -1100,6 +1121,28 @@ def _finviz_calendar_row_items(
     ]
 
 
+def _economic_calendar_numeric_unit_label(items: Any) -> str:
+    row_units: list[str] = []
+    if isinstance(items, list):
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            unit = str(item.get("unit") or "").strip().lower()
+            if unit:
+                row_units.append(unit)
+    unique_units = list(dict.fromkeys(row_units))
+    if len(unique_units) == 1:
+        unit = unique_units[0]
+        if unit == "percent":
+            return "parsed_numeric (percent: 1.0 = 1%)"
+        if unit == "count":
+            return "parsed_numeric (count)"
+        if unit == "currency":
+            return "parsed_numeric (listing currency)"
+        return f"parsed_numeric ({unit})"
+    return "parsed_numeric (per-row unit)"
+
+
 def _apply_finviz_calendar_units(
     out: Dict[str, Any],
     *,
@@ -1118,11 +1161,12 @@ def _apply_finviz_calendar_units(
         return
     if kind == "economic":
         units = dict(out.get("units") or {})
+        numeric_label = _economic_calendar_numeric_unit_label(out.get("items"))
         units.update(
             {
-                "actual_value": "parsed_numeric (percent: 1.0 = 1%)",
-                "previous_value": "parsed_numeric (percent: 1.0 = 1%)",
-                "forecast_value": "parsed_numeric (percent: 1.0 = 1%)",
+                "actual_value": numeric_label,
+                "previous_value": numeric_label,
+                "forecast_value": numeric_label,
             }
         )
         if shape_detail not in {"compact", "summary"}:
