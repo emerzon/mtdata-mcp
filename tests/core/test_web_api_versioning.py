@@ -96,7 +96,7 @@ def test_history_available_on_versioned_route() -> None:
         "provider": "mt5",
         "context_available": False,
     }
-    assert body["latest_quote_stale"] is False
+    assert body["latest_quote_stale"] is None
     assert body["latest_quote_age_seconds"] is None
     assert body["freshness_reason"] is None
     assert body["freshness_basis"] is None

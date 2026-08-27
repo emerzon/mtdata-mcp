@@ -783,6 +783,23 @@ class TestToolRegistries:
 
 class TestRecordingToolDecorator:
 
+    @pytest.fixture(autouse=True)
+    def _restore_tool_registries(self):
+        """Keep decorator probes from polluting later catalog tests."""
+        import mtdata.core._mcp_tools as tools
+
+        registrations = {
+            name: tools._ToolRegistration(
+                function=entry.function,
+                tool_object=entry.tool_object,
+            )
+            for name, entry in tools._TOOL_METADATA_REGISTRY.items()
+        }
+        yield
+        tools._TOOL_METADATA_REGISTRY.clear()
+        tools._TOOL_METADATA_REGISTRY.update(registrations)
+        tools._sync_tool_registry_views()
+
     def test_noop_fallback_when_no_orig(self):
         import mtdata.core._mcp_tools as tools
 

@@ -911,7 +911,7 @@ class TestGetHistory:
         assert call_arg["keep_original"] is False
         assert call_arg["columns"] == ["close"]
 
-    def test_denoise_kv_params_use_shared_last_value_policy(self):
+    def test_denoise_kv_params_reject_duplicate_keys(self):
         payload = {"data": [{"time": 1.0}]}
         dn_methods = {"methods": [{"method": "wavelet", "available": True}]}
         with patch.object(mt5_connection, "_ensure_connection", return_value=True), \
@@ -925,8 +925,11 @@ class TestGetHistory:
                 "denoise_method": "wavelet",
                 "denoise_params": "level=3,level=4",
             })
-        assert resp.status_code == 200
-        assert mock_norm.call_args[0][0]["params"] == {"level": 4}
+        assert resp.status_code == 400
+        detail = resp.json()["detail"]
+        assert detail["error_code"] == "denoise_params_invalid"
+        assert detail["error"] == "Duplicate mapping key: 'level'."
+        mock_norm.assert_not_called()
 
     def test_denoise_kv_params_support_comma_values_and_native_scalars(self):
         payload = {"data": [{"time": 1.0}]}
