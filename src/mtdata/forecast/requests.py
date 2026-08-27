@@ -260,12 +260,16 @@ class ForecastGenerateRequest(_PublicForecastRequest):
 
 
 class _RollingWindowForecastRequest(_PublicForecastRequest):
+    steps: int
+    spacing: int
+    horizon: int
+
     @model_validator(mode="after")
     def _validate_rolling_spacing(self) -> "_RollingWindowForecastRequest":
         _validate_backtest_spacing(
-            steps=int(getattr(self, "steps")),
-            spacing=int(getattr(self, "spacing")),
-            horizon=int(getattr(self, "horizon")),
+            steps=int(self.steps),
+            spacing=int(self.spacing),
+            horizon=int(self.horizon),
         )
         return self
 

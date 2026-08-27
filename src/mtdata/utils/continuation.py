@@ -6,7 +6,7 @@ import base64
 import json
 import time
 from collections.abc import Collection, Mapping
-from typing import Any, Optional, Union
+from typing import Any, Union
 
 
 def encode_continuation_cursor(payload: Mapping[str, Any]) -> str:

@@ -8,6 +8,10 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 from ...services.data_service.errors import attach_empty_range_weekend_context
+from ...utils.continuation import (
+    decode_continuation_cursor,
+    encode_continuation_cursor,
+)
 from ...utils.freshness import format_age_seconds as _format_age_seconds
 from ...utils.freshness import format_freshness_label
 from ...utils.market_metadata import (
@@ -28,10 +32,6 @@ from ...utils.quote import (
 from ...utils.symbol import (
     find_live_extended_session_symbols,
     symbol_suggestions_from_gateway,
-)
-from ...utils.continuation import (
-    decode_continuation_cursor,
-    encode_continuation_cursor,
 )
 from ...utils.time import bar_close_epoch, format_datetime_utc
 from ...utils.utils import (
