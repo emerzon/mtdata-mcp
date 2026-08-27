@@ -992,6 +992,8 @@ def _normalize_trade_payload(  # noqa: C901
             payload.get("would_send_order"),
         )
     _maybe_add_trade_key(out, "symbol", payload.get("symbol"))
+    if "symbol" not in out:
+        _maybe_add_trade_key(out, "symbol", payload.get("target_symbol"))
     _maybe_add_trade_key(out, "order_type", payload.get("order_type"))
     _maybe_add_trade_key(out, "pending", payload.get("pending"))
     _maybe_add_trade_key(out, "action", payload.get("action"))
@@ -1000,6 +1002,14 @@ def _normalize_trade_payload(  # noqa: C901
     _maybe_add_trade_key(out, "deal", payload.get("deal"), skip_zero=True)
     _maybe_add_trade_key(out, "ticket", resolved_ticket, skip_zero=True)
     _maybe_add_trade_key(out, "volume", payload.get("volume"))
+    if "volume" not in out:
+        _maybe_add_trade_key(out, "volume", payload.get("target_volume"))
+    _maybe_add_trade_key(out, "total_profit", payload.get("total_profit"))
+    _maybe_add_trade_key(out, "total_volume", payload.get("total_volume"))
+    _maybe_add_trade_key(out, "market_readiness", payload.get("market_readiness"))
+    matched_positions = payload.get("matched_positions")
+    if isinstance(matched_positions, list) and matched_positions:
+        out["matched_positions"] = matched_positions
     _maybe_add_trade_key(out, "price", payload.get("requested_price"))
     if "price" not in out:
         _maybe_add_trade_key(out, "price", payload.get("applied_price"))
@@ -1223,6 +1233,7 @@ def _normalize_market_ticker_payload(  # noqa: C901
         "quote_conflict_pips",
         "alternate_bid",
         "alternate_ask",
+        "source",
     ]
     if not _is_empty_value(payload.get("spread")):
         compact_keys.append("spread")
@@ -1536,6 +1547,8 @@ def _normalize_barrier_prob_payload(
         "same_bar_policy_reason",
         "data_as_of",
         "last_bar_open",
+        "timezone",
+        "source",
         "usable_for_live_trading",
         "execution_blockers",
         "status_reason",
@@ -2316,6 +2329,12 @@ def _normalize_support_resistance_payload(  # noqa: C901
         "mode",
         "method",
         "current_price",
+        "current_price_source",
+        "current_price_as_of",
+        "timezone",
+        "source",
+        "data_as_of",
+        "structure_as_of",
         "level_counts",
         "role_note",
         "level_scan_note",

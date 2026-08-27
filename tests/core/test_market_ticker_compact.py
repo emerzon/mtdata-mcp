@@ -30,6 +30,25 @@ def test_compact_ticker_keeps_absolute_spread_for_non_forex_quotes() -> None:
     assert result["units"] == {"spread": "absolute_price"}
 
 
+def test_compact_ticker_keeps_mt5_source() -> None:
+    result = _compact_market_ticker_payload(
+        {
+            "success": True,
+            "symbol": "EURUSD",
+            "bid": 1.16543,
+            "ask": 1.16548,
+            "source": {
+                "provider": "mt5",
+                "broker_company": "Raw Trading Ltd",
+                "server": "ICMarketsSC-Demo",
+            },
+        }
+    )
+
+    assert result["source"]["provider"] == "mt5"
+    assert result["source"]["server"] == "ICMarketsSC-Demo"
+
+
 def test_compact_ticker_preserves_delayed_freshness_label() -> None:
     result = _compact_market_ticker_payload(
         {

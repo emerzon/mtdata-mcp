@@ -181,6 +181,7 @@ def _compact_market_ticker_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
         "timestamp_skew_tolerance_seconds",
         "timestamp_warning",
         "warning",
+        "source",
         "quote_source",
         "quote_source_state",
         "quote_source_conflict",

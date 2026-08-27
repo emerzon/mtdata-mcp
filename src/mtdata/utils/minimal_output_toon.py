@@ -303,7 +303,7 @@ def _stringify_cell(
                 return (
                     format_number(num)
                     if simplify_numbers
-                    else _format_number_full(num)
+                    else _format_number_plain(num)
                 )
         return _stringify_scalar(value)
     if isinstance(value, list):
@@ -481,7 +481,7 @@ def _stringify_for_toon(
             return _stringify_nonfinite_number(value)
         if decimals is not None:
             return _format_float(value, int(decimals))
-        return format_number(value) if simplify_numbers else _format_number_full(value)
+        return format_number(value) if simplify_numbers else _format_number_plain(value)
     return _quote_if_needed(str(value), delimiter)
 
 
@@ -527,7 +527,7 @@ def _stringify_for_toon_value(
             and _forced_scalar_decimals(field, parent_key=parent_key) is not None
         ):
             return _format_number_plain(num)
-        return format_number(num) if simplify_numbers else _format_number_full(num)
+        return format_number(num) if simplify_numbers else _format_number_plain(num)
     return _quote_if_needed(str(value), delimiter)
 
 
