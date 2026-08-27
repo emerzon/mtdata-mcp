@@ -968,7 +968,10 @@ def test_report_generate_rejects_future_end():
     from mtdata.core.report.requests import ReportGenerateRequest
 
     future = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
-    with pytest.raises(ValidationError, match="end must not be in the future") as caught:
+    with pytest.raises(
+        ValidationError,
+        match="in the future; historical ranges must have elapsed",
+    ) as caught:
         ReportGenerateRequest(symbol="EURUSD", end=future)
 
     payload = {

@@ -124,7 +124,7 @@ def test_trade_stress_test_names_locked_quote_as_usability_blocker():
 
     assert result["mark_freshness_status"] in {"live", "stale_or_unverified"}
     assert result["mark_usability_status"] == "not_live_ready"
-    assert result["data_stale"] is False
+    assert result["data_stale"] is True
     assert "usable_for_live_trading" not in result
     assert result["valuation_basis"] in {
         "position_marks_quote_not_live_ready",

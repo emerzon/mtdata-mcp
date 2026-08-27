@@ -201,7 +201,10 @@ def test_compact_backtest_ranks_low_history_methods() -> None:
     assert ranked["history_sample_ok"] is False
     assert ranked["forecast_reliability"] == "low"
     assert ranked["recommended_history_bars"] == 30
-    assert ranked["selection_warning"] == "low_history_sample"
+    assert ranked["selection_warning"] == (
+        "ranking_uses_forecast_error_only; trading metrics are unavailable; "
+        "low_history_sample"
+    )
     assert compact["results"]["theta"]["history_sample_ok"] is False
     assert compact["results"]["theta"]["low_history_anchors"] == 3
     assert compact["execution_policy"] == {

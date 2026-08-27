@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import math
 from datetime import datetime, timezone
-from types import SimpleNamespace
 from typing import Any
 
 import numpy as np
@@ -54,14 +53,6 @@ def _session_rates(days: int = 40, bars_per_day: int = 7):
 def test_volatility_rates_cache_reuses_superset_only_within_scope(monkeypatch):
     source = _rates(120)
     fetch_counts = []
-    monkeypatch.setattr(
-        vol.mt5, "symbol_info", lambda _symbol: SimpleNamespace(visible=True)
-    )
-    monkeypatch.setattr(
-        vol.mt5,
-        "symbol_info_tick",
-        lambda _symbol: SimpleNamespace(time=source[-1]["time"]),
-    )
 
     def fetch(_symbol, _timeframe, count, *_args, **_kwargs):
         fetch_counts.append(count)
@@ -288,10 +279,6 @@ def test_forecast_volatility_estimate_request_maps_lookback_and_rejects_conflict
 def test_forecast_volatility_accepts_top_level_lookback(monkeypatch):
     monkeypatch.setattr(vol, "TIMEFRAME_MAP", {"H1": 1})
     monkeypatch.setattr(vol, "TIMEFRAME_SECONDS", {"H1": 3600})
-    monkeypatch.setattr(vol.mt5, "symbol_info", lambda _symbol: SimpleNamespace(visible=True))
-    monkeypatch.setattr(vol.mt5, "symbol_info_tick", lambda _symbol: SimpleNamespace(time=1_700_100_000))
-    monkeypatch.setattr("mtdata.utils.mt5._mt5_epoch_to_utc", lambda t: float(t))
-    monkeypatch.setattr(vol.mt5, "last_error", lambda: (0, "ok"))
     monkeypatch.setattr(vol, "fetch_history_frame", lambda *args, **kwargs: _rates(240))
 
     out = vol.forecast_volatility(
@@ -403,11 +390,6 @@ def test_forecast_volatility_general_theta_and_proxy_errors(monkeypatch):
     monkeypatch.setattr(vol, "TIMEFRAME_MAP", {"H1": 1})
     monkeypatch.setattr(vol, "TIMEFRAME_SECONDS", {"H1": 3600})
     monkeypatch.setattr(vol, "fetch_history_frame", lambda *args, **kwargs: _rates(360))
-    monkeypatch.setattr(vol.mt5, "symbol_info", lambda _symbol: SimpleNamespace(visible=False))
-    monkeypatch.setattr(vol.mt5, "symbol_info_tick", lambda _symbol: SimpleNamespace(time=1_700_100_000))
-    monkeypatch.setattr("mtdata.utils.mt5._mt5_epoch_to_utc", lambda t: float(t))
-    monkeypatch.setattr(vol.mt5, "symbol_select", lambda _symbol, _visible: True)
-    monkeypatch.setattr(vol.mt5, "last_error", lambda: (0, "ok"))
 
     out = vol.forecast_volatility(symbol="EURUSD", timeframe="H1", method="theta", proxy=None)
     assert "--proxy" in out["error"]
@@ -494,10 +476,6 @@ def test_forecast_volatility_estimate_request_proxy_choices():
 def test_forecast_volatility_direct_methods_and_short_data(monkeypatch):
     monkeypatch.setattr(vol, "TIMEFRAME_MAP", {"H1": 1})
     monkeypatch.setattr(vol, "TIMEFRAME_SECONDS", {"H1": 3600})
-    monkeypatch.setattr(vol.mt5, "symbol_info", lambda _symbol: SimpleNamespace(visible=True))
-    monkeypatch.setattr(vol.mt5, "symbol_info_tick", lambda _symbol: SimpleNamespace(time=1_700_100_000))
-    monkeypatch.setattr("mtdata.utils.mt5._mt5_epoch_to_utc", lambda t: float(t))
-    monkeypatch.setattr(vol.mt5, "last_error", lambda: (0, "ok"))
     monkeypatch.setattr(vol, "fetch_history_frame", lambda *args, **kwargs: _rates(240))
 
     out = vol.forecast_volatility(
@@ -564,8 +542,6 @@ def test_forecast_volatility_direct_methods_and_short_data(monkeypatch):
 
 def test_forecast_volatility_trusts_closed_history_gateway(monkeypatch):
     rates = _rates(240)
-    monkeypatch.setattr(vol.mt5, "symbol_info", lambda _symbol: SimpleNamespace(visible=True))
-    monkeypatch.setattr(vol.mt5, "last_error", lambda: (0, "ok"))
     monkeypatch.setattr(vol, "fetch_history_frame", lambda *_args, **_kwargs: rates)
 
     out = vol.forecast_volatility(
@@ -582,9 +558,6 @@ def test_forecast_volatility_trusts_closed_history_gateway(monkeypatch):
 def test_forecast_volatility_uses_observed_session_density(monkeypatch):
     rates = _session_rates()
     monkeypatch.setattr(vol, "fetch_history_frame", lambda *args, **kwargs: rates)
-    monkeypatch.setattr(vol.mt5, "symbol_info", lambda _symbol: SimpleNamespace(visible=True))
-    monkeypatch.setattr(vol.mt5, "symbol_info_tick", lambda _symbol: SimpleNamespace(time=rates[-1]["time"]))
-    monkeypatch.setattr(vol.mt5, "last_error", lambda: (0, "ok"))
 
     out = vol.forecast_volatility(
         symbol="AAPL",
@@ -618,10 +591,6 @@ def test_forecast_volatility_uses_observed_session_density(monkeypatch):
 def test_forecast_volatility_compact_includes_input_window(monkeypatch):
     monkeypatch.setattr(vol, "TIMEFRAME_MAP", {"H1": 1})
     monkeypatch.setattr(vol, "TIMEFRAME_SECONDS", {"H1": 3600})
-    monkeypatch.setattr(vol.mt5, "symbol_info", lambda _symbol: SimpleNamespace(visible=True))
-    monkeypatch.setattr(vol.mt5, "symbol_info_tick", lambda _symbol: SimpleNamespace(time=1_700_100_000))
-    monkeypatch.setattr("mtdata.utils.mt5._mt5_epoch_to_utc", lambda value: float(value))
-    monkeypatch.setattr(vol.mt5, "last_error", lambda: (0, "ok"))
     monkeypatch.setattr(vol, "fetch_history_frame", lambda *args, **kwargs: _rates(120))
 
     out = vol.forecast_volatility(
@@ -797,10 +766,6 @@ def test_finalize_volatility_standard_keeps_pct_aliases_and_notes():
 def test_forecast_volatility_yang_zhang_weights_overnight_variance(monkeypatch):
     monkeypatch.setattr(vol, "TIMEFRAME_MAP", {"H1": 1})
     monkeypatch.setattr(vol, "TIMEFRAME_SECONDS", {"H1": 3600})
-    monkeypatch.setattr(vol.mt5, "symbol_info", lambda _symbol: SimpleNamespace(visible=True))
-    monkeypatch.setattr(vol.mt5, "symbol_info_tick", lambda _symbol: SimpleNamespace(time=1_700_100_000))
-    monkeypatch.setattr("mtdata.utils.mt5._mt5_epoch_to_utc", lambda t: float(t))
-    monkeypatch.setattr(vol.mt5, "last_error", lambda: (0, "ok"))
 
     rows = [
         (100.0, 110.0),
@@ -864,9 +829,6 @@ def test_forecast_volatility_yang_zhang_weights_overnight_variance(monkeypatch):
 def test_parkinson_aggregates_the_requested_range_window(monkeypatch):
     monkeypatch.setattr(vol, "TIMEFRAME_MAP", {"H1": 1})
     monkeypatch.setattr(vol, "TIMEFRAME_SECONDS", {"H1": 3600})
-    monkeypatch.setattr(vol.mt5, "symbol_info", lambda _symbol: SimpleNamespace(visible=True))
-    monkeypatch.setattr(vol.mt5, "symbol_info_tick", lambda _symbol: SimpleNamespace(time=1_700_100_000))
-    monkeypatch.setattr(vol.mt5, "last_error", lambda: (0, "ok"))
 
     bars = []
     for idx in range(20):
@@ -904,10 +866,6 @@ def test_parkinson_aggregates_the_requested_range_window(monkeypatch):
 def test_forecast_volatility_ensemble_aggregates_component_methods(monkeypatch):
     monkeypatch.setattr(vol, "TIMEFRAME_MAP", {"H1": 1})
     monkeypatch.setattr(vol, "TIMEFRAME_SECONDS", {"H1": 3600})
-    monkeypatch.setattr(vol.mt5, "symbol_info", lambda _symbol: SimpleNamespace(visible=True))
-    monkeypatch.setattr(vol.mt5, "symbol_info_tick", lambda _symbol: SimpleNamespace(time=1_700_100_000))
-    monkeypatch.setattr("mtdata.utils.mt5._mt5_epoch_to_utc", lambda t: float(t))
-    monkeypatch.setattr(vol.mt5, "last_error", lambda: (0, "ok"))
     monkeypatch.setattr(vol, "fetch_history_frame", lambda *args, **kwargs: _rates(240))
 
     ewma = vol.forecast_volatility(symbol="EURUSD", timeframe="H1", horizon=5, method="ewma")

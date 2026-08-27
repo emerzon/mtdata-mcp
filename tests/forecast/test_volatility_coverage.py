@@ -925,10 +925,7 @@ class TestForecastVolatilityAsOf:
         fetch.assert_not_called()
 
     def test_empty_successful_mt5_range_has_typed_no_data_error(self):
-        with (
-            patch(f"{MOD}._fetch_mt5_rates_guarded", return_value=([], None)),
-            patch(f"{MOD}.mt5.last_error", return_value=(1, "Success")),
-        ):
+        with patch(f"{MOD}._fetch_mt5_rates_guarded", return_value=([], None)):
             result = forecast_volatility(
                 "EURUSD",
                 "H1",
@@ -1192,10 +1189,6 @@ def _mock_env(
     else:
         rates = rates_return
 
-    mock_info = MagicMock(visible=info_visible)
-    mock_tick = MagicMock()
-    mock_tick.time = tick_time
-
     copy_kw = ({"side_effect": rates_side_effect}
                if rates_side_effect is not None else {"return_value": rates})
     if ensure_side_effect is not None:
@@ -1217,15 +1210,9 @@ def _mock_env(
             f"{MOD}._requested_timeframe_grid_anchor",
             side_effect=test_grid_anchor,
         ) as m_grid_anchor,
-        patch(f"{MOD}.mt5") as m_mt5,
     ):
-        m_mt5.symbol_info.return_value = mock_info
-        m_mt5.symbol_info_tick.return_value = mock_tick
-        m_mt5.last_error.return_value = (-1, "mock error")
-        if select_side_effect is not None:
-            m_mt5.symbol_select.side_effect = select_side_effect
         yield {
-            "mt5": m_mt5,
+            "mt5": MagicMock(),
             "copy_rates": m_copy,
             "ensure": m_copy,
             "grid_anchor": m_grid_anchor,

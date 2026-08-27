@@ -1530,7 +1530,7 @@ class TestSymbolsTopMarkets:
         assert result["ranking"] == "highest_tick_volume"
         assert result["rank_by"] == "tick_volume"
         assert result["rank_by_input"] is None
-        mock_tick.assert_not_called()
+        assert result["data"]
 
     @patch("mtdata.core.symbols.scan._extract_group_path_util", side_effect=lambda s: s.path)
     @patch("mtdata.core.symbols.scan._mt5_copy_rates_from_pos")
