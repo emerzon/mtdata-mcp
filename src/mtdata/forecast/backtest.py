@@ -2015,6 +2015,8 @@ def strategy_backtest(  # noqa: C901
             "usage": "research_only",
             "symbol": symbol,
             "timeframe": timeframe,
+            "timezone": "UTC",
+            "bar_timestamp_basis": "open_time",
             "strategy": strategy_value,
             "detail": detail_mode,
             "position_mode": position_mode_value,
@@ -2057,6 +2059,8 @@ def strategy_backtest(  # noqa: C901
                     else _format_time_minimal(float(times[start_signal_idx + 1]))
                 ),
                 "evaluation_end": _format_time_minimal(float(times[-1])),
+                "timezone": "UTC",
+                "bar_timestamp_basis": "open_time",
                 "warmup_reason": (
                     f"{strategy_value} requires {int(signal_warmup)} warmup bar(s) "
                     "before generated signals are eligible for trading; prior "

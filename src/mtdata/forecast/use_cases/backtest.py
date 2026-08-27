@@ -266,6 +266,10 @@ def _compact_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:  # noqa:
     )
     ranked_methods: list[Dict[str, Any]] = []
     rank = 0
+    costs_complete = bool(
+        isinstance(compact_out.get("cost_assumptions"), dict)
+        and compact_out["cost_assumptions"].get("complete") is True
+    )
     for row in method_summaries:
         method = str(row.get("method") or "")
         score = row.get("_sort_metric")
@@ -276,21 +280,28 @@ def _compact_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:  # noqa:
         }
         if eligible:
             rank += 1
+            trading_metrics_available = costs_complete and not _is_explicit_false(
+                row.get("metrics_available")
+            )
             ranked_row.update(
                 {
                     "rank": rank,
                     "avg_rmse": _compact_metric("avg_rmse", score),
-                    "trading_metrics_available": not _is_explicit_false(
-                        row.get("metrics_available")
-                    ),
+                    "trading_metrics_available": trading_metrics_available,
                 }
             )
-            if _is_explicit_false(row.get("metrics_available")):
+            if not trading_metrics_available:
                 ranked_row["selection_warning"] = (
                     "ranking_uses_forecast_error_only; trading metrics are unavailable"
                 )
-                if row.get("metrics_reason"):
+                if _is_explicit_false(row.get("metrics_available")) and row.get(
+                    "metrics_reason"
+                ):
                     ranked_row["trading_metrics_reason"] = row["metrics_reason"]
+                elif not costs_complete:
+                    ranked_row["trading_metrics_reason"] = (
+                        "spread_and_commission_not_modeled"
+                    )
             if row.get("history_sample_ok") is False:
                 ranked_row["forecast_reliability"] = "low"
                 ranked_row["history_sample_ok"] = False

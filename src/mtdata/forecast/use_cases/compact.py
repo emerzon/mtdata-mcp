@@ -824,7 +824,7 @@ def _annotate_forecast_generate_quality(payload: Dict[str, Any]) -> Dict[str, An
     if out.get("history_policy_ok") is False:
         trust_blockers.append("history_freshness_policy_not_met")
     ci_status = str(out.get("ci_status") or "").strip().lower()
-    if ci_status in {"not_requested", "unavailable"}:
+    if ci_status == "unavailable":
         trust_blockers.append("forecast_uncertainty_not_available")
     if ci_status == "insufficient_calibration":
         trust_blockers.append("insufficient_interval_calibration")

@@ -538,8 +538,8 @@ def test_forecast_generate_defaults_to_compact_payload(monkeypatch):
         "reason": "ci_alpha was not requested; direction is based on the point estimate only.",
         "recommended_tool": "forecast_conformal_intervals",
     }
-    assert out["trust_level"] == "degraded"
-    assert out["trust_blockers"] == ["forecast_uncertainty_not_available"]
+    assert out["trust_level"] == "adequate"
+    assert "trust_blockers" not in out
     assert out["units"]["forecast_vs_last_price.*_delta_pct"] == (
         "percent (1.0 = 1%)"
     )
