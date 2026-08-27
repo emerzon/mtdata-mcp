@@ -526,6 +526,10 @@ def test_tools_catalog_documents_consequential_parameter_units_and_policies():
 
     assert "round-trip" in description("strategy_backtest", "spread_bps")
     assert "basis points" in description("strategy_backtest", "spread_bps")
+    assert "after denoise and indicators" in description(
+        "data_fetch_candles", "ohlcv"
+    )
+    assert "full source OHLCV" in description("data_fetch_candles", "ohlcv")
     assert all(
         policy in description("labels_triple_barrier", "same_bar_policy")
         for policy in ("sl_first", "tp_first", "neutral")

@@ -2881,7 +2881,8 @@ def fetch_candles(  # noqa: C901
             payload['denoise_applied'] = False
             if denoise_warnings:
                 payload['denoise_status_reason'] = denoise_warnings[0]
-        if denoise_apps or ti_spec:
+        projection_requested = bool(str(ohlcv or "").strip())
+        if denoise_apps or ti_spec or projection_requested:
             denoise_stages = {
                 str(app.get("when") or "").lower()
                 for app in denoise_apps
@@ -2903,6 +2904,8 @@ def fetch_candles(  # noqa: C901
                     )
             if "post_ti" in denoise_stages:
                 pipeline.append("denoise_post_ti")
+            if projection_requested:
+                pipeline.append("project_returned_ohlcv")
             payload["processing_pipeline"] = pipeline
         if denoise_warnings:
             warns = payload.get('warnings')

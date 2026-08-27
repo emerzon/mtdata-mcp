@@ -424,9 +424,12 @@ class DataFetchCandlesRequest(_DetailNormalizedRequest):
     ohlcv: Optional[str] = Field(
         None,
         description=(
-            "Candle fields to include. Use all, ohlcv, ohlc, close/price, compact "
-            "letters from o/h/l/c/v (open/high/low/close/volume), or "
-            "comma-separated names such as open,high,low,close,volume."
+            "Returned candle fields to include. This projection runs after denoise "
+            "and indicator calculation: those transforms always receive the full "
+            "source OHLCV, and their derived columns remain in returned rows. Use "
+            "all, ohlcv, ohlc, close/price, compact letters from o/h/l/c/v "
+            "(open/high/low/close/volume), or comma-separated names such as "
+            "open,high,low,close,volume."
         ),
         examples=["ohlcv", "close", "open,high,low,close,volume"],
     )

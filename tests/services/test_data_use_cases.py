@@ -581,7 +581,9 @@ def test_data_fetch_candles_schema_documents_ohlcv():
     schema = DataFetchCandlesRequest.model_json_schema()
     ohlcv = schema["properties"]["ohlcv"]
 
-    assert "Candle fields to include" in ohlcv["description"]
+    assert "Returned candle fields to include" in ohlcv["description"]
+    assert "after denoise and indicator calculation" in ohlcv["description"]
+    assert "full source OHLCV" in ohlcv["description"]
     assert "ohlcv" in ohlcv["examples"]
     assert "open,high,low,close,volume" in ohlcv["description"]
 

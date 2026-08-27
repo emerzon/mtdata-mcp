@@ -404,9 +404,11 @@ def data_fetch_candles(
         it with the original symbol, timeframe, start, and end values.
     
     ohlcv : str, optional
-        Candle fields to include. Use "all", "ohlcv", "ohlc", "close"/"price",
-        compact letters from o/h/l/c/v, or comma-separated field names such as
-        "open,high,low,close,volume".
+        Returned candle fields to include. Projection happens after denoise and
+        indicator calculation, which always receive the full source OHLCV;
+        derived columns remain in the returned rows. Use "all", "ohlcv",
+        "ohlc", "close"/"price", compact letters from o/h/l/c/v, or
+        comma-separated field names such as "open,high,low,close,volume".
 
     include_spread : bool, optional
         Request the historical MT5 per-bar spread column. When unavailable,

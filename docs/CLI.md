@@ -637,9 +637,17 @@ mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 100
 # With indicators
 mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 100 --indicators "ema(20),rsi(14),macd(12,26,9)"
 
+# Compute ATR from full OHLCV, then return only close plus derived columns
+mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 100 --indicators "atr(14)" --ohlcv close
+
 # With denoising
 mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 100 --denoise ema --denoise-params "alpha=0.2"
 ```
+
+`--ohlcv` is an output projection, not an input restriction. Indicators and
+denoise stages receive the full source OHLCV before the requested candle fields
+are trimmed; their derived columns remain in the response. The
+`processing_pipeline` and `ohlcv_filter` fields disclose that order and selector.
 
 ### Generate Forecasts
 ```bash

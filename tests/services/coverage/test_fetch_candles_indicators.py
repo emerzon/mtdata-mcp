@@ -81,6 +81,50 @@ class TestFetchCandlesIndicators(unittest.TestCase):
         self.assertTrue(result.get('success'))
 
     @patch(_MT5_CONFIG)
+    @patch(_APPLY_TI, return_value=['atr_14'])
+    @patch(_RATES_FROM)
+    @patch(_CACHED_INFO, return_value=MagicMock())
+    @patch(_RESOLVE_CTZ, return_value=None)
+    @patch(_ESTIMATE_WARMUP, return_value=14)
+    @patch(_GUARD, _mock_symbol_guard)
+    def test_ohlcv_projection_runs_after_indicator_calculation(
+        self,
+        mock_warmup,
+        mock_ctz,
+        mock_info,
+        mock_from,
+        mock_ti,
+        mock_cfg,
+    ):
+        mock_cfg.get_time_offset_seconds.return_value = 0
+        mock_from.return_value = _make_rates(30)
+
+        def add_atr(df, spec):
+            self.assertTrue({'open', 'high', 'low', 'close'}.issubset(df.columns))
+            df['atr_14'] = 0.001
+            return ['atr_14']
+
+        mock_ti.side_effect = add_atr
+        result = fetch_candles(
+            'EURUSD',
+            limit=10,
+            ohlcv='close',
+            indicators='atr(14)',
+        )
+
+        self.assertTrue(result.get('success'))
+        self.assertIn('close', result['data'][0])
+        self.assertIn('atr_14', result['data'][0])
+        self.assertNotIn('high', result['data'][0])
+        self.assertNotIn('low', result['data'][0])
+        self.assertEqual(result['ohlcv_filter'], 'close')
+        self.assertEqual(
+            result['processing_pipeline'],
+            ['fetch_ohlcv', 'indicators', 'project_returned_ohlcv'],
+        )
+        self.assertEqual(result['indicator_input'], 'raw_ohlcv')
+
+    @patch(_MT5_CONFIG)
     @patch(_APPLY_TI, return_value=['rsi_14'])
     @patch(_RATES_FROM)
     @patch(_CACHED_INFO, return_value=MagicMock())

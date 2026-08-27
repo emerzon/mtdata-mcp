@@ -151,7 +151,10 @@ PARAM_HINTS = {
         "to rank by executable quotes."
     ),
     "return_mode": "Return calculation mode: pct or log.",
-    "ohlcv": "OHLCV column selector (e.g. 'close', 'high,low').",
+    "ohlcv": (
+        "Returned OHLCV column selector (e.g. 'close', 'high,low'). Projection "
+        "runs after denoise and indicators, which receive full source OHLCV."
+    ),
     "indicators": "Indicators as compact specs like 'rsi_14', 'rsi(length=14)', 'macd(12,26,9)', or 'macd(fast=12,slow=26,signal=9)', or JSON like '[{\"name\":\"rsi\",\"params\":{\"length\":14}}]'. Bare names such as 'rsi' are also accepted.",
     "denoise": "Denoise preset name or JSON spec. Examples: --denoise kalman or --denoise '{\"method\":\"kalman\",\"params\":{\"lookback\":100}}'.",
     "simplify": "Simplify preset name or JSON spec. Examples: --simplify select, --simplify '{\"mode\":\"select\",\"method\":\"lttb\",\"ratio\":0.2}', or --simplify select --simplify-params \"ratio=0.2\".",
