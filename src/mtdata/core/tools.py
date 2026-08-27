@@ -53,13 +53,43 @@ def tools_list(
         search_filter = str(search or "").strip().lower()
         known_categories = set(TOOL_CATEGORY_IDS)
         detail_mode = str(catalog.get("detail") or detail or "compact").strip().lower()
+        searchable_names: Optional[set[str]] = None
+        if search_filter and detail_mode != "full":
+            search_catalog = registered_tool_catalog(detail="full")
+            searchable_rows = search_catalog.get("tools")
+            exact_names = {
+                str(row.get("name") or "")
+                for row in searchable_rows if isinstance(row, dict)
+                if str(row.get("name") or "").strip().lower() == search_filter
+            }
+            searchable_names = exact_names or {
+                str(row.get("name") or "")
+                for row in filter_tool_catalog_rows(
+                    searchable_rows,
+                    category=category_filter,
+                    search=search_filter,
+                )
+            }
         filtered = []
         filtered_gated = []
+        exact_names = {
+            str(row.get("name") or "")
+            for row in tools if isinstance(row, dict)
+            if str(row.get("name") or "").strip().lower() == search_filter
+        }
         for row in filter_tool_catalog_rows(
             tools,
             category=category_filter,
-            search=search_filter,
+            search=(
+                None
+                if searchable_names is not None or exact_names
+                else search_filter
+            ),
         ):
+            if exact_names and str(row.get("name") or "") not in exact_names:
+                continue
+            if searchable_names is not None and str(row.get("name") or "") not in searchable_names:
+                continue
             if row.get("enabled") is False or row.get("status") == "disabled":
                 filtered_gated.append(row)
             else:
@@ -87,13 +117,16 @@ def tools_list(
             slimmed.append(out_row)
 
         for row in filtered_gated:
-            gated = {
-                key: row.get(key)
-                for key in row_optional_keys
-                if key in row
-            }
-            gated["name"] = str(row.get("name") or "")
-            gated["category"] = str(row.get("category") or "other")
+            if detail_mode == "full":
+                gated = dict(row)
+            else:
+                gated = {
+                    key: row.get(key)
+                    for key in row_optional_keys
+                    if key in row
+                }
+                gated["name"] = str(row.get("name") or "")
+                gated["category"] = str(row.get("category") or "other")
             gated_tools.append(gated)
 
         categories: Dict[str, list[str]] = {}
@@ -104,8 +137,15 @@ def tools_list(
         catalog["tools"] = slimmed
         catalog["row_key"] = "tools"
         if compact_mode:
-            catalog.pop("categories", None)
-            catalog.pop("output_extras", None)
+            for key in (
+                "categories",
+                "output_extras",
+                "parameter_schema",
+                "mcp_trading",
+                "schema_version",
+                "detail",
+            ):
+                catalog.pop(key, None)
         else:
             catalog["categories"] = categories
         catalog["count"] = len(slimmed)
@@ -115,10 +155,11 @@ def tools_list(
             offset=offset_value,
             limit=limit_value,
         )
-        catalog["filters"] = {
-            "category": category_filter or None,
-            "search": search_filter or None,
-        }
+        if category_filter or search_filter or not compact_mode:
+            catalog["filters"] = {
+                "category": category_filter or None,
+                "search": search_filter or None,
+            }
         if category_filter and category_filter not in known_categories:
             return {
                 "success": False,
@@ -131,8 +172,10 @@ def tools_list(
                 "operation": "tools_list",
                 "valid_categories": sorted(known_categories),
             }
-        if gated_tools:
+        if gated_tools and (not compact_mode or bool(category_filter or search_filter)):
             catalog["gated_tools"] = gated_tools
+        if gated_tools:
+            catalog["gated_count"] = len(gated_tools)
         catalog["catalog_source"] = "rebuilt"
         return catalog
 

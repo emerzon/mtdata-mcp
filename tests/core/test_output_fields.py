@@ -33,6 +33,26 @@ def test_output_fields_keeps_quote_trust_core() -> None:
     assert "diagnostics" not in result
 
 
+def test_output_fields_keeps_trade_preview_safety_envelope() -> None:
+    payload = {
+        "success": True,
+        "symbol": "EURUSD",
+        "dry_run": True,
+        "no_action": True,
+        "no_action_reason": "dry_run",
+        "would_send_order": False,
+        "order_sent": False,
+        "preview_ok": True,
+        "validation_passed": True,
+        "actionability": "preview_only",
+        "candidate_risk": {"risk_currency": 5.0},
+    }
+
+    result = _select_output_fields(payload, "candidate_risk", tool_name="trade_place")
+
+    assert result == payload
+
+
 def test_output_fields_supports_dotted_nested_paths() -> None:
     payload = {
         "success": True,

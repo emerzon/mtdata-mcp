@@ -620,6 +620,21 @@ def filter_tool_catalog_rows(
     search: Any = None,
 ) -> List[Dict[str, Any]]:
     """Filter catalog rows by category and searchable public text."""
+
+    def _search_text(value: Any) -> List[str]:
+        if isinstance(value, dict):
+            parts: List[str] = []
+            for key, nested in value.items():
+                parts.append(str(key))
+                parts.extend(_search_text(nested))
+            return parts
+        if isinstance(value, (list, tuple, set, frozenset)):
+            parts = []
+            for nested in value:
+                parts.extend(_search_text(nested))
+            return parts
+        return [str(value)] if value is not None else []
+
     category_filter = str(category or "").strip().lower()
     search_filter = str(search or "").strip().lower()
     filtered: List[Dict[str, Any]] = []
@@ -627,10 +642,19 @@ def filter_tool_catalog_rows(
         if not isinstance(row, dict):
             continue
         row_category = str(row.get("category") or "").strip().lower()
-        haystack = " ".join(
-            str(row.get(key) or "")
-            for key in ("name", "category", "description")
-        ).lower()
+        searchable = {
+            key: row.get(key)
+            for key in (
+                "name",
+                "category",
+                "description",
+                "parameters",
+                "input_schema",
+                "cli",
+            )
+            if key in row
+        }
+        haystack = " ".join(_search_text(searchable)).lower()
         if category_filter and row_category != category_filter:
             continue
         if search_filter and search_filter not in haystack:
@@ -1057,6 +1081,16 @@ _FIELD_SELECTION_META_KEYS = frozenset(
         "freshness",
         "freshness_state",
         "usable_for_live_trading",
+        "dry_run",
+        "no_action",
+        "no_action_reason",
+        "would_send_order",
+        "would_send_orders",
+        "would_cancel_pending_order",
+        "order_sent",
+        "preview_ok",
+        "validation_passed",
+        "actionability",
         "source",
     }
 )

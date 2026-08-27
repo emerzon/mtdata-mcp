@@ -647,6 +647,7 @@ def test_tools_list_keeps_disabled_tools_out_of_callable_rows(monkeypatch):
     assert out["tools"] == []
     assert out["count"] == 0
     assert out["pagination"]["total"] == 0
+    assert out["gated_count"] == 1
     assert out["gated_tools"] == [
         {
             "enabled": False,
@@ -658,6 +659,35 @@ def test_tools_list_keeps_disabled_tools_out_of_callable_rows(monkeypatch):
             "category": "market",
         }
     ]
+
+
+def test_tools_list_searches_parameters_and_preserves_full_gated_schema(monkeypatch):
+    monkeypatch.delenv("MTDATA_ENABLE_MARKET_DEPTH_FETCH", raising=False)
+    bootstrap_tools()
+    raw_tools_list = getattr(tools_list, "__wrapped__", tools_list)
+
+    parameter_match = raw_tools_list(search="max_wait_seconds")
+    assert [row["name"] for row in parameter_match["tools"]] == ["wait_event"]
+
+    gated = raw_tools_list(search="market_depth_fetch", detail="full")
+    assert gated["count"] == 0
+    assert gated["gated_count"] == 1
+    assert "input_schema" in gated["gated_tools"][0]
+    assert "cli" in gated["gated_tools"][0]
+
+
+def test_tools_list_compact_prioritizes_rows_and_pagination():
+    bootstrap_tools()
+    raw_tools_list = getattr(tools_list, "__wrapped__", tools_list)
+
+    out = raw_tools_list(limit=1)
+
+    assert out["count"] == 1
+    assert len(out["tools"]) == 1
+    assert "pagination" in out
+    assert "parameter_schema" not in out
+    assert "mcp_trading" not in out
+    assert "gated_tools" not in out
 
 
 def test_tools_list_related_tools_are_opt_in():
