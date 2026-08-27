@@ -68,7 +68,7 @@ def test_cross_correlation_bootstrap_seed_is_reproducible_and_configurable():
     assert changed != first
 
 
-def test_cointegration_pair_uses_stable_left_dependent_orientation():
+def test_cointegration_pair_uses_canonical_orientation_independent_of_request_order():
     idx = pd.date_range("2024-01-01", periods=40, freq="h")
     frame = pd.DataFrame(
         {"A": np.arange(40, dtype=float), "B": np.arange(40, dtype=float) * 2.0},
@@ -80,15 +80,39 @@ def test_cointegration_pair_uses_stable_left_dependent_orientation():
         calls.append((dependent.name, hedge.name, trend))
         return -4.0, 0.02, [-3.9, -3.3, -3.0]
 
+    adf_results = iter(((-1.0, 0.5), (-5.0, 0.001)) * 4)
+
+    def fake_adfuller(*_args, **_kwargs):
+        stat, p_value = next(adf_results)
+        return stat, p_value, 0, 1, {}, 0.0
+
     row, failures = _evaluate_cointegration_pair(
-        frame, "A", "B", trend="c", significance=0.05, coint_func=fake_coint
+        frame,
+        "B",
+        "A",
+        trend="c",
+        significance=0.05,
+        coint_func=fake_coint,
+        adfuller_func=fake_adfuller,
+    )
+    reversed_row, reversed_failures = _evaluate_cointegration_pair(
+        frame,
+        "A",
+        "B",
+        trend="c",
+        significance=0.05,
+        coint_func=fake_coint,
+        adfuller_func=fake_adfuller,
     )
 
     assert failures == []
-    assert calls == [("A", "B", "c")]
+    assert reversed_failures == []
+    assert calls == [("A", "B", "c"), ("A", "B", "c")]
+    assert row == reversed_row
     assert row["dependent"] == "A"
     assert row["hedge"] == "B"
-    assert row["orientation_policy"] == "left_dependent"
+    assert row["orientation_policy"] == "canonical_symbol_order"
+    assert row["prerequisite_ok"] is True
     assert "log_price_beta" in row
     assert "hedge_ratio" not in row
     assert "log(" in row["spread_formula"]
@@ -108,6 +132,11 @@ def test_cointegration_level_transform_keeps_unit_hedge_ratio():
         trend="c",
         significance=0.05,
         coint_func=lambda *_args, **_kwargs: (-4.0, 0.02, [-3.9, -3.3, -3.0]),
+        adfuller_func=lambda values, **_kwargs: (
+            (-1.0, 0.5, 0, 1, {}, 0.0)
+            if len(values) == 40
+            else (-5.0, 0.001, 0, 1, {}, 0.0)
+        ),
         transform="level",
     )
 
@@ -154,10 +183,52 @@ def test_cointegration_pair_rejects_nonfinite_test_statistic():
             0.0,
             [-3.9, -3.3, -3.0],
         ),
+        adfuller_func=lambda values, **_kwargs: (
+            (-1.0, 0.5, 0, 1, {}, 0.0)
+            if len(values) == 40
+            else (-5.0, 0.001, 0, 1, {}, 0.0)
+        ),
     )
 
     assert row is None
     assert failures[0]["error_type"] == "NonFiniteTestStatistic"
+
+
+def test_cointegration_pair_with_mixed_integration_orders_is_not_classified():
+    idx = pd.date_range("2024-01-01", periods=40, freq="h")
+    frame = pd.DataFrame(
+        {"A": np.arange(40, dtype=float), "B": np.arange(40, dtype=float) * 2.0},
+        index=idx,
+    )
+    adf_results = iter(
+        (
+            (-4.0, 0.01),
+            (-5.0, 0.001),
+            (-1.0, 0.5),
+            (-5.0, 0.001),
+        )
+    )
+
+    def fake_adfuller(*_args, **_kwargs):
+        stat, p_value = next(adf_results)
+        return stat, p_value, 0, 1, {}, 0.0
+
+    row, failures = _evaluate_cointegration_pair(
+        frame,
+        "A",
+        "B",
+        trend="c",
+        significance=0.05,
+        coint_func=lambda *_args, **_kwargs: (-4.0, 0.001, [-3.9, -3.3, -3.0]),
+        adfuller_func=fake_adfuller,
+    )
+
+    assert failures == []
+    assert row["prerequisite_ok"] is False
+    assert row["cointegrated"] is None
+    assert row["relationship"] == "prerequisite_failed"
+    assert row["integration_diagnostics"]["A"]["integration_order"] == "I(0)"
+    assert row["integration_diagnostics"]["B"]["integration_order"] == "I(1)"
 
 
 def test_pair_pagination_uses_canonical_nested_contract():

@@ -156,6 +156,52 @@ def _cointegration_spread_formula(
     return f"{y} = intercept + {beta}*{x} + spread"
 
 
+def _integration_order_diagnostic(
+    series: pd.Series,
+    *,
+    significance: float,
+    adfuller_func: Any,
+) -> Dict[str, Any]:
+    """Classify whether a level series is plausibly I(1) using ADF tests."""
+    values = np.asarray(series, dtype=float)
+    level_stat, level_p_value, *_ = adfuller_func(
+        values,
+        regression="c",
+        autolag="AIC",
+    )
+    difference_stat, difference_p_value, *_ = adfuller_func(
+        np.diff(values),
+        regression="c",
+        autolag="AIC",
+    )
+    values_out = (
+        float(level_stat),
+        float(level_p_value),
+        float(difference_stat),
+        float(difference_p_value),
+    )
+    if not all(math.isfinite(value) for value in values_out):
+        raise ValueError("ADF integration-order test returned a non-finite result.")
+
+    level_stationary = bool(values_out[1] < significance)
+    difference_stationary = bool(values_out[3] < significance)
+    if not level_stationary and difference_stationary:
+        order = "I(1)"
+    elif level_stationary:
+        order = "I(0)"
+    else:
+        order = "unresolved"
+    return {
+        "integration_order": order,
+        "level_adf_stat": values_out[0],
+        "level_adf_p_value": values_out[1],
+        "level_stationary": level_stationary,
+        "first_difference_adf_stat": values_out[2],
+        "first_difference_adf_p_value": values_out[3],
+        "first_difference_stationary": difference_stationary,
+    }
+
+
 def _evaluate_cointegration_pair(
     subset: pd.DataFrame,
     left: str,
@@ -164,14 +210,44 @@ def _evaluate_cointegration_pair(
     trend: str,
     significance: float,
     coint_func: Any,
+    adfuller_func: Any,
     transform: str = "log_level",
 ) -> tuple[Dict[str, Any] | None, List[Dict[str, Any]]]:
     failures: List[Dict[str, Any]] = []
     best_row: Dict[str, Any] | None = None
 
-    # Engle-Granger is orientation-sensitive. Use the caller's stable pair
-    # ordering instead of testing both directions and cherry-picking min(p).
-    for dependent, hedge in ((left, right),):
+    # Engle-Granger is orientation-sensitive. Canonical symbol ordering makes
+    # an unordered pair deterministic without cherry-picking the lower p-value.
+    canonical_dependent, canonical_hedge = sorted(
+        (left, right), key=lambda symbol: (str(symbol).casefold(), str(symbol))
+    )
+    for dependent, hedge in ((canonical_dependent, canonical_hedge),):
+        try:
+            integration_diagnostics = {
+                dependent: _integration_order_diagnostic(
+                    subset[dependent],
+                    significance=significance,
+                    adfuller_func=adfuller_func,
+                ),
+                hedge: _integration_order_diagnostic(
+                    subset[hedge],
+                    significance=significance,
+                    adfuller_func=adfuller_func,
+                ),
+            }
+        except Exception as ex:
+            failures.append(
+                {
+                    "left": dependent,
+                    "right": hedge,
+                    "dependent": dependent,
+                    "hedge": hedge,
+                    "error": f"Failed to determine integration order: {ex}",
+                    "error_type": "IntegrationOrderTestError",
+                }
+            )
+            continue
+
         try:
             test_stat, p_value, critical_values = coint_func(
                 subset[dependent],
@@ -248,8 +324,8 @@ def _evaluate_cointegration_pair(
             spread_zscore = float((spread_last - spread_mean) / spread_std)
 
         row = {
-            "left": left,
-            "right": right,
+            "left": dependent,
+            "right": hedge,
             "dependent": dependent,
             "hedge": hedge,
             "test_stat": float(test_stat) if math.isfinite(float(test_stat)) else None,
@@ -264,12 +340,24 @@ def _evaluate_cointegration_pair(
             "samples": int(len(subset)),
             "period_start": _format_sample_time(subset.index[0]),
             "period_end": _format_sample_time(subset.index[-1]),
-            "cointegrated": bool(float(p_value) < significance),
-            "relationship": "cointegrated"
-            if float(p_value) < significance
-            else "no_cointegration",
-            "orientation_policy": "left_dependent",
+            "integration_diagnostics": integration_diagnostics,
+            "integration_order_prerequisite": "both_series_I(1)",
+            "prerequisite_ok": all(
+                diagnostic["integration_order"] == "I(1)"
+                for diagnostic in integration_diagnostics.values()
+            ),
+            "orientation_policy": "canonical_symbol_order",
         }
+        if row["prerequisite_ok"]:
+            row["cointegrated"] = bool(float(p_value) < significance)
+            row["relationship"] = (
+                "cointegrated"
+                if float(p_value) < significance
+                else "no_cointegration"
+            )
+        else:
+            row["cointegrated"] = None
+            row["relationship"] = "prerequisite_failed"
         if transform == "level":
             row["hedge_ratio"] = float(hedge_ratio)
         else:
@@ -286,8 +374,18 @@ def _apply_holm_pair_correction(
     significance: float,
 ) -> None:
     """Apply a family-wise Holm correction to pairwise test results in place."""
+    eligible = [row for row in rows if bool(row.get("prerequisite_ok", True))]
+    for row in rows:
+        if bool(row.get("prerequisite_ok", True)):
+            continue
+        row["p_value_raw"] = float(row["p_value"])
+        row["p_value_correction"] = "not_applied_prerequisite_failed"
+        row["significance_basis"] = "integration_order_prerequisite_failed"
+        row["significance_threshold"] = float(significance)
+        row["pair_tests_run"] = int(len(eligible))
+
     ordered = sorted(
-        enumerate(rows),
+        enumerate(eligible),
         key=lambda item: (float(item[1]["p_value"]), item[0]),
     )
     family_size = len(ordered)
@@ -385,8 +483,9 @@ def cointegration_test(  # noqa: C901
 ) -> Dict[str, Any]:
     """Run Engle-Granger pair tests or a multivariate Johansen rank test.
 
-    The first symbol in each pair is the Engle-Granger dependent; reverse the
-    pair for the other hedge.
+    Engle-Granger pair orientation is canonicalized by symbol name so reversing
+    request order cannot change the result. A pair is classified only when ADF
+    diagnostics find both transformed price series plausibly I(1).
 
     When a single symbol is provided, the tool automatically expands to include
     all related symbols from its MT5 group (e.g., EURUSD → EURUSD, GBPUSD, 
@@ -465,7 +564,7 @@ def cointegration_test(  # noqa: C901
         )
 
         try:
-            from statsmodels.tsa.stattools import coint
+            from statsmodels.tsa.stattools import adfuller, coint
             from statsmodels.tsa.vector_ar.vecm import coint_johansen
         except Exception:
             return _causal_error(
@@ -689,7 +788,7 @@ def cointegration_test(  # noqa: C901
             analysis_family_kind=(
                 "multivariate_symbol_set"
                 if method_value == "johansen"
-                else "unordered_pairs_with_stable_orientation"
+                else "unordered_pairs_with_canonical_orientation"
             ),
         )
         if errors and not series_map:
@@ -938,6 +1037,7 @@ def cointegration_test(  # noqa: C901
                     trend=trend_value,
                     significance=float(significance),
                     coint_func=coint,
+                    adfuller_func=adfuller,
                     transform=transform_value,
                 )
                 if row is not None:
@@ -973,7 +1073,12 @@ def cointegration_test(  # noqa: C901
                 "pairs_failed": int(len(pair_failures)),
                 "pairs_skipped_min_overlap": int(pairs_skipped_min_overlap),
                 "p_value_correction": "holm_across_pairs",
-                "pair_tests_run": int(len(rows)),
+                "pair_tests_run": int(
+                    sum(1 for row in rows if bool(row.get("prerequisite_ok")))
+                ),
+                "pairs_evaluable": int(
+                    sum(1 for row in rows if bool(row.get("prerequisite_ok")))
+                ),
             }
         )
         if detail_mode == "full":
@@ -987,6 +1092,13 @@ def cointegration_test(  # noqa: C901
             meta["pair_failures"] = pair_failures
             warnings_out.append(
                 f"{len(pair_failures)} orientation-level cointegration fits failed; see meta['pair_failures']."
+            )
+        prerequisite_failures = sum(
+            1 for row in rows if not bool(row.get("prerequisite_ok"))
+        )
+        if prerequisite_failures:
+            warnings_out.append(
+                f"{prerequisite_failures} pair(s) were not classified because both series were not plausibly I(1)."
             )
 
         if not rows:
@@ -1089,6 +1201,7 @@ def cointegration_test(  # noqa: C901
                             "description": "Long-term equilibrium relationship between non-stationary price series",
                             "cointegrated_true": "Series share a common stochastic drift - deviations are mean-reverting",
                             "cointegrated_false": "No statistically significant long-term relationship detected",
+                            "cointegrated_null": "Not classified because the I(1) integration-order prerequisite failed",
                             "test_statistic": "Engle-Granger test statistic; more negative = stronger evidence of cointegration",
                             "critical_values": "Thresholds at 1%, 5%, 10% significance levels; test statistic < critical value indicates cointegration",
                         },
@@ -1115,7 +1228,11 @@ def cointegration_test(  # noqa: C901
             out["truncated"] = True
         if warnings_out:
             out["warnings"] = warnings_out
-        if cointegrated_count == 0:
+        if rows and all(not bool(row.get("prerequisite_ok")) for row in rows):
+            out["message"] = (
+                "No pairs were classified because both series were not plausibly I(1)."
+            )
+        elif cointegrated_count == 0:
             out["message"] = (
                 "No statistically significant cointegrated pairs detected at the selected threshold."
             )

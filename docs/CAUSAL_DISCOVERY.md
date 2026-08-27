@@ -70,15 +70,19 @@ the full-detail `matrix` always represents every pair computed by the analysis.
 For each unordered pair of symbols `(A, B)`, the tool:
 1. Fetches recent price histories
 2. Applies a level-style transform (`log_level` by default)
-3. Runs one Engle-Granger test with the first symbol in stable input/group
-   order as the dependent series
-4. Reports that orientation's p-value, hedge ratio, spread diagnostics, and
-   `orientation_policy="left_dependent"`
+3. Checks each transformed level and first difference with ADF diagnostics
+4. Runs one Engle-Granger test with the alphabetically first symbol as the
+   dependent series
+5. Reports that orientation's p-value, hedge ratio, spread diagnostics, and
+   `orientation_policy="canonical_symbol_order"`
 
 Engle-Granger is orientation-sensitive. The tool deliberately avoids selecting
 the lower p-value after testing both directions because that would cherry-pick
-the test result. For a two-symbol request, reverse the input order and run the
-tool again when the opposite economic orientation is relevant.
+the test result. Canonical symbol ordering makes results independent of request
+order. A pair is classified as cointegrated or not cointegrated only when both
+series are plausibly I(1): non-stationary in levels and stationary after first
+differencing. Rows that fail this prerequisite retain the raw test diagnostics
+but report `cointegrated=null` and `relationship="prerequisite_failed"`.
 
 With `method=engle_granger`, it evaluates unordered pairs. With
 `method=johansen`, it evaluates the aligned basket jointly and returns

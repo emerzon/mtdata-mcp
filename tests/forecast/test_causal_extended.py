@@ -1517,7 +1517,7 @@ class TestCointegrationTest:
         assert rejected["success"] is False
         assert rejected["error_code"] == "symbol_set_incomplete"
         assert rejected["data_quality"]["analysis_family"] == {
-            "kind": "unordered_pairs_with_stable_orientation",
+            "kind": "unordered_pairs_with_canonical_orientation",
             "tests_requested": 3,
             "tests_available": 1,
             "tests_removed": 2,
@@ -1629,11 +1629,21 @@ class TestCointegrationTest:
         )
         mock_fetch.assert_not_called()
 
+    @patch(
+        "statsmodels.tsa.stattools.adfuller",
+        side_effect=lambda values, **_kwargs: (
+            (-1.0, 0.5, 0, 1, {}, 0.0)
+            if len(values) % 2 == 0
+            else (-5.0, 0.001, 0, 1, {}, 0.0)
+        ),
+    )
     @patch("statsmodels.tsa.stattools.coint", return_value=(-4.5, 0.01, [-3.9, -3.3, -3.0]))
     @patch("mtdata.core.causal.cointegration.TIMEFRAME_MAP", {"H1": 1})
     @patch("mtdata.core.causal.cointegration._expand_symbols_for_group_path", return_value=(["A", "B"], None, "Forex\\Majors"))
     @patch("mtdata.core.causal.common._fetch_series")
-    def test_group_argument_returns_cointegrated_pair(self, mock_fetch, _mock_expand, _mock_coint):
+    def test_group_argument_returns_cointegrated_pair(
+        self, mock_fetch, _mock_expand, _mock_coint, _mock_adfuller
+    ):
         idx = pd.date_range("2024-01-01", periods=120, freq="h")
         base = np.cumsum(np.linspace(-0.01, 0.01, 120))
         series_map = {
@@ -1672,10 +1682,20 @@ class TestCointegrationTest:
         assert pair["window_truncated"] is True
         assert "window_interpretation" in result["meta"]["stats"]
 
+    @patch(
+        "statsmodels.tsa.stattools.adfuller",
+        side_effect=lambda values, **_kwargs: (
+            (-1.0, 0.5, 0, 1, {}, 0.0)
+            if len(values) % 2 == 0
+            else (-5.0, 0.001, 0, 1, {}, 0.0)
+        ),
+    )
     @patch("statsmodels.tsa.stattools.coint", return_value=(-4.5, 0.01, [-3.9, -3.3, -3.0]))
     @patch("mtdata.core.causal.cointegration.TIMEFRAME_MAP", {"H1": 1})
     @patch("mtdata.core.causal.common._fetch_series")
-    def test_compact_omits_cointegration_window_diagnostics(self, mock_fetch, _mock_coint):
+    def test_compact_omits_cointegration_window_diagnostics(
+        self, mock_fetch, _mock_coint, _mock_adfuller
+    ):
         idx = pd.date_range("2024-01-01", periods=120, freq="h")
         base = np.cumsum(np.linspace(-0.01, 0.01, 120))
         series_map = {
