@@ -483,11 +483,6 @@ def normalize_news_output(
         if key_text in _NEWS_BUCKET_KEYS and isinstance(subvalue, list):
             if not subvalue:
                 continue
-            if (
-                key_text == "general_news"
-                and str(result.get("relevance_status") or "") == "no_symbol_specific_news"
-            ):
-                continue
             if key_text == "related_news":
                 subvalue = _compact_diversify_news_items(subvalue)
             out[key] = [
@@ -503,13 +498,12 @@ def normalize_news_output(
     out.update(provenance)
     if (
         str(result.get("relevance_status") or "") == "no_symbol_specific_news"
-        and isinstance(result.get("general_news"), list)
-        and result.get("general_news")
-        and "general_news" not in out
+        and isinstance(out.get("general_news"), list)
+        and out.get("general_news")
     ):
         out["market_wide_note"] = (
-            "Market-wide headlines were omitted from compact output; "
-            "pass --detail full to include them."
+            "No symbol-specific headlines passed relevance gates; "
+            "compact output includes market-wide general_news for context."
         )
     visible_bucket_keys = tuple(
         key for key in _NEWS_BUCKET_KEYS if key != "market_context"

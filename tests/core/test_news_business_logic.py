@@ -269,6 +269,30 @@ def test_compact_symbol_news_uses_global_compact_budget(monkeypatch) -> None:
     assert "compact_global_limit" not in full
 
 
+def test_compact_symbol_news_keeps_market_wide_headlines_when_unmatched() -> None:
+    payload = {
+        "success": True,
+        "symbol": "EURUSD",
+        "relevance_status": "no_symbol_specific_news",
+        "general_news": [
+            {"title": "Dollar Gains Most in Four Weeks"},
+            {"title": "Fed holds rates"},
+        ],
+        "related_news": [],
+        "impact_news": [{"title": "US Aims to Revive Civil War-Era Court"}],
+        "upcoming_events": [],
+        "recent_events": [],
+    }
+
+    compact = normalize_news_output(payload, detail="compact")
+    full = normalize_news_output(payload, detail="full")
+
+    assert compact["relevance_status"] == "no_symbol_specific_news"
+    assert compact["general_news"][0]["title"] == "Dollar Gains Most in Four Weeks"
+    assert "market-wide general_news" in compact["market_wide_note"]
+    assert full["general_news"][0]["title"] == "Dollar Gains Most in Four Weeks"
+
+
 def test_compact_empty_news_discloses_provider_attempts_and_fallback() -> None:
     payload = {
         "success": True,
