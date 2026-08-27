@@ -1068,6 +1068,64 @@ def analyze_execution_quality(  # noqa: C901
         "summary_scope": summary_scope,
         "filters_applied": filters_applied,
     }
+    price_quality_definition = {
+        "slippage_bps": slippage_basis,
+        "market_fill_slippage_bps": (
+            "not_applicable"
+            if not fills
+            else "market_fill_vs_submitted_order_price"
+            if request.benchmark == "order_price"
+            else "market_fill_vs_arrival_executable_quote"
+        ),
+        "market_fill_vs_arrival_quote_bps": (
+            "not_applicable"
+            if not arrival_quote_market_fills
+            else "market_fill_vs_arrival_executable_quote"
+        ),
+        "market_fill_vs_order_price_bps": (
+            "not_applicable"
+            if not order_price_market_fills
+            else "market_fill_vs_submitted_order_price"
+        ),
+        "pending_fill_vs_order_bps": (
+            "not_applicable"
+            if not non_market_order_fills
+            else "pending_fill_vs_submitted_order_price"
+        ),
+        "pending_arrival_implementation_shortfall_bps": (
+            "not_applicable"
+            if not pending_arrival_shortfalls
+            else "pending_fill_vs_order_setup_executable_quote_not_broker_slippage"
+        ),
+        "markout_bps": "post_fill_midpoint_markout_positive_is_favorable",
+    }
+    execution_units = {
+        "slippage_bps": "basis_points_positive_is_worse",
+        "market_fill_slippage_bps": "basis_points_positive_is_worse",
+        "market_fill_vs_arrival_quote_bps": "basis_points_positive_is_worse",
+        "market_fill_vs_order_price_bps": "basis_points_positive_is_worse",
+        "pending_fill_vs_order_bps": "basis_points_positive_is_worse",
+        "pending_arrival_implementation_shortfall_bps": (
+            "basis_points_positive_is_worse"
+        ),
+        "markout_bps": "basis_points_positive_is_favorable",
+        "market_fill_latency_ms": "milliseconds",
+        "pending_time_to_fill_ms": "milliseconds",
+        "order_to_fill_duration_ms": "milliseconds",
+        "commission": "account_currency",
+        "fee": "account_currency",
+        "commission_fee": "account_currency",
+        "total_commission_fee": "account_currency",
+        "commission_fee_per_lot": "account_currency_per_broker_lot",
+        "price_improvement_pct": "percent_0_to_100",
+        "partial_fill_pct": "percent_0_to_100",
+        "commission_fee_bps": "basis_points_of_notional",
+        "notional": "account_currency",
+        "contract_size": "contract_units_per_broker_lot",
+        "execution_shortfall_currency_estimate": (
+            "account_currency_positive_is_worse"
+        ),
+    }
     if not fills:
         empty_message = "No matching fills in the requested window"
         if request.symbol:
@@ -1153,6 +1211,20 @@ def analyze_execution_quality(  # noqa: C901
             },
             "warnings": warnings,
         }
+        compact_units = {
+            key: execution_units[key]
+            for key in compact_summary
+            if key in execution_units
+        }
+        if compact_units:
+            compact_out["units"] = compact_units
+        compact_price_definitions = {
+            key: price_quality_definition[key]
+            for key in compact_summary
+            if key in price_quality_definition
+        }
+        if compact_price_definitions:
+            compact_out["price_quality_definition"] = compact_price_definitions
         if omitted_metrics:
             compact_out["omitted_metrics"] = omitted_metrics
         return compact_out
@@ -1187,60 +1259,7 @@ def analyze_execution_quality(  # noqa: C901
             "pending_time_to_fill_ms": "pending_order_setup_to_fill_wait_duration_not_execution_latency",
             "order_to_fill_duration_ms": "all_order_setup_to_fill_mixed_duration_not_execution_latency",
         },
-        "price_quality_definition": {
-            "slippage_bps": slippage_basis,
-            "market_fill_slippage_bps": (
-                "not_applicable"
-                if not fills
-                else "market_fill_vs_submitted_order_price"
-                if request.benchmark == "order_price"
-                else "market_fill_vs_arrival_executable_quote"
-            ),
-            "market_fill_vs_arrival_quote_bps": (
-                "not_applicable"
-                if not arrival_quote_market_fills
-                else "market_fill_vs_arrival_executable_quote"
-            ),
-            "market_fill_vs_order_price_bps": (
-                "not_applicable"
-                if not order_price_market_fills
-                else "market_fill_vs_submitted_order_price"
-            ),
-            "pending_fill_vs_order_bps": (
-                "not_applicable"
-                if not non_market_order_fills
-                else "pending_fill_vs_submitted_order_price"
-            ),
-            "pending_arrival_implementation_shortfall_bps": (
-                "not_applicable"
-                if not pending_arrival_shortfalls
-                else "pending_fill_vs_order_setup_executable_quote_not_broker_slippage"
-            ),
-        },
-        "units": {
-            "slippage_bps": "basis_points_positive_is_worse",
-            "market_fill_slippage_bps": "basis_points_positive_is_worse",
-            "market_fill_vs_arrival_quote_bps": "basis_points_positive_is_worse",
-            "market_fill_vs_order_price_bps": "basis_points_positive_is_worse",
-            "pending_fill_vs_order_bps": "basis_points_positive_is_worse",
-            "pending_arrival_implementation_shortfall_bps": (
-                "basis_points_positive_is_worse"
-            ),
-            "markout_bps": "basis_points_positive_is_favorable",
-            "market_fill_latency_ms": "milliseconds",
-            "pending_time_to_fill_ms": "milliseconds",
-            "order_to_fill_duration_ms": "milliseconds",
-            "commission": "account_currency",
-            "fee": "account_currency",
-            "commission_fee": "account_currency",
-            "total_commission_fee": "account_currency",
-            "commission_fee_per_lot": "account_currency_per_broker_lot",
-            "price_improvement_pct": "percent_0_to_100",
-            "partial_fill_pct": "percent_0_to_100",
-            "commission_fee_bps": "basis_points_of_notional",
-            "notional": "account_currency",
-            "contract_size": "contract_units_per_broker_lot",
-            "execution_shortfall_currency_estimate": "account_currency_positive_is_worse",
-        },
+        "price_quality_definition": price_quality_definition,
+        "units": execution_units,
         "warnings": warnings,
     }

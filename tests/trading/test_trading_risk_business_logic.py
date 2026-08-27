@@ -262,6 +262,20 @@ def test_trade_risk_analyze_compact_position_sizing_keeps_decision_fields() -> N
         "sl": 92.0,
         "tp": 116.0,
         "rr_ratio": 2.0,
+        "units": {
+            "account_currency": "USD",
+            "suggested_volume": "broker_lot",
+            "requested_risk_currency": "account_currency",
+            "risk_currency": "account_currency",
+            "risk_shortfall_currency": "account_currency",
+            "requested_risk_pct": "percent_of_equity",
+            "risk_pct": "percent_of_equity",
+            "risk_shortfall_pct": "percentage_points_of_equity",
+            "entry": "symbol_price",
+            "sl": "symbol_price",
+            "tp": "symbol_price",
+            "rr_ratio": "ratio",
+        },
     }
     assert "scoped_risk" not in out
     assert "portfolio_risk" not in out
@@ -484,6 +498,24 @@ def test_trade_risk_analyze_compact_keeps_blocked_sizing_context() -> None:
         ),
         "entry": 100.0,
         "sl": 80.0,
+        "units": {
+            "account_currency": "USD",
+            "suggested_volume": "broker_lot",
+            "min_viable_volume": "broker_lot",
+            "volume_min": "broker_lot",
+            "volume_step": "broker_lot",
+            "volume_max": "broker_lot",
+            "requested_risk_currency": "account_currency",
+            "risk_currency": "account_currency",
+            "risk_shortfall_currency": "account_currency",
+            "min_viable_risk_currency": "account_currency",
+            "requested_risk_pct": "percent_of_equity",
+            "risk_pct": "percent_of_equity",
+            "min_viable_risk_pct": "percent_of_equity",
+            "risk_shortfall_pct": "percentage_points_of_equity",
+            "entry": "symbol_price",
+            "sl": "symbol_price",
+        },
     }
 
 

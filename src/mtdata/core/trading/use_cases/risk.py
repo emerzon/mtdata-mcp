@@ -393,6 +393,52 @@ def _compact_trade_risk_position_sizing(
         ):
             if key in position_sizing and position_sizing[key] is not None:
                 compact[key] = position_sizing[key]
+    source_units = position_sizing.get("units")
+    if isinstance(source_units, dict):
+        compact_units: Dict[str, Any] = {}
+        account_currency = source_units.get("account_currency")
+        if account_currency:
+            compact_units["account_currency"] = account_currency
+        for field in (
+            "suggested_volume",
+            "unconstrained_volume",
+            "guardrail_capped_volume",
+            "guardrail_max_volume",
+            "min_viable_volume",
+            "volume_min",
+            "volume_step",
+            "volume_max",
+        ):
+            if field in compact:
+                compact_units[field] = source_units.get("volume", "broker_lot")
+        for field in (
+            "requested_risk_currency",
+            "risk_currency",
+            "risk_shortfall_currency",
+            "min_viable_risk_currency",
+        ):
+            if field in compact:
+                compact_units[field] = source_units.get(
+                    "risk_currency", "account_currency"
+                )
+        for field in (
+            "requested_risk_pct",
+            "risk_pct",
+            "min_viable_risk_pct",
+        ):
+            if field in compact:
+                compact_units[field] = source_units.get(
+                    "risk_pct", "percent_of_equity"
+                )
+        if "risk_shortfall_pct" in compact:
+            compact_units["risk_shortfall_pct"] = "percentage_points_of_equity"
+        for field in ("entry", "sl", "tp"):
+            if field in compact:
+                compact_units[field] = source_units.get("price", "symbol_price")
+        if "rr_ratio" in compact:
+            compact_units["rr_ratio"] = "ratio"
+        if compact_units:
+            compact["units"] = compact_units
     return compact
 
 
@@ -3250,6 +3296,7 @@ def run_trade_var_cvar_calculate(  # noqa: C901
                 "actionability": "informational_no_exposure",
                 "message": message,
                 "positions": 0,
+                "summary": summary,
                 "history_policy": history_policy,
                 "forming_candle_status": "not_applicable",
             }

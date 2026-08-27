@@ -653,7 +653,11 @@ def test_run_trade_var_cvar_calculate_returns_empty_when_no_open_positions() -> 
     assert out["actionability"] == "informational_no_exposure"
     assert out["message"] == "No open positions found for VaR/CVaR calculation."
     assert out["positions"] == 0
-    assert "summary" not in out
+    assert out["summary"]["method"] == "historical"
+    assert out["summary"]["confidence"] == 0.95
+    assert out["summary"]["horizon_bars"] == 1
+    assert out["summary"]["holding_period"] == "1 H1 bar"
+    assert out["summary"]["lookback"] == 500
     assert out["equity"] == 1000.0
     assert out["currency"] == "USD"
     assert out["valuation_time"].endswith("Z")

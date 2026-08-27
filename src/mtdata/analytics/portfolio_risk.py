@@ -489,15 +489,36 @@ def decompose_portfolio_risk(  # noqa: C901
                 ],
             }
     if not positions:
+        valuation_time = format_epoch_utc(datetime.now(timezone.utc).timestamp())
+        model_context.update(
+            {
+                "valuation_time": valuation_time,
+                "valuation_basis": "account_snapshot_no_position_marks",
+            }
+        )
+        summary: Dict[str, Any] = {"positions": 0}
+        account_context: Dict[str, Any] = {}
+        if equity_value > 0.0:
+            account_context["equity"] = round(equity_value, 2)
+            summary["equity"] = round(equity_value, 2)
+        currency = str(getattr(account, "currency", "") or "").strip()
+        if currency:
+            account_context["currency"] = currency
+            summary["currency"] = currency
         return {
             "success": True,
             "empty": True,
+            "status": "no_open_positions",
+            "portfolio_status": "no_open_positions",
+            "actionability": "informational_no_exposure",
             "positions": 0,
             "message": "No open positions.",
-            "summary": {"positions": 0},
+            "summary": summary,
             "risk": [],
             "timeframe": request.timeframe,
             "holding_periods": holding_periods,
+            "valuation_time": valuation_time,
+            **account_context,
             "model_context": _portfolio_model_context_for_detail(
                 model_context, request.detail
             ),

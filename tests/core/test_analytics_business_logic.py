@@ -1439,8 +1439,16 @@ def test_execution_quality_compact_omits_expanded_breakdowns() -> None:
     assert "session_calendars" not in result["data_quality"]
     assert "session_definition" not in result["data_quality"]
     assert "timing_definition" not in result
-    assert "price_quality_definition" not in result
-    assert "units" not in result
+    assert result["price_quality_definition"]["slippage_bps"] == (
+        "market_arrival_quote"
+    )
+    assert result["price_quality_definition"]["markout_bps"] == (
+        "post_fill_midpoint_markout_positive_is_favorable"
+    )
+    assert result["units"]["slippage_bps"] == "basis_points_positive_is_worse"
+    assert result["units"]["markout_bps"] == (
+        "basis_points_positive_is_favorable"
+    )
 
 
 def test_execution_quality_summary_matches_compact_headlines() -> None:
@@ -1482,8 +1490,10 @@ def test_execution_quality_summary_matches_compact_headlines() -> None:
     assert "items" not in result
     assert "requested_window" not in result
     assert "timing_definition" not in result
-    assert "price_quality_definition" not in result
-    assert "units" not in result
+    assert result["price_quality_definition"]["slippage_bps"] == (
+        "market_arrival_quote"
+    )
+    assert result["units"]["slippage_bps"] == "basis_points_positive_is_worse"
 
 
 def test_execution_quality_labels_truncated_latest_fill_sample() -> None:
@@ -2741,6 +2751,7 @@ def test_forecast_strategy_insufficient_data_explains_threshold_coverage(
 def test_portfolio_risk_marks_empty_position_book() -> None:
     gateway = FakeGateway()
     gateway.positions = []
+    gateway.account_info = lambda: SimpleNamespace(equity=12_345.67, currency="USD")
 
     result = decompose_portfolio_risk(
         PortfolioRiskDecomposeRequest(),
@@ -2749,7 +2760,17 @@ def test_portfolio_risk_marks_empty_position_book() -> None:
 
     assert result["success"] is True
     assert result["empty"] is True
+    assert result["status"] == "no_open_positions"
+    assert result["portfolio_status"] == "no_open_positions"
+    assert result["actionability"] == "informational_no_exposure"
     assert result["positions"] == 0
+    assert result["equity"] == 12_345.67
+    assert result["currency"] == "USD"
+    assert result["valuation_time"].endswith("Z")
+    assert result["model_context"]["valuation_time"] == result["valuation_time"]
+    assert result["model_context"]["valuation_basis"] == (
+        "account_snapshot_no_position_marks"
+    )
     assert result["risk"] == []
     assert result["timeframe"] == "H1"
     assert result["holding_periods"] == ["1 H1 bar", "5 H1 bars"]
