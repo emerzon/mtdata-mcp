@@ -13,6 +13,7 @@ from pydantic import ValidationError
 
 from mtdata.core import forecast as cf
 from mtdata.core import options as opt
+from mtdata.core._mcp_tools import _select_output_fields
 from mtdata.forecast import barriers_shared
 from mtdata.forecast import use_cases as forecast_use_cases
 from mtdata.forecast.exceptions import ForecastError, ModelCompatibilityError
@@ -1159,7 +1160,15 @@ def test_forecast_generate_compact_nests_available_ci(monkeypatch):
         },
     }
     assert "intervals" not in out["uncertainty"]
-    assert "ci_status" not in out
+    assert out["ci_status"] == "available"
+    assert out["forecast_mode"] == "interval"
+    selected = _select_output_fields(
+        out,
+        "ci_status,forecast_mode,uncertainty",
+    )
+    assert selected["ci_status"] == "available"
+    assert selected["forecast_mode"] == "interval"
+    assert "unresolved_output_fields" not in selected
     assert "ci_alpha" not in out
     assert "interval_summary" not in out
     assert "lower_price" not in out
@@ -3460,6 +3469,13 @@ def test_forecast_conformal_intervals_success_and_errors(monkeypatch):
     assert out["nominal_confidence_level"] == 0.9
     assert out["empirical_coverage"] == 1.0
     assert out["coverage_status"] == "at_or_above_nominal_target"
+    assert out["coverage_gap"] == pytest.approx(0.1)
+    selected = _select_output_fields(
+        out,
+        "empirical_coverage,coverage_status,coverage_gap",
+    )
+    assert selected["coverage_gap"] == pytest.approx(0.1)
+    assert "unresolved_output_fields" not in selected
     assert "confidence_level" not in out
     assert out["ci_status"] == "insufficient_calibration"
     assert out["ci_available"] is False
@@ -3468,6 +3484,7 @@ def test_forecast_conformal_intervals_success_and_errors(monkeypatch):
     assert out["detail"] == "compact"
     assert out["conformal"]["ci_alpha"] == 0.1
     assert out["conformal"]["empirical_coverage"] == 1.0
+    assert out["conformal"]["coverage_gap"] == pytest.approx(0.1)
     assert out["conformal"]["min_calibration_points"] == 2
     assert "lower_price" not in out
     assert "upper_price" not in out
@@ -3628,6 +3645,7 @@ def test_run_forecast_conformal_intervals_uses_finite_sample_quantile():
     assert result["empirical_coverage"] == pytest.approx(2.0 / 3.0)
     assert result["coverage_status"] == "below_nominal_target"
     assert result["coverage_gap"] == pytest.approx(-0.083333)
+    assert result["conformal"]["coverage_gap"] == pytest.approx(-0.083333)
     assert "confidence_level" not in result
     assert "lower_price" not in result
     assert "upper_price" not in result

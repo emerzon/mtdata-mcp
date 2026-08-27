@@ -665,14 +665,18 @@ def run_forecast_conformal_intervals(
         result["empirical_coverage"] = empirical_coverage
         if empirical_coverage is None:
             result["coverage_status"] = "not_evaluated"
-        elif empirical_coverage + 1e-12 < nominal_confidence:
-            result["coverage_status"] = "below_nominal_target"
-            result["coverage_gap"] = round(
+        else:
+            coverage_gap = round(
                 float(empirical_coverage) - nominal_confidence,
                 6,
             )
-        else:
-            result["coverage_status"] = "at_or_above_nominal_target"
+            result["coverage_gap"] = coverage_gap
+            result["conformal"]["coverage_gap"] = coverage_gap
+            result["coverage_status"] = (
+                "below_nominal_target"
+                if empirical_coverage + 1e-12 < nominal_confidence
+                else "at_or_above_nominal_target"
+            )
         calibration_sufficient = (
             min_calibration_points >= _MIN_CONFORMAL_CALIBRATION_POINTS
             and empirical_coverage is not None

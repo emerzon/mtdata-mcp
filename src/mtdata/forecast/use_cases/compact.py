@@ -1195,6 +1195,8 @@ def _forecast_generate_summary_from_compact(compact: Dict[str, Any]) -> Dict[str
         "freshness",
         "forecast_vs_last_price",
         "uncertainty",
+        "ci_status",
+        "forecast_mode",
         "trust_level",
         "signal_status",
         "warnings",
@@ -1237,6 +1239,16 @@ def _apply_forecast_generate_detail(  # noqa: C901
     if str(payload.get("quantity") or request.quantity or "").strip().lower() == "volatility":
         payload = _round_forecast_volatility_payload(payload)
     payload = _annotate_forecast_generate_quality(payload)
+    ci_status = str(payload.get("ci_status") or "").strip().lower()
+    ci_summary = _forecast_compact_ci(payload, include_intervals=False)
+    if not ci_status and isinstance(ci_summary, dict):
+        ci_status = str(ci_summary.get("status") or "").strip().lower()
+    payload["ci_status"] = ci_status or "not_requested"
+    payload["forecast_mode"] = (
+        "interval"
+        if isinstance(ci_summary, dict) and ci_summary.get("mode") == "interval"
+        else "point_only"
+    )
     training_period = _forecast_training_period(payload)
     volatility_rows = _forecast_generate_volatility_rows(
         payload,
@@ -1297,13 +1309,12 @@ def _apply_forecast_generate_detail(  # noqa: C901
         compact["signal_status"] = "not_actionable"
         compact["suggested_methods"] = ["drift", "analog", "fourier_ols"]
         compact["suggested_uncertainty_tool"] = "forecast_conformal_intervals"
-    ci_unavailable = str(payload.get("ci_status") or "").strip().lower() == "unavailable"
-    ci_compact = _forecast_compact_ci(payload, include_intervals=False)
+    ci_unavailable = payload["ci_status"] == "unavailable"
+    ci_compact = ci_summary
     if ci_compact:
         compact["uncertainty"] = ci_compact
-    if ci_unavailable:
-        compact["ci_status"] = "unavailable"
-        compact["forecast_mode"] = "point_only"
+    compact["ci_status"] = payload["ci_status"]
+    compact["forecast_mode"] = payload["forecast_mode"]
     ci_warning_dedup = ci_unavailable
     for key in (
         "data_as_of",
@@ -1585,6 +1596,7 @@ def _conformal_summary(conformal: Any) -> Optional[Dict[str, Any]]:
             "calibration_steps",
             "calibration_spacing",
             "empirical_coverage",
+            "coverage_gap",
             "coverage_target",
             "coverage_evaluation",
             "coverage_note",
