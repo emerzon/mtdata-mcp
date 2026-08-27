@@ -370,7 +370,10 @@ PARAM_HINTS = {
     "sampler": "Optuna sampler strategy.",
     "pruner": "Optuna pruner strategy.",
     "study_name": "Optuna study name (for persistence/resume).",
-    "storage": "Optuna storage URL (for persistence/resume).",
+    "storage": (
+        "Optuna storage URL (for persistence/resume); URL credentials are redacted "
+        "from public output."
+    ),
     "model_id": "Trained model-store identifier.",
     "task_id": "Forecast background task identifier.",
     "data_scope": "Task data-scope filter.",

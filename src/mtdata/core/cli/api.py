@@ -35,6 +35,7 @@ from ...bootstrap.tools import bootstrap_tools, cli_tool_module_names
 from ...forecast.requests import ForecastGenerateRequest
 from ...shared.schema import _is_typed_dict_type
 from ...utils.coercion import UNPARSED_BOOL, parse_bool_like
+from ...utils.security import redact_url_credentials
 from .._mcp_instance import mcp
 from .._mcp_tools import (
     _get_pydantic_model_fields,
@@ -2870,7 +2871,7 @@ def _shell_batch_record(
     status = int(raw_status) if isinstance(raw_status, int) else 0
     record: Dict[str, Any] = {
         "line": line_number,
-        "command": command,
+        "command": redact_url_credentials(command),
         "success": status == 0,
         "status": status,
     }
@@ -2887,9 +2888,18 @@ def _shell_batch_record(
 
 
 def _write_shell_batch_record(record: Dict[str, Any]) -> None:
+    def _redact(value: Any) -> Any:
+        if isinstance(value, dict):
+            return {key: _redact(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [_redact(item) for item in value]
+        if isinstance(value, str):
+            return redact_url_credentials(value)
+        return value
+
     _write_cli_text(
         json.dumps(
-            record,
+            _redact(record),
             ensure_ascii=False,
             separators=(",", ":"),
             default=_json_default,

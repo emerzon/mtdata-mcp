@@ -9,6 +9,7 @@ import warnings
 from typing import Any, Dict, List, Optional, Tuple
 
 from ..utils.coercion import coerce_finite_float
+from ..utils.security import redact_url_credentials
 from .backtest import _backtest_units
 from .backtest import forecast_backtest as _forecast_backtest
 from .optimize import (
@@ -903,7 +904,7 @@ def optuna_search_forecast_params(  # noqa: C901
         "history_count": len(history),
     }
     if storage_val:
-        payload["storage"] = storage_val
+        payload["storage"] = redact_url_credentials(storage_val)
     if study_name_val:
         payload["study_name"] = study_name_val
     if best_result is not None:

@@ -499,6 +499,33 @@ def test_noninteractive_shell_reads_batch_and_aggregates_failures(monkeypatch, c
     ]
 
 
+def test_noninteractive_shell_redacts_credentialed_urls(monkeypatch, capsys):
+    from mtdata.core.cli import api
+
+    secret_url = "postgresql://alice:REDACT_ME@db.example/studies"
+    batch = f"forecast_tune_optuna --storage {secret_url} --json\n"
+
+    def _main():
+        print(json.dumps({"error": f"connection failed for {secret_url}"}))
+        return 1
+
+    monkeypatch.setattr(api.sys, "stdin", io.StringIO(batch))
+    monkeypatch.setattr(api, "main", _main)
+
+    assert api.run_shell(interactive=False) == 1
+    output = capsys.readouterr().out
+    assert "alice" not in output
+    assert "REDACT_ME" not in output
+    record = json.loads(output)
+    assert record["command"] == (
+        "forecast_tune_optuna --storage "
+        "postgresql://***@db.example/studies --json"
+    )
+    assert record["result"]["error"].endswith(
+        "postgresql://***@db.example/studies"
+    )
+
+
 @pytest.mark.parametrize(
     "nested_command",
     ["shell", "--json shell", "--timeframe H4 shell", "--precision 4 shell"],

@@ -449,6 +449,46 @@ def test_optuna_search_fails_when_all_trials_fail(monkeypatch):
     assert out["history_count"] == 2
 
 
+def test_optuna_storage_credentials_are_used_but_not_returned(monkeypatch):
+    optuna = pytest.importorskip("optuna")
+    captured = {}
+
+    class _Study:
+        def optimize(self, objective, *, n_trials, timeout, n_jobs):
+            assert n_trials == 1
+            objective(type("Trial", (), {"number": 0})())
+
+    def fake_create_study(**kwargs):
+        captured.update(kwargs)
+        return _Study()
+
+    monkeypatch.setattr(optuna, "create_study", fake_create_study)
+    monkeypatch.setattr(
+        tune,
+        "_eval_candidate",
+        lambda **kwargs: (
+            1.0,
+            {"_sel_method": "drift", "results": {"drift": {"success": True}}},
+        ),
+    )
+    secret_url = "postgresql://alice:REDACT_ME@db.example/studies"
+
+    out = tune.optuna_search_forecast_params(
+        symbol="EURUSD",
+        timeframe="H1",
+        method="drift",
+        search_space={},
+        n_trials=1,
+        sampler="random",
+        storage=secret_url,
+    )
+
+    assert captured["storage"] == secret_url
+    assert out["storage"] == "postgresql://***@db.example/studies"
+    assert "alice" not in str(out)
+    assert "REDACT_ME" not in str(out)
+
+
 def test_optuna_search_method_scoped_and_flat_spaces(monkeypatch):
     pytest.importorskip("optuna")
 

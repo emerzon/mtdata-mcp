@@ -32,6 +32,7 @@ from mtdata.forecast.use_cases.compact import (
     _attach_analysis_time_window,
     _requested_detail_label,
 )
+from mtdata.utils.security import redact_url_credentials
 
 logger = logging.getLogger("mtdata.forecast.use_cases")
 
@@ -588,16 +589,17 @@ def run_forecast_tune_genetic(
             dimred_params=request.dimred_params,
         )
     except Exception as exc:
+        public_exc = RuntimeError(redact_url_credentials(exc))
         log_operation_exception(
             logger,
             operation="forecast_tune_genetic",
             started_at=started_at,
-            exc=exc,
+            exc=public_exc,
             symbol=request.symbol,
             timeframe=request.timeframe,
             method=request.method,
         )
-        raise
+        raise public_exc from None
     result = _attach_tuning_assumptions(
         result,
         slippage_bps=request.slippage_bps,

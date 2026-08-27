@@ -316,7 +316,7 @@ mtdata-cli forecast_tune_optuna EURUSD --methods fourier_ols --horizon 12 --metr
 | `--timeout` | (none) | Max wall-clock seconds |
 | `--n-jobs` | 1 | Parallel trial workers |
 | `--study-name` | (auto) | Name for resumable study |
-| `--storage` | (none) | DB URL for persistence (e.g., `sqlite:///study.db`) |
+| `--storage` | (none) | DB URL for persistence (e.g., `sqlite:///study.db`); URL credentials are redacted from results and shell-batch logs |
 | `--seed` | 42 | Random seed |
 
 *Requires: `pip install optuna`*
