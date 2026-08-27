@@ -443,6 +443,43 @@ class TestTradeClose:
     @patch("mtdata.core.trading._resolve_close_dry_run_target")
     @patch("mtdata.core.trading._cancel_pending")
     @patch("mtdata.core.trading._close_positions")
+    def test_dry_run_ticket_preview_copies_live_ready_blockers(
+        self, mock_close, mock_cancel, mock_resolve
+    ):
+        mock_resolve.return_value = {
+            "success": False,
+            "error_code": "preview_blocked",
+            "error": "One or more position quotes are not live-ready.",
+            "blockers": ["market_not_live_ready"],
+            "preview_ok": False,
+            "target_scope": "positions",
+            "target_kind": "open_position",
+            "resolved_ticket": 123,
+            "target_symbol": "TSLA.NAS-24",
+            "target_volume": 50.0,
+            "total_profit": -310.0,
+            "matched_positions": [
+                {"ticket": 123, "symbol": "TSLA.NAS-24", "side": "BUY", "volume": 50.0}
+            ],
+            "market_readiness": {"usable_for_live_trading": False},
+        }
+
+        out = trade_close(ticket=123, dry_run=True, __cli_raw=True)
+
+        assert out["success"] is False
+        assert out["preview_ok"] is False
+        assert out["error_code"] == "preview_blocked"
+        assert out["blockers"] == ["market_not_live_ready"]
+        assert out.get("symbol") == "TSLA.NAS-24" or out.get("target_symbol") == (
+            "TSLA.NAS-24"
+        )
+        assert out.get("volume") == 50.0 or out.get("target_volume") == 50.0
+        assert out["total_profit"] == -310.0
+        mock_close.assert_not_called()
+
+    @patch("mtdata.core.trading._resolve_close_dry_run_target")
+    @patch("mtdata.core.trading._cancel_pending")
+    @patch("mtdata.core.trading._close_positions")
     def test_dry_run_ticket_validates_ticket_exists(
         self, mock_close, mock_cancel, mock_resolve
     ):

@@ -572,6 +572,10 @@ def _run_trade_close_once(  # noqa: C901
             )
             if isinstance(target_result, dict):
                 for key in (
+                    "success",
+                    "error",
+                    "error_code",
+                    "blockers",
                     "target_scope",
                     "target_kind",
                     "resolved_ticket",
@@ -590,6 +594,10 @@ def _run_trade_close_once(  # noqa: C901
                     value = target_result.get(key)
                     if value is not None:
                         preview[key] = value
+                if preview.get("symbol") in (None, "") and preview.get("target_symbol"):
+                    preview["symbol"] = preview["target_symbol"]
+                if preview.get("volume") is None and preview.get("target_volume") is not None:
+                    preview["volume"] = preview["target_volume"]
         if request.symbol is not None:
             preview["symbol"] = request.symbol
         if request.magic is not None:

@@ -679,6 +679,8 @@ def _shape_trade_var_cvar_payload(
             "scope",
             "symbol",
             "portfolio_hint",
+            "mark_usability_status",
+            "unusable_marks",
             "summary",
             "equity",
             "currency",
@@ -690,7 +692,6 @@ def _shape_trade_var_cvar_payload(
             "window",
             "scenario_generation",
             "mark_freshness_status",
-            "mark_usability_status",
             "data_stale",
             "valuation_time",
             "valuation_basis",
@@ -699,7 +700,6 @@ def _shape_trade_var_cvar_payload(
             "market_status",
             "market_status_reason",
             "marks_evaluated",
-            "unusable_marks",
         )
         if key in result
     }
@@ -2990,7 +2990,8 @@ def _position_mark_freshness(
     stale_values = [item.get("data_stale") for item in contexts]
     data_stale = (
         True
-        if any(value is True for value in stale_values)
+        if (not live_ready)
+        or any(value is True for value in stale_values)
         else False
         if all(value is False for value in stale_values)
         else None

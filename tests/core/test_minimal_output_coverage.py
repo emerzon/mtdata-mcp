@@ -1894,6 +1894,38 @@ class TestFormatResultMinimal:
         assert "would_send_order: false" in result
         assert "no request was sent to MT5" in result
 
+
+    def test_trade_close_compact_preview_keeps_position_fields(self):
+        result = format_result_minimal(
+            {
+                "success": True,
+                "dry_run": True,
+                "preview_ok": True,
+                "actionability": "preview_only",
+                "would_send_order": False,
+                "ticket": 1884012351,
+                "target_symbol": "TSLA.NAS-24",
+                "target_volume": 50.0,
+                "total_profit": -310.0,
+                "matched_positions": [
+                    {
+                        "ticket": 1884012351,
+                        "symbol": "TSLA.NAS-24",
+                        "side": "BUY",
+                        "volume": 50.0,
+                    }
+                ],
+                "market_readiness": {"usable_for_live_trading": True},
+            },
+            verbose=False,
+            tool_name="trade_close",
+        )
+
+        assert "symbol: TSLA.NAS-24" in result
+        assert "volume: 50" in result
+        assert "total_profit: -310" in result
+        assert "matched_positions" in result
+
     def test_trade_error_preserves_recovery_suggestion(self):
         result = format_result_minimal(
             {
