@@ -1774,6 +1774,9 @@ class TestReportSummaryContext:
         sec["context"]["last_snapshot"]["close"] = 1.0990  # below EMA_50
         res = self._run_report(sec)
         assert any("mixed" in s for s in res.get("summary", []))
+        market = res.get("summary_structured", {}).get("market") or {}
+        assert market.get("trend") == "mixed"
+        assert market.get("trend_basis") == "last_completed_close_vs_ema20_ema50"
 
     def test_trend_skipped_when_close_missing(self):
         sec = _make_full_sections()

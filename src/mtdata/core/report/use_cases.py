@@ -2190,13 +2190,19 @@ def run_report_generate(  # noqa: C901
                     if price_precision is not None:
                         market_summary["price_precision"] = price_precision
                 if price is not None and ema20 is not None and ema50 is not None:
-                    trend_note = (
-                        "above EMAs"
-                        if float(price or 0) > float(ema20) > float(ema50)
-                        else "mixed"
-                    )
+                    price_value = float(price or 0)
+                    ema20_value = float(ema20)
+                    ema50_value = float(ema50)
+                    if price_value > ema20_value > ema50_value:
+                        trend_note = "above EMAs"
+                    elif price_value < ema20_value < ema50_value:
+                        trend_note = "below EMAs"
+                    else:
+                        trend_note = "mixed"
                     summ.append(f"trend: {trend_note}")
                     market_summary["trend"] = trend_note
+                    market_summary["trend_basis"] = "last_completed_close_vs_ema20_ema50"
+                    market_summary["trend_window"] = "completed_bar"
                 if rsi is not None:
                     summ.append(f"RSI={format_number(rsi)}")
                     market_summary["rsi"] = rsi
@@ -2664,7 +2670,11 @@ def run_report_generate(  # noqa: C901
                         if isinstance(price_precision, int)
                         else format_number(market_summary.get("close"))
                     )
-                    if trend_note:
+                    if trend_note == "mixed":
+                        narrative_parts.append(
+                            f"Last close {close_text} (mixed vs EMA20/EMA50)."
+                        )
+                    elif trend_note:
                         narrative_parts.append(f"Last close {close_text} ({trend_note}).")
                     else:
                         narrative_parts.append(f"Last close {close_text}.")
