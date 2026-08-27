@@ -196,7 +196,12 @@ PARAM_HINTS = {
     "params_per_method": "Per-method params map (e.g. {method: {k: v}}).",
     "as_of": "Inclusive reference cutoff; a date-only value includes that full trading day.",
     "ci_alpha": "Interval alpha = 1 - nominal coverage; 0.05 requests 95% bands.",
-    "features": "Feature spec as JSON or k=v pairs. Examples: --features lag=3,rolling=5 or --features '{\"lag\":3,\"rolling\":5}'.",
+    "features": (
+        "Feature spec as JSON or k=v pairs. Example: --features "
+        "'{\"indicators\":\"rsi(14),roc(12)\","
+        "\"future_covariates\":[\"hour\",\"dow\"],"
+        "\"observed_future_policy\":\"carry_forward\"}'."
+    ),
     "dimred": "Dimensionality-reduction method and its method-specific parameters.",
     "target_spec": "Target spec (JSON or k=v).",
     "quantity": "Quantity to model (price/return/volatility).",

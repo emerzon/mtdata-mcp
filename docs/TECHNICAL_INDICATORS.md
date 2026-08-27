@@ -58,7 +58,11 @@ Indicators add new columns to the output:
 time,open,high,low,close,volume,ema_20,ema_50,rsi_14,macd_12_26_9,macd_h_12_26_9,macd_s_12_26_9
 ```
 
-Column naming convention: lowercase `indicator_param1_param2` (the same names `indicators_describe` reports). Denoise `columns=` must use these names, not `RSI_14`.
+Candle responses normalize indicator columns to lowercase
+`indicator_param1_param2` (the same names `indicators_describe` reports), and
+denoise `columns=` must use those names. Forecast feature diagnostics preserve
+the indicator backend's actual names, which can be uppercase; read
+`feature_usage.selected_columns` instead of assuming casing.
 
 ---
 
@@ -124,7 +128,7 @@ Measure price movement magnitude.
 | Indicator | Description | Example |
 |-----------|-------------|---------|
 | `atr` | Average True Range (default: 14) | `atr(14)` |
-| `natr` | Normalized ATR (default: 14) | `natr(14)` |
+| `natr` | Normalized ATR (runtime default can vary; specify the period) | `natr(14)` |
 | `bbands` | Bollinger Bands width | `bbands(20,2)` |
 | `kc` | Keltner Channels | `kc(20,2)` |
 | `donchian` | Donchian Channels | `donchian(20)` |
@@ -220,6 +224,10 @@ present, some functions may use it instead, and a few values (especially
 candlestick pattern columns) can look slightly different. Candle responses that
 include indicators attach a compact `indicator_engine` object with the
 pandas-ta name/version, whether TA-Lib is available, and the effective backend.
+Forecast backtests do not yet attach that provenance. For reproducible feature
+studies, save `indicators_describe --detail full`, the installed backend
+versions, and the backtest's actual `feature_usage.selected_columns` beside the
+raw result.
 
 ---
 

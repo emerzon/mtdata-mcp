@@ -118,6 +118,8 @@ def test_registry_get_method_info_loads_methods_on_demand():
 
     assert info["name"] == "mlf_lightgbm"
     assert info["supports_training"] is True
+    assert info["supports_historical_exog"] is True
+    assert info["supports_future_exog"] is True
 
 
 def test_ensure_registry_loaded_continues_after_one_module_import_failure(monkeypatch):

@@ -174,12 +174,26 @@ mtdata-cli forecast_backtest_run EURUSD --horizon 12 --methods theta --slippage-
 | `--features` | Feature engineering spec |
 | `--dimred` | Dimensionality-reduction method and parameters as JSON |
 
-Dimred methods supported by the forecasting pipeline: `pca`, `tsne`, `selectkbest` (requires `scikit-learn`).
+Dimred methods supported by the forecasting pipeline: `pca`, `tsne`,
+`selectkbest` (requires `scikit-learn`).
 
-Tip: for `forecast_backtest_run`, pass dimred params as JSON:
+Feature-bearing backtests require a method whose catalog row reports both
+`supports_historical_exog=true` and `supports_future_exog=true`. Observed
+features are lagged one bar. For horizons greater than one, explicitly choose
+`observed_future_policy=carry_forward`; this freezes the latest observed value
+over the forecast horizon and is not a known-future indicator path.
+
+Use full detail to audit the selected columns and actual fit/predict consumption:
+
 ```bash
-mtdata-cli forecast_backtest_run EURUSD --horizon 12 --methods mlf_lightgbm --features '{"include":["close","volume"]}' --dimred '{"method":"pca","params":{"n_components":5}}'
+mtdata-cli forecast_backtest_run EURUSD --timeframe H1 --horizon 12 \
+  --methods mlf_lightgbm --detail full \
+  --features '{"indicators":"rsi(14),roc(12)","future_covariates":["hour","dow"],"observed_future_policy":"carry_forward"}'
 ```
+
+Require `complete_success=true`, per-anchor `feature_usage.status=consumed`,
+and `feature_usage.anchors_verified` equal to the planned anchor count. Run raw
+or univariate controls in separate commands without `--features`.
 
 **Example with denoising:**
 ```bash

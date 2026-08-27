@@ -411,6 +411,16 @@ class ForecastMethod(ABC):
         """Dictionary of supported features (price, return, volatility, ci)."""
         return {"price": True, "return": True, "volatility": False, "ci": False}
 
+    @property
+    def supports_historical_exog(self) -> bool:
+        """Whether the adapter is audited to consume historical exogenous inputs."""
+        return False
+
+    @property
+    def supports_future_exog(self) -> bool:
+        """Whether the adapter is audited to consume future exogenous inputs."""
+        return False
+
     def forecast(
         self,
         series: pd.Series,

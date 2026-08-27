@@ -34,6 +34,27 @@ _BACKTEST_METRICS_REASON_NOTES = {
 }
 
 
+def _compact_feature_usage(value: Any) -> Optional[Dict[str, Any]]:
+    """Keep bounded feature evidence while omitting names and data arrays."""
+    if not isinstance(value, dict):
+        return None
+    allowed = (
+        "status",
+        "historical_consumed",
+        "future_consumed",
+        "anchors_verified",
+        "historical_rows_min",
+        "historical_rows_max",
+        "future_rows",
+        "n_features",
+        "observed_feature_lag_bars",
+        "observed_future_policy",
+        "dimred_method",
+        "dimred_n_features",
+    )
+    return {key: value[key] for key in allowed if key in value}
+
+
 def _compact_backtest_units(
     raw_units: Any,
     method_summaries: list[Dict[str, Any]],
@@ -205,6 +226,9 @@ def _compact_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:  # noqa:
         ):
             if key in method_payload:
                 method_out[key] = _compact_metric(key, method_payload[key])
+        feature_usage = _compact_feature_usage(method_payload.get("feature_usage"))
+        if feature_usage:
+            method_out["feature_usage"] = feature_usage
         failure_error = method_payload.get("error")
         failure_code = method_payload.get("error_code")
         if not failure_error and isinstance(details, list):

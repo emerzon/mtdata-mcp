@@ -251,10 +251,20 @@ their reference and report `analysis_time_window`; they never mix in a live tick
 
 ### Technical Indicators
 
-Add indicators as input features:
+Use an audited feature-consuming method and pass indicators as one compact
+string. Observed indicators are lagged by one bar; horizons longer than one bar
+must state how their future values are supplied:
+
 ```bash
-mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 --method theta --features "include=close,volume"
+mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 \
+  --method mlf_lightgbm \
+  --features '{"indicators":"rsi(14),roc(12)","observed_future_policy":"carry_forward"}'
 ```
+
+Use `forecast_list_methods --detail full` and require both
+`supports_historical_exog` and `supports_future_exog`. Backtests reject an
+entire feature-bearing run when any selected method lacks either capability;
+run univariate controls separately without `--features`.
 
 ### Denoising
 

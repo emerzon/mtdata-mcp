@@ -3228,6 +3228,8 @@ def test_forecast_list_methods_uses_shared_snapshot(monkeypatch):
                     "params": [{"name": "window"}],
                     "supports": {"ci": True},
                     "supports_training": True,
+                    "supports_historical_exog": True,
+                    "supports_future_exog": True,
                     "training_category": "moderate",
                     "method_id": "statsforecast:theta",
                     "capability_id": "statsforecast:theta",
@@ -3250,10 +3252,16 @@ def test_forecast_list_methods_uses_shared_snapshot(monkeypatch):
     assert "namespace" not in compact["methods"][0]
     assert compact["methods"][0]["supports_ci"] is True
     assert compact["methods"][0]["supports_training"] is True
+    assert compact["methods"][0]["supports_historical_exog"] is True
+    assert compact["methods"][0]["supports_future_exog"] is True
     assert standard["methods"][0]["namespace"] == "statsforecast"
+    assert standard["methods"][0]["supports_historical_exog"] is True
+    assert standard["methods"][0]["supports_future_exog"] is True
     assert standard["methods"][0]["description"] == "StatsForecast theta."
     assert full["methods"][0]["method_id"] == "statsforecast:theta"
     assert full["methods"][0]["training_category"] == "moderate"
+    assert full["methods"][0]["supports_historical_exog"] is True
+    assert full["methods"][0]["supports_future_exog"] is True
     assert full["methods"][0]["selector"]["key"] == "model_name"
     assert full["methods"][0]["execution"]["method"] == "statsforecast"
 

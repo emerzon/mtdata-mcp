@@ -73,6 +73,12 @@ class ForecastRegistry:
             "name": name,
             "category": inst.category,
             "supports_training": inst.supports_training,
+            "supports_historical_exog": bool(
+                getattr(inst, "supports_historical_exog", False)
+            ),
+            "supports_future_exog": bool(
+                getattr(inst, "supports_future_exog", False)
+            ),
             "train_supports_cancel": inst.train_supports_cancel,
             "train_supports_progress": inst.train_supports_progress,
             "training_category": inst.training_category,
@@ -181,6 +187,12 @@ def _build_forecast_methods_snapshot() -> Tuple[List[Dict[str, Any]], Dict[str, 
             "description": desc,
             "params": params,
             "supports": supports,
+            "supports_historical_exog": bool(
+                getattr(inst, "supports_historical_exog", False)
+            ),
+            "supports_future_exog": bool(
+                getattr(inst, "supports_future_exog", False)
+            ),
             "supports_training": bool(getattr(inst, "supports_training", False)),
             "training_category": str(getattr(inst, "training_category", "instant") or "instant"),
         }

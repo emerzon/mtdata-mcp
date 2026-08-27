@@ -382,7 +382,6 @@ def test_backtest_full_detail_keeps_actionable_strategy_intent_only() -> None:
             anchors=[anchor],
             detail="full",
             trade_threshold=0.01,
-            features={"future_covariates": ["hour"], "ti": "rsi_14"},
         )
 
     detail = res["results"]["naive"]["details"][0]

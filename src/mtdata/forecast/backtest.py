@@ -45,7 +45,7 @@ from .contracts import (
 )
 from .exceptions import ForecastError, raise_if_error_result
 from .forecast import forecast
-from .forecast_registry import get_forecast_methods_data
+from .forecast_registry import ForecastRegistry, get_forecast_methods_data
 from .forecast_validation import (
     attach_denoise_causality_disclosure,
     canonicalize_forecast_methods,
@@ -56,6 +56,8 @@ from .target_builder import _log_return_array
 from .volatility import forecast_volatility
 
 _BREAKEVEN_RETURN_EPS = 1e-12
+_FEATURE_CAPABILITY_ERROR_CODE = "feature_consumption_unsupported"
+_FEATURE_ATTESTATION_ERROR_CODE = "feature_consumption_unverified"
 _LOW_SAMPLE_TRADING_METRIC_KEYS = (
     "avg_return_per_trade",
     "avg_return_per_trade_pct",
@@ -80,6 +82,202 @@ _LOW_SAMPLE_TRADING_METRIC_KEYS = (
     "losing_trades",
     "breakeven_trades",
 )
+
+
+def _feature_method_capability_error(
+    methods: List[str],
+    *,
+    features: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """Reject feature runs unless every selected adapter has audited exog support."""
+    if not isinstance(features, dict) or not features:
+        return None
+
+    incompatible: List[Dict[str, Any]] = []
+    for method in methods:
+        try:
+            adapter = ForecastRegistry.get(str(method))
+        except Exception:
+            historical = False
+            future = False
+        else:
+            historical = bool(
+                getattr(adapter, "supports_historical_exog", False)
+            )
+            future = bool(getattr(adapter, "supports_future_exog", False))
+        if not historical or not future:
+            incompatible.append(
+                {
+                    "method": str(method),
+                    "supports_historical_exog": historical,
+                    "supports_future_exog": future,
+                }
+            )
+
+    if not incompatible:
+        return None
+    names = ", ".join(row["method"] for row in incompatible)
+    return {
+        "error": (
+            "Feature-bearing backtests require audited consumption of both "
+            "historical and future exogenous inputs for every selected method; "
+            f"unsupported methods: {names}."
+        ),
+        "error_code": _FEATURE_CAPABILITY_ERROR_CODE,
+        "incompatible_methods": incompatible,
+        "remediation": (
+            "Run feature-capable methods in an isolated backtest. Run raw or "
+            "univariate baselines separately without --features."
+        ),
+    }
+
+
+def _nonnegative_int(value: Any) -> Optional[int]:
+    numeric = coerce_finite_float(value)
+    if numeric is None or numeric < 0 or not float(numeric).is_integer():
+        return None
+    return int(numeric)
+
+
+def _string_list(value: Any) -> Optional[List[str]]:
+    if not isinstance(value, (list, tuple)):
+        return None
+    items = [str(item) for item in value]
+    if any(not item for item in items):
+        return None
+    return items
+
+
+def _validated_feature_usage(
+    result: Dict[str, Any],
+    *,
+    horizon: int,
+) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Cross-check bounded preparation diagnostics with adapter attestation."""
+    diagnostics = result.get("diagnostics")
+    if not isinstance(diagnostics, dict):
+        return None, "forecast diagnostics are missing"
+    prepared = diagnostics.get("feature_preparation")
+    consumed = diagnostics.get("feature_consumption")
+    if not isinstance(prepared, dict):
+        return None, "feature preparation diagnostics are missing"
+    if not isinstance(consumed, dict):
+        return None, "runtime feature-consumption attestation is missing"
+
+    n_features = _nonnegative_int(prepared.get("n_features"))
+    selected_columns = _string_list(prepared.get("selected_columns"))
+    if n_features is None or n_features <= 0:
+        return None, "feature preparation produced no usable columns"
+    if selected_columns is None or len(selected_columns) != n_features:
+        return None, "selected feature columns do not match prepared feature count"
+
+    adapter_columns = _string_list(consumed.get("adapter_columns"))
+    consumed_n_features = _nonnegative_int(consumed.get("n_features"))
+    historical_rows = _nonnegative_int(consumed.get("historical_rows"))
+    future_rows = _nonnegative_int(consumed.get("future_rows"))
+    target_points = _nonnegative_int(diagnostics.get("target_points_used"))
+    if consumed.get("status") != "consumed":
+        return None, "runtime feature-consumption status is not consumed"
+    if consumed.get("historical_consumed") is not True:
+        return None, "historical exogenous inputs were not attested as consumed"
+    if consumed.get("future_consumed") is not True:
+        return None, "future exogenous inputs were not attested as consumed"
+    if consumed_n_features != n_features:
+        return None, "adapter feature count differs from prepared feature count"
+    expected_adapter_columns = [f"x{index}" for index in range(n_features)]
+    if adapter_columns != expected_adapter_columns:
+        return None, "adapter columns do not match generic feature identity"
+    if target_points is None or historical_rows != target_points:
+        return None, "historical exogenous row count differs from target row count"
+    if future_rows != int(horizon):
+        return None, "future exogenous row count differs from forecast horizon"
+
+    include_columns = _string_list(prepared.get("include_columns"))
+    indicator_columns = _string_list(prepared.get("indicator_columns"))
+    calendar_columns = _string_list(prepared.get("calendar_columns"))
+    if include_columns is None or indicator_columns is None or calendar_columns is None:
+        return None, "prepared feature column categories are malformed"
+    has_observed_features = bool(include_columns or indicator_columns)
+    observed_lag = _nonnegative_int(prepared.get("observed_feature_lag_bars"))
+    observed_policy = prepared.get("observed_future_policy")
+    if has_observed_features and observed_lag != 1:
+        return None, "observed feature lag policy is missing or inconsistent"
+    if has_observed_features and (
+        not isinstance(observed_policy, str) or not observed_policy.strip()
+    ):
+        return None, "observed future feature policy is missing"
+
+    usage: Dict[str, Any] = {
+        "status": "consumed",
+        "historical_consumed": True,
+        "future_consumed": True,
+        "historical_rows": historical_rows,
+        "future_rows": future_rows,
+        "n_features": n_features,
+        "adapter_columns": adapter_columns,
+        "selected_columns": selected_columns,
+        "include_columns": include_columns,
+        "indicator_columns": indicator_columns,
+        "calendar_columns": calendar_columns,
+    }
+    if has_observed_features:
+        usage["observed_feature_lag_bars"] = observed_lag
+        usage["observed_future_policy"] = observed_policy
+    for key in ("dimred_method", "dimred_n_features"):
+        if prepared.get(key) is not None:
+            usage[key] = prepared[key]
+    return usage, None
+
+
+def _feature_usage_signature(usage: Dict[str, Any]) -> Tuple[Any, ...]:
+    return (
+        usage.get("status"),
+        usage.get("n_features"),
+        tuple(usage.get("adapter_columns") or ()),
+        tuple(usage.get("selected_columns") or ()),
+        tuple(usage.get("include_columns") or ()),
+        tuple(usage.get("indicator_columns") or ()),
+        tuple(usage.get("calendar_columns") or ()),
+        usage.get("observed_feature_lag_bars"),
+        usage.get("observed_future_policy"),
+        usage.get("dimred_method"),
+        usage.get("dimred_n_features"),
+    )
+
+
+def _feature_usage_summary(usages: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if not usages:
+        return None
+    first = usages[0]
+    historical_rows = [int(row["historical_rows"]) for row in usages]
+    summary = {
+        key: deepcopy(first[key])
+        for key in (
+            "status",
+            "historical_consumed",
+            "future_consumed",
+            "future_rows",
+            "n_features",
+            "adapter_columns",
+            "selected_columns",
+            "include_columns",
+            "indicator_columns",
+            "calendar_columns",
+            "observed_feature_lag_bars",
+            "observed_future_policy",
+            "dimred_method",
+            "dimred_n_features",
+        )
+        if key in first
+    }
+    summary.update(
+        {
+            "anchors_verified": int(len(usages)),
+            "historical_rows_min": min(historical_rows),
+            "historical_rows_max": max(historical_rows),
+        }
+    )
+    return summary
 
 
 def _trade_return_bucket(value: Any) -> Literal["winning", "losing", "breakeven"]:
@@ -2478,6 +2676,48 @@ def forecast_backtest(  # noqa: C901
                 )
             }
 
+        # Normalize and validate method selection before history or model work.
+        if isinstance(methods, str):
+            txt = methods.strip()
+            if "," in txt:
+                methods = [s.strip() for s in txt.split(",") if s.strip()]
+            else:
+                methods = [s for s in txt.split() if s]
+
+        methods_defaulted = not methods
+        if methods_defaulted:
+            if quantity == 'volatility':
+                methods = ['ewma', 'parkinson']
+            else:
+                methods_info = get_forecast_methods_data()
+                avail = [m['method'] for m in methods_info.get('methods', []) if m.get('available')]
+                preferred = ['naive', 'drift', 'theta']
+                methods = [m for m in preferred if m in avail]
+        canonical_methods, method_error = canonicalize_forecast_methods(
+            list(methods or []),
+            require_known=False,
+        )
+        if method_error is not None:
+            return method_error
+        methods = list(canonical_methods or [])
+        params_map, params_error = remap_params_per_method(
+            dict(params_per_method or {}),
+            methods,
+        )
+        if params_error is not None:
+            return params_error
+        feature_capability_error = _feature_method_capability_error(
+            methods,
+            features=features,
+        )
+        if feature_capability_error is not None:
+            return feature_capability_error
+        cleanup_gpu_after_run = forecast_methods_may_use_gpu(
+            methods,
+            params_per_method=params_map,
+            params=params,
+        )
+
         # Fetch sufficient history via shared helper; ensure enough bars for anchors
         model_lookback = int(lookback) if lookback is not None else None
         history_context = model_lookback if model_lookback is not None else 400
@@ -2534,43 +2774,6 @@ def forecast_backtest(  # noqa: C901
                         )
                     }
 
-        # Normalize methods input (allow comma or whitespace separated string)
-        if isinstance(methods, str):
-            txt = methods.strip()
-            if "," in txt:
-                methods = [s.strip() for s in txt.split(",") if s.strip()]
-            else:
-                methods = [s for s in txt.split() if s]
-
-        # Keep an omitted method list suitable for an interactive CLI call. Larger
-        # comparisons remain available, but must be requested explicitly.
-        methods_defaulted = not methods
-        if methods_defaulted:
-            if quantity == 'volatility':
-                methods = ['ewma', 'parkinson']
-            else:
-                methods_info = get_forecast_methods_data()
-                avail = [m['method'] for m in methods_info.get('methods', []) if m.get('available')]
-                preferred = ['naive', 'drift', 'theta']
-                methods = [m for m in preferred if m in avail]
-        canonical_methods, method_error = canonicalize_forecast_methods(
-            list(methods or []),
-            require_known=False,
-        )
-        if method_error is not None:
-            return method_error
-        methods = list(canonical_methods or [])
-        params_map, params_error = remap_params_per_method(
-            dict(params_per_method or {}),
-            methods,
-        )
-        if params_error is not None:
-            return params_error
-        cleanup_gpu_after_run = forecast_methods_may_use_gpu(
-            methods,
-            params_per_method=params_map,
-            params=params,
-        )
         target_mode = _quantity_to_target(quantity)
 
         # Build ground-truth windows for each anchor
@@ -2645,6 +2848,7 @@ def forecast_backtest(  # noqa: C901
         for method in methods:
             per_anchor = []
             execution_contract: Optional[ForecastExecutionContract] = None
+            feature_usage_signature: Optional[Tuple[Any, ...]] = None
             for idx in anchor_indices:
                 if idx not in actual_windows:
                     continue
@@ -2736,6 +2940,25 @@ def forecast_backtest(  # noqa: C901
                 except Exception as ex:
                     per_anchor.append({"anchor": anchor_time, "success": False, "error": str(ex)})
                     continue
+                feature_usage: Optional[Dict[str, Any]] = None
+                if isinstance(features, dict) and features:
+                    feature_usage, usage_error = _validated_feature_usage(
+                        r,
+                        horizon=int(horizon),
+                    )
+                    if usage_error is not None or feature_usage is None:
+                        per_anchor.append(
+                            {
+                                "anchor": anchor_time,
+                                "success": False,
+                                "error": (
+                                    "Feature consumption could not be verified: "
+                                    f"{usage_error or 'missing feature usage'}"
+                                ),
+                                "error_code": _FEATURE_ATTESTATION_ERROR_CODE,
+                            }
+                        )
+                        continue
                 if quantity == 'volatility':
                     # Compute realized horizon sigma from the anchor close through the future path.
                     act = np.array(truth, dtype=float)
@@ -2798,6 +3021,23 @@ def forecast_backtest(  # noqa: C901
                     if not np.all(np.isfinite(fcv[:m])):
                         per_anchor.append({"anchor": anchor_time, "success": False, "error": "Non-finite forecast values"})
                         continue
+                    if feature_usage is not None:
+                        current_signature = _feature_usage_signature(feature_usage)
+                        if feature_usage_signature is None:
+                            feature_usage_signature = current_signature
+                        elif current_signature != feature_usage_signature:
+                            per_anchor.append(
+                                {
+                                    "anchor": anchor_time,
+                                    "success": False,
+                                    "error": (
+                                        "Feature consumption could not be verified: "
+                                        "prepared feature identity changed across anchors"
+                                    ),
+                                    "error_code": _FEATURE_ATTESTATION_ERROR_CODE,
+                                }
+                            )
+                            continue
                     mae = float(np.mean(np.abs(fcv[:m] - act[:m])))
                     rmse = float(np.sqrt(np.mean((fcv[:m] - act[:m])**2)))
                     entry_idx = int(idx + 1)
@@ -2956,6 +3196,10 @@ def forecast_backtest(  # noqa: C901
                         "trade_return": net_return,
                         "training_bars_used": anchor_training_bars,
                     }
+                    if feature_usage is not None:
+                        detail_row["_feature_usage"] = feature_usage
+                        if include_paths and isinstance(r.get("params_used"), dict):
+                            detail_row["params_used"] = deepcopy(r["params_used"])
                     for key in (
                         "history_sample_ok",
                         "forecast_reliability",
@@ -3004,6 +3248,14 @@ def forecast_backtest(  # noqa: C901
                     "num_tests": num_tests,
                     "details": per_anchor,
                 }
+                verified_feature_usages = [
+                    row["_feature_usage"]
+                    for row in ok
+                    if isinstance(row.get("_feature_usage"), dict)
+                ]
+                feature_summary = _feature_usage_summary(verified_feature_usages)
+                if feature_summary is not None:
+                    agg["feature_usage"] = feature_summary
                 if failed_tests:
                     agg["warnings"] = [
                         f"{failed_tests} of {num_tests} anchor tests failed; aggregate "
@@ -3013,6 +3265,9 @@ def forecast_backtest(  # noqa: C901
                     detail_row.pop('_absolute_error_sum', None)
                     detail_row.pop('_squared_error_sum', None)
                     detail_row.pop('_error_count', None)
+                    internal_feature_usage = detail_row.pop("_feature_usage", None)
+                    if include_paths and isinstance(internal_feature_usage, dict):
+                        detail_row["feature_usage"] = internal_feature_usage
                 if quantity != 'volatility':
                     directional_calls_made = sum(int(x.get('directional_calls_made') or 0) for x in ok)
                     directional_opportunities = sum(int(x.get('directional_opportunities') or 0) for x in ok)

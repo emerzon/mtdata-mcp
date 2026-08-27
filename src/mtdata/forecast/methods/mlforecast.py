@@ -89,6 +89,14 @@ class MLForecastMethod(ForecastMethod):
     def supports_features(self) -> Dict[str, bool]:
         return {"price": True, "return": True, "volatility": True, "ci": False}
 
+    @property
+    def supports_historical_exog(self) -> bool:
+        return True
+
+    @property
+    def supports_future_exog(self) -> bool:
+        return True
+
     def _get_model(self, params: Dict[str, Any]):
         raise NotImplementedError
 
@@ -164,9 +172,28 @@ class MLForecastMethod(ForecastMethod):
 
         artifact_bytes = self.serialize_artifact(mlf)
         reporter.stage(3, "Training complete", force=True)
+        metadata: Dict[str, Any] = {}
+        if X_df is not None:
+            adapter_columns = [
+                str(column)
+                for column in X_df.columns
+                if column not in {"unique_id", "ds"}
+            ]
+            metadata["diagnostics"] = {
+                "feature_consumption": {
+                    "status": "historical_consumed",
+                    "historical_consumed": True,
+                    "future_consumed": False,
+                    "historical_rows": int(len(X_df)),
+                    "future_rows": 0,
+                    "n_features": int(len(adapter_columns)),
+                    "adapter_columns": adapter_columns,
+                }
+            }
         return TrainResult(
             artifact_bytes=artifact_bytes,
             params_used={"lags": lags},
+            metadata=metadata,
         )
 
     def predict_with_model(
@@ -219,7 +246,42 @@ class MLForecastMethod(ForecastMethod):
 
         internal_keys = {'symbol', 'timeframe', 'as_of', 'exog_used', 'exog_future'}
         clean_params = {k: v for k, v in p.items() if k not in internal_keys}
-        return ForecastResult(forecast=f_vals, ci_values=None, params_used=clean_params)
+        metadata: Optional[Dict[str, Any]] = None
+        if X_df is not None and Xf_df is not None:
+            historical_columns = [
+                str(column)
+                for column in X_df.columns
+                if column not in {"unique_id", "ds"}
+            ]
+            future_columns = [
+                str(column)
+                for column in Xf_df.columns
+                if column not in {"unique_id", "ds"}
+            ]
+            if historical_columns != future_columns:
+                raise ValueError(
+                    "Exogenous feature mismatch: historical and future adapter "
+                    "columns differ"
+                )
+            metadata = {
+                "diagnostics": {
+                    "feature_consumption": {
+                        "status": "consumed",
+                        "historical_consumed": True,
+                        "future_consumed": True,
+                        "historical_rows": int(len(X_df)),
+                        "future_rows": int(len(Xf_df)),
+                        "n_features": int(len(historical_columns)),
+                        "adapter_columns": historical_columns,
+                    }
+                }
+            }
+        return ForecastResult(
+            forecast=f_vals,
+            ci_values=None,
+            params_used=clean_params,
+            metadata=metadata,
+        )
 
 @ForecastRegistry.register("mlf_rf")
 class MLFRandomForest(MLForecastMethod):

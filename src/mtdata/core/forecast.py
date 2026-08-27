@@ -1909,6 +1909,12 @@ def _forecast_list_full_row(
             row["ci_method"] = ci_method
     if isinstance(item.get("supports_training"), bool):
         row["supports_training"] = bool(item.get("supports_training"))
+    for capability_key in (
+        "supports_historical_exog",
+        "supports_future_exog",
+    ):
+        if isinstance(item.get(capability_key), bool):
+            row[capability_key] = bool(item.get(capability_key))
     if row.get("supports_training") is True and item.get("training_category") not in (None, ""):
         row["training_category"] = item.get("training_category")
     if item.get("requires_proxy") is True:
@@ -2335,6 +2341,12 @@ def _forecast_list_methods_impl(  # noqa: C901
                     row["ci_method"] = ci_method
             if isinstance(item.get("supports_training"), bool):
                 row["supports_training"] = bool(item.get("supports_training"))
+            for capability_key in (
+                "supports_historical_exog",
+                "supports_future_exog",
+            ):
+                if isinstance(item.get(capability_key), bool):
+                    row[capability_key] = bool(item.get(capability_key))
             if item.get("requires_proxy") is True:
                 row["requires_proxy"] = True
             valid_proxies = item.get("valid_proxies")

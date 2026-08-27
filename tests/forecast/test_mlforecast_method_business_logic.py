@@ -90,6 +90,19 @@ def test_mlforecast_forecast_with_default_lags_exog_and_internal_param_filter(mo
     assert calls["fit"]["static_features"] == []
     assert calls["predict"]["h"] == 3
     assert calls["predict"]["X_df"]["x0"].tolist() == exog_future[:, 0].tolist()
+    assert out.metadata == {
+        "diagnostics": {
+            "feature_consumption": {
+                "status": "consumed",
+                "historical_consumed": True,
+                "future_consumed": True,
+                "historical_rows": 6,
+                "future_rows": 3,
+                "n_features": 1,
+                "adapter_columns": ["x0"],
+            }
+        }
+    }
 
 
 def test_mlforecast_train_accepts_historical_exog_without_future_exog(monkeypatch):
@@ -122,6 +135,19 @@ def test_mlforecast_train_accepts_historical_exog_without_future_exog(monkeypatc
     assert result.params_used == {"lags": [1, 2, 3]}
     assert calls["fit"]["df"]["x0"].tolist() == exog_used[:, 0].tolist()
     assert calls["fit"]["static_features"] == []
+    assert result.metadata == {
+        "diagnostics": {
+            "feature_consumption": {
+                "status": "historical_consumed",
+                "historical_consumed": True,
+                "future_consumed": False,
+                "historical_rows": 8,
+                "future_rows": 0,
+                "n_features": 1,
+                "adapter_columns": ["x0"],
+            }
+        }
+    }
 
 
 @pytest.mark.parametrize(
