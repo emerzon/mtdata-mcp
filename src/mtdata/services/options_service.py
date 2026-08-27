@@ -1784,6 +1784,28 @@ def _select_option_page(
 
 
 def _option_contract_terms_summary(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+    term_fields = (
+        "contract_size",
+        "contract_multiplier",
+        "multiplier_status",
+        "settlement_type",
+        "asset_class",
+        "exercise_style",
+        "deliverable",
+        "deliverable_status",
+        "premium_quote_unit",
+    )
+    uniform_terms: Dict[str, Any] = {}
+    mixed_fields: List[str] = []
+    unresolved_fields: List[str] = []
+    for field in term_fields:
+        values = [row.get(field) for row in rows]
+        if not values or any(value in (None, "") for value in values):
+            unresolved_fields.append(field)
+        elif any(value != values[0] for value in values[1:]):
+            mixed_fields.append(field)
+        else:
+            uniform_terms[field] = values[0]
     classifications = sorted(
         {
             str(row.get("contract_size"))
@@ -1798,35 +1820,15 @@ def _option_contract_terms_summary(rows: List[Dict[str, Any]]) -> Dict[str, Any]
             if row.get("multiplier_status") not in (None, "")
         }
     )
-    multipliers = sorted(
-        {
-            int(row["contract_multiplier"])
-            for row in rows
-            if row.get("contract_multiplier") is not None
-        }
-    )
-    all_known = bool(rows) and all(
-        row.get("contract_multiplier") is not None for row in rows
-    )
-    settlements = sorted(
-        {
-            str(row.get("settlement_type"))
-            for row in rows
-            if row.get("settlement_type") not in (None, "")
-        }
-    )
     return {
         "provider_classifications": classifications,
         "multiplier_statuses": statuses,
-        "uniform_contract_multiplier": (
-            multipliers[0]
-            if all_known and len(multipliers) == 1
-            else None
-        ),
-        "uniform_settlement_type": (
-            settlements[0] if len(settlements) == 1 else None
-        ),
-        "mixed_or_unresolved_terms": not all_known or len(multipliers) > 1,
+        "uniform_contract_multiplier": uniform_terms.get("contract_multiplier"),
+        "uniform_settlement_type": uniform_terms.get("settlement_type"),
+        "uniform_terms": uniform_terms,
+        "mixed_fields": mixed_fields,
+        "unresolved_fields": unresolved_fields,
+        "mixed_or_unresolved_terms": bool(mixed_fields or unresolved_fields),
     }
 
 

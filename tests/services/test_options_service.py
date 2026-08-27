@@ -353,6 +353,19 @@ def test_get_options_chain_filters_and_selects_expiration(monkeypatch):
         "multiplier_statuses": ["standard_from_provider_classification"],
         "uniform_contract_multiplier": 100,
         "uniform_settlement_type": "physical",
+        "uniform_terms": {
+            "contract_size": "REGULAR",
+            "contract_multiplier": 100,
+            "multiplier_status": "standard_from_provider_classification",
+            "settlement_type": "physical",
+            "asset_class": "equity_option",
+            "exercise_style": "american",
+            "deliverable": "100 underlying shares",
+            "deliverable_status": "standard",
+            "premium_quote_unit": "currency_per_underlying_unit",
+        },
+        "mixed_fields": [],
+        "unresolved_fields": [],
         "mixed_or_unresolved_terms": False,
     }
     assert out["options"][0]["settlement_type"] == "physical"
@@ -463,6 +476,9 @@ def test_option_contract_terms_fail_closed_for_adjusted_and_missing_metadata():
     )
     assert summary["provider_classifications"] == ["MINI", "REGULAR"]
     assert summary["uniform_contract_multiplier"] is None
+    assert "multiplier_status" in summary["mixed_fields"]
+    assert "contract_size" in summary["unresolved_fields"]
+    assert "contract_multiplier" in summary["unresolved_fields"]
     assert summary["mixed_or_unresolved_terms"] is True
 
 

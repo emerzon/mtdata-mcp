@@ -5720,6 +5720,22 @@ def test_options_tools_support_compact_and_full_detail(monkeypatch):
                     "standard_from_provider_classification"
                 ],
                 "uniform_contract_multiplier": 100,
+                "uniform_settlement_type": "physical",
+                "uniform_terms": {
+                    "contract_size": "REGULAR",
+                    "contract_multiplier": 100,
+                    "multiplier_status": (
+                        "standard_from_provider_classification"
+                    ),
+                    "settlement_type": "physical",
+                    "asset_class": "equity_option",
+                    "exercise_style": "american",
+                    "deliverable": "100 underlying units",
+                    "deliverable_status": "standard",
+                    "premium_quote_unit": "currency_per_underlying_unit",
+                },
+                "mixed_fields": [],
+                "unresolved_fields": [],
                 "mixed_or_unresolved_terms": False,
             },
             "contract_premium_formula": (
@@ -5755,6 +5771,9 @@ def test_options_tools_support_compact_and_full_detail(monkeypatch):
                     "multiplier_status": (
                         "standard_from_provider_classification"
                     ),
+                    "settlement_type": "physical",
+                    "asset_class": "equity_option",
+                    "exercise_style": "american",
                     "deliverable": "100 underlying units",
                     "deliverable_status": "standard",
                     "premium_quote_unit": "currency_per_underlying_unit",
@@ -5839,15 +5858,8 @@ def test_options_tools_support_compact_and_full_detail(monkeypatch):
         "mixed_or_unresolved_terms"
     ] is False
     compact_option = compact_chain["options"][0]
-    assert compact_option["contract_size"] == "REGULAR"
-    assert compact_option["contract_multiplier"] == 100
-    assert compact_option["multiplier_status"] == (
-        "standard_from_provider_classification"
-    )
-    assert compact_option["deliverable"] == "100 underlying units"
-    assert compact_option["deliverable_status"] == "standard"
-    assert compact_option["premium_quote_unit"] == (
-        "currency_per_underlying_unit"
+    assert not (
+        set(compact_option) & set(opt._OPTIONS_CHAIN_UNIFORM_TERM_FIELDS)
     )
     full_option = raw_chain("AAPL", detail="full")["options"][0]
     assert full_option["contract_size"] == "REGULAR"
@@ -5924,6 +5936,42 @@ def test_options_tools_support_compact_and_full_detail(monkeypatch):
     assert raw_cal("AAPL", detail="full")["sample_contracts"] == [
         {"strike": 100.0, "iv": 0.2}
     ]
+
+
+def test_options_chain_compact_keeps_terms_when_contracts_are_mixed() -> None:
+    payload = {
+        "success": True,
+        "contract_terms_summary": {
+            "uniform_terms": {},
+            "mixed_fields": ["contract_size", "contract_multiplier"],
+            "unresolved_fields": [],
+            "mixed_or_unresolved_terms": True,
+        },
+        "options": [
+            {
+                "side": "call",
+                "contract": "AAPL-REGULAR",
+                "strike": 100.0,
+                "contract_size": "REGULAR",
+                "contract_multiplier": 100,
+            },
+            {
+                "side": "call",
+                "contract": "AAPL-MINI",
+                "strike": 100.0,
+                "contract_size": "MINI",
+                "contract_multiplier": 10,
+            },
+        ],
+    }
+
+    result = opt._apply_options_detail(payload, detail="compact", kind="chain")
+
+    assert [row["contract_size"] for row in result["options"]] == [
+        "REGULAR",
+        "MINI",
+    ]
+    assert [row["contract_multiplier"] for row in result["options"]] == [100, 10]
 
 
 def test_options_chain_uses_detail_aware_default_limits(monkeypatch):

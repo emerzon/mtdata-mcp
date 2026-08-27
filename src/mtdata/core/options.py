@@ -770,10 +770,25 @@ def _apply_options_detail(
         }
         options = out.get("options")
         if isinstance(options, list):
+            terms_summary = compact.get("contract_terms_summary")
+            uniform_terms = (
+                terms_summary.get("uniform_terms")
+                if isinstance(terms_summary, dict)
+                else None
+            )
+            terms_summarized = (
+                isinstance(terms_summary, dict)
+                and terms_summary.get("mixed_or_unresolved_terms") is False
+                and isinstance(uniform_terms, dict)
+                and all(
+                    field in uniform_terms
+                    for field in _OPTIONS_CHAIN_UNIFORM_TERM_FIELDS
+                )
+            )
             compact["options"] = [
                 _compact_option_contract(
                     row,
-                    include_uniform_terms=True,
+                    include_uniform_terms=not terms_summarized,
                     include_freshness=True,
                 )
                 for row in options
