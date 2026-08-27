@@ -101,6 +101,18 @@ class TestColumnDecimals:
 
         assert result["previous_close"] == 8
 
+    def test_bar_close_is_treated_as_a_price_column(self):
+        result = _column_decimals(
+            ["bar_close"],
+            [
+                {"bar_close": 1.16492},
+                {"bar_close": 4_606.48},
+                {"bar_close": 80_150.12},
+            ],
+        )
+
+        assert result["bar_close"] == 8
+
     def test_none_values_skipped(self):
         result = _column_decimals(["x"], [{"x": None}, {"x": 1.0}])
         assert "x" in result
@@ -235,6 +247,21 @@ class TestEncodeTabularNestedCells:
         assert "USDJPY,159.493" in result
         assert "USDCAD,1.39408" in result
         assert "GBPUSD,1.34924" in result
+
+    def test_heterogeneous_bar_close_values_keep_per_symbol_precision(self):
+        result = _encode_tabular(
+            "rows",
+            ["symbol", "bar_close"],
+            [
+                {"symbol": "EURUSD", "bar_close": 1.16492, "price_precision": 5},
+                {"symbol": "XAUUSD", "bar_close": 4_606.48, "price_precision": 2},
+                {"symbol": "BTCUSD", "bar_close": 80_150.12, "price_precision": 2},
+            ],
+        )
+
+        assert "EURUSD,1.16492" in result
+        assert "XAUUSD,4606.48" in result
+        assert "BTCUSD,80150.12" in result
 
     def test_full_nested_cells_keep_integers_as_integers(self):
         result = _encode_tabular(
