@@ -178,13 +178,37 @@ def symbol_suggestions_from_gateway(
     return suggestions
 
 
+def _select_symbol_for_live_quote(gateway: Any, symbol: str, *, was_visible: bool) -> None:
+    if was_visible:
+        return
+    select = getattr(gateway, "symbol_select", None)
+    if not callable(select):
+        return
+    try:
+        select(symbol, True)
+    except Exception:
+        return
+
+
+def _restore_symbol_visibility(gateway: Any, symbol: str, *, was_visible: bool) -> None:
+    if was_visible:
+        return
+    select = getattr(gateway, "symbol_select", None)
+    if not callable(select):
+        return
+    try:
+        select(symbol, False)
+    except Exception:
+        return
+
+
 def find_live_extended_session_symbols(
     gateway: Any,
     requested_symbol: str,
     *,
     limit: int = 3,
 ) -> list[dict[str, str]]:
-    """Find visible, executable extended-session siblings for a symbol."""
+    """Find executable extended-session siblings for a symbol."""
     requested = str(requested_symbol or "").strip()
     if not requested or gateway is None:
         return []
@@ -211,8 +235,8 @@ def find_live_extended_session_symbols(
         )
         if not is_related or not is_extended:
             continue
-        if getattr(info, "visible", True) is False:
-            continue
+        was_visible = bool(getattr(info, "visible", True))
+        _select_symbol_for_live_quote(gateway, name, was_visible=was_visible)
         try:
             resolved_tick, quote_meta = resolve_quote_tick(
                 gateway,
@@ -232,7 +256,9 @@ def find_live_extended_session_symbols(
                 quote_source_conflict=quote_meta.get("quote_source_conflict"),
             )
         except Exception:
+            _restore_symbol_visibility(gateway, name, was_visible=was_visible)
             continue
+        _restore_symbol_visibility(gateway, name, was_visible=was_visible)
         if freshness.get("usable_for_live_trading") is not True:
             continue
         matches.append(

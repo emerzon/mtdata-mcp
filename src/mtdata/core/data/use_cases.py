@@ -93,6 +93,8 @@ _COMPACT_TICK_TOP_LEVEL_FIELDS = (
     "usable_for_live_trading",
     "usable_for_live_trading_basis",
     "execution_blockers",
+    "last_quote",
+    "execution_quote",
     "live_max_age_seconds",
     "market_status",
     "market_status_reason",

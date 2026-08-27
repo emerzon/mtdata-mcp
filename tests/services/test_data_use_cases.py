@@ -385,6 +385,58 @@ def test_stale_candle_error_omits_stale_extended_session_sibling(monkeypatch) ->
     assert result["remediation"].startswith("Confirm the market session")
 
 
+def test_stale_candle_error_includes_hidden_live_extended_session_sibling(
+    monkeypatch,
+) -> None:
+    now_epoch = datetime(2026, 8, 19, 15, tzinfo=timezone.utc).timestamp()
+    monkeypatch.setattr(data_use_cases.time, "time", lambda: now_epoch)
+    monkeypatch.setattr(symbol_utils.time, "time", lambda: now_epoch)
+    selected: list[tuple[str, bool]] = []
+    gateway = SimpleNamespace(
+        ensure_connection=lambda: None,
+        symbols_get=lambda: [
+            SimpleNamespace(
+                name="AAPL.NAS-24",
+                description="Apple Inc 24/5 CFD",
+                path="Stocks\\NASDAQ\\24HR",
+                visible=False,
+            )
+        ],
+        symbol_select=lambda name, visible: selected.append((name, visible)) or True,
+    )
+    monkeypatch.setattr(
+        symbol_utils,
+        "resolve_quote_tick",
+        lambda *_args, **_kwargs: (
+            SimpleNamespace(
+                bid=303.41,
+                ask=303.46,
+                time=now_epoch,
+                time_msc=int(now_epoch * 1000),
+            ),
+            {},
+        ),
+    )
+
+    result = run_data_fetch_candles(
+        DataFetchCandlesRequest(symbol="AAPL.NAS", timeframe="H1"),
+        gateway=gateway,
+        fetch_candles_impl=lambda **_kwargs: {
+            "error": "Data appears stale for AAPL.NAS H1."
+        },
+    )
+
+    assert result["details"]["related_live_symbols"] == [
+        {
+            "symbol": "AAPL.NAS-24",
+            "session_type": "extended_24h",
+            "quote_tool": "market_ticker",
+        }
+    ]
+    assert selected == [("AAPL.NAS-24", True), ("AAPL.NAS-24", False)]
+    assert "market_ticker for AAPL.NAS-24" in result["remediation"]
+
+
 def test_run_data_fetch_candles_passes_include_spread_to_service():
     captured = {}
     request = DataFetchCandlesRequest(
@@ -2898,8 +2950,8 @@ def test_run_data_fetch_ticks_compact_prunes_row_diagnostics():
         "requested_limit": 2,
         "limit_reached": True,
         "source": {"provider": "mt5", "context_available": False},
+        "last_quote": {"bid": 1.16591, "ask": 1.16599},
     }
-    assert "last_quote" not in result
     assert "data_quality" not in result
     assert "tick_count_event_basis" not in result
     assert "last_unavailable" not in result
@@ -3317,7 +3369,8 @@ def test_run_data_fetch_ticks_compact_one_row_is_smaller_than_standard():
     assert compact["count"] == 1
     assert "data" in compact
     assert "timezone" in compact
-    assert "last_quote" not in compact
+    assert compact["last_quote"]["bid"] == 1.1
+    assert compact["last_quote"]["quote_scope"] == "latest_sample"
     assert "data_quality" not in compact
     assert "tick_count_event_basis" not in compact
     assert standard["last_quote"]["bid"] == 1.1
@@ -3325,7 +3378,7 @@ def test_run_data_fetch_ticks_compact_one_row_is_smaller_than_standard():
     assert standard["tick_count_event_basis"] == "mt5_copy_ticks_all_records"
     compact_size = len(json.dumps(compact, sort_keys=True, default=str))
     standard_size = len(json.dumps(standard, sort_keys=True, default=str))
-    assert compact_size < standard_size * 0.75
+    assert compact_size < standard_size
 
 
 def test_run_data_fetch_ticks_empty_weekday_keeps_generic_reason():
