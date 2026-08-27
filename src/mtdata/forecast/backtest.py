@@ -394,7 +394,16 @@ _TRADE_BACKTEST_UNITS = {
     "commission_cost_bps": "basis_points",
     "round_trip_cost_bps": "basis_points",
     "successful_tests": "count",
+    "failed_tests": "count",
     "num_tests": "count",
+    "anchor_tests_planned": "count",
+    "anchor_tests_succeeded": "count",
+    "anchor_tests_failed": "count",
+    "methods_total": "count",
+    "methods_succeeded": "count",
+    "methods_complete": "count",
+    "methods_partial": "count",
+    "methods_failed": "count",
     "trades_observed": "count",
     "winning_trades": "count",
     "losing_trades": "count",
@@ -2970,6 +2979,9 @@ def forecast_backtest(  # noqa: C901
             # Aggregate
             ok = [x for x in per_anchor if x.get('success')]
             if ok:
+                num_tests = len(per_anchor)
+                successful_tests = len(ok)
+                failed_tests = num_tests - successful_tests
                 absolute_error_sum = float(
                     sum(float(x.get('_absolute_error_sum', 0.0)) for x in ok)
                 )
@@ -2979,16 +2991,24 @@ def forecast_backtest(  # noqa: C901
                 error_count = int(sum(int(x.get('_error_count', 0)) for x in ok))
                 agg = {
                     "success": True,
+                    "complete_success": failed_tests == 0,
+                    "status": "complete" if failed_tests == 0 else "partial",
                     "avg_mae": float(
                         absolute_error_sum / error_count
                     ) if error_count > 0 else float('nan'),
                     "avg_rmse": float(
                         math.sqrt(squared_error_sum / error_count)
                     ) if error_count > 0 else float('nan'),
-                    "successful_tests": len(ok),
-                    "num_tests": len(per_anchor),
+                    "successful_tests": successful_tests,
+                    "failed_tests": failed_tests,
+                    "num_tests": num_tests,
                     "details": per_anchor,
                 }
+                if failed_tests:
+                    agg["warnings"] = [
+                        f"{failed_tests} of {num_tests} anchor tests failed; aggregate "
+                        f"metrics use only the {successful_tests} successful tests."
+                    ]
                 for detail_row in per_anchor:
                     detail_row.pop('_absolute_error_sum', None)
                     detail_row.pop('_squared_error_sum', None)
@@ -3106,7 +3126,10 @@ def forecast_backtest(  # noqa: C901
             else:
                 results[method] = {
                     "success": False,
+                    "complete_success": False,
+                    "status": "failed",
                     "successful_tests": 0,
+                    "failed_tests": len(per_anchor),
                     "num_tests": len(per_anchor),
                     "details": per_anchor,
                     "slippage_bps": float(slippage_bps),
@@ -3155,7 +3178,29 @@ def forecast_backtest(  # noqa: C901
             for method, method_result in results.items()
             if isinstance(method_result, dict) and method_result.get("success") is True
         ]
+        complete_methods = [
+            method
+            for method in successful_methods
+            if results[method].get("status") == "complete"
+        ]
+        partial_methods = [
+            method
+            for method in successful_methods
+            if results[method].get("status") == "partial"
+        ]
         failed_methods = [method for method in results if method not in successful_methods]
+        anchor_tests_planned = sum(
+            int(method_result.get("num_tests") or 0)
+            for method_result in results.values()
+            if isinstance(method_result, dict)
+        )
+        anchor_tests_succeeded = sum(
+            int(method_result.get("successful_tests") or 0)
+            for method_result in results.values()
+            if isinstance(method_result, dict)
+        )
+        anchor_tests_failed = anchor_tests_planned - anchor_tests_succeeded
+        complete_success = bool(results) and len(complete_methods) == len(results)
         first_anchor_idx = int(anchor_indices[0]) if anchor_indices else None
         last_anchor_idx = int(anchor_indices[-1]) if anchor_indices else None
         analysis_time_window = {
@@ -3188,6 +3233,14 @@ def forecast_backtest(  # noqa: C901
         }
         result_payload = {
             "success": bool(successful_methods),
+            "complete_success": complete_success,
+            "status": (
+                "complete"
+                if complete_success
+                else "partial"
+                if successful_methods
+                else "failed"
+            ),
             "symbol": symbol,
             "timeframe": timeframe,
             "units": _backtest_units(quantity),
@@ -3211,8 +3264,20 @@ def forecast_backtest(  # noqa: C901
                 "stop_loss": "none",
             },
             "detail": detail_mode,
+            "methods_total": len(results),
+            "methods_succeeded": len(successful_methods),
+            "methods_complete": len(complete_methods),
+            "methods_partial": len(partial_methods),
+            "methods_failed": len(failed_methods),
+            "anchor_tests_planned": anchor_tests_planned,
+            "anchor_tests_succeeded": anchor_tests_succeeded,
+            "anchor_tests_failed": anchor_tests_failed,
             "results": results,
         }
+        if complete_methods:
+            result_payload["complete_methods"] = complete_methods
+        if partial_methods:
+            result_payload["partial_methods"] = partial_methods
         if symbol_requested:
             result_payload["symbol_requested"] = symbol_requested
         if quantity != "volatility":
@@ -3228,12 +3293,31 @@ def forecast_backtest(  # noqa: C901
             }
         if failed_methods:
             result_payload["failed_methods"] = failed_methods
+        if anchor_tests_failed:
+            result_payload["warnings"] = [
+                f"{anchor_tests_failed} of {anchor_tests_planned} planned anchor tests "
+                "failed. Partial-method aggregates exclude failed anchors; inspect "
+                "results.<method>.details before comparing models."
+            ]
         if not successful_methods:
             result_payload["error_code"] = "forecast_backtest_no_successful_methods"
             result_payload["error"] = (
                 "No requested forecast method produced a successful backtest observation."
             )
         attach_denoise_causality_disclosure(result_payload, _dn_used)
+        history_quality = df.attrs.get("history_quality")
+        if isinstance(history_quality, dict):
+            result_payload["history_quality"] = dict(history_quality)
+            quality_warnings = history_quality.get("warnings")
+            if isinstance(quality_warnings, list) and quality_warnings:
+                result_warnings = result_payload.get("warnings")
+                if not isinstance(result_warnings, list):
+                    result_warnings = []
+                for warning in quality_warnings:
+                    warning_text = str(warning)
+                    if warning_text not in result_warnings:
+                        result_warnings.append(warning_text)
+                result_payload["warnings"] = result_warnings
         return result_payload
     except Exception as e:
         return {"error": f"Error in forecast_backtest: {str(e)}"}

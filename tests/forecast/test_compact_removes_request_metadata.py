@@ -151,7 +151,14 @@ def test_compact_backtest_preserves_integer_count_serialization() -> None:
     compact = _compact_backtest_result(
         {
             "success": True,
-            "units": {"successful_tests": "count", "num_tests": "count"},
+            "units": {
+                "successful_tests": "count",
+                "failed_tests": "count",
+                "num_tests": "count",
+                "anchor_tests_planned": "count",
+                "anchor_tests_succeeded": "count",
+                "anchor_tests_failed": "count",
+            },
             "results": {
                 "theta": {
                     "success": True,
@@ -175,6 +182,53 @@ def test_compact_backtest_preserves_integer_count_serialization() -> None:
     assert isinstance(method["num_tests"], int)
     assert isinstance(method["details_count"], int)
     assert isinstance(method["trades_observed"], int)
+    assert compact["units"]["anchor_tests_planned"] == "count"
+    assert compact["units"]["anchor_tests_succeeded"] == "count"
+    assert compact["units"]["anchor_tests_failed"] == "count"
+
+
+def test_compact_backtest_exposes_partial_anchor_failures() -> None:
+    compact = _compact_backtest_result(
+        {
+            "success": True,
+            "results": {
+                "arima": {
+                    "success": True,
+                    "avg_rmse": 0.12,
+                    "successful_tests": 3,
+                    "num_tests": 5,
+                    "details": [
+                        {"success": True},
+                        {"success": True},
+                        {"success": True},
+                        {"success": False, "error": "fit failed"},
+                        {"success": False, "error": "fit failed"},
+                    ],
+                    "metrics_available": True,
+                }
+            },
+        }
+    )
+
+    assert compact["complete_success"] is False
+    assert compact["status"] == "partial"
+    assert compact["methods_succeeded"] == 1
+    assert compact["methods_complete"] == 0
+    assert compact["methods_partial"] == 1
+    assert compact["methods_failed"] == 0
+    assert compact["partial_methods"] == ["arima"]
+    assert compact["anchor_tests_planned"] == 5
+    assert compact["anchor_tests_succeeded"] == 3
+    assert compact["anchor_tests_failed"] == 2
+    assert compact["results"]["arima"]["status"] == "partial"
+    assert compact["results"]["arima"]["complete_success"] is False
+    assert compact["results"]["arima"]["failed_tests"] == 2
+    assert compact["ranked_methods"][0]["ranking_status"] == "unranked"
+    assert (
+        compact["ranked_methods"][0]["unranked_reason"]
+        == "incomplete_anchor_coverage"
+    )
+    assert compact["ranking"]["scope"] == "complete_methods_with_finite_avg_rmse"
 
 
 def test_compact_backtest_ranks_low_history_methods() -> None:

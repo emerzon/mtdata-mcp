@@ -241,6 +241,45 @@ class TestNonFiniteForecastValidation:
         for d in details:
             assert d["success"] is False
 
+    @patch("mtdata.forecast.backtest._fetch_history")
+    def test_mixed_anchor_outcomes_are_reported_as_partial(self, fetch):
+        fetch.return_value = _make_df(500)
+        with patch("mtdata.forecast.backtest.forecast") as fc:
+            fc.side_effect = [
+                {"forecast_price": [200.0] * 12},
+                {"forecast_price": [float("nan")] * 12},
+            ]
+            result = forecast_backtest(
+                "EURUSD",
+                timeframe="H1",
+                methods=["naive"],
+                steps=2,
+                spacing=20,
+                detail="full",
+            )
+
+        method = result["results"]["naive"]
+        assert method["success"] is True
+        assert method["complete_success"] is False
+        assert method["status"] == "partial"
+        assert method["successful_tests"] == 1
+        assert method["failed_tests"] == 1
+        assert method["num_tests"] == 2
+        assert any("1 of 2 anchor tests failed" in item for item in method["warnings"])
+
+        assert result["success"] is True
+        assert result["complete_success"] is False
+        assert result["status"] == "partial"
+        assert result["methods_succeeded"] == 1
+        assert result["methods_complete"] == 0
+        assert result["methods_partial"] == 1
+        assert result["methods_failed"] == 0
+        assert result["partial_methods"] == ["naive"]
+        assert result["anchor_tests_planned"] == 2
+        assert result["anchor_tests_succeeded"] == 1
+        assert result["anchor_tests_failed"] == 1
+        assert any("1 of 2 planned anchor tests failed" in item for item in result["warnings"])
+
 
 # ── Fix 4: Return mode requires forecast_return (no fallback) ────────────────
 

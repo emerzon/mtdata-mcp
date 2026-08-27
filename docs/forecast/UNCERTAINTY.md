@@ -102,6 +102,10 @@ mtdata-cli forecast_conformal_intervals EURUSD --timeframe H1 --method theta --h
   ],
   "conformal": {
     "interval_method": "rolling_residual_quantiles",
+    "calibration_anchor_tests_planned": 50,
+    "calibration_anchor_tests_succeeded": 50,
+    "calibration_anchor_tests_failed": 0,
+    "calibration_complete": true,
     "coverage_target": 0.95,
     "empirical_coverage": 0.92
   }
@@ -116,9 +120,13 @@ mtdata-cli forecast_conformal_intervals EURUSD --timeframe H1 --method theta --h
   top-level `empirical_coverage` and `coverage_status` fields before using the
   interval as evidence of historical calibration quality.
 - `ci_available=true` requires at least 30 calibration residuals for every
-  forecast step. Smaller samples return `ci_status=insufficient_calibration`,
-  `ci_available=false`, and diagnostic-only bounds with guidance to increase
-  `--steps`.
+  forecast step and complete forecast paths from every planned anchor. Smaller
+  samples return `ci_status=insufficient_calibration`. A failed or incomplete
+  anchor returns `ci_status=incomplete_anchor_coverage`. Both cases set
+  `ci_available=false` and keep any bounds diagnostic-only.
+- Check `calibration_anchor_tests_failed=0` and `calibration_complete=true`.
+  Empirical coverage from only the anchors where a model happened to fit can
+  be biased, so mtdata does not promote such a subset to a decision-use band.
 
 Use `--detail full` when you need the raw `lower_price` / `upper_price` arrays
 or calibration diagnostics such as `conformal.per_step_q` and per-step coverage.

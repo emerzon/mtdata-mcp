@@ -741,6 +741,9 @@ def _build_engine_diagnostics(
     if history_end_epoch is not None:
         diagnostics["history_end_epoch"] = history_end_epoch
         diagnostics["history_end_time"] = fmt_time(history_end_epoch)
+    history_quality = df.attrs.get("history_quality")
+    if isinstance(history_quality, dict):
+        diagnostics["history_quality"] = dict(history_quality)
     return diagnostics
 
 
@@ -1974,6 +1977,9 @@ def forecast_engine(  # noqa: C901
             return {"error": str(ex)}
         if p.get("seasonality") is None and "time" in df.columns:
             seasonality = default_seasonality(timeframe, df["time"])
+        history_warnings = df.attrs.get("warnings")
+        if not isinstance(history_warnings, list):
+            history_warnings = []
         denoise_warnings = consume_denoise_warnings(df)
 
         # Prepare target series, honoring target_spec if provided
@@ -2268,13 +2274,15 @@ def forecast_engine(  # noqa: C901
                     warnings.append(warning_text)
                 if warnings:
                     result["warnings"] = warnings
-        if denoise_warnings:
+        data_warnings = [*history_warnings, *denoise_warnings]
+        if data_warnings:
             warnings = result.get("warnings")
             if not isinstance(warnings, list):
                 warnings = []
-            for warning_text in denoise_warnings:
-                if warning_text not in warnings:
-                    warnings.append(warning_text)
+            for warning_text in data_warnings:
+                warning_value = str(warning_text)
+                if warning_value not in warnings:
+                    warnings.append(warning_value)
             if warnings:
                 result["warnings"] = warnings
         if as_of is None and start is None and end is None:

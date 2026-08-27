@@ -58,6 +58,16 @@ def test_data_preparation_detects_feature_inputs_and_future_covariates() -> None
     assert contract.uses_future_covariates() is True
 
 
+def test_data_preparation_detects_documented_include_features() -> None:
+    contract = DataPreparationContract(
+        symbol="EURUSD",
+        features={"include": ["open", "tick_volume"]},
+        dimred_method="pca",
+    )
+
+    assert contract.uses_feature_inputs() is True
+
+
 def test_data_preparation_rejects_dimred_without_features() -> None:
     with pytest.raises(ValidationError):
         DataPreparationContract(symbol="EURUSD", dimred_method="pca")
@@ -119,6 +129,22 @@ def test_execution_contract_rejects_multivariate_features_for_univariate_only_mo
             data_preparation=DataPreparationContract(
                 symbol="EURUSD",
                 features={"ti": "rsi_14"},
+            ),
+            model=ForecastModelContract(method="theta"),
+            evaluation=BacktestEvaluationContract(horizon=12, steps=1, spacing=12),
+            capabilities=ForecastMethodCapabilities(
+                supports_univariate=True,
+                supports_multivariate=False,
+            ),
+        )
+
+
+def test_execution_contract_rejects_include_features_for_univariate_only_model() -> None:
+    with pytest.raises(ValidationError):
+        ForecastExecutionContract(
+            data_preparation=DataPreparationContract(
+                symbol="EURUSD",
+                features={"include": ["open", "tick_volume"]},
             ),
             model=ForecastModelContract(method="theta"),
             evaluation=BacktestEvaluationContract(horizon=12, steps=1, spacing=12),

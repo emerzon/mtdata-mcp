@@ -81,6 +81,37 @@ def _finite_metric(metrics: Dict[str, Any], key: str) -> Optional[float]:
     return coerce_finite_float(metrics.get(key))
 
 
+def _has_complete_anchor_coverage(result: Any) -> bool:
+    """Reject partial candidate metrics under the current backtest contract."""
+    if not isinstance(result, dict) or result.get("success") is False:
+        return False
+
+    status = str(result.get("status") or "").strip().lower()
+    if status in {"partial", "failed"}:
+        return False
+    if "complete_success" in result and result.get("complete_success") is not True:
+        return False
+
+    failed_tests = coerce_finite_float(result.get("failed_tests"))
+    if failed_tests is not None and failed_tests != 0.0:
+        return False
+
+    successful_tests = coerce_finite_float(result.get("successful_tests"))
+    num_tests = coerce_finite_float(result.get("num_tests"))
+    if successful_tests is not None and num_tests is not None:
+        if (
+            successful_tests < 0.0
+            or num_tests <= 0.0
+            or successful_tests != num_tests
+        ):
+            return False
+
+    # No public common-anchor score exists yet, so ad-hoc fields cannot bypass
+    # the complete-coverage checks above. Legacy payloads without coverage
+    # diagnostics retain their prior behavior.
+    return True
+
+
 def _extract_method_backtest_metrics(
     backtest_res: Dict[str, Any],
     method_name: str,
@@ -516,6 +547,14 @@ def _eval_candidate(
     r = res.get('results', {}).get(sel_method) if isinstance(res, dict) else None
     if not isinstance(r, dict) or not r.get('success'):
         return math.inf, res
+    if not _has_complete_anchor_coverage(r):
+        result = {'_sel_method': sel_method, **(res or {})}
+        result['tuning_error'] = (
+            f"Candidate method '{sel_method}' has incomplete anchor coverage; "
+            "partial aggregate metrics are not valid tuning fitness."
+        )
+        result['error_code'] = 'incomplete_anchor_coverage'
+        return math.inf, result
     metrics = _extract_method_backtest_metrics(res, sel_method)
     if str(metric) in TRADING_TUNING_METRICS and not _has_trading_fitness_metrics(metrics):
         result = {"_sel_method": sel_method, **(res or {})}

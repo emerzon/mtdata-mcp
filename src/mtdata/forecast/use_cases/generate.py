@@ -129,6 +129,10 @@ def _apply_conformal_intervals_detail(
         "ci_warning",
         "required_calibration_points",
         "calibration_sufficient",
+        "calibration_anchor_tests_planned",
+        "calibration_anchor_tests_succeeded",
+        "calibration_anchor_tests_failed",
+        "calibration_complete",
         "interval_usage",
         "calibration_remediation",
         "diagnostic_bounds",
@@ -201,6 +205,46 @@ def _finite_sample_conformal_quantile(values: List[float], alpha: float) -> floa
     return float(_np.partition(arr, rank - 1)[rank - 1])
 
 
+def _conformal_calibration_anchor_status(
+    details: List[Any],
+    *,
+    horizon: int,
+    requested_steps: int,
+    declared_tests: Any,
+) -> tuple[List[Dict[str, Any]], int, int, int]:
+    usable_details: List[Dict[str, Any]] = []
+    for detail in details:
+        if not isinstance(detail, dict) or detail.get("success") is False:
+            continue
+        forecast_path = detail.get("forecast")
+        actual_path = detail.get("actual")
+        if not isinstance(forecast_path, list) or not isinstance(actual_path, list):
+            continue
+        if min(len(forecast_path), len(actual_path)) < horizon:
+            continue
+        try:
+            values = [
+                float(value)
+                for value in forecast_path[:horizon] + actual_path[:horizon]
+            ]
+        except (TypeError, ValueError):
+            continue
+        if all(math.isfinite(value) for value in values):
+            usable_details.append(detail)
+
+    declared_tests_value = _finite_float(declared_tests)
+    planned = max(
+        int(requested_steps),
+        int(round(declared_tests_value))
+        if declared_tests_value is not None
+        else 0,
+        len(details),
+    )
+    succeeded = len(usable_details)
+    failed = max(0, planned - succeeded)
+    return usable_details, planned, succeeded, failed
+
+
 def _leave_one_out_conformal_coverage(
     values: List[float],
     alpha: float,
@@ -217,6 +261,21 @@ def _leave_one_out_conformal_coverage(
         evaluated += 1
         covered += int(float(value) <= quantile)
     return float(covered / evaluated) if evaluated else None
+
+
+def _conformal_coverage_status(
+    empirical_coverage: Optional[float],
+    nominal_confidence: float,
+    *,
+    calibration_complete: bool,
+) -> str:
+    if not calibration_complete:
+        return "incomplete_anchor_coverage"
+    if empirical_coverage is None:
+        return "not_evaluated"
+    if empirical_coverage + 1e-12 < nominal_confidence:
+        return "below_nominal_target"
+    return "at_or_above_nominal_target"
 
 
 def _resolve_stored_model_execution_alias(
@@ -579,12 +638,23 @@ def run_forecast_conformal_intervals(
 
         # Build per-step residuals |y_hat_i - y_i|.
         fh = int(request.horizon)
+        details = res["details"]
+        (
+            usable_details,
+            calibration_anchor_tests_planned,
+            calibration_anchor_tests_succeeded,
+            calibration_anchor_tests_failed,
+        ) = _conformal_calibration_anchor_status(
+            details,
+            horizon=fh,
+            requested_steps=int(request.steps),
+            declared_tests=res.get("num_tests"),
+        )
+        calibration_complete = calibration_anchor_tests_failed == 0
         errs: List[List[float]] = [[] for _ in range(fh)]
-        for detail in res["details"]:
+        for detail in usable_details:
             fc = detail.get("forecast")
             act = detail.get("actual")
-            if not fc or not act:
-                continue
             width = min(len(fc), len(act), fh)
             for i in range(width):
                 try:
@@ -641,12 +711,17 @@ def run_forecast_conformal_intervals(
             "ci_alpha": float(request.ci_alpha),
             "calibration_steps": int(request.steps),
             "calibration_spacing": int(request.spacing),
+            "calibration_anchor_tests_planned": calibration_anchor_tests_planned,
+            "calibration_anchor_tests_succeeded": calibration_anchor_tests_succeeded,
+            "calibration_anchor_tests_failed": calibration_anchor_tests_failed,
+            "calibration_complete": calibration_complete,
             "per_step_q": [float(v) for v in qerrs],
             "calibration_points_per_step": calibration_points,
             "min_calibration_points": int(min_calibration_points),
             "required_calibration_points": _MIN_CONFORMAL_CALIBRATION_POINTS,
             "calibration_sufficient": (
                 min_calibration_points >= _MIN_CONFORMAL_CALIBRATION_POINTS
+                and calibration_complete
             ),
             "empirical_coverage_per_step": coverage_per_step,
             "empirical_coverage": empirical_coverage,
@@ -663,24 +738,33 @@ def run_forecast_conformal_intervals(
         nominal_confidence = round(1.0 - float(request.ci_alpha), 6)
         result["nominal_confidence_level"] = nominal_confidence
         result["empirical_coverage"] = empirical_coverage
-        if empirical_coverage is None:
-            result["coverage_status"] = "not_evaluated"
-        else:
+        if empirical_coverage is not None:
             coverage_gap = round(
                 float(empirical_coverage) - nominal_confidence,
                 6,
             )
             result["coverage_gap"] = coverage_gap
             result["conformal"]["coverage_gap"] = coverage_gap
-            result["coverage_status"] = (
-                "below_nominal_target"
-                if empirical_coverage + 1e-12 < nominal_confidence
-                else "at_or_above_nominal_target"
-            )
+        result["coverage_status"] = _conformal_coverage_status(
+            empirical_coverage,
+            nominal_confidence,
+            calibration_complete=calibration_complete,
+        )
         calibration_sufficient = (
             min_calibration_points >= _MIN_CONFORMAL_CALIBRATION_POINTS
             and empirical_coverage is not None
+            and calibration_complete
         )
+        result["calibration_anchor_tests_planned"] = (
+            calibration_anchor_tests_planned
+        )
+        result["calibration_anchor_tests_succeeded"] = (
+            calibration_anchor_tests_succeeded
+        )
+        result["calibration_anchor_tests_failed"] = (
+            calibration_anchor_tests_failed
+        )
+        result["calibration_complete"] = calibration_complete
         result["required_calibration_points"] = _MIN_CONFORMAL_CALIBRATION_POINTS
         result["calibration_sufficient"] = calibration_sufficient
         if calibration_sufficient:
@@ -690,7 +774,11 @@ def run_forecast_conformal_intervals(
             result["ci_available"] = True
             result["interval_usage"] = "calibrated"
         else:
-            result["ci_status"] = "insufficient_calibration"
+            result["ci_status"] = (
+                "incomplete_anchor_coverage"
+                if not calibration_complete
+                else "insufficient_calibration"
+            )
             result["ci_available"] = False
             result["interval_usage"] = "diagnostic_only"
             result["diagnostic_bounds"] = {
@@ -699,8 +787,13 @@ def run_forecast_conformal_intervals(
                 "usage": "diagnostic_only",
             }
             result["calibration_remediation"] = (
-                "Increase --steps until every forecast horizon has at least "
-                f"{_MIN_CONFORMAL_CALIBRATION_POINTS} calibration residuals."
+                "Resolve every failed calibration anchor and rerun the same "
+                "preregistered calibration window before using intervals."
+                if not calibration_complete
+                else (
+                    "Increase --steps until every forecast horizon has at least "
+                    f"{_MIN_CONFORMAL_CALIBRATION_POINTS} calibration residuals."
+                )
             )
         result["conformal"]["interval_usage"] = result["interval_usage"]
         result = _attach_analysis_time_window(result, request)
@@ -735,6 +828,19 @@ def run_forecast_conformal_intervals(
                 warnings_list = []
             if sample_warning not in warnings_list:
                 warnings_list.append(sample_warning)
+            result["warnings"] = warnings_list
+        if not calibration_complete:
+            anchor_warning = (
+                f"Residual calibration is incomplete: "
+                f"{calibration_anchor_tests_failed} of "
+                f"{calibration_anchor_tests_planned} anchor tests failed or did not "
+                "produce a complete finite forecast path. Bounds are diagnostic only."
+            )
+            warnings_list = result.get("warnings")
+            if not isinstance(warnings_list, list):
+                warnings_list = []
+            if anchor_warning not in warnings_list:
+                warnings_list.append(anchor_warning)
             result["warnings"] = warnings_list
         if result.get("coverage_status") == "below_nominal_target":
             coverage_warning = (

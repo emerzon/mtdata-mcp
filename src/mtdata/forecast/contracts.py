@@ -228,7 +228,13 @@ class DataPreparationContract(BaseModel):
         feature_config = self._feature_config()
         return any(
             bool(feature_config.get(key))
-            for key in ("ti", "indicators", "exog", "future_covariates")
+            for key in (
+                "include",
+                "ti",
+                "indicators",
+                "exog",
+                "future_covariates",
+            )
         )
 
     def uses_future_covariates(self) -> bool:

@@ -1675,6 +1675,8 @@ def test_run_forecast_backtest_strips_per_anchor_details_in_compact_mode():
     assert result["results"] == {
         "theta": {
             "avg_mae": 1.0,
+            "status": "complete",
+            "complete_success": True,
             "details_count": 1,
             "metrics_reliability": "low",
             "metrics_reliability_reason": "low_sample",
@@ -1868,8 +1870,11 @@ def test_run_forecast_backtest_omits_trade_metrics_when_unavailable():
     assert result["ranking"] == {
         "metric": "avg_rmse",
         "direction": "ascending",
-        "scope": "non_failed_methods_with_finite_avg_rmse",
-        "note": "Trading metrics do not affect rank; inspect results for method details.",
+        "scope": "complete_methods_with_finite_avg_rmse",
+        "note": (
+            "Partial methods are excluded unless metrics are recomputed on an explicit "
+            "common-anchor set; trading metrics do not affect rank."
+        ),
     }
     assert result["ranked_methods"] == [
         {
@@ -3723,9 +3728,13 @@ def test_run_forecast_conformal_intervals_compact_omits_technical_metadata():
     assert "insufficient_interval_calibration" in result["trust_blockers"]
     assert result["conformal"] == {
         "ci_alpha": 0.1,
-        "calibration_steps": 1,
-        "calibration_spacing": 1,
-        "coverage_target": 0.9,
+            "calibration_steps": 1,
+            "calibration_spacing": 1,
+            "calibration_anchor_tests_planned": 1,
+            "calibration_anchor_tests_succeeded": 1,
+            "calibration_anchor_tests_failed": 0,
+            "calibration_complete": True,
+            "coverage_target": 0.9,
         "coverage_evaluation": "leave_one_out_calibration_residuals",
         "coverage_note": (
             "Empirical residual quantiles from rolling backtest; not a "

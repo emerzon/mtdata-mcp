@@ -40,7 +40,17 @@ def _compact_backtest_units(
 ) -> Dict[str, Any]:
     if not isinstance(raw_units, dict):
         return {}
-    visible_unit_keys = {"forecast_error"}
+    visible_unit_keys = {
+        "forecast_error",
+        "anchor_tests_planned",
+        "anchor_tests_succeeded",
+        "anchor_tests_failed",
+        "methods_total",
+        "methods_succeeded",
+        "methods_complete",
+        "methods_partial",
+        "methods_failed",
+    }
     for row in method_summaries:
         visible_unit_keys.update(row.keys())
     return {
@@ -87,6 +97,7 @@ def _compact_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:  # noqa:
     }
     count_keys = {
         "successful_tests",
+        "failed_tests",
         "num_tests",
         "details_count",
         "trades_observed",
@@ -113,15 +124,18 @@ def _compact_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:  # noqa:
 
     method_summaries: list[Dict[str, Any]] = []
     methods_total = 0
+    methods_complete: list[str] = []
+    methods_partial: list[str] = []
     methods_failed: list[str] = []
+    anchor_tests_planned = 0
+    anchor_tests_succeeded = 0
+    anchor_counts_available = False
     for method_name, method_payload in raw_results.items():
         methods_total += 1
         if not isinstance(method_payload, dict):
             method_summaries.append({"method": method_name, "result": method_payload})
             methods_failed.append(str(method_name))
             continue
-        if method_payload.get("success") is False:
-            methods_failed.append(str(method_name))
         details = method_payload.get("details")
         metrics = (
             method_payload.get("metrics")
@@ -129,12 +143,55 @@ def _compact_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:  # noqa:
             else {}
         )
         method_out: Dict[str, Any] = {"method": method_name}
+        successful_tests_value = _finite_float(
+            method_payload.get("successful_tests")
+        )
+        num_tests_value = _finite_float(method_payload.get("num_tests"))
+        failed_tests_value = _finite_float(method_payload.get("failed_tests"))
+        if num_tests_value is not None and successful_tests_value is not None:
+            anchor_counts_available = True
+            num_tests_int = max(0, int(round(num_tests_value)))
+            successful_tests_int = max(0, int(round(successful_tests_value)))
+            derived_failed_tests = max(0, num_tests_int - successful_tests_int)
+            anchor_tests_planned += num_tests_int
+            anchor_tests_succeeded += min(successful_tests_int, num_tests_int)
+            if failed_tests_value is None:
+                failed_tests_value = float(derived_failed_tests)
+        failed_tests_int = (
+            max(0, int(round(failed_tests_value)))
+            if failed_tests_value is not None
+            else 0
+        )
+        method_success = method_payload.get("success")
+        reported_status = str(method_payload.get("status") or "").strip().lower()
+        if method_success is False or reported_status == "failed":
+            derived_status = "failed"
+            methods_failed.append(str(method_name))
+        elif (
+            reported_status == "partial"
+            or failed_tests_int > 0
+            or method_payload.get("complete_success") is False
+        ):
+            derived_status = "partial"
+            methods_partial.append(str(method_name))
+        else:
+            derived_status = "complete"
+            methods_complete.append(str(method_name))
+        method_out["status"] = derived_status
+        method_out["complete_success"] = bool(
+            method_payload.get("complete_success")
+            if "complete_success" in method_payload
+            else derived_status == "complete"
+        )
+        if failed_tests_value is not None:
+            method_out["failed_tests"] = failed_tests_int
         for key in (
             "success",
             "avg_rmse",
             "avg_mae",
             "avg_directional_accuracy",
             "successful_tests",
+            "failed_tests",
             "num_tests",
             "trade_status",
             "directional_accuracy_status",
@@ -263,12 +320,40 @@ def _compact_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:  # noqa:
     if compact_out.get("trade_threshold") in (0, 0.0, None):
         compact_out.pop("trade_threshold", None)
     compact_out["methods_total"] = methods_total
-    compact_out["methods_succeeded"] = methods_total - len(methods_failed)
+    compact_out["methods_succeeded"] = len(methods_complete) + len(methods_partial)
+    compact_out["methods_complete"] = len(methods_complete)
+    compact_out["methods_partial"] = len(methods_partial)
     compact_out["methods_failed"] = len(methods_failed)
+    complete_success = bool(methods_total) and len(methods_complete) == methods_total
+    compact_out["complete_success"] = complete_success
+    compact_out["status"] = (
+        "complete"
+        if complete_success
+        else "partial"
+        if methods_complete or methods_partial
+        else "failed"
+    )
+    if anchor_counts_available:
+        compact_out["anchor_tests_planned"] = anchor_tests_planned
+        compact_out["anchor_tests_succeeded"] = anchor_tests_succeeded
+        compact_out["anchor_tests_failed"] = (
+            anchor_tests_planned - anchor_tests_succeeded
+        )
+    if methods_complete:
+        compact_out["complete_methods"] = methods_complete
+    else:
+        compact_out.pop("complete_methods", None)
+    if methods_partial:
+        compact_out["partial_methods"] = methods_partial
+    else:
+        compact_out.pop("partial_methods", None)
     if methods_failed:
         compact_out["failed_methods"] = methods_failed
+    else:
+        compact_out.pop("failed_methods", None)
     method_summaries.sort(
         key=lambda row: (
+            row.get("status") != "complete",
             row.get("_sort_metric") is None,
             row.get("_sort_metric") if row.get("_sort_metric") is not None else 0.0,
             str(row.get("method") or ""),
@@ -283,7 +368,11 @@ def _compact_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:  # noqa:
     for row in method_summaries:
         method = str(row.get("method") or "")
         score = row.get("_sort_metric")
-        eligible = score is not None and row.get("success") is not False
+        eligible = (
+            score is not None
+            and row.get("success") is not False
+            and row.get("status") == "complete"
+        )
         ranked_row: Dict[str, Any] = {
             "method": method,
             "ranking_status": (
@@ -351,7 +440,13 @@ def _compact_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:  # noqa:
         else:
             ranked_row["unranked_reason"] = (
                 row.get("error_code")
-                or ("method_failed" if row.get("success") is False else "avg_rmse_unavailable")
+                or (
+                    "method_failed"
+                    if row.get("success") is False
+                    else "incomplete_anchor_coverage"
+                    if row.get("status") == "partial"
+                    else "avg_rmse_unavailable"
+                )
             )
             if row.get("error"):
                 ranked_row["error"] = row["error"]
@@ -359,8 +454,11 @@ def _compact_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:  # noqa:
     compact_out["ranking"] = {
         "metric": "avg_rmse",
         "direction": "ascending",
-        "scope": "non_failed_methods_with_finite_avg_rmse",
-        "note": "Trading metrics do not affect rank; inspect results for method details.",
+        "scope": "complete_methods_with_finite_avg_rmse",
+        "note": (
+            "Partial methods are excluded unless metrics are recomputed on an explicit "
+            "common-anchor set; trading metrics do not affect rank."
+        ),
     }
     if not history_policy_ok:
         compact_out["ranking"]["deployment_eligible"] = False
@@ -387,8 +485,17 @@ def _attach_backtest_collection_contract(result: Dict[str, Any]) -> Dict[str, An
         "ranking",
         "methods_total",
         "methods_succeeded",
+        "methods_complete",
+        "methods_partial",
         "methods_failed",
+        "complete_methods",
+        "partial_methods",
         "failed_methods",
+        "complete_success",
+        "status",
+        "anchor_tests_planned",
+        "anchor_tests_succeeded",
+        "anchor_tests_failed",
         "cost_assumptions",
         "execution_policy",
     ):

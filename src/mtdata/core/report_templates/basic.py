@@ -17,6 +17,7 @@ from ..report.utils import (
     attach_multi_timeframes,
     emit_report_progress,
     extract_report_forecast_values,
+    has_complete_forecast_backtest_coverage,
     normalize_report_methods,
     now_utc_iso,
     parse_table_tail,
@@ -80,6 +81,46 @@ def _first_volatility_value(payload: Dict[str, Any], keys: tuple[str, ...]) -> A
 def _extract_forecast_values(payload: Dict[str, Any]) -> Optional[List[float]]:
     values = extract_report_forecast_values(payload)
     return values or None
+
+
+def _complete_backtest_ranking(
+    results: Any,
+) -> tuple[List[Dict[str, Any]], List[str]]:
+    """Build report rankings from methods with complete anchor coverage only."""
+    ranking: List[Dict[str, Any]] = []
+    excluded_incomplete: List[str] = []
+    if not isinstance(results, dict):
+        return ranking, excluded_incomplete
+    for method, method_result in results.items():
+        if not isinstance(method_result, dict):
+            continue
+        if not has_complete_forecast_backtest_coverage(method_result):
+            excluded_incomplete.append(str(method))
+            continue
+        ranking.append({
+            'method': method,
+            'avg_rmse': method_result.get('avg_rmse'),
+            'avg_mae': method_result.get('avg_mae'),
+            'avg_directional_accuracy': method_result.get(
+                'avg_directional_accuracy'
+            ),
+            'successful_tests': method_result.get('successful_tests'),
+        })
+
+    def _finite_sort_value(value: Any, fallback: float) -> float:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return fallback
+        return numeric if isfinite(numeric) else fallback
+
+    ranking.sort(
+        key=lambda row: (
+            _finite_sort_value(row.get('avg_rmse'), 1e9),
+            -_finite_sort_value(row.get('avg_directional_accuracy'), 0.0),
+        )
+    )
+    return ranking, excluded_incomplete
 
 
 def _is_degenerate_forecast_payload(payload: Dict[str, Any]) -> bool:
@@ -448,6 +489,7 @@ def template_basic(  # noqa: C901
     )
     sec_bt: Dict[str, Any]
     ranking: List[Dict[str, Any]] = []
+    incomplete_backtest_methods: List[str] = []
     if bt.get('status') == 'omitted':
         sec_bt = dict(bt)
         best = None
@@ -457,17 +499,7 @@ def template_basic(  # noqa: C901
     else:
         try:
             res = bt.get('results', {})
-            for m, r in res.items():
-                if not isinstance(r, dict):
-                    continue
-                ranking.append({
-                    'method': m,
-                    'avg_rmse': r.get('avg_rmse'),
-                    'avg_mae': r.get('avg_mae'),
-                    'avg_directional_accuracy': r.get('avg_directional_accuracy'),
-                    'successful_tests': r.get('successful_tests'),
-                })
-            ranking.sort(key=lambda x: (float(x.get('avg_rmse') or 1e9), -float(x.get('avg_directional_accuracy') or 0.0)))
+            ranking, incomplete_backtest_methods = _complete_backtest_ranking(res)
         except Exception:
             pass
         topk = int(p.get('backtest_top_k', 3))
@@ -483,6 +515,8 @@ def template_basic(  # noqa: C901
             'secondary_tie_breaker': 'successful_tests',
             'notes': criteria_notes,
         }
+        if incomplete_backtest_methods:
+            sec_bt['excluded_incomplete_methods'] = incomplete_backtest_methods
         if min_dir_acc is not None:
             sec_bt['selection_criteria']['min_directional_accuracy'] = float(min_dir_acc)
             sec_bt['selection_criteria']['min_directional_accuracy_pct'] = float(min_dir_acc * 100.0)
@@ -491,7 +525,13 @@ def template_basic(  # noqa: C901
             rmse_tolerance=rmse_tol,
             min_directional_accuracy=min_dir_acc,
         )
-        if best is None and min_dir_acc is not None:
+        if best is None and incomplete_backtest_methods and not ranking:
+            sec_bt['selection_warning'] = (
+                "No method had complete anchor coverage; partial aggregates were "
+                "excluded from report selection."
+            )
+            sec_bt['selection_blocker'] = "incomplete_anchor_coverage"
+        elif best is None and min_dir_acc is not None:
             sec_bt['selection_warning'] = (
                 "No method met the minimum directional accuracy threshold."
             )
@@ -511,6 +551,8 @@ def template_basic(  # noqa: C901
         quality_candidates: List[tuple[str, float]] = []
         for method_name, method_stats in stats_by_method.items():
             if method_stats.get('success') is not True:
+                continue
+            if not has_complete_forecast_backtest_coverage(method_stats):
                 continue
             try:
                 method_rmse = float(method_stats.get('avg_rmse'))
@@ -675,6 +717,21 @@ def template_basic(  # noqa: C901
         if fallback_notes:
             best_method_payload['selection_warnings'] = fallback_notes
         report['sections']['backtest']['best_method'] = best_method_payload
+
+    if (
+        report_section_enabled(p, 'forecast')
+        and 'forecast' not in report['sections']
+        and incomplete_backtest_methods
+        and not ranking
+    ):
+        report['sections']['forecast'] = {
+            'error': (
+                'Forecast selection was blocked because no backtest method had '
+                'complete anchor coverage.'
+            ),
+            'selection_mode': 'blocked_incomplete_anchor_coverage',
+            'excluded_incomplete_methods': incomplete_backtest_methods,
+        }
 
     if report_section_enabled(p, 'forecast') and 'forecast' not in report['sections']:
         from ..forecast import forecast_generate

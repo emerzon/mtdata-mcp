@@ -293,6 +293,53 @@ def test_eval_candidate_handles_method_selection_and_failures(monkeypatch):
     assert calls[-1]["commission_bps_per_side"] == 0.25
 
 
+@pytest.mark.parametrize(
+    "method_result",
+    [
+        {
+            "success": True,
+            "status": "partial",
+            "complete_success": False,
+            "avg_rmse": 0.1,
+            "successful_tests": 4,
+            "failed_tests": 1,
+            "num_tests": 5,
+        },
+        {
+            "success": True,
+            "avg_rmse": 0.1,
+            "successful_tests": 4,
+            "num_tests": 5,
+        },
+    ],
+)
+def test_eval_candidate_rejects_incomplete_anchor_coverage(
+    monkeypatch,
+    method_result,
+):
+    monkeypatch.setattr(
+        tune,
+        "_forecast_backtest",
+        lambda **kwargs: {"results": {"theta": dict(method_result)}},
+    )
+
+    score, result = tune._eval_candidate(
+        symbol="EURUSD",
+        timeframe="H1",
+        method="theta",
+        horizon=2,
+        steps=5,
+        spacing=2,
+        candidate_params={},
+        metric="avg_rmse",
+        mode="min",
+    )
+
+    assert score == float("inf")
+    assert result["error_code"] == "incomplete_anchor_coverage"
+    assert "partial aggregate metrics" in result["tuning_error"]
+
+
 def test_auto_mode_uses_metric_direction_for_both_tuners(monkeypatch):
     observed_modes = []
 

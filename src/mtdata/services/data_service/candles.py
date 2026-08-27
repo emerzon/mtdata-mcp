@@ -1908,7 +1908,11 @@ def fetch_history_frame(
     include_incomplete: bool = False,
     retry: bool = True,
 ) -> pd.DataFrame:
-    """Return analysis-ready MT5 candles with native UTC epoch timestamps."""
+    """Return analysis-ready MT5 candles with native UTC epoch timestamps.
+
+    History-quality diagnostics and any cleanup warnings are attached to the
+    returned frame's ``attrs`` without changing the DataFrame return contract.
+    """
     if timeframe not in TIMEFRAME_MAP:
         raise RuntimeError(f"Invalid timeframe: {timeframe}")
     if as_of and (start or end):
@@ -1981,8 +1985,9 @@ def fetch_history_frame(
     df = _rates_to_df(rates)
     if "volume" not in df.columns and "tick_volume" in df.columns:
         df["volume"] = df["tick_volume"]
-    df["time"] = pd.to_numeric(df["time"], errors="coerce")
-    df = df.loc[df["time"].notna()].copy()
+    rows_before_quality = int(len(df))
+    df, history_warnings = validate_and_clean_ohlcv_frame(df, epoch_col="time")
+    rows_after_quality = int(len(df))
 
     calendar_bounds = bool(
         timeframe in CALENDAR_TIMEFRAMES
@@ -2046,6 +2051,15 @@ def fetch_history_frame(
             "The broker returned materially coarser history; retry with the "
             "observed timeframe or verify the symbol/timeframe feed."
         )
+    history_quality = {
+        "raw_bars_fetched": rows_before_quality,
+        "bars_after_quality": rows_after_quality,
+        "quality_rows_removed": max(0, rows_before_quality - rows_after_quality),
+        "returned_bars": int(len(df)),
+        "warnings": list(history_warnings),
+    }
+    df.attrs["history_quality"] = history_quality
+    df.attrs["warnings"] = list(history_warnings)
     return df
 
 

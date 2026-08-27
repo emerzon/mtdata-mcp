@@ -26,6 +26,7 @@ from mtdata.core.report.trend import (
 )
 from mtdata.core.report.utils import report_execution_scope
 from mtdata.core.report_templates.basic import (
+    _complete_backtest_ranking,
     _get_raw_result,
 )
 from mtdata.utils.coercion import safe_float as _safe_float
@@ -562,6 +563,32 @@ def _mock_patterns_data():
     }
 
 
+def test_complete_backtest_ranking_excludes_partial_methods() -> None:
+    ranking, excluded = _complete_backtest_ranking(
+        {
+            "partial": {
+                "success": True,
+                "status": "partial",
+                "complete_success": False,
+                "avg_rmse": 0.1,
+                "successful_tests": 4,
+                "num_tests": 5,
+            },
+            "complete": {
+                "success": True,
+                "status": "complete",
+                "complete_success": True,
+                "avg_rmse": 1.0,
+                "successful_tests": 5,
+                "num_tests": 5,
+            },
+        }
+    )
+
+    assert [row["method"] for row in ranking] == ["complete"]
+    assert excluded == ["partial"]
+
+
 class TestTemplateBasic:
     """Test template_basic with all external calls mocked."""
 
@@ -618,6 +645,66 @@ class TestTemplateBasic:
         )
         assert backtest_call.kwargs["detail"] == "full"
         assert "error" not in report["sections"]["forecast"]
+
+    @patch(f"{_BASIC_MODULE}._get_raw_result")
+    @patch(f"{_BASIC_MODULE}.now_utc_iso", return_value="2024-01-15T00:00:00Z")
+    @patch(f"{_BASIC_MODULE}.parse_table_tail")
+    @patch(f"{_BASIC_MODULE}.summarize_barrier_grid", return_value={"best": {}})
+    @patch(f"{_BASIC_MODULE}.attach_multi_timeframes")
+    def test_partial_backtest_cannot_select_or_generate_forecast(
+        self,
+        mock_mtf,
+        mock_sum_bar,
+        mock_tail,
+        mock_now,
+        mock_raw,
+    ):
+        mock_tail.return_value = _mock_candle_data()["rows"]
+
+        def raw_side_effect(func, *args, **kwargs):
+            name = getattr(func, "__name__", "").lower()
+            if "candle" in name or "data_fetch" in name:
+                return _mock_candle_data()
+            if "pivot" in name:
+                return _mock_pivot_data()
+            if "volatility" in name:
+                return _mock_vol_data()
+            if "backtest" in name:
+                return {
+                    "results": {
+                        "arima": {
+                            "success": True,
+                            "status": "partial",
+                            "complete_success": False,
+                            "avg_rmse": 0.01,
+                            "successful_tests": 4,
+                            "failed_tests": 1,
+                            "num_tests": 5,
+                        }
+                    }
+                }
+            if "forecast_generate" in name or "generate" in name:
+                pytest.fail("partial backtest method must not drive forecast generation")
+            if "barrier" in name:
+                return _mock_barrier_data()
+            if "pattern" in name:
+                return _mock_patterns_data()
+            return {"data": "ok"}
+
+        mock_raw.side_effect = raw_side_effect
+
+        from mtdata.core.report_templates.basic import template_basic
+
+        report = template_basic("EURUSD", 12, None, {"methods": ["arima", "theta"]})
+
+        backtest = report["sections"]["backtest"]
+        assert backtest["ranking"] == []
+        assert backtest["excluded_incomplete_methods"] == ["arima"]
+        assert backtest["selection_blocker"] == "incomplete_anchor_coverage"
+        assert (
+            report["sections"]["forecast"]["selection_mode"]
+            == "blocked_incomplete_anchor_coverage"
+        )
 
     @patch(f"{_BASIC_MODULE}._get_raw_result")
     @patch(f"{_BASIC_MODULE}.now_utc_iso", return_value="2024-01-15T00:00:00Z")

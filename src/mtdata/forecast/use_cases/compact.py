@@ -183,6 +183,15 @@ def _forecast_compact_ci(
             ),
             "recommended_tool": "forecast_conformal_intervals",
         }
+    if ci_status == "incomplete_anchor_coverage":
+        return {
+            "status": "incomplete_anchor_coverage",
+            "mode": "point_only",
+            "reason": (
+                "one or more calibration anchors failed; bounds are diagnostic only."
+            ),
+            "recommended_tool": "forecast_conformal_intervals",
+        }
     if ci_status == "unavailable":
         out: Dict[str, Any] = {
             "status": "unavailable",
@@ -788,6 +797,7 @@ def _annotate_forecast_generate_quality(payload: Dict[str, Any]) -> Dict[str, An
         "not_requested",
         "unavailable",
         "insufficient_calibration",
+        "incomplete_anchor_coverage",
     }:
         out.setdefault("signal_status", "not_actionable")
     path_flatness = _forecast_path_flatness(out)
@@ -828,6 +838,8 @@ def _annotate_forecast_generate_quality(payload: Dict[str, Any]) -> Dict[str, An
         trust_blockers.append("forecast_uncertainty_not_available")
     if ci_status == "insufficient_calibration":
         trust_blockers.append("insufficient_interval_calibration")
+    if ci_status == "incomplete_anchor_coverage":
+        trust_blockers.append("incomplete_interval_anchor_coverage")
     if path_flatness:
         trust_blockers.append("non_informative_forecast_path")
     out["trust_level"] = (
@@ -1595,6 +1607,10 @@ def _conformal_summary(conformal: Any) -> Optional[Dict[str, Any]]:
             "ci_alpha",
             "calibration_steps",
             "calibration_spacing",
+            "calibration_anchor_tests_planned",
+            "calibration_anchor_tests_succeeded",
+            "calibration_anchor_tests_failed",
+            "calibration_complete",
             "empirical_coverage",
             "coverage_gap",
             "coverage_target",

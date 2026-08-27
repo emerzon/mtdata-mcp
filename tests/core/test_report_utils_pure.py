@@ -427,6 +427,44 @@ class TestPickBestForecastMethod:
         })
         assert pick_best_forecast_method(bt, min_directional_accuracy=0.5) is None
 
+    def test_rejects_partial_method_with_better_rmse(self):
+        bt = self._bt({
+            "complete": {
+                "success": True,
+                "status": "complete",
+                "complete_success": True,
+                "avg_rmse": 1.0,
+                "successful_tests": 5,
+                "failed_tests": 0,
+                "num_tests": 5,
+            },
+            "partial": {
+                "success": True,
+                "status": "partial",
+                "complete_success": False,
+                "avg_rmse": 0.1,
+                "successful_tests": 4,
+                "failed_tests": 1,
+                "num_tests": 5,
+            },
+        })
+
+        name, _ = pick_best_forecast_method(bt)
+
+        assert name == "complete"
+
+    def test_rejects_legacy_count_mismatch_without_status(self):
+        bt = self._bt({
+            "partial": {
+                "success": True,
+                "avg_rmse": 0.1,
+                "successful_tests": 4,
+                "num_tests": 5,
+            },
+        })
+
+        assert pick_best_forecast_method(bt) is None
+
 
 # ---------------------------------------------------------------------------
 # 8. summarize_barrier_grid

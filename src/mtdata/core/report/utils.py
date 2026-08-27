@@ -390,6 +390,8 @@ def pick_best_forecast_method(
                 continue
             if not res.get('success'):
                 continue
+            if not has_complete_forecast_backtest_coverage(res):
+                continue
             try:
                 rmse = float(res.get('avg_rmse', float('inf')))
             except Exception:
@@ -422,6 +424,49 @@ def pick_best_forecast_method(
         return (chosen[0], chosen[1])
     except Exception:
         return None
+
+
+def has_complete_forecast_backtest_coverage(result: Any) -> bool:
+    """Return whether a method result is safe for cross-method selection.
+
+    Current backtests publish ``status``, ``complete_success``, and anchor-test
+    counts.  Older payloads may omit one or more of those fields, so negative
+    evidence always wins while a legacy payload with no coverage evidence keeps
+    its historical behavior.  There is no public common-anchor score contract
+    yet; ad-hoc fields must not make a partial aggregate selectable.
+    """
+    if not isinstance(result, dict) or result.get("success") is False:
+        return False
+
+    status = str(result.get("status") or "").strip().lower()
+    if status in {"partial", "failed"}:
+        return False
+
+    if "complete_success" in result and result.get("complete_success") is not True:
+        return False
+
+    def _finite_count(value: Any) -> Optional[float]:
+        try:
+            numeric = float(value)
+        except (TypeError, ValueError):
+            return None
+        return numeric if math.isfinite(numeric) else None
+
+    failed_tests = _finite_count(result.get("failed_tests"))
+    if failed_tests is not None and failed_tests != 0.0:
+        return False
+
+    successful_tests = _finite_count(result.get("successful_tests"))
+    num_tests = _finite_count(result.get("num_tests"))
+    if successful_tests is not None and num_tests is not None:
+        if (
+            successful_tests < 0.0
+            or num_tests <= 0.0
+            or successful_tests != num_tests
+        ):
+            return False
+
+    return True
 
 
 def normalize_report_methods(value: Any) -> List[str]:
