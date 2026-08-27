@@ -198,19 +198,41 @@ def _timezone_label(value: Any, *, default: str = "UTC") -> str:
     return timezone_label(value, default=default)
 
 
+def _temporal_edge_status(rows: Any, best: Dict[str, Any]) -> str:
+    means = [
+        float(row.get("avg_return_pct") or 0.0)
+        for row in rows
+        if isinstance(row, dict) and row.get("avg_return_pct") is not None
+    ]
+    if len(means) < 2:
+        return "single_group"
+    ranked = sorted(means, reverse=True)
+    gap = ranked[0] - ranked[1]
+    scale = max(abs(value) for value in means)
+    if scale < 0.01 or gap < max(1e-4, 0.25 * scale):
+        return "not_distinguished"
+    return "highest_sample_mean"
+
+
 def _reliable_best(rows: Any) -> Optional[Dict[str, Any]]:
+    materialized = [
+        row
+        for row in rows
+        if isinstance(row, dict) and row.get("avg_return_pct") is not None
+    ]
     best = max(
-        (
-            row
-            for row in rows
-            if isinstance(row, dict) and row.get("avg_return_pct") is not None
-        ),
+        materialized,
         key=lambda row: float(row.get("avg_return_pct") or 0.0),
         default=None,
     )
     if best is not None and int(best.get("bars", 0) or 0) < _TEMPORAL_RELIABLE_GROUP_BARS:
         return None
-    return best
+    if best is None:
+        return None
+    annotated = dict(best)
+    annotated["rank_basis"] = "highest_sample_mean"
+    annotated["edge_status"] = _temporal_edge_status(materialized, annotated)
+    return annotated
 
 
 def _format_epoch_in_timezone(epoch_seconds: float, analysis_tz: Any) -> str:
@@ -644,13 +666,29 @@ def _compact_temporal_payload(
             compact_groups, _page_best_rows, pagination = _flatten_temporal_dimension_groups(
                 groups,
                 formatter=_compact_temporal_stats,
-                best_keys=("group", "group_label", "avg_return_pct", "win_rate", "win_rate_pct"),
+                best_keys=(
+                    "group",
+                    "group_label",
+                    "avg_return_pct",
+                    "win_rate",
+                    "win_rate_pct",
+                    "rank_basis",
+                    "edge_status",
+                ),
             )
             out["groups"] = compact_groups
             _all_groups, best_rows, _all_pagination = _flatten_temporal_dimension_groups(
                 summary_groups if isinstance(summary_groups, list) else groups,
                 formatter=_compact_temporal_stats,
-                best_keys=("group", "group_label", "avg_return_pct", "win_rate", "win_rate_pct"),
+                best_keys=(
+                    "group",
+                    "group_label",
+                    "avg_return_pct",
+                    "win_rate",
+                    "win_rate_pct",
+                    "rank_basis",
+                    "edge_status",
+                ),
             )
             if best_rows:
                 out["best"] = best_rows
@@ -672,7 +710,15 @@ def _compact_temporal_payload(
             if best:
                 out["best"] = {
                     key: best[key]
-                    for key in ("group", "group_label", "avg_return_pct", "win_rate", "win_rate_pct")
+                    for key in (
+                        "group",
+                        "group_label",
+                        "avg_return_pct",
+                        "win_rate",
+                        "win_rate_pct",
+                        "rank_basis",
+                        "edge_status",
+                    )
                     if key in best
                 }
     elif isinstance(payload.get("overall"), dict):
@@ -773,13 +819,27 @@ def _standard_temporal_payload(
             standard_groups, _page_best_rows, pagination = _flatten_temporal_dimension_groups(
                 groups,
                 formatter=_standard_temporal_stats,
-                best_keys=("group_label", "avg_return_pct", "win_rate", "win_rate_pct"),
+                best_keys=(
+                    "group_label",
+                    "avg_return_pct",
+                    "win_rate",
+                    "win_rate_pct",
+                    "rank_basis",
+                    "edge_status",
+                ),
             )
             out["groups"] = standard_groups
             _all_groups, best_rows, _all_pagination = _flatten_temporal_dimension_groups(
                 summary_groups if isinstance(summary_groups, list) else groups,
                 formatter=_standard_temporal_stats,
-                best_keys=("group_label", "avg_return_pct", "win_rate", "win_rate_pct"),
+                best_keys=(
+                    "group_label",
+                    "avg_return_pct",
+                    "win_rate",
+                    "win_rate_pct",
+                    "rank_basis",
+                    "edge_status",
+                ),
             )
             if best_rows:
                 out["best"] = best_rows
