@@ -149,7 +149,10 @@ any Greeks that are present.
 
 Provider timestamps up to 30 seconds ahead of the local clock are reported as
 `clock_skew_within_tolerance` and are not marked stale solely for that skew.
-Larger future skew is treated as stale.
+Larger future skew is still treated as stale for live-decision safety, and the
+response names the mismatch with `underlying_timestamp_warning` (also copied
+into compact `underlying_quote`) so a real-time `is_delayed: false` quote is
+never silently stale.
 
 ---
 

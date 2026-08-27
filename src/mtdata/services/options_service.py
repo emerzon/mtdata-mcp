@@ -162,6 +162,14 @@ def _options_quote_metadata(
                 ),
             }
         )
+        if future_skew_outside_tolerance:
+            metadata["timestamp_warning"] = (
+                "Provider quote timestamp is "
+                f"{round(timestamp_skew_seconds, 3):g}s ahead of the local wall "
+                "clock "
+                f"(tolerance {_OPTIONS_QUOTE_FUTURE_TOLERANCE_SECONDS:g}s); "
+                "verify system time before trusting age-based freshness."
+            )
     elif raw_age > _OPTIONS_QUOTE_STALE_AFTER_SECONDS:
         metadata["freshness_reason"] = "provider_quote_age_exceeds_live_threshold"
     return metadata
@@ -197,13 +205,28 @@ def _options_underlying_metadata(
         "timestamp_skew_tolerance_seconds": (
             "underlying_timestamp_skew_tolerance_seconds"
         ),
+        "timestamp_warning": "underlying_timestamp_warning",
     }
     for source_key, target_key in key_map.items():
         if source_key in metadata:
             out[target_key] = metadata[source_key]
     envelope = _underlying_quote_envelope(provider, quote)
     if envelope:
+        for key in (
+            "timestamp_ahead_of_wall_clock",
+            "timestamp_skew_seconds",
+            "timestamp_skew_tolerance_seconds",
+            "timestamp_warning",
+        ):
+            if key in metadata:
+                envelope[key] = metadata[key]
+        if metadata.get("freshness") == "clock_skew":
+            envelope["freshness"] = "clock_skew"
+            if "freshness_reason" in metadata:
+                envelope["freshness_reason"] = metadata["freshness_reason"]
         out["underlying_quote"] = envelope
+    if metadata.get("timestamp_warning"):
+        out["warnings"] = [metadata["timestamp_warning"]]
     return out
 
 
@@ -346,6 +369,14 @@ def _option_contract_market_metadata(
                 if future_skew_outside_tolerance
                 else "clock_skew_within_tolerance"
             )
+            if future_skew_outside_tolerance:
+                metadata["contract_timestamp_warning"] = (
+                    "Contract last-trade timestamp is "
+                    f"{round(future_skew_seconds, 3):g}s ahead of the local wall "
+                    "clock "
+                    f"(tolerance {_OPTIONS_QUOTE_FUTURE_TOLERANCE_SECONDS:g}s); "
+                    "verify system time before trusting age-based freshness."
+                )
         elif contract_stale:
             metadata["contract_freshness_reason"] = (
                 "provider_contract_age_exceeds_live_threshold"
@@ -1838,6 +1869,9 @@ def _options_chain_payload(
         if value is not None:
             payload[key] = value
     warnings = list(payload.get("warnings") or [])
+    clock_warning = payload.get("underlying_timestamp_warning")
+    if clock_warning and clock_warning not in warnings:
+        warnings.append(clock_warning)
     if int(offset) > 0:
         warnings.append(
             "Offset pages are independent live queries, not a cursor over one "

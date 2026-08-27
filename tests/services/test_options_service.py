@@ -114,6 +114,33 @@ def test_options_quote_metadata_rejects_large_future_clock_skew(monkeypatch):
     assert metadata["data_stale"] is True
     assert metadata["freshness_reason"] == "provider_quote_timestamp_in_future"
     assert metadata["timestamp_skew_seconds"] == 31.0
+    assert "verify system time" in metadata["timestamp_warning"]
+    assert "31s ahead of the local wall clock" in metadata["timestamp_warning"]
+
+
+def test_options_underlying_quote_surfaces_client_clock_skew(monkeypatch):
+    monkeypatch.setattr(osvc._time, "time", lambda: 1_700_000_000.0)
+
+    metadata = osvc._options_underlying_metadata(
+        "yahoo",
+        {
+            "regularMarketTime": 1_700_000_058,
+            "quoteSourceName": "Nasdaq Real Time Price",
+            "exchangeDataDelayedBy": 0,
+            "marketState": "REGULAR",
+        },
+    )
+
+    assert metadata["underlying_data_stale"] is True
+    assert metadata["underlying_freshness"] == "clock_skew"
+    assert metadata["underlying_timestamp_skew_seconds"] == 58.0
+    assert "verify system time" in metadata["underlying_timestamp_warning"]
+    quote = metadata["underlying_quote"]
+    assert quote["is_delayed"] is False
+    assert quote["timestamp_skew_seconds"] == 58.0
+    assert quote["freshness_reason"] == "provider_quote_timestamp_in_future"
+    assert "verify system time" in quote["timestamp_warning"]
+    assert metadata["warnings"] == [metadata["underlying_timestamp_warning"]]
 
 
 def test_option_contract_metadata_marks_current_two_sided_quote_usable(
