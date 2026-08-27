@@ -423,6 +423,8 @@ def _candidate_is_viable(row: Optional[Dict[str, Any]], cost_per_trade: float = 
     ev_value = _safe_float(row.get("ev"))
     if ev_value is None or ev_value < 0.0:
         return False
+    if bool(row.get("ev_timeout_dominated")):
+        return False
     if bool(row.get("phantom_profit_risk")):
         return False
     win_rate = _safe_float(row.get("prob_tp_first"))
@@ -442,6 +444,11 @@ def _candidate_status_reason(row: Optional[Dict[str, Any]], cost_per_trade: floa
         return "Selected candidate is missing a finite EV estimate."
     if ev_value < 0.0:
         return "Selected candidate has negative EV."
+    if bool(row.get("ev_timeout_dominated")):
+        return (
+            "Selected candidate's positive EV is dominated by unresolved timeout "
+            "mark-to-market rather than resolved barrier outcomes."
+        )
     if bool(row.get("phantom_profit_risk")):
         return (
             "Selected candidate relies on unresolved paths and a near-zero loss rate "
@@ -855,9 +862,17 @@ def _auto_barrier_method(
         long_std = float(np.std(rets[-long_n:], ddof=1)) + 1e-12
         vol_ratio = short_std / long_std
 
-    if is_probably_crypto_symbol(symbol) or (tf_secs and tf_secs <= 900):
+    is_crypto = is_probably_crypto_symbol(symbol)
+    is_short_timeframe = bool(tf_secs and tf_secs <= 900)
+    if is_crypto or is_short_timeframe:
         if kurt > 2.0 or jump_ratio > 4.0:
-            return "jump_diffusion", "auto: crypto/short-tf with jumpy tails"
+            if is_crypto and is_short_timeframe:
+                reason = "auto: crypto short-timeframe with jumpy tails"
+            elif is_crypto:
+                reason = "auto: crypto with jumpy tails"
+            else:
+                reason = "auto: short-timeframe jumpy tails"
+            return "jump_diffusion", reason
 
     if kurt > 3.5 or jump_ratio > 5.0:
         return "jump_diffusion", "auto: heavy tails/jump risk"

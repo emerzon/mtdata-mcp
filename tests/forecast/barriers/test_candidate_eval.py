@@ -7,7 +7,11 @@ from unittest.mock import patch
 
 import numpy as np
 
-from mtdata.forecast.barriers_shared import _candidate_is_viable
+from mtdata.forecast.barriers_shared import (
+    _auto_barrier_method,
+    _candidate_is_viable,
+    _candidate_status_reason,
+)
 
 
 class TestCandidateViability(unittest.TestCase):
@@ -27,6 +31,53 @@ class TestCandidateViability(unittest.TestCase):
         }
 
         self.assertFalse(_candidate_is_viable(candidate))
+
+    def test_timeout_dominated_positive_ev_is_not_viable(self):
+        candidate = {
+            "ev": 0.049,
+            "prob_tp_first": 0.146,
+            "prob_sl_first": 0.473,
+            "prob_no_hit": 0.381,
+            "ev_timeout_dominated": True,
+        }
+
+        self.assertFalse(_candidate_is_viable(candidate))
+        self.assertEqual(
+            _candidate_status_reason(candidate),
+            "Selected candidate's positive EV is dominated by unresolved timeout "
+            "mark-to-market rather than resolved barrier outcomes.",
+        )
+
+
+class TestAutoBarrierMethodReason(unittest.TestCase):
+    @staticmethod
+    def _jumpy_prices():
+        returns = np.full(100, 0.0001)
+        returns[50] = 0.2
+        return np.exp(np.cumsum(np.r_[0.0, returns]))
+
+    def test_short_timeframe_fx_is_not_labeled_crypto(self):
+        method, reason = _auto_barrier_method(
+            "EURUSD",
+            "M5",
+            self._jumpy_prices(),
+            horizon=12,
+        )
+
+        self.assertEqual(method, "jump_diffusion")
+        self.assertEqual(reason, "auto: short-timeframe jumpy tails")
+
+    def test_crypto_and_timeframe_reasons_are_distinct(self):
+        prices = self._jumpy_prices()
+
+        self.assertEqual(
+            _auto_barrier_method("BTCUSD", "H1", prices, horizon=12)[1],
+            "auto: crypto with jumpy tails",
+        )
+        self.assertEqual(
+            _auto_barrier_method("BTCUSD", "M5", prices, horizon=12)[1],
+            "auto: crypto short-timeframe with jumpy tails",
+        )
 
 
 class TestSearchProfileValidation(unittest.TestCase):

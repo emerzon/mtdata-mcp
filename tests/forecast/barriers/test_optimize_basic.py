@@ -271,6 +271,7 @@ class TestBarrierOptimizeBasic(_BarrierTestBase):
                     "pareto_limit": 5,
                 },
                 return_grid=True,
+                viable_only=False,
             )
         self.assertTrue(result.get("success"))
         self.assertEqual(result.get("optimizer"), "optuna")

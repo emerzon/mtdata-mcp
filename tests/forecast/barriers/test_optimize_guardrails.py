@@ -251,6 +251,44 @@ class TestBarrierOptimizeGuardrails(_BarrierTestBase):
         self.assertIn("selection_warnings", result)
         self.assertIsInstance(result.get("advice"), list)
 
+    def test_forecast_barrier_optimize_blocks_timeout_dominated_positive_ev(self):
+        self._set_flat_history(1.0)
+        paths = np.vstack(
+            [
+                np.full((15, 3), 1.0070),
+                np.full((47, 3), 0.9970),
+                np.full((38, 3), 1.0040),
+            ]
+        )
+        with patch(f'{_BARRIER_OPT_ROOT}._simulate_gbm_mc') as mock_sim:
+            mock_sim.return_value = {"price_paths": paths}
+            result = forecast_barrier_optimize(
+                symbol="BTCUSD",
+                timeframe="M5",
+                horizon=3,
+                method="mc_gbm",
+                direction="long",
+                mode="pct",
+                tp_min=0.666667,
+                tp_max=0.666667,
+                tp_steps=1,
+                sl_min=0.25,
+                sl_max=0.25,
+                sl_steps=1,
+                objective="ev",
+                return_grid=True,
+                viable_only=False,
+            )
+
+        self.assertTrue(result.get("success"))
+        self.assertGreater(float(result["best"]["ev"]), 0.0)
+        self.assertTrue(result["best"]["ev_timeout_dominated"])
+        self.assertFalse(result.get("viable"))
+        self.assertEqual(result.get("status"), "non_viable")
+        self.assertFalse(result.get("mathematically_viable"))
+        self.assertIn("timeout mark-to-market", result.get("status_reason", ""))
+        self.assertIn("status_non_viable", result.get("actionability_flags", []))
+
     def test_forecast_barrier_optimize_flags_phantom_profit_risk(self):
         self._set_flat_history(1.0)
         paths = np.array([
