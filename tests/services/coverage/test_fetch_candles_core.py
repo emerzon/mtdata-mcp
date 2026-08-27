@@ -1256,6 +1256,28 @@ class TestFetchCandlesCore(unittest.TestCase):
 
     @patch(_MT5_CONFIG)
     @patch(_RATES_FROM)
+    @patch(_RATES_RANGE)
+    @patch(_CACHED_INFO, return_value=MagicMock())
+    @patch(_RESOLVE_CTZ, return_value=None)
+    @patch(_ESTIMATE_WARMUP, return_value=0)
+    @patch(_GUARD, _mock_symbol_guard)
+    def test_start_only_last_n_uses_latest_bars(
+        self, mock_warmup, mock_ctz, mock_info, mock_range, mock_from, mock_cfg
+    ):
+        mock_cfg.get_time_offset_seconds.return_value = 0
+        mock_from.return_value = _make_rates(20, step=3600)
+        result = fetch_candles(
+            'EURUSD',
+            limit=5,
+            start='2025-01-01',
+            range_selection='last_n',
+        )
+        self.assertTrue(result.get('success'))
+        mock_from.assert_called()
+        mock_range.assert_not_called()
+
+    @patch(_MT5_CONFIG)
+    @patch(_RATES_FROM)
     @patch(_CACHED_INFO, return_value=MagicMock())
     @patch(_RESOLVE_CTZ, return_value=None)
     @patch(_ESTIMATE_WARMUP, return_value=0)

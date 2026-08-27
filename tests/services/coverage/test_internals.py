@@ -1168,6 +1168,18 @@ class TestTrimDfToTarget(unittest.TestCase):
         self.assertEqual(list(out['time']), [f"t{i}" for i in range(10, 15)])
 
     @patch(_PARSE_START)
+    def test_start_only_last_n_keeps_latest_bars(self, mock_parse):
+        df = self._make_df(20)
+        epoch_10 = df['__epoch'].iloc[10]
+        mock_parse.return_value = datetime.fromtimestamp(epoch_10, tz=_UTC)
+        with patch(f'{_DS}._utc_epoch_seconds', side_effect=lambda d: d.timestamp()):
+            out = _trim_df_to_target(
+                df, '2025-01-01', None, 5, range_selection='last_n'
+            )
+        self.assertEqual(len(out), 5)
+        self.assertEqual(list(out['time']), [f"t{i}" for i in range(15, 20)])
+
+    @patch(_PARSE_START)
     def test_start_only_invalid(self, mock_parse):
         df = self._make_df(10)
         mock_parse.return_value = None

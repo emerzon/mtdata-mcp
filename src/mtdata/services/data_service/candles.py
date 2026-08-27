@@ -654,11 +654,15 @@ def _fetch_rates_with_warmup(  # noqa: C901
             seconds_per_bar * (warmup_bars + extra_bars + overlap_periods),
         )
         requested_rows = candles + extra_bars
-        # A start-only query means "the first N bars from start", not "the
-        # latest N bars, filtered by start".  Allow extra calendar space for
-        # closed sessions while retaining a bounded provider request.
+        last_n_requested = str(range_selection or "").strip().lower() == "last_n"
+        # A start-only query defaults to "the first N bars from start".
+        # `--selection last_n` instead keeps the latest N bars since start.
         span_seconds = seconds_per_bar * max(requested_rows * 3, requested_rows + 7)
-        to_date = min(now_utc, scan_start + timedelta(seconds=span_seconds))
+        to_date = (
+            now_utc
+            if last_n_requested
+            else min(now_utc, scan_start + timedelta(seconds=span_seconds))
+        )
         expected_end_ts = _utc_epoch_seconds(now_utc)
         if diagnostics is not None:
             diagnostics["range_fetch"] = {
@@ -675,6 +679,36 @@ def _fetch_rates_with_warmup(  # noqa: C901
             }
 
         def _fetch():
+            if last_n_requested:
+                trailing = _mt5_copy_rates_from(
+                    symbol,
+                    mt5_timeframe,
+                    now_utc,
+                    max(1, candles + warmup_bars + extra_bars),
+                )
+                if trailing is None:
+                    return None
+                normalized, shape_error = _normalize_provider_rate_rows(trailing)
+                if shape_error:
+                    raise _RateDataShapeError(shape_error)
+                start_epoch = _utc_epoch_seconds(from_date)
+                filtered = [
+                    row
+                    for row in (normalized or [])
+                    if (epoch := _rate_row_epoch(row)) is not None
+                    and epoch >= start_epoch
+                ]
+                if diagnostics is not None:
+                    diagnostics["range_fetch"].update(
+                        {
+                            "provider_bounded": len(filtered)
+                            >= candles + extra_bars,
+                            "provider_end": _format_time_explicit(expected_end_ts),
+                            "provider_end_bounded": True,
+                            "selection_anchor": "end",
+                        }
+                    )
+                return filtered
             # Closed sessions consume calendar time without producing rows.
             # Expand only when the bounded response cannot satisfy the first-N
             # contract, stopping at the present rather than guessing a fixed
@@ -997,7 +1031,9 @@ def _trim_df_to_target(
     *,
     copy_rows: bool = True,
     timeframe: Optional[str] = None,
+    range_selection: Optional[str] = None,
 ) -> pd.DataFrame:
+    keep_latest = str(range_selection or "").strip().lower() == "last_n"
     if timeframe in CALENDAR_TIMEFRAMES and (
         _is_calendar_query_bound(start_datetime)
         or _is_calendar_query_bound(end_datetime)
@@ -1009,7 +1045,7 @@ def _trim_df_to_target(
             timeframe=str(timeframe),
         )
         if start_datetime and not end_datetime and len(out) > candles:
-            out = out.iloc[:candles]
+            out = out.iloc[-candles:] if keep_latest else out.iloc[:candles]
         elif end_datetime and not start_datetime and len(out) > candles:
             out = out.iloc[-candles:]
         return out.copy() if copy_rows else out
@@ -1037,7 +1073,7 @@ def _trim_df_to_target(
         target_from = _utc_epoch_seconds(from_dt)
         out = df.loc[df['__epoch'] >= target_from]
         if len(out) > candles:
-            out = out.iloc[:candles]
+            out = out.iloc[-candles:] if keep_latest else out.iloc[:candles]
     elif end_datetime:
         to_dt = _parse_end_datetime(end_datetime)
         if not to_dt:
@@ -2286,6 +2322,7 @@ def fetch_candles(  # noqa: C901
             candles,
             copy_rows=True,
             timeframe=timeframe,
+            range_selection=range_selection,
         )
         rows_after_target_trim = int(len(df))
         warmup_retry_meta: Dict[str, Any] = {
@@ -2364,6 +2401,7 @@ def fetch_candles(  # noqa: C901
                             candles,
                             copy_rows=False,
                             timeframe=timeframe,
+                            range_selection=range_selection,
                         )
                         rows_after_target_trim = int(len(df))
             except Exception as exc:

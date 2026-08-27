@@ -790,6 +790,37 @@ def test_latest_candles_inherit_stale_quote_readiness(monkeypatch):
     assert result["freshness"] == "stale, bar 3h 30m ago"
 
 
+def test_latest_n_candles_always_emit_quote_freshness_keys(monkeypatch):
+    monkeypatch.setattr("mtdata.core.data.use_cases.time.time", lambda: 10_000.0)
+    monkeypatch.setattr(
+        "mtdata.core.data.use_cases.resolve_quote_tick",
+        lambda *_args, **_kwargs: (SimpleNamespace(time=10_000.0), {}),
+    )
+    request = DataFetchCandlesRequest(symbol="EURUSD", timeframe="H1", limit=1)
+
+    result = run_data_fetch_candles(
+        request,
+        gateway=SimpleNamespace(ensure_connection=lambda: None),
+        fetch_candles_impl=lambda **_kwargs: {
+            "success": True,
+            "candles": 1,
+            "data": [{"time": "2026-08-13T22:00:00Z", "close": 1.16}],
+            "meta": {
+                "diagnostics": {
+                    "query": {"mode": "latest"},
+                    "freshness": {
+                        "data_freshness_seconds": 12.0,
+                        "last_bar_within_policy_window": True,
+                    },
+                }
+            },
+        },
+    )
+
+    assert result["latest_quote_stale"] is False
+    assert "latest_quote_age_seconds" in result
+
+
 def test_include_incomplete_without_forming_bar_still_marks_stale_quote(monkeypatch):
     monkeypatch.setattr("mtdata.core.data.use_cases.time.time", lambda: 10_000.0)
     monkeypatch.setattr(
@@ -913,8 +944,8 @@ def test_run_data_fetch_candles_forming_bar_labels_market_tick_freshness(monkeyp
     assert result["market_tick_age_seconds"] == 5.0
     assert result["forming_bar_update_verified"] is False
     assert "forming-bar update time unverified" in result["freshness"]
-    assert result["data_age_seconds"] == 900.0
-    assert result["data_age_metric"] == "latest_bar_open_age_seconds"
+    assert result["data_age_seconds"] == 5.0
+    assert result["data_age_metric"] == "market_tick_age_seconds"
 
 
 def test_bounded_provider_window_omits_available_count():
@@ -1102,6 +1133,44 @@ def test_start_only_candle_cap_discloses_incomplete_range_and_gap():
     assert result["query_end_gap_seconds"] == 42_000_000.0
     assert result["query_end_gap"] != "0s"
     assert "implied end at the current time" in result["warnings"][0]
+    assert "--selection last_n" in result["warnings"][0]
+
+
+def test_start_only_last_n_is_passed_to_fetch_and_labeled():
+    observed = {}
+
+    def _fetch(**kwargs):
+        observed.update(kwargs)
+        return {
+            "success": True,
+            "data": [
+                {"time": "2026-08-26T17:00:00Z", "close": 1.16},
+                {"time": "2026-08-26T18:00:00Z", "close": 1.17},
+                {"time": "2026-08-26T19:00:00Z", "close": 1.18},
+            ],
+            "meta": {
+                "diagnostics": {
+                    "query": {"mode": "range", "provider_bounded": False}
+                }
+            },
+        }
+
+    result = run_data_fetch_candles(
+        DataFetchCandlesRequest(
+            symbol="EURUSD",
+            timeframe="H1",
+            start="yesterday",
+            limit=3,
+            selection="last_n",
+        ),
+        gateway=SimpleNamespace(ensure_connection=lambda: None),
+        fetch_candles_impl=_fetch,
+    )
+
+    assert observed["range_selection"] == "last_n"
+    assert result["query_applied"]["selection"] == "last_n"
+    assert result["query_applied"]["limit_anchor"] == "end"
+    assert result["data"][0]["time"] == "2026-08-26T17:00:00Z"
 
 
 def test_incomplete_candle_prefix_larger_than_page_uses_unknown_total():

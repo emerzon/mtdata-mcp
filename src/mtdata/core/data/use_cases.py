@@ -506,11 +506,8 @@ def _attach_forming_candle_update_freshness(
         payload["bar_open_age_seconds"] = round(bar_open_age_value, 3)
         data_window["latest_bar_open_age_seconds"] = round(bar_open_age_value, 3)
     payload["market_tick_age_seconds"] = round(update_age, 3)
-    if bar_open_age_value is not None:
-        payload["data_age_seconds"] = round(bar_open_age_value, 3)
-        payload["data_age_metric"] = str(
-            data_window.get("latest_bar_age_metric") or "latest_bar_open_age_seconds"
-        )
+    payload["data_age_seconds"] = round(update_age, 3)
+    payload["data_age_metric"] = "market_tick_age_seconds"
     payload["data_age_anchor"] = FRESHNESS_ANCHOR_WALL_CLOCK
     data_window["market_tick_age_seconds"] = round(update_age, 3)
     update_text = _format_age_seconds(update_age)
@@ -574,12 +571,16 @@ def _attach_latest_candle_quote_freshness(
         )
     except Exception:
         return
-    if quote_context.get("data_stale") is not True:
-        return
+    quote_stale = quote_context.get("data_stale") is True
     quote_age = quote_context.get("data_age_seconds")
-    payload["latest_quote_stale"] = True
-    if quote_age is not None:
-        payload["latest_quote_age_seconds"] = quote_age
+    payload["latest_quote_stale"] = quote_stale
+    payload["latest_quote_age_seconds"] = quote_age
+    payload["freshness_reason"] = quote_context.get("freshness_reason")
+    payload["freshness_basis"] = (
+        "bar_policy_and_latest_quote" if quote_stale else payload.get("freshness_basis")
+    )
+    if not quote_stale:
+        return
     payload["data_stale"] = True
     payload["freshness_basis"] = "bar_policy_and_latest_quote"
     payload["freshness_reason"] = str(
@@ -1136,8 +1137,8 @@ def _apply_range_limit_cap(  # noqa: C901
             warning = (
                 f"The start-only range reached limit={limit_value} before its "
                 "implied end at the current time; returned the earliest matching "
-                "bars. Continue from the timestamp after the final returned bar "
-                "or narrow the requested range."
+                "bars. Pass --selection last_n to keep the latest bars since start, "
+                "or continue from the timestamp after the final returned bar."
             )
         else:
             warning = (
