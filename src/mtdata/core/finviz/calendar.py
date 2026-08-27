@@ -553,20 +553,27 @@ def parse_economic_release_value(value: Any) -> Dict[str, Any]:
         return dict(missing)
     currency_code = None
     remainder = text
-    marker = remainder[0] if remainder else ""
+    sign = ""
+    if remainder[:1] in "+-":
+        sign = remainder[0]
+        remainder = remainder[1:].lstrip()
+    marker = remainder[:1] if remainder else ""
     if marker in _ECONOMIC_RELEASE_CURRENCY_MARKERS:
         currency_code = _ECONOMIC_RELEASE_CURRENCY_MARKERS[marker]
         remainder = remainder[1:].lstrip()
+    if sign:
+        remainder = f"{sign}{remainder}"
+    unparseable = {
+        "value": None,
+        "unit": None,
+        "scale": None,
+        "currency": currency_code,
+        "parse_status": "unparseable",
+    }
     if remainder.endswith("%"):
         parsed = _parse_finviz_numeric_value(remainder)
         if parsed is None:
-            return {
-                "value": None,
-                "unit": "percent",
-                "scale": 1.0,
-                "currency": None,
-                "parse_status": "unparseable",
-            }
+            return unparseable
         return {
             "value": parsed,
             "unit": "percent",
@@ -574,25 +581,18 @@ def parse_economic_release_value(value: Any) -> Dict[str, Any]:
             "currency": None,
             "parse_status": "ok",
         }
+    parsed = _parse_finviz_numeric_value(remainder)
+    if parsed is None:
+        return unparseable
     suffix = remainder[-1].upper() if remainder else ""
     unit: Optional[str]
     scale: Optional[float]
     if suffix in _ECONOMIC_RELEASE_SUFFIX_UNITS:
         unit, scale = _ECONOMIC_RELEASE_SUFFIX_UNITS[suffix]
-        parsed = _parse_finviz_numeric_value(remainder)
     else:
         unit, scale = None, 1.0
-        parsed = _parse_finviz_numeric_value(remainder)
     if currency_code:
         unit = "currency"
-    if parsed is None:
-        return {
-            "value": None,
-            "unit": unit,
-            "scale": scale,
-            "currency": currency_code,
-            "parse_status": "unparseable",
-        }
     return {
         "value": parsed,
         "unit": unit,
@@ -602,6 +602,25 @@ def parse_economic_release_value(value: Any) -> Dict[str, Any]:
     }
 
 
+_CURRENCY_EVENT_HINTS = (
+    "trade balance",
+    "budget",
+    "deficit",
+    "surplus",
+    "current account",
+    "capital account",
+    "account balance",
+)
+
+
+def _event_implies_currency_unit(item: Dict[str, Any]) -> bool:
+    haystack = " ".join(
+        str(item.get(field) or "")
+        for field in ("event", "category")
+    ).casefold()
+    return any(hint in haystack for hint in _CURRENCY_EVENT_HINTS)
+
+
 def _attach_economic_release_values(item: Dict[str, Any]) -> Dict[str, Any]:
     """Keep raw actual/previous/forecast strings and add parsed numerics."""
     normalized = dict(item)
@@ -609,6 +628,8 @@ def _attach_economic_release_values(item: Dict[str, Any]) -> Dict[str, Any]:
         normalized.get(field) in (None, "")
         for field in ("actual", "previous", "forecast")
     ):
+        if _event_implies_currency_unit(normalized):
+            normalized["unit"] = "currency"
         return normalized
     parsed_fields = {
         "actual": parse_economic_release_value(normalized.get("actual")),
@@ -624,6 +645,8 @@ def _attach_economic_release_values(item: Dict[str, Any]) -> Dict[str, Any]:
         status = str(parsed.get("parse_status") or "missing")
         if status != "missing":
             statuses.append(status)
+        if status != "ok":
+            continue
         unit = parsed.get("unit")
         scale = parsed.get("scale")
         currency = parsed.get("currency")
@@ -638,6 +661,8 @@ def _attach_economic_release_values(item: Dict[str, Any]) -> Dict[str, Any]:
     unique_currencies = list(dict.fromkeys(currencies))
     if len(unique_units) == 1:
         normalized["unit"] = unique_units[0]
+    elif not unique_units and _event_implies_currency_unit(normalized):
+        normalized["unit"] = "currency"
     if len(unique_scales) == 1:
         normalized["scale"] = unique_scales[0]
     if len(unique_currencies) == 1:
@@ -853,6 +878,10 @@ def _compact_finviz_calendar_item(
                 "code": "calendar_value_parse_lossy",
                 "status": parse_status,
             }
+            for field in ("actual", "previous", "forecast"):
+                raw = normalized.get(field)
+                if raw not in (None, ""):
+                    out[f"raw_{field}"] = raw
     return out
 
 

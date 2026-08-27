@@ -196,6 +196,30 @@ def test_economic_release_value_detects_currency_symbols() -> None:
     assert percent["currency"] is None
 
 
+def test_economic_release_value_parses_leading_sign_before_currency() -> None:
+    from mtdata.core.finviz.calendar import parse_economic_release_value
+
+    deficit = parse_economic_release_value("-$68.2B")
+
+    assert deficit == {
+        "value": -68.2e9,
+        "unit": "currency",
+        "scale": 1_000_000_000.0,
+        "currency": "USD",
+        "parse_status": "ok",
+    }
+
+
+def test_economic_release_value_unparseable_does_not_invent_count_unit() -> None:
+    from mtdata.core.finviz.calendar import parse_economic_release_value
+
+    garbled = parse_economic_release_value("n.a.")
+
+    assert garbled["parse_status"] == "unparseable"
+    assert garbled["unit"] is None
+    assert garbled["value"] is None
+
+
 def test_economic_calendar_keeps_raw_strings_and_adds_parsed_values() -> None:
     from mtdata.core.finviz.calendar import _normalize_finviz_calendar_payload
 
@@ -467,6 +491,33 @@ def test_economic_calendar_compact_keeps_lossy_parse_warning() -> None:
 
     assert row["parse_warning"]["code"] == "calendar_value_parse_lossy"
     assert row["value_parse_status"] == "unparseable"
+    assert row["raw_actual"] == "n.a."
+    assert "unit" not in row
+
+
+def test_economic_calendar_trade_balance_uses_currency_unit_when_unparseable() -> None:
+    from mtdata.core.finviz.calendar import (
+        _attach_economic_release_values,
+        _compact_finviz_calendar_item,
+    )
+
+    normalized = _attach_economic_release_values(
+        {
+            "event": "Goods Trade Balance Adv",
+            "category": "Goods Trade Balance",
+            "scheduled_at": "2026-08-27T12:30:00Z",
+            "previous": "n.a.",
+            "forecast": "n.a.",
+        }
+    )
+    row = _compact_finviz_calendar_item(normalized, mode="compact")
+
+    assert normalized["unit"] == "currency"
+    assert normalized["value_parse_status"] == "unparseable"
+    assert row["unit"] == "currency"
+    assert row["raw_previous"] == "n.a."
+    assert row["raw_forecast"] == "n.a."
+    assert "previous_value" not in row
 
 
 def test_calendar_timestamp_bounds_filter_scheduled_at(monkeypatch) -> None:
