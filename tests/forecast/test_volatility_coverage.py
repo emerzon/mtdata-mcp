@@ -863,12 +863,12 @@ class TestForecastVolatilityParamsParsing:
                 "EURUSD", "H1", 1, method="ewma", params=None)
             assert result.get("success") is True
 
-    def test_brace_kv_params(self):
+    def test_non_json_brace_params_are_rejected(self):
         with _mock_vol_env():
             result = forecast_volatility(
                 "EURUSD", "H1", 1, method="parkinson",
                 params="{window: 30}")
-            assert result.get("success") is True
+            assert "Malformed JSON mapping" in result["error"]
 
 
 # ===================================================================
@@ -1236,46 +1236,37 @@ class TestBarsPerYearException:
 # ===================================================================
 
 class TestParamsParsing:
-    """Exercise the fallback brace-format parser paths."""
+    """Malformed JSON-like brace formats are rejected rather than repaired."""
 
-    def test_brace_eq_format(self):
-        """Lines 365-367: k=v inside braces that fail JSON."""
+    def test_brace_eq_format_is_rejected(self):
         with _mock_env():
             r = forecast_volatility("EURUSD", "H1", 1, method="ewma",
                                     params="{lookback=200}")
-            assert r.get("success") is True
+            assert "Malformed JSON mapping" in r["error"]
 
     def test_brace_colon_trailing_no_value(self):
-        """Unknown brace keys are rejected by EWMA allow-list validation."""
         with _mock_env():
             r = forecast_volatility("EURUSD", "H1", 1, method="ewma",
                                     params="{extra:}")
-            assert "error" in r
-            assert r["error_code"] == "unknown_parameter"
-            assert "extra" in r["error"]
+            assert "Malformed JSON mapping" in r["error"]
 
     def test_brace_stray_token(self):
-        """Line 378: token without = or trailing colon."""
         with _mock_env():
             r = forecast_volatility("EURUSD", "H1", 1, method="ewma",
                                     params="{stray}")
-            assert r.get("success") is True
+            assert "Malformed JSON mapping" in r["error"]
 
     def test_brace_empty_tokens(self):
-        """Line 363: empty token after strip."""
         with _mock_env():
             r = forecast_volatility("EURUSD", "H1", 1, method="ewma",
                                     params="{,,}")
-            assert r.get("success") is True
+            assert "Malformed JSON mapping" in r["error"]
 
     def test_brace_mixed_formats(self):
-        """Mixed brace tokens: valid lookback accepted parsing, unknown keys rejected."""
         with _mock_env():
             r = forecast_volatility("EURUSD", "H1", 1, method="ewma",
                                     params="{lookback=300, extra: 5, junk}")
-            assert "error" in r
-            assert r["error_code"] == "unknown_parameter"
-            assert "extra" in r["error"]
+            assert "Malformed JSON mapping" in r["error"]
 
     def test_comma_separated_kv_pairs_without_spaces(self):
         with _mock_env():
