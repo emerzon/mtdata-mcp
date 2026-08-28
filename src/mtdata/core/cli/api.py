@@ -762,6 +762,10 @@ _CLI_NEAR_MISS_REMEDIATIONS: Dict[tuple[str, str], str] = {
         "Use --order-type BUY or SELL for market orders "
         "(or BUY_LIMIT, SELL_LIMIT, and other pending types)."
     ),
+    ("trade_place", "--direction"): (
+        "trade_place uses --order-type/--side (BUY/SELL), not --direction. "
+        "--direction belongs to trade_idea_compose and trade_idea_screen."
+    ),
     ("patterns_detect", "--limit"): (
         "patterns_detect does not take --limit. Use --lookback for history bars "
         "and --top-k to cap result rows."
@@ -795,6 +799,54 @@ def _unrecognized_option_flags(message: str) -> List[str]:
     if idx < 0:
         return []
     return _option_tokens_from_text(text[idx + len(marker) :])
+
+
+_GLOBAL_CLI_OPTION_FLAGS = frozenset(
+    {
+        "--json",
+        "--toon",
+        "--yaml",
+        "--verbose",
+        "--quiet",
+        "--detail",
+        "--output-fields",
+        "--precision",
+        "--help",
+        "-h",
+        "--version",
+        "-V",
+        "--set",
+        "--format",
+        "--timeframe",
+    }
+)
+
+
+def _parser_known_option_flags(parser: argparse.ArgumentParser) -> set[str]:
+    return {
+        str(flag)
+        for flag in parser._option_string_actions
+        if str(flag) not in {"-h", "--help"}
+    }
+
+
+def _unrecognized_argv_flags(
+    parser: argparse.ArgumentParser,
+    argv: Sequence[str],
+) -> List[str]:
+    known = _parser_known_option_flags(parser)
+    if not known:
+        return []
+    known |= set(_GLOBAL_CLI_OPTION_FLAGS)
+    flags: List[str] = []
+    for token in argv:
+        text = str(token)
+        if not text.startswith("--"):
+            continue
+        flag = text.split("=", 1)[0]
+        if flag not in known and flag not in flags:
+            flags.append(flag)
+    return flags
 
 
 def _cli_parse_error_remediation(
@@ -877,11 +929,30 @@ class _CLIArgumentParser(argparse.ArgumentParser):
         }:
             help_program = f"{self.prog} {operation}"
         missing_example = None
+        unrecognized_arguments = (
+            _unrecognized_argv_flags(self, sys.argv[1:])
+            if missing_required
+            else _unrecognized_option_flags(message_text)
+        )
+        if missing_required and unrecognized_arguments:
+            message_text = (
+                message_text.rstrip(".")
+                + ". Unrecognized argument(s): "
+                + ", ".join(unrecognized_arguments)
+                + "."
+            )
         if missing_required and missing_arguments:
             _remediation, missing_example = missing_argument_guidance(
                 operation,
                 missing_arguments,
             )
+        details: Optional[Dict[str, Any]] = None
+        if missing_required and (missing_arguments or unrecognized_arguments):
+            details = {}
+            if missing_arguments:
+                details["missing_arguments"] = missing_arguments
+            if unrecognized_arguments:
+                details["unrecognized_arguments"] = unrecognized_arguments
         payload = build_error_payload(
             message_text,
             code=(
@@ -909,11 +980,7 @@ class _CLIArgumentParser(argparse.ArgumentParser):
                 )
             ),
             example=missing_example,
-            details=(
-                {"missing_arguments": missing_arguments}
-                if missing_required and missing_arguments
-                else None
-            ),
+            details=details,
         )
         if market_depth_disabled:
             payload["details"] = {
@@ -1859,7 +1926,7 @@ _COMMAND_USAGE_EXAMPLES: Dict[str, Tuple[str, Optional[str]]] = {
     ),
     "labels_triple_barrier": (
         f'{CLI_PROGRAM} labels_triple_barrier EURUSD --barriers '
-        '"unit=pct take_profit=0.1 stop_loss=0.1"',
+        '"kind=tp_sl,unit=pct,take_profit=0.1,stop_loss=0.1"',
         None,
     ),
     "forecast_train": (

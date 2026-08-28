@@ -18,7 +18,15 @@ Beginner walkthrough: [SAMPLE-TRADE.md](SAMPLE-TRADE.md) (one pair). Grid search
 
 ### 1) Probability for one TP/SL pair
 
-Percent barriers are expressed in percent (for example, `take_profit: 0.40` with `unit: pct` means **0.40%**, not 40%):
+Percent barriers are expressed in percent (for example, `take_profit: 0.40` with `unit: pct` means **0.40%**, not 40%). The same KV dialect is accepted by `forecast_barrier_prob --barrier` and `labels_triple_barrier --barriers` (commas or spaces between pairs, or JSON):
+
+```bash
+mtdata-cli forecast_barrier_prob EURUSD --timeframe H1 --horizon 12 --direction long --barrier 'kind=tp_sl,unit=pct,take_profit=0.40,stop_loss=0.60' --json
+mtdata-cli labels_triple_barrier EURUSD --timeframe H1 --barriers 'kind=tp_sl,unit=pct,take_profit=0.40,stop_loss=0.60' --json
+```
+
+JSON is equivalent:
+
 ```bash
 mtdata-cli forecast_barrier_prob EURUSD --timeframe H1 --horizon 12 --direction long --barrier '{"kind":"tp_sl","unit":"pct","take_profit":0.40,"stop_loss":0.60}' --json
 ```

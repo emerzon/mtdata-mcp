@@ -669,10 +669,11 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
     ),
     ("labels_triple_barrier", "barriers"): (
         "Barrier pair as KV or JSON. Prefer the shell-safe form "
-        "'unit=pct take_profit=0.5 stop_loss=0.5'. JSON objects also work: "
+        "kind=tp_sl,unit=pct,take_profit=0.5,stop_loss=0.5. JSON objects also work: "
         "'{\"kind\":\"tp_sl\",\"unit\":\"pct\",\"take_profit\":0.5,\"stop_loss\":0.5}'. "
-        "kind='tp_sl' is optional, so forecast_barrier_prob TP/SL objects can be reused. "
-        "pct/ticks are distances from entry; price values are absolute levels."
+        "Spaces or commas may separate key=value pairs. kind='tp_sl' is optional, so "
+        "forecast_barrier_prob TP/SL objects can be reused. pct/ticks are distances "
+        "from entry; price values are absolute levels."
     ),
     ("labels_triple_barrier", "allow_noncausal_denoise"): (
         "Allow explicitly requested zero-phase denoising. This uses future bars, "

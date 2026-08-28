@@ -35,7 +35,7 @@ LIVE_TRADE_MUTATION_WARNING = (
 CLI_MISSING_ARGUMENT_REMEDIATIONS: Dict[tuple[str, str], str] = {
     ("labels_triple_barrier", "barriers"): (
         "Provide --barriers as KV or JSON. Example: "
-        "'unit=pct take_profit=0.5 stop_loss=0.5'."
+        "'kind=tp_sl,unit=pct,take_profit=0.5,stop_loss=0.5'."
     ),
     ("forecast_barrier_prob", "barrier"): (
         "Provide --barrier as KV or JSON. Example: "
@@ -49,7 +49,7 @@ CLI_MISSING_ARGUMENT_REMEDIATIONS: Dict[tuple[str, str], str] = {
 
 CLI_MISSING_ARGUMENT_EXAMPLES: Dict[tuple[str, str], str] = {
     ("labels_triple_barrier", "barriers"): (
-        "unit=pct take_profit=0.5 stop_loss=0.5"
+        "kind=tp_sl,unit=pct,take_profit=0.5,stop_loss=0.5"
     ),
     ("forecast_barrier_prob", "barrier"): (
         "kind=tp_sl,unit=pct,take_profit=0.5,stop_loss=0.5"

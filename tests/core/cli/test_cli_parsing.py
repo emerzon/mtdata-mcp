@@ -382,7 +382,7 @@ def test_missing_barriers_remediation_includes_example(monkeypatch, capsys):
 
     captured = capsys.readouterr()
     assert "error_code: cli_missing_required" in captured.out
-    assert "unit=pct take_profit=0.5 stop_loss=0.5" in captured.out
+    assert "kind=tp_sl,unit=pct,take_profit=0.5,stop_loss=0.5" in captured.out
 
 
 def test_missing_barrier_prob_remediation_includes_object_example(monkeypatch, capsys):
@@ -402,6 +402,45 @@ def test_missing_barrier_prob_remediation_includes_object_example(monkeypatch, c
     assert "error_code: cli_missing_required" in captured.out
     assert "kind=tp_sl,unit=pct,take_profit=0.5,stop_loss=0.5" in captured.out
     assert "Provide --barrier as KV or JSON" in captured.out
+
+
+def test_missing_required_reports_unrecognized_direction_flag(monkeypatch, capsys):
+    from mtdata.core.cli import api as cli_api
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "mtdata-cli",
+            "trade_place",
+            "EURUSD",
+            "--volume",
+            "0.01",
+            "--direction",
+            "hold",
+        ],
+    )
+
+    def tool(request: TradePlaceRequest):
+        pass
+
+    parser = cli_api._CLIArgumentParser(prog="mtdata-cli trade_place")
+    cli_api.add_dynamic_arguments(
+        parser,
+        cli_api.get_function_info(tool),
+        cmd_name="trade_place",
+    )
+
+    with pytest.raises(SystemExit, match="2"):
+        parser.parse_args(
+            ["EURUSD", "--volume", "0.01", "--direction", "hold"]
+        )
+
+    captured = capsys.readouterr()
+    assert "error_code: cli_missing_required" in captured.out
+    assert "Unrecognized argument(s): --direction" in captured.out
+    assert "unrecognized_arguments" in captured.out
+    assert "--direction belongs to trade_idea_compose" in captured.out
 
 
 def test_missing_order_type_mentions_side_alias(monkeypatch, capsys):
