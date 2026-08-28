@@ -128,6 +128,12 @@ mtdata-cli forecast_volatility_estimate EURUSD --timeframe H1 --horizon 12 --met
   ends at the requested cutoff and is intersected with an explicit `start`.
 - `window_w`: Weekly window (default: 5)
 - `window_m`: Monthly window (default: 22)
+- `minimum_daily_coverage_fraction`: Minimum observed-to-expected intraday
+  bar coverage and exact-adjacent-return coverage for each UTC-day RV aggregate
+  (default: `0.9`).
+- `maximum_missing_bars_per_gap`: Largest internal gap allowed in an included
+  UTC day, measured in missing `rv_timeframe` bars (default: `12`). Returns
+  never bridge a gap, including one that remains within this day-level limit.
 
 HAR-RV does not accept the requested-timeframe `lookback` option. Use
 `params.days` to control its calendar span and `params.rv_timeframe` to
@@ -138,11 +144,67 @@ fields, and `history_window_policy` make the fitted interval auditable;
 provider response can shorten the observed window, but it does not move the
 requested cutoff backward and silently broaden the fit.
 
-HAR-RV computes returns only within each UTC day, so overnight gaps are not
-counted as intraday variance. It estimates normal daily coverage from the
-median bar count of up to 20 prior UTC days and excludes the final day when it
-has less than 90% of that coverage. Full output reports the final aggregate's
-observed time range, observed and expected bars, coverage, and inclusion status.
+For sub-hour `rv_timeframe` values, HAR-RV requires every timestamp to lie on
+the absolute UTC grid. Hourly and multi-hour MT5 candles can be broker phased,
+so those timeframes instead establish a causal, same-weekday phase profile and
+reject later phase drift. A return is computed only when two bars are in the
+same UTC day and exactly one interval apart. HAR-RV therefore does not turn an
+overnight boundary or an intraday history gap into a long-interval return.
+
+Daily coverage is assessed causally. The first observed UTC day is always
+excluded as a request-boundary aggregate. A complete 24-hour timestamp grid
+can establish its own expected count; otherwise a session-limited day needs at
+least three structurally valid prior observations of the same weekday, and its
+expected counts are the largest structurally valid bootstrap profile seen for
+bars and exact-adjacent returns. Leading request-boundary days do not
+participate. After the weekday baseline is established, only eligible days
+update it, and its high-water counts never decline inside the fetched window;
+later sparse outages cannot lower the expectation and normalize themselves.
+This deliberately prefers a conservative false negative if a legitimate
+session permanently shortens. Three identically truncated, contiguous
+nonleading bootstrap sessions remain indistinguishable from a real shorter
+session without a historical symbol-session calendar; an exact full grid can
+self-validate BTC/M5 instead. Count, return, and phase baselines also do not
+prove the exact start/end slot shape of a session-limited weekday, so a
+same-count shifted session is not detectable without that calendar. Exact
+24-hour-grid schedule evidence is scoped to
+the same weekday and needs three corroborating full grids before it can update
+the persistent profile, so one anomalous 24-hour Friday cannot override a
+legitimate shorter Friday session. Schedule evidence is timestamp-only and is
+reported separately: a day with unusable RV prices can corroborate the schedule
+but cannot update eligible RV count/return baselines. A current exact full grid
+can still prove that day's own timestamp aggregate. Both a day's bar count and
+its usable exact-adjacent-return count must meet the coverage threshold. A day
+below either threshold or above the internal-gap limit is excluded without
+filling or shifting bars.
+Its observed-day position remains missing in the daily series, so weekly and
+monthly HAR windows cannot silently compress across it. Any final observed UTC
+day whose cutoff is before midnight is boundary-ineligible even when its bar
+and return coverage exceed the ordinary daily threshold. It can be trimmed
+before forecasting from the prior eligible day only after exact 24-hour grids
+on the same weekday establish a compatible 24/7 contract and its observed
+timestamps form the complete, gap-free prefix from 00:00 through the last bar
+closed at the cutoff. A session-limited pre-midnight final day cannot use that
+authorization and blocks the forecast, even if its normal session may already
+have closed. This intentional availability cost remains until a historical
+session calendar or causal slot-shape contract can prove completion. A
+late-start, gapped, off-grid, duplicated, or failed completed final day also
+remains missing and blocks the forecast.
+
+Full output exposes `daily_rv_quality`, including the effective interval,
+coverage, gap, and day-position policies; per-date exclusions and reasons;
+return intervals rejected at gaps; and the daily-count, aligned-row, and recent
+lag evidence used to decide whether the fit and forecast are ready.
+`final_daily_aggregate` remains available as the focused trailing-day view.
+`daily_rv_quality.final_boundary_authorization` records the exact prefix check
+and authorization reason. The baseline bootstrap/update policies, retained
+state per weekday, rejected updates, and weekday-scoped 24-hour-grid evidence
+are reported alongside it.
+Because MT5 candles do not carry a historical symbol-session calendar, HAR-RV
+cannot distinguish an entirely absent trading day from a scheduled closed day
+when that UTC date has no bars at all. The quality contract reports this limit
+as `whole_missing_day_detection=unavailable_without_symbol_session_calendar`;
+session-aware research should independently bind its expected trading calendar.
 When `rv_timeframe` differs from the requested forecast timeframe, target times
 are aligned to actual MT5 candle opens for the requested timeframe; `data_as_of`
 is the completed-bar close of the latest high-frequency model input, while

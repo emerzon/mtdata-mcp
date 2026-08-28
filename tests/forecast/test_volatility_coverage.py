@@ -1703,7 +1703,7 @@ class TestHarRvBlock:
             result["volatility_per_bar"] * math.sqrt(7.0)
         )
         assert result["params_used"]["daily_rv_gap_policy"] == (
-            "within_utc_day_returns_only"
+            "exact_rv_timeframe_returns_and_causal_utc_day_quality"
         )
 
     def test_daily_realized_variance_excludes_overnight_jump(self):
@@ -1726,10 +1726,14 @@ class TestHarRvBlock:
         daily, returns_used, metadata = vol_mod._har_daily_realized_variance(frame)
 
         assert int(len(finite)) == 2
-        assert returns_used == 2
-        assert metadata["complete"] is True
-        assert daily.to_list() == pytest.approx(
+        assert finite.groupby("day")["r2"].sum().to_list() == pytest.approx(
             [math.log(1.01) ** 2, math.log(1.01) ** 2]
+        )
+        assert returns_used == 0
+        assert daily.isna().all()
+        assert metadata["excluded_utc_days"] == 2
+        assert metadata["return_interval_policy"] == (
+            "use_only_returns_exactly_one_rv_timeframe_apart"
         )
 
     def test_har_rv_excludes_and_reports_partial_final_utc_day(self):
@@ -1770,21 +1774,30 @@ class TestHarRvBlock:
             complete_result["volatility_per_bar"]
         )
         aggregate = partial_result["final_daily_aggregate"]
-        assert aggregate == {
-            "utc_day": "2026-02-20",
-            "start": "2026-02-20T00:00Z",
-            "end": "2026-02-20T02:15Z",
-            "observed_bars": 28,
-            "expected_bars": 288,
-            "coverage_fraction": pytest.approx(28 / 288, abs=0.0001),
-            "minimum_coverage_fraction": 0.9,
-            "complete": False,
-            "included_in_har": False,
-            "policy": "exclude_final_utc_day_below_recent_median_coverage",
-            "expected_bars_basis": "median_of_up_to_20_prior_utc_days",
-        }
+        assert aggregate["utc_day"] == "2026-02-20"
+        assert aggregate["role"] == "final"
+        assert aggregate["start"] == "2026-02-20T00:00Z"
+        assert aggregate["end"] == "2026-02-20T02:15Z"
+        assert aggregate["observed_bars"] == 28
+        assert aggregate["expected_bars"] == 288
+        assert aggregate["coverage_fraction"] == pytest.approx(
+            28 / 288,
+            abs=0.0001,
+        )
+        assert aggregate["minimum_coverage_fraction"] == 0.9
+        assert aggregate["complete"] is False
+        assert aggregate["included_in_har"] is False
+        assert aggregate["policy"] == "causal_utc_day_coverage_and_gap_quality"
+        assert aggregate["expected_bars_basis"] == (
+            "prior_same_weekday_complete_24h_utc_grid"
+        )
+        assert aggregate["exclusion_reasons"] == [
+            "open_final_utc_boundary",
+            "coverage_below_minimum",
+            "exact_return_coverage_below_minimum",
+        ]
         assert partial_result["data_window"]["returns_used"] == (
-            full_days * (bars_per_day - 1)
+            (full_days - 1) * (bars_per_day - 1)
         )
         assert any(
             "Excluded the final incomplete UTC-day" in warning

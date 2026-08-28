@@ -48,6 +48,9 @@ from .requests import VOLATILITY_PROXY_VALUES
 
 HAR_RV_MIN_ALIGNED_ROWS = 20
 HAR_RV_MIN_DAILY_RV = 30
+HAR_RV_MIN_DAILY_COVERAGE_FRACTION = 0.9
+HAR_RV_MAX_MISSING_BARS_PER_GAP = 12
+HAR_RV_MIN_SAME_WEEKDAY_BASELINE_OBSERVATIONS = 3
 VOLATILITY_PROXY_METHODS = ("arima", "sarima", "ets", "theta")
 _DEFAULT_VOLATILITY_ENSEMBLE_METHODS = (
     "ewma",
@@ -179,6 +182,26 @@ def get_volatility_methods_data() -> Dict[str, Any]:
             },
             {"name": "window_w", "type": "int", "default": 5, "description": "Weekly window size for HAR lags."},
             {"name": "window_m", "type": "int", "default": 22, "description": "Monthly window size for HAR lags."},
+            {
+                "name": "minimum_daily_coverage_fraction",
+                "type": "float",
+                "default": HAR_RV_MIN_DAILY_COVERAGE_FRACTION,
+                "description": (
+                    "Minimum observed-to-expected intraday bar and exact-return "
+                    "coverage for each UTC-day RV aggregate. Expected coverage "
+                    "is established causally from prior data."
+                ),
+            },
+            {
+                "name": "maximum_missing_bars_per_gap",
+                "type": "int",
+                "default": HAR_RV_MAX_MISSING_BARS_PER_GAP,
+                "description": (
+                    "Largest internal gap, measured in missing rv_timeframe bars, "
+                    "allowed in an included UTC-day RV aggregate. Returns never "
+                    "bridge even an allowed gap."
+                ),
+            },
         ],
         "sample_gates": {
             "daily_rv_required": "max(30, window_m + 5)",
@@ -444,6 +467,8 @@ def _har_rv_sample_error(
     window_m: int,
     window_w: int,
     days_requested: int,
+    daily_rv_quality: Optional[Dict[str, Any]] = None,
+    remediation: Optional[str] = None,
 ) -> Dict[str, Any]:
     recommended_days = _har_rv_recommended_days(
         window_m=window_m,
@@ -460,7 +485,7 @@ def _har_rv_sample_error(
         "window_w": int(window_w),
         "days_requested": int(days_requested),
         "days_recommended": int(recommended_days),
-        "remediation": (
+        "remediation": remediation or (
             f"Retry forecast_volatility_estimate with --params days={recommended_days} "
             "(or the default days=120). HAR-RV needs at least "
             f"{daily_rv_required} daily RV observations and "
@@ -470,6 +495,8 @@ def _har_rv_sample_error(
     }
     if aligned_rows_observed is not None:
         payload["aligned_rows_observed"] = int(aligned_rows_observed)
+    if daily_rv_quality is not None:
+        payload["daily_rv_quality"] = daily_rv_quality
     return payload
 
 
@@ -643,6 +670,7 @@ def _realized_variance_rows(
     frame: pd.DataFrame,
     *,
     close_col: str = "close",
+    expected_bar_seconds: Optional[int] = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     values = pd.DataFrame(
         {
@@ -652,61 +680,758 @@ def _realized_variance_rows(
     ).dropna()
     values = values.sort_values("time", kind="stable")
     values["day"] = pd.to_datetime(values["time"], unit="s", utc=True).dt.floor("D")
-    values["return"] = values.groupby("day", sort=True)["close"].transform(
+    values["time_delta_seconds"] = values.groupby("day", sort=True)["time"].diff()
+    step_seconds = int(expected_bar_seconds or 0)
+    if step_seconds <= 0:
+        positive_deltas = values.loc[
+            values["time_delta_seconds"] > 0,
+            "time_delta_seconds",
+        ]
+        if not positive_deltas.empty:
+            rounded_deltas = positive_deltas.round().astype(int)
+            modes = rounded_deltas.mode()
+            if not modes.empty:
+                step_seconds = int(modes.iloc[0])
+    raw_returns = values.groupby("day", sort=True)["close"].transform(
         lambda series: np.log(series.where(series > 0)).diff()
     )
+    if step_seconds > 0:
+        exact_interval = np.isclose(
+            values["time_delta_seconds"].to_numpy(dtype=float),
+            float(step_seconds),
+            rtol=0.0,
+            atol=1e-6,
+        )
+        values["return"] = raw_returns.where(exact_interval)
+    else:
+        values["return"] = np.nan
+    values.attrs["expected_bar_seconds"] = step_seconds or None
     finite = values[np.isfinite(values["return"])].copy()
     finite["r2"] = np.square(finite["return"].astype(float))
     return values, finite
+
+
+def _har_timestamp_phase_context(
+    times: np.ndarray,
+    *,
+    step_seconds: int,
+    prior_same_weekday_phases: List[int],
+    prior_same_weekday_complete_grids: int,
+) -> Dict[str, Any]:
+    phase_offsets = np.remainder(times, float(step_seconds))
+    on_utc_phase_zero = np.isclose(
+        phase_offsets,
+        0.0,
+        rtol=0.0,
+        atol=1e-6,
+    ) | np.isclose(
+        phase_offsets,
+        float(step_seconds),
+        rtol=0.0,
+        atol=1e-6,
+    )
+    absolute_grid_enforced = step_seconds < 3600
+    utc_phase_zero_mismatches = int(np.count_nonzero(~on_utc_phase_zero))
+    first_phase = float(phase_offsets[0])
+    phase_consistent = bool(
+        np.all(
+            np.isclose(
+                phase_offsets,
+                first_phase,
+                rtol=0.0,
+                atol=1e-6,
+            )
+        )
+    )
+    phase_seconds = (
+        int(round(first_phase)) % step_seconds
+        if phase_consistent
+        else None
+    )
+    if absolute_grid_enforced:
+        expected_phase: Optional[int] = 0
+        phase_basis = "absolute_utc_phase_zero"
+    elif (
+        prior_same_weekday_complete_grids
+        >= HAR_RV_MIN_SAME_WEEKDAY_BASELINE_OBSERVATIONS
+    ):
+        expected_phase = 0
+        phase_basis = "prior_same_weekday_complete_24h_utc_grid"
+    elif (
+        len(prior_same_weekday_phases)
+        >= HAR_RV_MIN_SAME_WEEKDAY_BASELINE_OBSERVATIONS
+    ):
+        expected_phase = min(
+            set(prior_same_weekday_phases),
+            key=lambda value: (
+                -prior_same_weekday_phases.count(value),
+                value,
+            ),
+        )
+        phase_basis = "mode_of_retained_same_weekday_profiles"
+    else:
+        expected_phase = None
+        phase_basis = "same_weekday_phase_bootstrap_unready"
+    phase_drift = bool(
+        phase_consistent
+        and expected_phase is not None
+        and phase_seconds != expected_phase
+    )
+    return {
+        "absolute_grid_validation_enforced": absolute_grid_enforced,
+        "utc_phase_zero_mismatch_count": utc_phase_zero_mismatches,
+        "off_grid_timestamp_count": (
+            utc_phase_zero_mismatches if absolute_grid_enforced else 0
+        ),
+        "timestamp_phase_seconds": phase_seconds,
+        "timestamp_phase_consistent": phase_consistent,
+        "expected_timestamp_phase_seconds": expected_phase,
+        "timestamp_phase_basis": phase_basis,
+        "timestamp_phase_drift": phase_drift,
+    }
+
+
+def _har_expected_daily_profile(
+    *,
+    exact_full_utc_grid: bool,
+    full_day_slots: Optional[int],
+    prior_same_weekday_complete_grids: int,
+    baseline_counts: List[int],
+    baseline_returns: List[int],
+) -> tuple[Optional[int], Optional[int], str, int]:
+    if exact_full_utc_grid and full_day_slots is not None:
+        return (
+            int(full_day_slots),
+            max(0, int(full_day_slots) - 1),
+            "complete_24h_utc_grid",
+            0,
+        )
+    if (
+        prior_same_weekday_complete_grids
+        >= HAR_RV_MIN_SAME_WEEKDAY_BASELINE_OBSERVATIONS
+        and full_day_slots is not None
+    ):
+        return (
+            int(full_day_slots),
+            max(0, int(full_day_slots) - 1),
+            "prior_same_weekday_complete_24h_utc_grid",
+            int(prior_same_weekday_complete_grids),
+        )
+    if len(baseline_counts) >= HAR_RV_MIN_SAME_WEEKDAY_BASELINE_OBSERVATIONS:
+        return (
+            max(1, int(max(baseline_counts))),
+            max(0, int(max(baseline_returns))),
+            "high_water_of_retained_same_weekday_profiles",
+            int(len(baseline_counts)),
+        )
+    return (
+        None,
+        None,
+        "insufficient_prior_same_weekday_history",
+        int(len(baseline_counts)),
+    )
+
+
+def _har_baseline_update_decision(
+    *,
+    role: str,
+    included: bool,
+    exact_full_utc_grid: bool,
+    prior_same_weekday_complete_grids: int,
+    baseline_established: bool,
+    structurally_valid: bool,
+) -> tuple[bool, str, bool, bool]:
+    if role in {"leading", "leading_final"}:
+        return False, "leading_boundary_not_used", True, False
+    if exact_full_utc_grid and (
+        prior_same_weekday_complete_grids + 1
+        < HAR_RV_MIN_SAME_WEEKDAY_BASELINE_OBSERVATIONS
+    ):
+        return (
+            False,
+            "exact_full_grid_awaiting_same_weekday_corroboration",
+            False,
+            True,
+        )
+    if exact_full_utc_grid and included:
+        return True, "corroborated_exact_full_grid_observation", False, False
+    if exact_full_utc_grid:
+        return (
+            False,
+            "corroborated_schedule_but_ineligible_rv_profile",
+            True,
+            False,
+        )
+    if included:
+        return True, "eligible_observation", False, False
+    if not baseline_established and structurally_valid:
+        return True, "bootstrap_observation", False, False
+    if not baseline_established:
+        return (
+            False,
+            "structurally_invalid_bootstrap_observation_not_used",
+            True,
+            False,
+        )
+    return False, "rejected_observation_not_used", True, False
 
 
 def _har_daily_realized_variance(
     frame: pd.DataFrame,
     *,
     close_col: str = "close",
-    minimum_coverage_fraction: float = 0.9,
+    expected_bar_seconds: Optional[int] = None,
+    minimum_coverage_fraction: float = HAR_RV_MIN_DAILY_COVERAGE_FRACTION,
+    maximum_missing_bars_per_gap: int = HAR_RV_MAX_MISSING_BARS_PER_GAP,
+    history_cutoff_epoch: Optional[float] = None,
 ) -> tuple[pd.Series, int, Dict[str, Any]]:
-    """Exclude an incomplete trailing UTC day from comparable HAR-RV lags."""
-    values, finite = _realized_variance_rows(frame, close_col=close_col)
-    daily_rv = finite.groupby("day", sort=True)["r2"].sum().astype(float)
+    """Build causal, gap-aware UTC-day RV aggregates for HAR-RV."""
+    values, finite = _realized_variance_rows(
+        frame,
+        close_col=close_col,
+        expected_bar_seconds=expected_bar_seconds,
+    )
+    step_seconds = int(values.attrs.get("expected_bar_seconds") or 0)
+    daily_rv_raw = finite.groupby("day", sort=True)["r2"].sum().astype(float)
     bar_counts = values.groupby("day", sort=True)["time"].count().astype(int)
     if bar_counts.empty:
-        return daily_rv, int(len(finite)), {}
+        return daily_rv_raw, 0, {}
+    if step_seconds <= 0:
+        raise ValueError("Unable to resolve a positive HAR-RV bar interval")
 
-    final_day = bar_counts.index[-1]
-    prior_counts = bar_counts.iloc[1:-1].tail(20)
-    if prior_counts.empty:
-        prior_counts = bar_counts.iloc[:-1].tail(20)
-    expected_bars = (
-        max(1, int(round(float(prior_counts.median()))))
-        if not prior_counts.empty
-        else int(bar_counts.iloc[-1])
+    minimum_coverage = float(minimum_coverage_fraction)
+    maximum_missing = int(maximum_missing_bars_per_gap)
+    full_day_slots = (
+        86400 // step_seconds
+        if step_seconds > 0 and 86400 % step_seconds == 0
+        else None
     )
-    observed_bars = int(bar_counts.iloc[-1])
-    coverage = float(observed_bars) / float(max(1, expected_bars))
-    complete = coverage >= float(minimum_coverage_fraction)
-    final_values = values[values["day"] == final_day]
-    final_finite = finite[finite["day"] == final_day]
-    if not complete:
-        daily_rv = daily_rv.drop(final_day, errors="ignore")
-
-    first_epoch = float(final_values["time"].iloc[0])
-    last_epoch = float(final_values["time"].iloc[-1])
-    metadata: Dict[str, Any] = {
-        "utc_day": final_day.strftime("%Y-%m-%d"),
-        "start": _format_time_minimal(first_epoch),
-        "end": _format_time_minimal(last_epoch),
-        "observed_bars": observed_bars,
-        "expected_bars": expected_bars,
-        "coverage_fraction": round(coverage, 4),
-        "minimum_coverage_fraction": float(minimum_coverage_fraction),
-        "complete": bool(complete),
-        "included_in_har": bool(complete),
-        "policy": "exclude_final_utc_day_below_recent_median_coverage",
-        "expected_bars_basis": "median_of_up_to_20_prior_utc_days",
+    day_index = bar_counts.index
+    daily_rv = daily_rv_raw.reindex(day_index).astype(float)
+    values_by_day = {
+        day: group for day, group in values.groupby("day", sort=True)
     }
-    returns_used = int(len(finite) - (0 if complete else len(final_finite)))
+    exact_returns_by_day = finite.groupby("day", sort=True)["return"].count()
+    included_days: List[pd.Timestamp] = []
+    exclusions: List[Dict[str, Any]] = []
+    aggregates: Dict[pd.Timestamp, Dict[str, Any]] = {}
+    prior_counts_by_weekday: Dict[int, List[int]] = {
+        weekday: [] for weekday in range(7)
+    }
+    prior_returns_by_weekday: Dict[int, List[int]] = {
+        weekday: [] for weekday in range(7)
+    }
+    prior_phases_by_weekday: Dict[int, List[int]] = {
+        weekday: [] for weekday in range(7)
+    }
+    prior_complete_utc_grids_by_weekday: Dict[int, int] = {
+        weekday: 0 for weekday in range(7)
+    }
+    rejected_baseline_updates = 0
+    withheld_full_grid_updates = 0
+
+    for position, day in enumerate(day_index):
+        day_values = values_by_day[day]
+        weekday = int(day.weekday())
+        weekday_counts = prior_counts_by_weekday[weekday]
+        weekday_returns = prior_returns_by_weekday[weekday]
+        weekday_phases = prior_phases_by_weekday[weekday]
+        prior_same_weekday_complete_grids = (
+            prior_complete_utc_grids_by_weekday[weekday]
+        )
+        observed_bars = int(bar_counts.loc[day])
+        times = day_values["time"].to_numpy(dtype=float)
+        day_start_epoch = float(day.timestamp())
+        phase_context = _har_timestamp_phase_context(
+            times,
+            step_seconds=step_seconds,
+            prior_same_weekday_phases=weekday_phases,
+            prior_same_weekday_complete_grids=(
+                prior_same_weekday_complete_grids
+            ),
+        )
+        absolute_grid_validation_enforced = bool(
+            phase_context["absolute_grid_validation_enforced"]
+        )
+        utc_phase_zero_mismatches = int(
+            phase_context["utc_phase_zero_mismatch_count"]
+        )
+        off_grid_timestamps = int(
+            phase_context["off_grid_timestamp_count"]
+        )
+        day_phase_consistent = bool(
+            phase_context["timestamp_phase_consistent"]
+        )
+        day_phase_seconds = phase_context["timestamp_phase_seconds"]
+        expected_phase_seconds = phase_context[
+            "expected_timestamp_phase_seconds"
+        ]
+        phase_basis = str(phase_context["timestamp_phase_basis"])
+        timestamp_phase_drift = bool(
+            phase_context["timestamp_phase_drift"]
+        )
+        deltas = np.diff(times)
+        exact_intervals = np.isclose(
+            deltas,
+            float(step_seconds),
+            rtol=0.0,
+            atol=1e-6,
+        )
+        positive_grid_intervals = (
+            (deltas > 0)
+            & np.isclose(
+                deltas / float(step_seconds),
+                np.round(deltas / float(step_seconds)),
+                rtol=0.0,
+                atol=1e-6,
+            )
+        )
+        irregular_intervals = int(np.count_nonzero(~positive_grid_intervals))
+        gap_deltas = deltas[deltas > float(step_seconds) + 1e-6]
+        missing_per_gap = (
+            np.maximum(
+                0,
+                np.ceil(gap_deltas / float(step_seconds)).astype(int) - 1,
+            )
+            if gap_deltas.size
+            else np.array([], dtype=int)
+        )
+        max_missing_observed = (
+            int(missing_per_gap.max()) if missing_per_gap.size else 0
+        )
+        max_gap_seconds = int(round(float(gap_deltas.max()))) if gap_deltas.size else 0
+
+        exact_full_utc_grid = bool(
+            full_day_slots is not None
+            and observed_bars == full_day_slots
+            and times.size == full_day_slots
+            and off_grid_timestamps == 0
+            and math.isclose(times[0], day_start_epoch, rel_tol=0.0, abs_tol=1e-6)
+            and math.isclose(
+                times[-1],
+                day_start_epoch + 86400 - step_seconds,
+                rel_tol=0.0,
+                abs_tol=1e-6,
+            )
+            and bool(np.all(exact_intervals))
+        )
+
+        baseline_counts = list(weekday_counts)
+        baseline_returns = list(weekday_returns)
+        (
+            expected_bars,
+            expected_returns,
+            expected_basis,
+            baseline_observations,
+        ) = _har_expected_daily_profile(
+            exact_full_utc_grid=exact_full_utc_grid,
+            full_day_slots=full_day_slots,
+            prior_same_weekday_complete_grids=(
+                prior_same_weekday_complete_grids
+            ),
+            baseline_counts=baseline_counts,
+            baseline_returns=baseline_returns,
+        )
+
+        coverage = (
+            float(observed_bars) / float(expected_bars)
+            if expected_bars is not None
+            else None
+        )
+        exact_returns_observed = int(exact_returns_by_day.get(day, 0))
+        return_coverage = (
+            float(exact_returns_observed) / float(expected_returns)
+            if expected_returns is not None and expected_returns > 0
+            else 1.0
+            if expected_returns == 0 and exact_returns_observed == 0
+            else None
+        )
+        role = (
+            "leading_final"
+            if len(day_index) == 1
+            else "leading"
+            if position == 0
+            else "final"
+            if position == len(day_index) - 1
+            else "internal"
+        )
+        open_final_utc_boundary = bool(
+            role in {"final", "leading_final"}
+            and history_cutoff_epoch is not None
+            and math.isfinite(float(history_cutoff_epoch))
+            and day_start_epoch <= float(history_cutoff_epoch)
+            < day_start_epoch + 86400.0
+        )
+        reasons: List[str] = []
+        if position == 0:
+            reasons.append("leading_request_boundary_non_comparable")
+        if open_final_utc_boundary:
+            reasons.append("open_final_utc_boundary")
+        if expected_bars is None:
+            reasons.append("causal_coverage_baseline_unready")
+        elif coverage is not None and coverage < minimum_coverage:
+            reasons.append("coverage_below_minimum")
+        if (
+            expected_returns is not None
+            and return_coverage is not None
+            and return_coverage < minimum_coverage
+        ):
+            reasons.append("exact_return_coverage_below_minimum")
+        if irregular_intervals:
+            reasons.append("irregular_timestamp_spacing")
+        if not day_phase_consistent:
+            reasons.append("inconsistent_timestamp_phase")
+        if off_grid_timestamps:
+            reasons.append("off_grid_timestamps")
+        elif timestamp_phase_drift:
+            reasons.append("timestamp_phase_drift")
+        if max_missing_observed > maximum_missing:
+            reasons.append("internal_gap_above_maximum")
+        if exact_returns_observed == 0:
+            reasons.append("no_exact_interval_returns")
+
+        included = not reasons
+        if included:
+            included_days.append(day)
+        else:
+            daily_rv.loc[day] = np.nan
+
+        structurally_valid_for_baseline = bool(
+            irregular_intervals == 0
+            and day_phase_consistent
+            and off_grid_timestamps == 0
+            and not timestamp_phase_drift
+            and max_missing_observed <= maximum_missing
+            and exact_returns_observed > 0
+        )
+        baseline_established_before_day = bool(
+            len(baseline_counts)
+            >= HAR_RV_MIN_SAME_WEEKDAY_BASELINE_OBSERVATIONS
+            or prior_same_weekday_complete_grids
+            >= HAR_RV_MIN_SAME_WEEKDAY_BASELINE_OBSERVATIONS
+        )
+        (
+            baseline_updated,
+            baseline_update_reason,
+            rejected_update,
+            withheld_full_grid_update,
+        ) = _har_baseline_update_decision(
+            role=role,
+            included=included,
+            exact_full_utc_grid=exact_full_utc_grid,
+            prior_same_weekday_complete_grids=(
+                prior_same_weekday_complete_grids
+            ),
+            baseline_established=baseline_established_before_day,
+            structurally_valid=structurally_valid_for_baseline,
+        )
+        rejected_baseline_updates += int(rejected_update)
+        withheld_full_grid_updates += int(withheld_full_grid_update)
+        if baseline_updated:
+            prior_counts_by_weekday[weekday].append(observed_bars)
+            prior_returns_by_weekday[weekday].append(
+                exact_returns_observed
+            )
+            if day_phase_seconds is not None:
+                prior_phases_by_weekday[weekday].append(day_phase_seconds)
+        if exact_full_utc_grid and role not in {"leading", "leading_final"}:
+            prior_complete_utc_grids_by_weekday[weekday] += 1
+        baseline_established_after_day = bool(
+            len(prior_counts_by_weekday[weekday])
+            >= HAR_RV_MIN_SAME_WEEKDAY_BASELINE_OBSERVATIONS
+            or prior_complete_utc_grids_by_weekday[weekday]
+            >= HAR_RV_MIN_SAME_WEEKDAY_BASELINE_OBSERVATIONS
+        )
+
+        aggregate: Dict[str, Any] = {
+            "utc_day": day.strftime("%Y-%m-%d"),
+            "role": role,
+            "start": _format_time_minimal(float(times[0])),
+            "end": _format_time_minimal(float(times[-1])),
+            "observed_bars": observed_bars,
+            "expected_bars": expected_bars,
+            "coverage_fraction": (
+                round(float(coverage), 4) if coverage is not None else None
+            ),
+            "observed_exact_interval_returns": exact_returns_observed,
+            "expected_exact_interval_returns": expected_returns,
+            "exact_return_coverage_fraction": (
+                round(float(return_coverage), 4)
+                if return_coverage is not None
+                else None
+            ),
+            "minimum_coverage_fraction": minimum_coverage,
+            "baseline_observations": baseline_observations,
+            "structurally_valid_for_baseline": (
+                structurally_valid_for_baseline
+            ),
+            "baseline_established_before_day": (
+                baseline_established_before_day
+            ),
+            "baseline_updated": baseline_updated,
+            "baseline_update_reason": baseline_update_reason,
+            "baseline_established_after_day": (
+                baseline_established_after_day
+            ),
+            "complete": bool(included),
+            "included_in_har": bool(included),
+            "open_final_utc_boundary": open_final_utc_boundary,
+            "policy": "causal_utc_day_coverage_and_gap_quality",
+            "expected_bars_basis": expected_basis,
+            "returns_used": exact_returns_observed if included else 0,
+            "maximum_gap_seconds": max_gap_seconds,
+            "maximum_missing_bars_per_gap_observed": max_missing_observed,
+            "irregular_interval_count": irregular_intervals,
+            "timestamp_phase_seconds": day_phase_seconds,
+            "timestamp_phase_consistent": day_phase_consistent,
+            "expected_timestamp_phase_seconds": expected_phase_seconds,
+            "timestamp_phase_basis": phase_basis,
+            "timestamp_phase_drift": timestamp_phase_drift,
+            "absolute_grid_validation_enforced": (
+                absolute_grid_validation_enforced
+            ),
+            "utc_phase_zero_mismatch_count": utc_phase_zero_mismatches,
+            "off_grid_timestamp_count": (
+                off_grid_timestamps
+                if absolute_grid_validation_enforced
+                else None
+            ),
+            "exclusion_reasons": reasons,
+        }
+        aggregates[day] = aggregate
+        if not included:
+            exclusions.append(dict(aggregate))
+
+    included_day_set = set(included_days)
+    returns_used = int(finite["day"].isin(included_day_set).sum())
+    candidate_return_intervals = int(
+        sum(max(0, int(count) - 1) for count in bar_counts.to_list())
+    )
+    final_day = day_index[-1]
+    metadata: Dict[str, Any] = {
+        "policy": "causal_observed_utc_day_quality_v1",
+        "rv_timeframe_seconds": step_seconds,
+        "minimum_daily_coverage_fraction": minimum_coverage,
+        "maximum_missing_bars_per_gap": maximum_missing,
+        "minimum_same_weekday_baseline_observations": (
+            HAR_RV_MIN_SAME_WEEKDAY_BASELINE_OBSERVATIONS
+        ),
+        "coverage_baseline_bootstrap_policy": (
+            "first_3_nonleading_structurally_valid_same_weekday_days"
+        ),
+        "coverage_baseline_bootstrap_limitation": (
+            "identically_truncated_contiguous_profiles_are_not_detectable_"
+            "without_a_historical_session_calendar"
+        ),
+        "coverage_baseline_update_policy": (
+            "high_water_never_declines_only_eligible_higher_profiles_raise_it"
+        ),
+        "complete_24h_grid_evidence_scope": "same_weekday_only",
+        "complete_24h_grid_evidence_policy": (
+            "timestamp_schedule_evidence_is_separate_from_eligible_rv_"
+            "baseline_updates"
+        ),
+        "minimum_complete_24h_grid_observations": (
+            HAR_RV_MIN_SAME_WEEKDAY_BASELINE_OBSERVATIONS
+        ),
+        "rejected_baseline_updates": int(rejected_baseline_updates),
+        "withheld_full_grid_updates": int(withheld_full_grid_updates),
+        "coverage_baseline_state_by_weekday": {
+            str(weekday): {
+                "retained_observations": int(
+                    len(prior_counts_by_weekday[weekday])
+                ),
+                "established": bool(
+                    len(prior_counts_by_weekday[weekday])
+                    >= HAR_RV_MIN_SAME_WEEKDAY_BASELINE_OBSERVATIONS
+                    or prior_complete_utc_grids_by_weekday[weekday]
+                    >= HAR_RV_MIN_SAME_WEEKDAY_BASELINE_OBSERVATIONS
+                ),
+                "complete_24h_grid_observations": int(
+                    prior_complete_utc_grids_by_weekday[weekday]
+                ),
+                "bar_count_high_water": (
+                    int(max(prior_counts_by_weekday[weekday]))
+                    if prior_counts_by_weekday[weekday]
+                    else None
+                ),
+                "exact_return_high_water": (
+                    int(max(prior_returns_by_weekday[weekday]))
+                    if prior_returns_by_weekday[weekday]
+                    else None
+                ),
+                "retained_timestamp_phases_seconds": sorted(
+                    set(prior_phases_by_weekday[weekday])
+                ),
+            }
+            for weekday in range(7)
+        },
+        "coverage_baseline_weekday_numbering": "Monday=0_through_Sunday=6",
+        "return_interval_policy": (
+            "use_only_returns_exactly_one_rv_timeframe_apart"
+        ),
+        "timestamp_grid_policy": (
+            "absolute_utc_phase_zero_for_subhour_timeframes"
+            if absolute_grid_validation_enforced
+            else "causal_same_weekday_stable_phase_for_hourly_timeframes"
+        ),
+        "day_position_policy": (
+            "preserve_observed_utc_day_positions_with_nan_for_exclusions"
+        ),
+        "whole_missing_day_detection": (
+            "unavailable_without_symbol_session_calendar"
+        ),
+        "observed_utc_days": int(len(day_index)),
+        "included_utc_days": int(len(included_days)),
+        "excluded_utc_days": int(len(exclusions)),
+        "candidate_return_intervals": candidate_return_intervals,
+        "exact_interval_returns": int(len(finite)),
+        "returns_used": returns_used,
+        "return_intervals_rejected": int(
+            candidate_return_intervals - len(finite)
+        ),
+        "excluded_days": exclusions,
+        "final_daily_aggregate": aggregates[final_day],
+    }
     return daily_rv, returns_used, metadata
+
+
+def _har_final_boundary_authorization(
+    final_aggregate: Dict[str, Any],
+    *,
+    history_cutoff_epoch: float,
+    expected_bar_seconds: int,
+) -> Dict[str, Any]:
+    """Authorize skipping only a proven, exact 24-hour final-day prefix."""
+    step_seconds = int(expected_bar_seconds)
+    utc_day = str(final_aggregate.get("utc_day") or "")
+    try:
+        day_start = datetime.fromisoformat(utc_day).replace(tzinfo=timezone.utc)
+        day_start_epoch = float(day_start.timestamp())
+    except (OverflowError, TypeError, ValueError):
+        day_start_epoch = float("nan")
+
+    day_boundary_open = bool(
+        math.isfinite(day_start_epoch)
+        and step_seconds > 0
+        and day_start_epoch <= float(history_cutoff_epoch)
+        < day_start_epoch + 86400.0
+    )
+    elapsed_seconds = (
+        max(0.0, float(history_cutoff_epoch) - day_start_epoch)
+        if day_boundary_open
+        else 0.0
+    )
+    allowed_prefix_bars = (
+        min(
+            86400 // step_seconds,
+            max(
+                0,
+                int(
+                    math.floor(
+                        elapsed_seconds / float(step_seconds) + 1e-9
+                    )
+                ),
+            ),
+        )
+        if day_boundary_open and 86400 % step_seconds == 0
+        else 0
+    )
+    observed_bars = int(final_aggregate.get("observed_bars") or 0)
+    observed_returns = int(
+        final_aggregate.get("observed_exact_interval_returns") or 0
+    )
+    try:
+        observed_start = datetime.fromisoformat(
+            str(final_aggregate.get("start") or "").replace("Z", "+00:00")
+        ).timestamp()
+        observed_end = datetime.fromisoformat(
+            str(final_aggregate.get("end") or "").replace("Z", "+00:00")
+        ).timestamp()
+    except (OverflowError, TypeError, ValueError):
+        observed_start = float("nan")
+        observed_end = float("nan")
+
+    expected_last_open = (
+        day_start_epoch + (allowed_prefix_bars - 1) * step_seconds
+        if allowed_prefix_bars > 0 and math.isfinite(day_start_epoch)
+        else float("nan")
+    )
+    exclusion_reasons = set(final_aggregate.get("exclusion_reasons") or [])
+    boundary_compatible_reasons = {
+        "coverage_below_minimum",
+        "exact_return_coverage_below_minimum",
+        "open_final_utc_boundary",
+    }
+    prior_24h_grid_contract = bool(
+        final_aggregate.get("expected_bars_basis")
+        == "prior_same_weekday_complete_24h_utc_grid"
+        and int(final_aggregate.get("baseline_observations") or 0)
+        >= HAR_RV_MIN_SAME_WEEKDAY_BASELINE_OBSERVATIONS
+    )
+    exact_completed_prefix = bool(
+        day_boundary_open
+        and allowed_prefix_bars > 0
+        and observed_bars == allowed_prefix_bars
+        and observed_returns == max(0, observed_bars - 1)
+        and int(final_aggregate.get("irregular_interval_count") or 0) == 0
+        and int(final_aggregate.get("off_grid_timestamp_count") or 0) == 0
+        and int(
+            final_aggregate.get("maximum_missing_bars_per_gap_observed") or 0
+        )
+        == 0
+        and math.isclose(
+            observed_start,
+            day_start_epoch,
+            rel_tol=0.0,
+            abs_tol=1e-6,
+        )
+        and math.isclose(
+            observed_end,
+            expected_last_open,
+            rel_tol=0.0,
+            abs_tol=1e-6,
+        )
+    )
+    exclusion_is_boundary_compatible = bool(
+        exclusion_reasons
+        and exclusion_reasons.issubset(boundary_compatible_reasons)
+    )
+    authorized = bool(
+        not final_aggregate.get("included_in_har", True)
+        and prior_24h_grid_contract
+        and exact_completed_prefix
+        and exclusion_is_boundary_compatible
+    )
+    if authorized:
+        reason = "authorized_exact_open_24h_prefix"
+    elif final_aggregate.get("included_in_har", True):
+        reason = "final_day_already_eligible"
+    elif not day_boundary_open:
+        reason = "final_utc_day_closed_at_cutoff"
+    elif not prior_24h_grid_contract:
+        reason = "prior_24h_grid_contract_unavailable"
+    elif not exact_completed_prefix:
+        reason = "final_day_not_exact_completed_prefix"
+    else:
+        reason = "final_exclusion_has_non_boundary_quality_failure"
+
+    return {
+        "policy": (
+            "require_prior_24h_grid_and_exact_gap_free_prefix_from_utc_midnight"
+        ),
+        "authorized": authorized,
+        "reason": reason,
+        "utc_day_open_at_cutoff": day_boundary_open,
+        "prior_24h_grid_contract": prior_24h_grid_contract,
+        "exact_completed_prefix": exact_completed_prefix,
+        "exclusion_is_boundary_compatible": (
+            exclusion_is_boundary_compatible
+        ),
+        "allowed_prefix_bars_at_cutoff": int(allowed_prefix_bars),
+        "observed_prefix_bars": observed_bars,
+        "observed_exact_interval_returns": observed_returns,
+    }
 
 
 def _volatility_input_context(
@@ -986,6 +1711,7 @@ def _finalize_volatility_output(
 
     if detail_mode != "full":
         for key in (
+            "daily_rv_quality",
             "params_explained",
             "params_used",
             "volatility_interpretation",
@@ -1759,6 +2485,57 @@ def forecast_volatility(  # noqa: C901
                     return {"error": "HAR-RV days must be a positive integer."}
                 w = int(p.get('window_w', 5))
                 m = int(p.get('window_m', 22))
+                minimum_coverage_value = p.get(
+                    "minimum_daily_coverage_fraction",
+                    HAR_RV_MIN_DAILY_COVERAGE_FRACTION,
+                )
+                try:
+                    minimum_daily_coverage = float(minimum_coverage_value)
+                except (OverflowError, TypeError, ValueError):
+                    return {
+                        "error": (
+                            "HAR-RV minimum_daily_coverage_fraction must be "
+                            "greater than 0 and at most 1."
+                        )
+                    }
+                if (
+                    isinstance(minimum_coverage_value, bool)
+                    or not math.isfinite(minimum_daily_coverage)
+                    or not 0 < minimum_daily_coverage <= 1
+                ):
+                    return {
+                        "error": (
+                            "HAR-RV minimum_daily_coverage_fraction must be "
+                            "greater than 0 and at most 1."
+                        )
+                    }
+                maximum_missing_value = p.get(
+                    "maximum_missing_bars_per_gap",
+                    HAR_RV_MAX_MISSING_BARS_PER_GAP,
+                )
+                try:
+                    maximum_missing_bars_per_gap = int(maximum_missing_value)
+                    maximum_missing_numeric = float(maximum_missing_value)
+                except (OverflowError, TypeError, ValueError):
+                    return {
+                        "error": (
+                            "HAR-RV maximum_missing_bars_per_gap must be a "
+                            "non-negative integer."
+                        )
+                    }
+                if (
+                    isinstance(maximum_missing_value, bool)
+                    or not math.isfinite(maximum_missing_numeric)
+                    or maximum_missing_numeric
+                    != float(maximum_missing_bars_per_gap)
+                    or maximum_missing_bars_per_gap < 0
+                ):
+                    return {
+                        "error": (
+                            "HAR-RV maximum_missing_bars_per_gap must be a "
+                            "non-negative integer."
+                        )
+                    }
                 rv_tf_secs = TIMEFRAME_SECONDS.get(rv_tf, 300)
                 bars_needed = int(days * max(1, (86400 // max(1, rv_tf_secs))) + 50)
                 if as_of and (start or end):
@@ -1913,28 +2690,27 @@ def forecast_volatility(  # noqa: C901
                                 "timeframe and retry the same historical cutoff."
                             ),
                         }
-                daily_rv, realized_returns, final_daily_aggregate = (
+                daily_rv, realized_returns, daily_rv_quality = (
                     _har_daily_realized_variance(
-                    dfrv,
-                    close_col=_volatility_price_column(dfrv, dn_spec_used, "close"),
+                        dfrv,
+                        close_col=_volatility_price_column(
+                            dfrv,
+                            dn_spec_used,
+                            "close",
+                        ),
+                        expected_bar_seconds=int(rv_tf_secs),
+                        minimum_coverage_fraction=minimum_daily_coverage,
+                        maximum_missing_bars_per_gap=(
+                            maximum_missing_bars_per_gap
+                        ),
+                        history_cutoff_epoch=history_cutoff_epoch,
                     )
                 )
+                final_daily_aggregate = daily_rv_quality.get(
+                    "final_daily_aggregate",
+                    {},
+                )
                 daily_rv_required = _har_rv_daily_rv_required(m)
-                if len(daily_rv) < daily_rv_required:
-                    return _har_rv_sample_error(
-                        error=(
-                            "Not enough daily RV observations for HAR-RV "
-                            f"({len(daily_rv)} observed, {daily_rv_required} required)."
-                        ),
-                        error_code="har_rv_insufficient_daily_rv",
-                        daily_rv_observed=len(daily_rv),
-                        daily_rv_required=daily_rv_required,
-                        aligned_rows_observed=None,
-                        aligned_rows_required=HAR_RV_MIN_ALIGNED_ROWS,
-                        window_m=m,
-                        window_w=w,
-                        days_requested=days,
-                    )
                 RV = daily_rv.to_numpy(dtype=float)
                 Dlag = RV[:-1]
 
@@ -1951,6 +2727,86 @@ def forecast_volatility(  # noqa: C901
                 mask = np.isfinite(Xd) & np.isfinite(Wlag) & np.isfinite(Mlag) & np.isfinite(y)
                 X = np.vstack([np.ones_like(Xd[mask]), Xd[mask], Wlag[mask], Mlag[mask]]).T
                 yv = y[mask]
+                daily_rv_observed = int(np.count_nonzero(np.isfinite(RV)))
+                final_day_excluded = not final_daily_aggregate.get(
+                    "included_in_har",
+                    True,
+                )
+                final_boundary_authorization = (
+                    _har_final_boundary_authorization(
+                        final_daily_aggregate,
+                        history_cutoff_epoch=history_cutoff_epoch,
+                        expected_bar_seconds=int(rv_tf_secs),
+                    )
+                )
+                daily_rv_quality["final_boundary_authorization"] = (
+                    final_boundary_authorization
+                )
+                final_boundary_excluded_for_lags = bool(
+                    final_boundary_authorization["authorized"]
+                )
+                prediction_rv = (
+                    RV[:-1] if final_boundary_excluded_for_lags else RV
+                )
+                forecast_lag_days_required = max(int(w), int(m), 1)
+                forecast_lags_ready = bool(
+                    len(prediction_rv) >= forecast_lag_days_required
+                    and np.all(
+                        np.isfinite(
+                            prediction_rv[-forecast_lag_days_required:]
+                        )
+                    )
+                )
+                consecutive_recent_days = 0
+                for value in prediction_rv[::-1]:
+                    if not np.isfinite(value):
+                        break
+                    consecutive_recent_days += 1
+                convergence = {
+                    "daily_rv_observed": daily_rv_observed,
+                    "daily_rv_required": int(daily_rv_required),
+                    "aligned_rows_observed": int(X.shape[0]),
+                    "aligned_rows_required": HAR_RV_MIN_ALIGNED_ROWS,
+                    "forecast_lag_days_required": forecast_lag_days_required,
+                    "consecutive_recent_eligible_days": int(
+                        consecutive_recent_days
+                    ),
+                    "forecast_lags_ready": forecast_lags_ready,
+                    "final_day_excluded": bool(final_day_excluded),
+                    "final_day_boundary_open_at_cutoff": bool(
+                        final_boundary_authorization["utc_day_open_at_cutoff"]
+                    ),
+                    "final_boundary_excluded_before_forecast_lags": bool(
+                        final_boundary_excluded_for_lags
+                    ),
+                    "model_fit_ready": bool(
+                        daily_rv_observed >= daily_rv_required
+                        and X.shape[0] >= HAR_RV_MIN_ALIGNED_ROWS
+                    ),
+                    "forecast_ready": bool(
+                        daily_rv_observed >= daily_rv_required
+                        and X.shape[0] >= HAR_RV_MIN_ALIGNED_ROWS
+                        and forecast_lags_ready
+                    ),
+                }
+                daily_rv_quality["convergence"] = convergence
+                if daily_rv_observed < daily_rv_required:
+                    return _har_rv_sample_error(
+                        error=(
+                            "Not enough eligible daily RV observations for HAR-RV "
+                            f"({daily_rv_observed} observed, "
+                            f"{daily_rv_required} required)."
+                        ),
+                        error_code="har_rv_insufficient_daily_rv",
+                        daily_rv_observed=daily_rv_observed,
+                        daily_rv_required=daily_rv_required,
+                        aligned_rows_observed=int(X.shape[0]),
+                        aligned_rows_required=HAR_RV_MIN_ALIGNED_ROWS,
+                        window_m=m,
+                        window_w=w,
+                        days_requested=days,
+                        daily_rv_quality=daily_rv_quality,
+                    )
                 if X.shape[0] < HAR_RV_MIN_ALIGNED_ROWS:
                     return _har_rv_sample_error(
                         error=(
@@ -1959,18 +2815,42 @@ def forecast_volatility(  # noqa: C901
                             f"{HAR_RV_MIN_ALIGNED_ROWS} required)."
                         ),
                         error_code="har_rv_insufficient_aligned_samples",
-                        daily_rv_observed=len(daily_rv),
+                        daily_rv_observed=daily_rv_observed,
                         daily_rv_required=daily_rv_required,
                         aligned_rows_observed=int(X.shape[0]),
                         aligned_rows_required=HAR_RV_MIN_ALIGNED_ROWS,
                         window_m=m,
                         window_w=w,
                         days_requested=days,
+                        daily_rv_quality=daily_rv_quality,
+                    )
+                if not forecast_lags_ready:
+                    return _har_rv_sample_error(
+                        error=(
+                            "Recent excluded UTC-day RV positions prevent a "
+                            f"contiguous {forecast_lag_days_required}-day HAR "
+                            "forecast lag window."
+                        ),
+                        error_code="har_rv_recent_daily_quality_gap",
+                        daily_rv_observed=daily_rv_observed,
+                        daily_rv_required=daily_rv_required,
+                        aligned_rows_observed=int(X.shape[0]),
+                        aligned_rows_required=HAR_RV_MIN_ALIGNED_ROWS,
+                        window_m=m,
+                        window_w=w,
+                        days_requested=days,
+                        daily_rv_quality=daily_rv_quality,
+                        remediation=(
+                            "Wait for enough new eligible UTC-day RV aggregates "
+                            "to move the excluded day outside both HAR lag windows, "
+                            "or correct the underlying MT5 history gap. Do not fill "
+                            "or shift missing bars."
+                        ),
                     )
                 beta, *_ = np.linalg.lstsq(X, yv, rcond=None)
-                D_last = RV[-1]
-                W_last = float(pd.Series(RV).tail(w).mean())
-                M_last = float(pd.Series(RV).tail(m).mean())
+                D_last = prediction_rv[-1]
+                W_last = float(pd.Series(prediction_rv).tail(w).mean())
+                M_last = float(pd.Series(prediction_rv).tail(m).mean())
                 rv_next = float(beta[0] + beta[1]*D_last + beta[2]*W_last + beta[3]*M_last)
                 rv_next = max(0.0, rv_next)
                 tf_secs = TIMEFRAME_SECONDS.get(timeframe)
@@ -1984,6 +2864,42 @@ def forecast_volatility(  # noqa: C901
                 sbar = float(math.sqrt(rv_next / bars_per_session))
                 h_days = float(int(horizon)) / bars_per_session
                 hsig = float(math.sqrt(rv_next * max(h_days, 0.0)))
+                har_warnings: List[str] = []
+                nonfinal_exclusions = [
+                    item
+                    for item in daily_rv_quality.get("excluded_days", [])
+                    if item.get("role") not in {"final", "leading_final"}
+                ]
+                if nonfinal_exclusions:
+                    har_warnings.append(
+                        "Excluded "
+                        f"{len(nonfinal_exclusions)} leading/internal UTC-day "
+                        "realized-variance aggregate(s) that failed causal "
+                        "coverage or gap quality; their observed-day positions "
+                        "remain NaN in HAR lags."
+                    )
+                if final_boundary_excluded_for_lags:
+                    har_warnings.append(
+                        "Excluded the final incomplete UTC-day "
+                        "realized-variance aggregate from HAR lags."
+                    )
+                elif final_day_excluded:
+                    har_warnings.append(
+                        "The final completed UTC-day realized-variance "
+                        "aggregate failed coverage or gap quality and remains "
+                        "NaN in HAR lags."
+                    )
+                rejected_intervals = int(
+                    daily_rv_quality.get("return_intervals_rejected", 0) or 0
+                )
+                if rejected_intervals:
+                    har_warnings.append(
+                        f"Omitted {rejected_intervals} intraday return "
+                        "interval(s) because its timestamps were not exactly "
+                        f"one {rv_tf} step apart or its price inputs did not "
+                        "produce a finite log return; HAR-RV never bridges "
+                        "candle gaps."
+                    )
                 return _finalize_volatility_with_context(
                     {"success": True, "symbol": symbol, "timeframe": timeframe, "method": method_l, "horizon": int(horizon),
                      "volatility_per_bar": sbar, "volatility_annualized": float(sbar*math.sqrt(bpy)),
@@ -1999,19 +2915,20 @@ def forecast_volatility(  # noqa: C901
                                       "history_start_bound": _format_time_minimal(history_start_epoch),
                                       "history_start_bound_epoch": float(history_start_epoch),
                                       "bars_per_session": float(bars_per_session),
-                                      "daily_rv_gap_policy": "within_utc_day_returns_only",
-                                      "partial_day_policy": final_daily_aggregate.get("policy"),
-                                      "minimum_daily_coverage_fraction": final_daily_aggregate.get(
-                                          "minimum_coverage_fraction"
+                                      "daily_rv_gap_policy": (
+                                          "exact_rv_timeframe_returns_and_causal_utc_day_quality"
+                                      ),
+                                      "daily_rv_day_position_policy": daily_rv_quality.get(
+                                          "day_position_policy"
+                                      ),
+                                      "partial_day_policy": daily_rv_quality.get("policy"),
+                                      "minimum_daily_coverage_fraction": minimum_daily_coverage,
+                                      "maximum_missing_bars_per_gap": (
+                                          maximum_missing_bars_per_gap
                                       )},
                      "final_daily_aggregate": final_daily_aggregate,
-                     **(
-                         {"warnings": [
-                             "Excluded the final incomplete UTC-day realized-variance aggregate from HAR lags."
-                         ]}
-                         if not final_daily_aggregate.get("included_in_har", True)
-                         else {}
-                     ),
+                     "daily_rv_quality": daily_rv_quality,
+                     **({"warnings": har_warnings} if har_warnings else {}),
                      "denoise_used": dn_spec_used},
                     df=dfrv,
                     symbol=symbol,
