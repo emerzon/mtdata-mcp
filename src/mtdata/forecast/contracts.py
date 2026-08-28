@@ -56,6 +56,7 @@ _FIELD_OWNERSHIP: Dict[RequestSurface, Dict[str, ContractOwner]] = {
         "horizon": "evaluation",
         "steps": "evaluation",
         "spacing": "evaluation",
+        "anchors": "evaluation",
         "start": "data_preparation",
         "end": "data_preparation",
         "methods": "forecast_model",

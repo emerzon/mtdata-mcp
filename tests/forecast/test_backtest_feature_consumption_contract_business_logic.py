@@ -13,7 +13,7 @@ from mtdata.utils.time import _format_time_minimal
 
 
 def _history_frame(rows: int = 80) -> pd.DataFrame:
-    times = np.arange(1_700_000_000, 1_700_000_000 + rows * 3600, 3600, dtype=float)
+    times = np.arange(1_699_999_980, 1_699_999_980 + rows * 3600, 3600, dtype=float)
     close = np.linspace(100.0, 120.0, rows, dtype=float)
     return pd.DataFrame({"time": times, "open": close - 0.1, "close": close})
 

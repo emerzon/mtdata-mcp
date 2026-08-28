@@ -553,6 +553,7 @@ def run_forecast_backtest(
             lookback=request.lookback,
             start=request.start,
             end=request.end,
+            anchors=request.anchors,
             methods=request.methods,
             params_per_method=request.params_per_method,
             quantity=request.quantity,

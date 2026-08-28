@@ -10,11 +10,11 @@ from mtdata.forecast.backtest import (
     _compute_performance_metrics,
     forecast_backtest,
 )
-from mtdata.utils.time import _format_time_minimal
+from mtdata.utils.time import _format_time_minimal, format_epoch_utc
 
 
 def test_backtest_return_target_scores_against_returns() -> None:
-    times = np.arange(1700000000, 1700000000 + 70 * 3600, 3600, dtype=float)
+    times = np.arange(1699999980, 1699999980 + 70 * 3600, 3600, dtype=float)
     close = np.linspace(100.0, 120.0, 70, dtype=float)
     df = pd.DataFrame({"time": times, "close": close})
 
@@ -48,7 +48,7 @@ def test_backtest_return_target_scores_against_returns() -> None:
 
 
 def test_backtest_volatility_with_return_target_uses_price_truth_windows() -> None:
-    times = np.arange(1700000000, 1700000000 + 70 * 3600, 3600, dtype=float)
+    times = np.arange(1699999980, 1699999980 + 70 * 3600, 3600, dtype=float)
     close = np.linspace(100.0, 120.0, 70, dtype=float)
     df = pd.DataFrame({"time": times, "close": close})
 
@@ -79,7 +79,7 @@ def test_backtest_volatility_with_return_target_uses_price_truth_windows() -> No
 
 
 def test_backtest_aggregates_volatility_rmse_from_squared_errors() -> None:
-    times = np.arange(1700000000, 1700000000 + 70 * 3600, 3600, dtype=float)
+    times = np.arange(1699999980, 1699999980 + 70 * 3600, 3600, dtype=float)
     close = np.linspace(100.0, 120.0, 70, dtype=float)
     df = pd.DataFrame({"time": times, "close": close})
     anchor_indices = [60, 61]
@@ -111,7 +111,7 @@ def test_backtest_aggregates_volatility_rmse_from_squared_errors() -> None:
 
 
 def test_backtest_pools_mae_and_rmse_over_the_same_forecast_points() -> None:
-    times = np.arange(1700000000, 1700000000 + 70 * 3600, 3600, dtype=float)
+    times = np.arange(1699999980, 1699999980 + 70 * 3600, 3600, dtype=float)
     close = np.linspace(100.0, 120.0, 70, dtype=float)
     df = pd.DataFrame({"time": times, "close": close})
     anchor_indices = [60, 64]
@@ -140,7 +140,7 @@ def test_backtest_pools_mae_and_rmse_over_the_same_forecast_points() -> None:
 
 
 def test_backtest_return_target_converts_log_returns_to_simple_trade_returns() -> None:
-    times = np.arange(1700000000, 1700000000 + 80 * 3600, 3600, dtype=float)
+    times = np.arange(1699999980, 1699999980 + 80 * 3600, 3600, dtype=float)
     close = np.linspace(100.0, 140.0, 80, dtype=float)
     df = pd.DataFrame({"time": times, "close": close})
 
@@ -169,7 +169,7 @@ def test_backtest_return_target_converts_log_returns_to_simple_trade_returns() -
 
 
 def test_backtest_executes_completed_close_signal_at_next_open() -> None:
-    times = np.arange(1700000000, 1700000000 + 80 * 3600, 3600, dtype=float)
+    times = np.arange(1699999980, 1699999980 + 80 * 3600, 3600, dtype=float)
     close = np.linspace(100.0, 120.0, 80, dtype=float)
     open_ = close.copy()
     idx = 70
@@ -194,7 +194,10 @@ def test_backtest_executes_completed_close_signal_at_next_open() -> None:
     expected = (close[idx + 1] - open_[idx + 1]) / open_[idx + 1]
     assert detail["entry_price"] == open_[idx + 1]
     assert detail["entry_price_source"] == "next_bar_open"
-    assert detail["entry_time"] == _format_time_minimal(float(times[idx + 1]))
+    assert detail["entry_time"] == format_epoch_utc(
+        float(times[idx + 1]),
+        timespec="seconds",
+    )
     assert detail["trade_return_gross"] == expected
     assert result["signal_timing"] == "completed_bar_close"
     assert result["execution_timing"] == "next_bar_open"
@@ -246,7 +249,7 @@ def test_performance_metrics_clamps_total_loss_returns() -> None:
 
 
 def test_backtest_price_target_trade_returns_vary_by_forecast_implied_exit() -> None:
-    times = np.arange(1700000000, 1700000000 + 90 * 3600, 3600, dtype=float)
+    times = np.arange(1699999980, 1699999980 + 90 * 3600, 3600, dtype=float)
     close = np.linspace(100.0, 145.0, 90, dtype=float)
     df = pd.DataFrame({"time": times, "close": close})
 
@@ -284,7 +287,7 @@ def test_backtest_price_target_trade_returns_vary_by_forecast_implied_exit() -> 
 
 
 def test_backtest_default_detail_is_compact_without_full_series_arrays() -> None:
-    times = np.arange(1700000000, 1700000000 + 70 * 3600, 3600, dtype=float)
+    times = np.arange(1699999980, 1699999980 + 70 * 3600, 3600, dtype=float)
     close = np.linspace(100.0, 120.0, 70, dtype=float)
     df = pd.DataFrame({"time": times, "close": close})
 
@@ -311,7 +314,7 @@ def test_backtest_default_detail_is_compact_without_full_series_arrays() -> None
 
 
 def test_backtest_full_detail_includes_series_arrays() -> None:
-    times = np.arange(1700000000, 1700000000 + 70 * 3600, 3600, dtype=float)
+    times = np.arange(1699999980, 1699999980 + 70 * 3600, 3600, dtype=float)
     close = np.linspace(100.0, 120.0, 70, dtype=float)
     df = pd.DataFrame({"time": times, "close": close})
 
@@ -337,7 +340,7 @@ def test_backtest_full_detail_includes_series_arrays() -> None:
 
 
 def test_backtest_full_detail_omits_request_metadata_blocks() -> None:
-    times = np.arange(1700000000, 1700000000 + 70 * 3600, 3600, dtype=float)
+    times = np.arange(1699999980, 1699999980 + 70 * 3600, 3600, dtype=float)
     close = np.linspace(100.0, 120.0, 70, dtype=float)
     df = pd.DataFrame({"time": times, "close": close})
 
@@ -364,7 +367,7 @@ def test_backtest_full_detail_omits_request_metadata_blocks() -> None:
 
 
 def test_backtest_full_detail_keeps_actionable_strategy_intent_only() -> None:
-    times = np.arange(1700000000, 1700000000 + 70 * 3600, 3600, dtype=float)
+    times = np.arange(1699999980, 1699999980 + 70 * 3600, 3600, dtype=float)
     close = np.linspace(100.0, 120.0, 70, dtype=float)
     df = pd.DataFrame({"time": times, "close": close})
 

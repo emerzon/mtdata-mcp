@@ -45,10 +45,13 @@ training lead-in. A1 history may begin 2022-06-01 and A2 history may begin
 
 ## Frozen anchor grids
 
-All scored origins are scheduled for 00:00 UTC. This iteration therefore tests
-a once-daily decision at that hour; it does not establish skill for arbitrary
-intraday invocation times. The feature calendar and deployment interpretation
-use UTC, not broker-local time.
+All scored anchor candles open at 00:00 UTC. An H1 anchor is usable only after
+that candle completes at 01:00 UTC, and the fixed-H execution ledger enters at
+the next candle open at 01:00 UTC when the feed is continuous. This iteration
+therefore tests a once-daily 01:00 UTC decision based on the completed
+00:00–01:00 candle; it does not establish skill for arbitrary intraday
+invocation times. The feature calendar and deployment interpretation use UTC,
+not broker-local time.
 
 - A1 weekly screen: every Monday from 2022-07-04 through 2022-12-26
   inclusive, 26 origins.

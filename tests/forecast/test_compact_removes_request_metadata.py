@@ -13,7 +13,7 @@ from mtdata.utils.time import _format_time_minimal
 
 def test_forecast_backtest_compact_excludes_request_metadata() -> None:
     """Test that forecast_backtest with detail='compact' doesn't echo request/resolved_request."""
-    times = np.arange(1700000000, 1700000000 + 70 * 3600, 3600, dtype=float)
+    times = np.arange(1699999980, 1699999980 + 70 * 3600, 3600, dtype=float)
     close = np.linspace(100.0, 120.0, 70, dtype=float)
     df = pd.DataFrame({"time": times, "close": close})
 
@@ -52,7 +52,7 @@ def test_forecast_backtest_compact_excludes_request_metadata() -> None:
 
 def test_forecast_backtest_full_excludes_request_metadata() -> None:
     """Test that forecast_backtest with detail='full' doesn't echo request/resolved_request."""
-    times = np.arange(1700000000, 1700000000 + 70 * 3600, 3600, dtype=float)
+    times = np.arange(1699999980, 1699999980 + 70 * 3600, 3600, dtype=float)
     close = np.linspace(100.0, 120.0, 70, dtype=float)
     df = pd.DataFrame({"time": times, "close": close})
 

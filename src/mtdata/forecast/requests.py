@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 from pydantic import (
@@ -36,6 +37,7 @@ VolatilityProxyLiteral = Literal["squared_return", "abs_return", "log_r2"]
 MAX_FORECAST_HORIZON = 500
 MAX_BACKTEST_STEPS = 200
 MAX_BACKTEST_SPACING = 10_000
+MAX_BACKTEST_ANCHORS = 200
 
 
 def _validate_backtest_spacing(*, steps: int, spacing: int, horizon: int) -> None:
@@ -46,6 +48,51 @@ def _validate_backtest_spacing(*, steps: int, spacing: int, horizon: int) -> Non
             f"(got spacing={spacing}, horizon={horizon}); try "
             f"spacing={horizon} or steps=1"
         )
+
+
+def _normalize_backtest_anchors(value: Optional[List[str]]) -> Optional[List[str]]:
+    """Validate explicit UTC anchors and return their canonical wire form."""
+    if value is None:
+        return None
+
+    normalized: List[str] = []
+    seen: set[str] = set()
+    previous: Optional[datetime] = None
+    for index, item in enumerate(value):
+        text = str(item).strip()
+        if not text:
+            raise ValueError(
+                f"anchors[{index}] must be a timezone-aware UTC ISO timestamp"
+            )
+        parse_text = f"{text[:-1]}+00:00" if text.endswith("Z") else text
+        try:
+            parsed = datetime.fromisoformat(parse_text)
+        except ValueError as exc:
+            raise ValueError(
+                f"anchors[{index}] must be a timezone-aware UTC ISO timestamp"
+            ) from exc
+        offset = parsed.utcoffset() if parsed.tzinfo is not None else None
+        if offset is None:
+            raise ValueError(
+                f"anchors[{index}] must include an explicit UTC timezone (Z or +00:00)"
+            )
+        if offset != timedelta(0):
+            raise ValueError(
+                f"anchors[{index}] must use UTC, not offset {offset}"
+            )
+
+        utc_value = parsed.astimezone(timezone.utc).replace(microsecond=0)
+        canonical = utc_value.isoformat(timespec="seconds").replace("+00:00", "Z")
+        if canonical in seen:
+            raise ValueError(
+                "anchors must be unique after normalization to UTC seconds"
+            )
+        if previous is not None and utc_value <= previous:
+            raise ValueError("anchors must be strictly increasing in time")
+        normalized.append(canonical)
+        seen.add(canonical)
+        previous = utc_value
+    return normalized
 
 
 def _normalize_methods_value(value: Any) -> Any:
@@ -266,11 +313,12 @@ class _RollingWindowForecastRequest(_PublicForecastRequest):
 
     @model_validator(mode="after")
     def _validate_rolling_spacing(self) -> "_RollingWindowForecastRequest":
-        _validate_backtest_spacing(
-            steps=int(self.steps),
-            spacing=int(self.spacing),
-            horizon=int(self.horizon),
-        )
+        if getattr(self, "anchors", None) is None:
+            _validate_backtest_spacing(
+                steps=int(self.steps),
+                spacing=int(self.spacing),
+                horizon=int(self.horizon),
+            )
         return self
 
 
@@ -281,19 +329,39 @@ class ForecastBacktestRequest(_RollingWindowForecastRequest):
         12,
         ge=1,
         le=MAX_FORECAST_HORIZON,
-        description="Bars forecast after each backtest anchor; spacing must be at least this value when steps > 1.",
+        description=(
+            "Bars forecast after each backtest anchor. In rolling mode, spacing "
+            "must be at least this value when steps > 1."
+        ),
     )
     steps: int = Field(
         5,
         ge=1,
         le=MAX_BACKTEST_STEPS,
-        description="Number of rolling-origin backtest anchors; when greater than 1, spacing must be at least horizon.",
+        description=(
+            "Number of rolling-origin backtest anchors when anchors is omitted; "
+            "when greater than 1, spacing must be at least horizon."
+        ),
     )
     spacing: int = Field(
         20,
         ge=1,
         le=MAX_BACKTEST_SPACING,
-        description="Spacing in bars between anchors; must be greater than or equal to horizon when steps > 1.",
+        description=(
+            "Spacing in bars between rolling anchors when anchors is omitted; "
+            "must be greater than or equal to horizon when steps > 1."
+        ),
+    )
+    anchors: Optional[List[str]] = Field(
+        None,
+        min_length=1,
+        max_length=MAX_BACKTEST_ANCHORS,
+        description=(
+            "Optional explicit backtest anchors (1-200), supplied in strictly "
+            "increasing order as timezone-aware UTC ISO timestamps. Values are "
+            "normalized to second-precision ...Z form. When provided, steps and "
+            "spacing are rolling-mode settings and do not select or alter anchors."
+        ),
     )
     start: Optional[str] = None
     end: Optional[str] = None
@@ -357,6 +425,14 @@ class ForecastBacktestRequest(_RollingWindowForecastRequest):
     @classmethod
     def _reject_removed_target(cls, values: Any) -> Any:
         return reject_removed_field(values, field_name="target", replacement="quantity")
+
+    @field_validator("anchors")
+    @classmethod
+    def _normalize_explicit_anchors(
+        cls, value: Optional[List[str]]
+    ) -> Optional[List[str]]:
+        return _normalize_backtest_anchors(value)
+
 
 class StrategyBacktestRequest(_PublicForecastRequest):
     symbol: str

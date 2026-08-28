@@ -197,7 +197,8 @@ PARAM_HINTS = {
     "as_of": "Inclusive reference cutoff; a date-only value includes that full trading day.",
     "ci_alpha": "Interval alpha = 1 - nominal coverage; 0.05 requests 95% bands.",
     "features": (
-        "Feature spec as JSON or k=v pairs. Example: --features "
+        "Feature spec as JSON or k=v pairs. Examples: "
+        "--features future_covariates=hour or --features "
         "'{\"indicators\":\"rsi(14),roc(12)\","
         "\"future_covariates\":[\"hour\",\"dow\"],"
         "\"observed_future_policy\":\"carry_forward\"}'."

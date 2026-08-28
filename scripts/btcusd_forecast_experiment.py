@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 SCHEMA_VERSION = 1
-HARNESS_VERSION = "0.2.0"
+HARNESS_VERSION = "0.3.0"
 RESEARCH_STAGES = (
     "audit",
     "screen",
@@ -518,6 +518,235 @@ def _positive_screen_spacing(value: Any) -> int:
     return value
 
 
+def _strict_iso_date(value: Any, field: str) -> date:
+    if not isinstance(value, str):
+        raise HarnessError(f"{field} must be an ISO date in YYYY-MM-DD form")
+    try:
+        parsed = date.fromisoformat(value)
+    except ValueError as exc:
+        raise HarnessError(
+            f"{field} must be an ISO date in YYYY-MM-DD form"
+        ) from exc
+    if parsed.isoformat() != value:
+        raise HarnessError(f"{field} must be an ISO date in YYYY-MM-DD form")
+    return parsed
+
+
+def _resolve_screen_anchor_grid(
+    screen: Mapping[str, Any],
+    window_name: str,
+    window: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    raw_grid = screen.get("anchor_grid")
+    if raw_grid is None:
+        return None
+    if not isinstance(raw_grid, Mapping):
+        raise HarnessError("screen.anchor_grid must be a JSON object")
+
+    grid_id_raw = raw_grid.get("id")
+    if not isinstance(grid_id_raw, str) or not grid_id_raw.strip():
+        raise HarnessError("screen.anchor_grid.id must be a non-empty string")
+    grid_id = _slug(grid_id_raw)
+    history_start = _strict_iso_date(
+        raw_grid.get("history_start"),
+        "screen.anchor_grid.history_start",
+    )
+    role_start = _strict_iso_date(
+        window.get("start"),
+        f"research_windows.{window_name}.start",
+    )
+    role_end = _strict_iso_date(
+        window.get("end"),
+        f"research_windows.{window_name}.end",
+    )
+    if role_end < role_start:
+        raise HarnessError(f"Window {window_name!r} ends before it starts")
+
+    literal_anchors = raw_grid.get("anchors")
+    generator_keys = {"start", "end", "every_days", "hour_utc"}
+    generator_present = any(key in raw_grid for key in generator_keys)
+    anchors: list[str] = []
+    if literal_anchors is not None:
+        if generator_present:
+            raise HarnessError(
+                "screen.anchor_grid must use either anchors or the date generator, not both"
+            )
+        if not isinstance(literal_anchors, list):
+            raise HarnessError("screen.anchor_grid.anchors must be a JSON array")
+        for value in literal_anchors:
+            canonical = _canonical_utc_timestamp(value)
+            if canonical is None:
+                raise HarnessError(
+                    "screen.anchor_grid.anchors must contain timezone-aware UTC ISO timestamps"
+                )
+            anchors.append(canonical)
+    else:
+        grid_start = _strict_iso_date(
+            raw_grid.get("start"),
+            "screen.anchor_grid.start",
+        )
+        grid_end = _strict_iso_date(
+            raw_grid.get("end"),
+            "screen.anchor_grid.end",
+        )
+        every_days = raw_grid.get("every_days")
+        hour_utc = raw_grid.get("hour_utc", 0)
+        if (
+            isinstance(every_days, bool)
+            or not isinstance(every_days, int)
+            or every_days < 1
+        ):
+            raise HarnessError("screen.anchor_grid.every_days must be a positive integer")
+        if (
+            isinstance(hour_utc, bool)
+            or not isinstance(hour_utc, int)
+            or not 0 <= hour_utc <= 23
+        ):
+            raise HarnessError("screen.anchor_grid.hour_utc must be an integer from 0 to 23")
+        if grid_end < grid_start:
+            raise HarnessError("screen.anchor_grid.end must not precede start")
+        current = grid_start
+        while current <= grid_end:
+            anchor = datetime.combine(
+                current,
+                datetime.min.time(),
+                tzinfo=timezone.utc,
+            ) + timedelta(hours=hour_utc)
+            anchors.append(
+                anchor.isoformat(timespec="seconds").replace("+00:00", "Z")
+            )
+            if len(anchors) > 200:
+                raise HarnessError("screen.anchor_grid cannot contain more than 200 anchors")
+            current += timedelta(days=every_days)
+
+    if not anchors:
+        raise HarnessError("screen.anchor_grid must contain at least one anchor")
+    if len(anchors) > 200:
+        raise HarnessError("screen.anchor_grid cannot contain more than 200 anchors")
+    parsed_anchors = [
+        datetime.fromisoformat(value.replace("Z", "+00:00")) for value in anchors
+    ]
+    if any(
+        current <= previous
+        for previous, current in zip(parsed_anchors, parsed_anchors[1:])
+    ):
+        raise HarnessError(
+            "screen.anchor_grid anchors must be strictly increasing and unique"
+        )
+    role_start_at = datetime.combine(
+        role_start,
+        datetime.min.time(),
+        tzinfo=timezone.utc,
+    )
+    role_limit = datetime.combine(
+        role_end + timedelta(days=1),
+        datetime.min.time(),
+        tzinfo=timezone.utc,
+    )
+    if any(anchor < role_start_at or anchor >= role_limit for anchor in parsed_anchors):
+        raise HarnessError(
+            "screen.anchor_grid anchors must remain inside the registered screen window"
+        )
+    history_start_at = datetime.combine(
+        history_start,
+        datetime.min.time(),
+        tzinfo=timezone.utc,
+    )
+    if history_start_at > parsed_anchors[0]:
+        raise HarnessError(
+            "screen.anchor_grid.history_start must not follow the first anchor"
+        )
+    return {
+        "id": grid_id,
+        "anchors": anchors,
+        "sha256": _sha256_json(anchors),
+        "count": len(anchors),
+        "history_start": history_start.isoformat(),
+        "role_window": {
+            "name": window_name,
+            "start": role_start.isoformat(),
+            "end": role_end.isoformat(),
+        },
+    }
+
+
+def _explicit_grid_spacing_bars(
+    anchor_grid: Mapping[str, Any],
+    timeframe: str,
+) -> int | None:
+    timeframe_minutes = _TIMEFRAME_MINUTES.get(timeframe.upper())
+    if timeframe_minutes is None:
+        raise HarnessError(
+            f"Explicit anchor grids do not support timeframe {timeframe!r}"
+        )
+    anchors = list(anchor_grid["anchors"])
+    parsed = [datetime.fromisoformat(value.replace("Z", "+00:00")) for value in anchors]
+    timeframe_seconds = timeframe_minutes * 60
+    if any(int(value.timestamp()) % timeframe_seconds != 0 for value in parsed):
+        raise HarnessError(
+            f"screen.anchor_grid contains an anchor that is not aligned to {timeframe}"
+        )
+    if len(parsed) < 2:
+        return None
+    deltas = [int((current - previous).total_seconds()) for previous, current in zip(parsed, parsed[1:])]
+    if any(delta <= 0 or delta % timeframe_seconds for delta in deltas):
+        raise HarnessError(
+            f"screen.anchor_grid spacing is not an exact number of {timeframe} bars"
+        )
+    spacing_values = {delta // timeframe_seconds for delta in deltas}
+    return spacing_values.pop() if len(spacing_values) == 1 else None
+
+
+def _validate_explicit_grid_for_command(
+    anchor_grid: Mapping[str, Any],
+    shard: Mapping[str, str],
+    timeframe: str,
+    horizon: int,
+    lookback: int,
+) -> tuple[int, int | None]:
+    anchors = list(anchor_grid["anchors"])
+    timeframe_minutes = _TIMEFRAME_MINUTES[timeframe.upper()]
+    parsed_anchors = [
+        datetime.fromisoformat(value.replace("Z", "+00:00")) for value in anchors
+    ]
+    if any(
+        current - previous < timedelta(minutes=horizon * timeframe_minutes)
+        for previous, current in zip(parsed_anchors, parsed_anchors[1:])
+    ):
+        raise HarnessError(
+            "screen.anchor_grid validation windows must not overlap "
+            f"for horizon={horizon}"
+        )
+    history_start_at = datetime.combine(
+        date.fromisoformat(str(anchor_grid["history_start"])),
+        datetime.min.time(),
+        tzinfo=timezone.utc,
+    )
+    history_bars = int(
+        (parsed_anchors[0] - history_start_at).total_seconds()
+        // (timeframe_minutes * 60)
+    ) + 1
+    if history_bars < lookback:
+        raise HarnessError(
+            "screen.anchor_grid.history_start does not provide "
+            f"lookback={lookback} {timeframe} bars before the first anchor"
+        )
+    role_end_limit = datetime.combine(
+        date.fromisoformat(str(shard["end"])) + timedelta(days=1),
+        datetime.min.time(),
+        tzinfo=timezone.utc,
+    )
+    if (
+        parsed_anchors[-1] + timedelta(minutes=horizon * timeframe_minutes)
+        >= role_end_limit
+    ):
+        raise HarnessError(
+            "screen.anchor_grid final realized target falls outside "
+            f"the registered window for horizon={horizon}"
+        )
+    return len(anchors), _explicit_grid_spacing_bars(anchor_grid, timeframe)
+
+
 def _has_nonempty_features(value: Any) -> bool:
     if value is None:
         return False
@@ -844,12 +1073,29 @@ def build_screen_specs(config: Mapping[str, Any]) -> list[CommandSpec]:
         raise HarnessError(f"Unknown screen window {window_name!r}")
     if bool(windows[window_name].get("locked")):
         raise HarnessError("The locked holdout cannot be used by the screen stage")
+    window = windows[window_name]
+    anchor_grid = _resolve_screen_anchor_grid(screen, window_name, window)
     sharding_policy = str(screen.get("sharding") or "month_end").strip().lower()
-    shards = _screen_shards(
-        window_name,
-        windows[window_name],
-        sharding_policy,
-    )
+    if anchor_grid is None:
+        shards = _screen_shards(
+            window_name,
+            window,
+            sharding_policy,
+        )
+    else:
+        if screen.get("spacing_bars") is not None:
+            raise HarnessError(
+                "screen.spacing_bars is rolling-only and cannot be combined with anchor_grid"
+            )
+        role_window = anchor_grid["role_window"]
+        shards = [
+            {
+                "id": str(anchor_grid["id"]),
+                "start": str(role_window["start"]),
+                "end": str(role_window["end"]),
+                "kind": "explicit_anchor_grid",
+            }
+        ]
     timeframes = [str(item) for item in screen.get("timeframes", ["H1"])]
     horizons = [int(item) for item in screen.get("horizons", [12])]
     quantities = [str(item) for item in screen.get("quantities", ["price"])]
@@ -865,7 +1111,7 @@ def build_screen_specs(config: Mapping[str, Any]) -> list[CommandSpec]:
     steps_setting = screen.get("steps_per_shard", "auto_month")
     explicit_spacing = (
         _positive_screen_spacing(screen["spacing_bars"])
-        if screen.get("spacing_bars") is not None
+        if anchor_grid is None and screen.get("spacing_bars") is not None
         else None
     )
     detail = str(screen.get("detail", "full"))
@@ -880,34 +1126,47 @@ def build_screen_specs(config: Mapping[str, Any]) -> list[CommandSpec]:
             for horizon in horizons:
                 if horizon < 1:
                     raise HarnessError("Screen horizons must be positive")
-                spacing = explicit_spacing if explicit_spacing is not None else horizon
                 for quantity in quantities:
                     for lookback in lookbacks:
-                        steps = _resolve_shard_steps(
-                            steps_setting,
-                            shard,
-                            timeframe,
-                            horizon,
-                            spacing,
-                            history_reserve=(
-                                lookback if sharding_policy == "window_end" else 0
-                            ),
-                        )
-                        if steps > 1 and spacing < horizon:
-                            raise HarnessError(
-                                "screen.spacing_bars must be greater than or equal to "
-                                f"horizon={horizon} when steps_per_shard is greater than 1"
+                        if anchor_grid is not None:
+                            steps, spacing = _validate_explicit_grid_for_command(
+                                anchor_grid,
+                                shard,
+                                timeframe,
+                                horizon,
+                                lookback,
                             )
-                        available_bars = _continuous_bars(
-                            str(windows[window_name]["start"]),
-                            shard["end"],
-                            timeframe,
-                        )
-                        required_bars = lookback + (steps * spacing) + horizon
-                        if available_bars < required_bars:
-                            # Never fill an early development shard with observations
-                            # from the stress window merely to satisfy a long lookback.
-                            continue
+                        else:
+                            spacing = (
+                                explicit_spacing
+                                if explicit_spacing is not None
+                                else horizon
+                            )
+                            steps = _resolve_shard_steps(
+                                steps_setting,
+                                shard,
+                                timeframe,
+                                horizon,
+                                int(spacing),
+                                history_reserve=(
+                                    lookback if sharding_policy == "window_end" else 0
+                                ),
+                            )
+                            if steps > 1 and int(spacing) < horizon:
+                                raise HarnessError(
+                                    "screen.spacing_bars must be greater than or equal to "
+                                    f"horizon={horizon} when steps_per_shard is greater than 1"
+                                )
+                            available_bars = _continuous_bars(
+                                str(window["start"]),
+                                shard["end"],
+                                timeframe,
+                            )
+                            required_bars = lookback + (steps * int(spacing)) + horizon
+                            if available_bars < required_bars:
+                                # Never fill an early development shard with observations
+                                # from the stress window merely to satisfy a long lookback.
+                                continue
                         for raw_variant in variants:
                             variant = dict(raw_variant or {})
                             variant_id = _slug(variant.get("id", "raw"))
@@ -946,10 +1205,6 @@ def build_screen_specs(config: Mapping[str, Any]) -> list[CommandSpec]:
                                 timeframe,
                                 "--horizon",
                                 str(horizon),
-                                "--steps",
-                                str(steps),
-                                "--spacing",
-                                str(spacing),
                                 "--lookback",
                                 str(lookback),
                                 "--methods",
@@ -957,12 +1212,28 @@ def build_screen_specs(config: Mapping[str, Any]) -> list[CommandSpec]:
                                 "--quantity",
                                 quantity,
                                 "--start",
-                                str(windows[window_name]["start"]),
+                                (
+                                    str(anchor_grid["history_start"])
+                                    if anchor_grid is not None
+                                    else str(window["start"])
+                                ),
                                 "--end",
                                 shard["end"],
                                 "--detail",
                                 detail,
                             ]
+                            if anchor_grid is None:
+                                argv[argv.index("--lookback"):argv.index("--lookback")] = [
+                                    "--steps",
+                                    str(steps),
+                                    "--spacing",
+                                    str(spacing),
+                                ]
+                            else:
+                                argv[argv.index("--lookback"):argv.index("--lookback")] = [
+                                    "--anchors",
+                                    _json_arg(anchor_grid["anchors"]),
+                                ]
                             if variant.get("params_per_method") is not None:
                                 argv.extend(["--params-per-method", _json_arg(variant["params_per_method"])])
                             _append_optional_pipeline(argv, variant)
@@ -981,8 +1252,46 @@ def build_screen_specs(config: Mapping[str, Any]) -> list[CommandSpec]:
                                         "lookback": lookback,
                                         "steps": steps,
                                         "spacing": spacing,
+                                        "anchor_mode": (
+                                            "explicit"
+                                            if anchor_grid is not None
+                                            else "rolling"
+                                        ),
+                                        "anchor_grid_id": (
+                                            anchor_grid["id"]
+                                            if anchor_grid is not None
+                                            else None
+                                        ),
+                                        "expected_anchors": (
+                                            list(anchor_grid["anchors"])
+                                            if anchor_grid is not None
+                                            else None
+                                        ),
+                                        "expected_anchors_sha256": (
+                                            anchor_grid["sha256"]
+                                            if anchor_grid is not None
+                                            else None
+                                        ),
+                                        "history_start": (
+                                            anchor_grid["history_start"]
+                                            if anchor_grid is not None
+                                            else str(window["start"])
+                                        ),
+                                        "role_window": (
+                                            dict(anchor_grid["role_window"])
+                                            if anchor_grid is not None
+                                            else {
+                                                "name": window_name,
+                                                "start": str(window["start"]),
+                                                "end": str(window["end"]),
+                                            }
+                                        ),
                                         "detail": detail,
-                                        "training_floor": str(windows[window_name]["start"]),
+                                        "training_floor": (
+                                            str(anchor_grid["history_start"])
+                                            if anchor_grid is not None
+                                            else str(window["start"])
+                                        ),
                                         "methods": variant_methods,
                                         "variant": variant_id,
                                         "feature_contract_required": feature_contract_required,
@@ -1985,6 +2294,41 @@ def append_issue(run_dir: Path, issue: Mapping[str, Any], *, run_id: str | None 
     return safe, True
 
 
+def _registered_anchor_grids(
+    specs: Sequence[CommandSpec],
+) -> dict[str, dict[str, Any]]:
+    grids: dict[str, dict[str, Any]] = {}
+    for spec in specs:
+        metadata = spec.metadata
+        if metadata.get("anchor_mode") != "explicit":
+            continue
+        grid_id = metadata.get("anchor_grid_id")
+        anchors = metadata.get("expected_anchors")
+        expected_hash = metadata.get("expected_anchors_sha256")
+        if not isinstance(grid_id, str) or not grid_id:
+            raise HarnessError("Explicit-anchor command omitted anchor_grid_id")
+        if not isinstance(anchors, list) or not anchors:
+            raise HarnessError("Explicit-anchor command omitted expected_anchors")
+        actual_hash = _sha256_json(anchors)
+        if expected_hash != actual_hash:
+            raise HarnessError("Explicit-anchor command has an invalid anchor-grid hash")
+        registration = {
+            "id": grid_id,
+            "sha256": actual_hash,
+            "count": len(anchors),
+            "anchors": list(anchors),
+            "history_start": metadata.get("history_start"),
+            "role_window": metadata.get("role_window"),
+        }
+        prior = grids.get(grid_id)
+        if prior is not None and prior != registration:
+            raise HarnessError(
+                f"Explicit anchor grid {grid_id!r} differs across planned commands"
+            )
+        grids[grid_id] = registration
+    return grids
+
+
 def _register_specs(
     context: RunContext,
     stage: str,
@@ -2008,6 +2352,11 @@ def _register_specs(
     stage_record["config_hash"] = config_hash
     stage_record["plan_digest"] = _plan_digest(specs)
     stage_record["commands_planned"] = len(specs)
+    anchor_grids = _registered_anchor_grids(specs)
+    if anchor_grids:
+        stage_record["anchor_grids"] = anchor_grids
+    else:
+        stage_record.pop("anchor_grids", None)
     known_secrets = _secret_values()
     expected_ids: set[str] = set()
     for spec in specs:
@@ -2702,8 +3051,10 @@ def _screen_detail_evidence(
     detail_row: Any,
     *,
     quantity: str,
+    timeframe: str,
     horizon: int,
     lookback: int,
+    require_actual_timestamps: bool,
 ) -> tuple[str | None, str | None, Any]:
     if not isinstance(detail_row, Mapping) or detail_row.get("success") is not True:
         return f"Screen method {method_name!r} has a non-successful detail", None, None
@@ -2722,7 +3073,36 @@ def _screen_detail_evidence(
         return f"Screen method {method_name!r} has an invalid forecast path", None, None
     if not _finite_horizon_vector(detail_row.get("actual"), horizon):
         return f"Screen method {method_name!r} has an invalid actual path", None, None
-    return None, anchor, [float(item) for item in detail_row["actual"]]
+    actual = [float(item) for item in detail_row["actual"]]
+    if not require_actual_timestamps:
+        return None, anchor, actual
+    timeframe_minutes = _TIMEFRAME_MINUTES.get(timeframe.upper())
+    if timeframe_minutes is None:
+        return f"Screen method {method_name!r} has an unsupported timeframe", None, None
+    raw_timestamps = detail_row.get("actual_timestamps")
+    if not isinstance(raw_timestamps, list) or len(raw_timestamps) != horizon:
+        return (
+            f"Screen method {method_name!r} omitted full actual timestamps",
+            None,
+            None,
+        )
+    timestamps = [_canonical_utc_timestamp(value) for value in raw_timestamps]
+    if any(value is None for value in timestamps):
+        return f"Screen method {method_name!r} has invalid actual timestamps", None, None
+    anchor_at = datetime.fromisoformat(anchor.replace("Z", "+00:00"))
+    expected_timestamps = [
+        (
+            anchor_at + timedelta(minutes=timeframe_minutes * step)
+        ).isoformat(timespec="seconds").replace("+00:00", "Z")
+        for step in range(1, horizon + 1)
+    ]
+    if timestamps != expected_timestamps:
+        return (
+            f"Screen method {method_name!r} has shifted or gapped actual timestamps",
+            None,
+            None,
+        )
+    return None, anchor, {"values": actual, "timestamps": timestamps}
 
 
 def _screen_anchor_grid_error(
@@ -2803,14 +3183,70 @@ def _screen_method_evidence(
             method_name,
             detail_row,
             quantity=str(metadata.get("quantity") or "price"),
+            timeframe=str(metadata.get("timeframe") or ""),
             horizon=horizon,
             lookback=lookback,
+            require_actual_timestamps=metadata.get("anchor_mode") == "explicit",
         )
         if error or anchor is None:
             return error or "Screen detail evidence is incomplete", [], []
         anchors.append(anchor)
         actuals.append(actual)
     return _screen_anchor_grid_error(metadata, method_name, anchors, horizon), anchors, actuals
+
+
+def _explicit_screen_plan_error(
+    metadata: Mapping[str, Any],
+    payload: Mapping[str, Any],
+) -> str | None:
+    if metadata.get("anchor_mode") != "explicit":
+        return None
+    expected_anchors = metadata.get("expected_anchors")
+    expected_hash = metadata.get("expected_anchors_sha256")
+    if not isinstance(expected_anchors, list) or not expected_anchors:
+        return "Explicit screen metadata omitted its frozen anchor grid"
+    if expected_hash != _sha256_json(expected_anchors):
+        return "Explicit screen metadata has an invalid anchor-grid hash"
+    plan = payload.get("backtest_plan")
+    if not isinstance(plan, Mapping):
+        return "Explicit screen result omitted backtest_plan"
+    if plan.get("anchor_mode") != "explicit":
+        return "Explicit screen result did not report anchor_mode=explicit"
+    if plan.get("anchor_resolution") != "exact_bar_open":
+        return "Explicit screen result did not attest exact_bar_open resolution"
+    if plan.get("requested_anchors") != expected_anchors:
+        return "Explicit screen requested anchors differ from the frozen grid"
+    if plan.get("resolved_anchors") != expected_anchors:
+        return "Explicit screen resolved anchors differ from the frozen grid"
+    expected_count = len(expected_anchors)
+    if (
+        _strict_nonnegative_int(plan.get("runs_requested")) != expected_count
+        or _strict_nonnegative_int(plan.get("runs_used")) != expected_count
+    ):
+        return "Explicit screen result has inconsistent requested/resolved anchor counts"
+    role_window = metadata.get("role_window")
+    horizon = _strict_nonnegative_int(metadata.get("horizon"))
+    timeframe_minutes = _TIMEFRAME_MINUTES.get(str(metadata.get("timeframe") or "").upper())
+    if (
+        not isinstance(role_window, Mapping)
+        or horizon is None
+        or timeframe_minutes is None
+    ):
+        return "Explicit screen metadata has invalid role-window timing"
+    try:
+        role_end_limit = datetime.combine(
+            date.fromisoformat(str(role_window["end"])) + timedelta(days=1),
+            datetime.min.time(),
+            tzinfo=timezone.utc,
+        )
+        last_anchor = datetime.fromisoformat(
+            str(expected_anchors[-1]).replace("Z", "+00:00")
+        )
+    except (KeyError, ValueError):
+        return "Explicit screen metadata has malformed role-window timing"
+    if last_anchor + timedelta(minutes=horizon * timeframe_minutes) >= role_end_limit:
+        return "Explicit screen final target falls outside its registered role window"
+    return None
 
 
 def _screen_collection_contract_error(
@@ -2823,6 +3259,9 @@ def _screen_collection_contract_error(
         return "Screen result is not a JSON object"
     if payload.get("complete_success") is not True or payload.get("status") != "complete":
         return "Screen result did not report complete_success/status=complete"
+    explicit_plan_error = _explicit_screen_plan_error(metadata, payload)
+    if explicit_plan_error:
+        return explicit_plan_error
     results = payload.get("results")
     planned_methods = metadata.get("methods")
     expected_tests = _strict_nonnegative_int(metadata.get("steps"))
@@ -3601,6 +4040,7 @@ def write_normalized_stage(context: RunContext, stage: str) -> dict[str, Any]:
         "status": normalized_status,
         "config_hash": stage_record.get("config_hash"),
         "plan_digest": stage_record.get("plan_digest"),
+        "anchor_grids": stage_record.get("anchor_grids", {}),
         "counts": counts,
         "commands": rows,
     }

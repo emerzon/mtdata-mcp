@@ -2835,8 +2835,9 @@ class TestResolveParamKwargs:
             "default": None,
         }
         kwargs, _ = _resolve_param_kwargs(param, None)
-        assert "--features lag=3,rolling=5" in kwargs["help"]
-        assert '"lag":3' in kwargs["help"]
+        assert "--features future_covariates=hour" in kwargs["help"]
+        assert '"indicators":"rsi(14),roc(12)"' in kwargs["help"]
+        assert '"observed_future_policy":"carry_forward"' in kwargs["help"]
 
     def test_forecast_barrier_optimize_method_has_cli_choices(self):
         param = {

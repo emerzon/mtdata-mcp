@@ -13,7 +13,12 @@ from ..utils.coercion import coerce_finite_float
 from ..utils.denoise import normalize_denoise_spec as _normalize_denoise_spec
 from ..utils.mt5 import mt5, symbol_candle_price_basis_for
 from ..utils.quote import quote_spread_bps, symbol_info_spread_bps
-from ..utils.time import _format_time_minimal, bar_close_epoch
+from ..utils.time import (
+    _format_time_minimal,
+    bar_close_epoch,
+    format_epoch_utc,
+    parse_iso_utc,
+)
 from .common import (
     annualization_context as _annualization_context,
 )
@@ -56,6 +61,8 @@ from .target_builder import _log_return_array
 from .volatility import forecast_volatility
 
 _BREAKEVEN_RETURN_EPS = 1e-12
+_ANCHOR_RESOLUTION_ERROR_CODE = "forecast_backtest_anchor_resolution_failed"
+_ANCHOR_RESOLUTION_POLICY = "exact_bar_open"
 _FEATURE_CAPABILITY_ERROR_CODE = "feature_consumption_unsupported"
 _FEATURE_ATTESTATION_ERROR_CODE = "feature_consumption_unverified"
 _LOW_SAMPLE_TRADING_METRIC_KEYS = (
@@ -82,6 +89,93 @@ _LOW_SAMPLE_TRADING_METRIC_KEYS = (
     "losing_trades",
     "breakeven_trades",
 )
+
+
+def _canonicalize_explicit_anchors(
+    anchors: List[str] | Tuple[str, ...],
+) -> Tuple[List[str], List[float], List[Dict[str, Any]]]:
+    """Normalize explicit anchors to the public second-UTC bar-open identity."""
+    canonical: List[str] = []
+    epochs: List[float] = []
+    issues: List[Dict[str, Any]] = []
+    seen_epochs: Dict[float, int] = {}
+    for position, value in enumerate(anchors):
+        raw = str(value).strip()
+        try:
+            epoch = float(parse_iso_utc(raw).timestamp())
+            label = format_epoch_utc(epoch, timespec="seconds")
+            if label is None:
+                raise ValueError("Anchor is outside the supported timestamp range.")
+            canonical_epoch = float(parse_iso_utc(label).timestamp())
+        except (OSError, OverflowError, TypeError, ValueError):
+            canonical.append(raw)
+            issues.append(
+                {
+                    "position": int(position),
+                    "requested_anchor": raw,
+                    "reason": "invalid_timestamp",
+                }
+            )
+            continue
+        if not math.isfinite(epoch):
+            canonical.append(raw)
+            issues.append(
+                {
+                    "position": int(position),
+                    "requested_anchor": raw,
+                    "reason": "invalid_timestamp",
+                }
+            )
+            continue
+        canonical.append(label)
+        epochs.append(canonical_epoch)
+        prior_position = seen_epochs.get(canonical_epoch)
+        if prior_position is not None:
+            issues.append(
+                {
+                    "position": int(position),
+                    "requested_anchor": label,
+                    "reason": "duplicate_resolution",
+                    "duplicates_position": int(prior_position),
+                }
+            )
+        else:
+            seen_epochs[canonical_epoch] = int(position)
+    return canonical, epochs, issues
+
+
+def _explicit_anchor_failure(
+    *,
+    requested_anchors: List[str],
+    resolved_anchors: Optional[List[str]] = None,
+    issues: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    return {
+        "success": False,
+        "error": (
+            "Explicit backtest anchors did not resolve to complete, "
+            "non-overlapping validation windows; no model fits were run."
+        ),
+        "error_code": _ANCHOR_RESOLUTION_ERROR_CODE,
+        "anchor_resolution": _ANCHOR_RESOLUTION_POLICY,
+        "requested_anchors": list(requested_anchors),
+        "resolved_anchors": list(resolved_anchors or []),
+        "anchor_resolution_issues": issues,
+        "remediation": (
+            "Use exact closed-candle bar-open timestamps, include enough prior "
+            "history and the complete future horizon, and keep validation "
+            "windows non-overlapping."
+        ),
+    }
+
+
+def _format_backtest_bar_time(epoch: float, *, exact_seconds: bool) -> str:
+    if not exact_seconds:
+        return _format_time_minimal(epoch)
+    formatted = format_epoch_utc(epoch, timespec="seconds")
+    if formatted is None:
+        raise ValueError("Backtest bar timestamp is outside the supported range.")
+    return formatted
 
 
 def _feature_method_capability_error(
@@ -2721,8 +2815,36 @@ def forecast_backtest(  # noqa: C901
         # Fetch sufficient history via shared helper; ensure enough bars for anchors
         model_lookback = int(lookback) if lookback is not None else None
         history_context = model_lookback if model_lookback is not None else 400
-        if anchors and isinstance(anchors, (list, tuple)) and len(anchors) > 0:
-            need = int(len(anchors)) * int(horizon) + history_context + 200
+        explicit_anchor_mode = bool(
+            anchors
+            and isinstance(anchors, (list, tuple))
+            and len(anchors) > 0
+        )
+        requested_anchor_labels: List[str] = []
+        requested_anchor_epochs: List[float] = []
+        if explicit_anchor_mode:
+            (
+                requested_anchor_labels,
+                requested_anchor_epochs,
+                anchor_input_issues,
+            ) = _canonicalize_explicit_anchors(anchors)
+            if anchor_input_issues:
+                return _explicit_anchor_failure(
+                    requested_anchors=requested_anchor_labels,
+                    issues=anchor_input_issues,
+                )
+            elapsed_anchor_bars = int(
+                math.ceil(
+                    (max(requested_anchor_epochs) - min(requested_anchor_epochs))
+                    / max(1, int(TIMEFRAME_SECONDS[timeframe]))
+                )
+            )
+            need = (
+                elapsed_anchor_bars
+                + int(horizon)
+                + history_context
+                + 200
+            )
         else:
             need = (
                 int(steps) * int(spacing)
@@ -2737,20 +2859,109 @@ def forecast_backtest(  # noqa: C901
         except Exception as ex:
             return {"error": str(ex)}
         minimum_training_bars = max(3, model_lookback or 50)
-        if len(df) < (int(horizon) + minimum_training_bars):
+        if (
+            not explicit_anchor_mode
+            and len(df) < (int(horizon) + minimum_training_bars)
+        ):
             return {"error": "Not enough closed bars for backtest"}
 
         # Determine anchor indices (explicit anchors or rolling from end)
         total = len(df)
         anchor_indices: List[int] = []
-        if anchors and isinstance(anchors, (list, tuple)) and len(anchors) > 0:
+        resolved_anchor_labels: List[str] = []
+        if explicit_anchor_mode:
             tvals = df['time'].astype(float).to_numpy()
-            tstr = [_format_time_minimal(ts) for ts in tvals]
-            idx_by_time = {s: i for i, s in enumerate(tstr)}
-            for s in anchors:
-                i = idx_by_time.get(str(s).strip())
-                if i is not None and (i + int(horizon)) < total:
-                    anchor_indices.append(int(i))
+            indices_by_time: Dict[float, List[int]] = {}
+            for index, timestamp in enumerate(tvals):
+                epoch = float(timestamp)
+                if math.isfinite(epoch):
+                    indices_by_time.setdefault(epoch, []).append(int(index))
+
+            anchor_resolution_issues: List[Dict[str, Any]] = []
+            for position, (label, epoch) in enumerate(
+                zip(requested_anchor_labels, requested_anchor_epochs)
+            ):
+                matching_indices = indices_by_time.get(epoch, [])
+                if not matching_indices:
+                    anchor_resolution_issues.append(
+                        {
+                            "position": int(position),
+                            "requested_anchor": label,
+                            "reason": "missing_bar_open",
+                        }
+                    )
+                    continue
+                if len(matching_indices) != 1:
+                    anchor_resolution_issues.append(
+                        {
+                            "position": int(position),
+                            "requested_anchor": label,
+                            "reason": "duplicate_resolution",
+                            "matching_bar_indices": matching_indices,
+                        }
+                    )
+                    continue
+                index = int(matching_indices[0])
+                resolved_label = format_epoch_utc(
+                    float(tvals[index]),
+                    timespec="seconds",
+                )
+                if resolved_label is None:
+                    anchor_resolution_issues.append(
+                        {
+                            "position": int(position),
+                            "requested_anchor": label,
+                            "reason": "invalid_bar_open",
+                        }
+                    )
+                    continue
+                anchor_indices.append(index)
+                resolved_anchor_labels.append(resolved_label)
+                available_history = index + 1
+                if available_history < minimum_training_bars:
+                    anchor_resolution_issues.append(
+                        {
+                            "position": int(position),
+                            "requested_anchor": label,
+                            "reason": "insufficient_lookback",
+                            "available_history_bars": int(available_history),
+                            "required_history_bars": int(minimum_training_bars),
+                        }
+                    )
+                available_target = max(0, total - index - 1)
+                if available_target < int(horizon):
+                    anchor_resolution_issues.append(
+                        {
+                            "position": int(position),
+                            "requested_anchor": label,
+                            "reason": "incomplete_horizon",
+                            "available_target_bars": int(available_target),
+                            "required_target_bars": int(horizon),
+                        }
+                    )
+
+            ordered_resolutions = sorted(
+                zip(anchor_indices, resolved_anchor_labels),
+                key=lambda item: item[0],
+            )
+            for (prev_idx, prev_label), (curr_idx, curr_label) in zip(
+                ordered_resolutions,
+                ordered_resolutions[1:],
+            ):
+                if (curr_idx - prev_idx) < int(horizon):
+                    anchor_resolution_issues.append(
+                        {
+                            "requested_anchor": curr_label,
+                            "reason": "validation_window_overlap",
+                            "overlaps_anchor": prev_label,
+                        }
+                    )
+            if anchor_resolution_issues:
+                return _explicit_anchor_failure(
+                    requested_anchors=requested_anchor_labels,
+                    resolved_anchors=resolved_anchor_labels,
+                    issues=anchor_resolution_issues,
+                )
         else:
             pos = total - int(horizon) - 1
             for _ in range(int(steps)):
@@ -2761,18 +2972,6 @@ def forecast_backtest(  # noqa: C901
             anchor_indices = list(reversed(anchor_indices))
         if not anchor_indices:
             return {"error": "Failed to determine backtest anchors"}
-        if len(anchor_indices) > 1:
-            sorted_anchor_indices = sorted(anchor_indices)
-            for prev_idx, curr_idx in zip(sorted_anchor_indices, sorted_anchor_indices[1:]):
-                if (curr_idx - prev_idx) < int(horizon):
-                    prev_anchor = _format_time_minimal(float(df['time'].iloc[prev_idx]))
-                    curr_anchor = _format_time_minimal(float(df['time'].iloc[curr_idx]))
-                    return {
-                        "error": (
-                            "Explicit backtest anchors must be at least horizon bars apart to prevent "
-                            f"data leakage: {prev_anchor} -> {curr_anchor}"
-                        )
-                    }
 
         target_mode = _quantity_to_target(quantity)
 
@@ -2831,7 +3030,11 @@ def forecast_backtest(  # noqa: C901
             horizon=int(horizon),
             steps=int(steps),
             spacing=int(spacing),
-            anchors=list(anchors) if isinstance(anchors, (list, tuple)) else None,
+            anchors=(
+                list(requested_anchor_labels)
+                if explicit_anchor_mode
+                else None
+            ),
             slippage_bps=float(slippage_bps),
             spread_bps=spread_bps_value,
             commission_bps_per_side=commission_bps_value,
@@ -2852,9 +3055,13 @@ def forecast_backtest(  # noqa: C901
             for idx in anchor_indices:
                 if idx not in actual_windows:
                     continue
-                anchor_time = _format_time_minimal(times[idx])
-                anchor_cutoff = _format_time_minimal(
-                    bar_close_epoch(times[idx], timeframe)
+                anchor_time = _format_backtest_bar_time(
+                    float(times[idx]),
+                    exact_seconds=explicit_anchor_mode,
+                )
+                anchor_cutoff = _format_backtest_bar_time(
+                    bar_close_epoch(times[idx], timeframe),
+                    exact_seconds=explicit_anchor_mode,
                 )
                 truth, ts = actual_windows[idx]
                 anchor_history = df.iloc[: idx + 1]
@@ -2994,8 +3201,9 @@ def forecast_backtest(  # noqa: C901
                         "training_window": {
                             "start": nested_data_window.get(
                                 "start",
-                                _format_time_minimal(
-                                    float(anchor_history["time"].iloc[0])
+                                _format_backtest_bar_time(
+                                    float(anchor_history["time"].iloc[0]),
+                                    exact_seconds=explicit_anchor_mode,
                                 ),
                             ),
                             "end": nested_data_window.get("end", anchor_time),
@@ -3186,7 +3394,10 @@ def forecast_backtest(  # noqa: C901
                         "path_directional_opportunities": path_directional_opportunities,
                         "entry_price": entry_price,
                         "signal_reference_price": signal_reference_price,
-                        "entry_time": _format_time_minimal(float(times[entry_idx])),
+                        "entry_time": _format_backtest_bar_time(
+                            float(times[entry_idx]),
+                            exact_seconds=explicit_anchor_mode,
+                        ),
                         "entry_price_source": entry_price_source,
                         "exit_price": exit_price,
                         "exit_step": int(exit_step) + 1 if m > 0 else 0,
@@ -3215,6 +3426,13 @@ def forecast_backtest(  # noqa: C901
                     if include_paths:
                         detail_row["forecast"] = [float(v) for v in fcv[:m].tolist()]
                         detail_row["actual"] = [float(v) for v in act[:m].tolist()]
+                        detail_row["actual_timestamps"] = [
+                            _format_backtest_bar_time(
+                                float(value),
+                                exact_seconds=True,
+                            )
+                            for value in ts[:m]
+                        ]
                     else:
                         detail_row["horizon_used"] = int(m)
                         detail_row["forecast_end"] = float(fcv[m - 1]) if m > 0 else None
@@ -3400,7 +3618,7 @@ def forecast_backtest(  # noqa: C901
 
         anchor_mode = (
             "explicit"
-            if anchors and isinstance(anchors, (list, tuple)) and len(anchors) > 0
+            if explicit_anchor_mode
             else "rolling"
         )
         backtest_plan: Dict[str, Any] = {
@@ -3410,7 +3628,11 @@ def forecast_backtest(  # noqa: C901
                 else "rolling_origin_expanding_window"
             ),
             "anchor_mode": anchor_mode,
-            "runs_requested": int(len(anchors)) if anchor_mode == "explicit" else int(steps),
+            "runs_requested": (
+                int(len(requested_anchor_labels))
+                if anchor_mode == "explicit"
+                else int(steps)
+            ),
             "runs_used": int(len(anchor_indices)),
             "horizon_bars": int(horizon),
             "history_bars_used": int(len(df)),
@@ -3421,6 +3643,10 @@ def forecast_backtest(  # noqa: C901
         }
         if model_lookback is not None:
             backtest_plan["model_lookback_bars"] = model_lookback
+        if anchor_mode == "explicit":
+            backtest_plan["requested_anchors"] = list(requested_anchor_labels)
+            backtest_plan["resolved_anchors"] = list(resolved_anchor_labels)
+            backtest_plan["anchor_resolution"] = _ANCHOR_RESOLUTION_POLICY
         if anchor_mode == "rolling":
             backtest_plan["anchor_spacing_bars"] = int(spacing)
             backtest_plan["validation_span_bars"] = int(horizon) + max(
@@ -3459,25 +3685,43 @@ def forecast_backtest(  # noqa: C901
         first_anchor_idx = int(anchor_indices[0]) if anchor_indices else None
         last_anchor_idx = int(anchor_indices[-1]) if anchor_indices else None
         analysis_time_window = {
-            "history_start": _format_time_minimal(float(times[0])),
-            "history_end": _format_time_minimal(float(times[-1])),
+            "history_start": _format_backtest_bar_time(
+                float(times[0]),
+                exact_seconds=explicit_anchor_mode,
+            ),
+            "history_end": _format_backtest_bar_time(
+                float(times[-1]),
+                exact_seconds=explicit_anchor_mode,
+            ),
             "evaluation_start": (
-                _format_time_minimal(float(times[first_anchor_idx + 1]))
+                _format_backtest_bar_time(
+                    float(times[first_anchor_idx + 1]),
+                    exact_seconds=explicit_anchor_mode,
+                )
                 if first_anchor_idx is not None
                 else None
             ),
             "evaluation_end": (
-                _format_time_minimal(float(times[last_anchor_idx + int(horizon)]))
+                _format_backtest_bar_time(
+                    float(times[last_anchor_idx + int(horizon)]),
+                    exact_seconds=explicit_anchor_mode,
+                )
                 if last_anchor_idx is not None
                 else None
             ),
             "first_anchor": (
-                _format_time_minimal(float(times[first_anchor_idx]))
+                _format_backtest_bar_time(
+                    float(times[first_anchor_idx]),
+                    exact_seconds=explicit_anchor_mode,
+                )
                 if first_anchor_idx is not None
                 else None
             ),
             "last_anchor": (
-                _format_time_minimal(float(times[last_anchor_idx]))
+                _format_backtest_bar_time(
+                    float(times[last_anchor_idx]),
+                    exact_seconds=explicit_anchor_mode,
+                )
                 if last_anchor_idx is not None
                 else None
             ),
@@ -3582,9 +3826,15 @@ def forecast_backtest(  # noqa: C901
 
 
 def execute_forecast_backtest(*args: Any, **kwargs: Any) -> Dict[str, Any]:
-    """Internal backtest entrypoint that raises typed errors for result payload failures."""
+    """Execute a backtest while preserving structured anchor preflight failures."""
     try:
-        return raise_if_error_result(forecast_backtest(*args, **kwargs))
+        result = forecast_backtest(*args, **kwargs)
+        if (
+            isinstance(result, dict)
+            and result.get("error_code") == _ANCHOR_RESOLUTION_ERROR_CODE
+        ):
+            return result
+        return raise_if_error_result(result)
     except ForecastError:
         raise
     except Exception as exc:

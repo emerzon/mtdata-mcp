@@ -432,6 +432,29 @@ def test_aggregate_validates_six_commands_and_four_pairs(tmp_path: Path) -> None
     assert "actual" not in json.dumps(artifact)
 
 
+@pytest.mark.parametrize("harness_version", ["0.2.0", "0.3.0"])
+def test_validator_accepts_preserved_and_current_harness_versions(
+    tmp_path: Path,
+    harness_version: str,
+) -> None:
+    run_dir, manifest, _ = _make_run(tmp_path / harness_version.replace(".", "-"))
+    manifest["harness_version"] = harness_version
+    _rewrite_manifest(run_dir, manifest)
+
+    assert _validate(run_dir)["status"] == "passed"
+
+
+def test_validator_rejects_unknown_harness_version(tmp_path: Path) -> None:
+    run_dir, manifest, _ = _make_run(tmp_path)
+    manifest["harness_version"] = "9.0.0"
+    _rewrite_manifest(run_dir, manifest)
+
+    artifact = _validate(run_dir)
+
+    assert artifact["status"] == "failed"
+    assert artifact["diagnostics"]["errors"][0]["code"] == validator.CONFIG_ERROR
+
+
 def test_pair_mode_passes_before_other_commands_run(tmp_path: Path) -> None:
     completed = {"lgbm-raw", "lgbm-momentum"}
     run_dir, _, _ = _make_run(tmp_path, completed=completed)

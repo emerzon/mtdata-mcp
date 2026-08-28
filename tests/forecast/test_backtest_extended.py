@@ -28,15 +28,21 @@ from mtdata.forecast.backtest import (
 )
 from mtdata.forecast.common import bars_per_year as _bars_per_year
 from mtdata.forecast.forecast_registry import get_forecast_methods_data
-from mtdata.utils.time import _format_time_minimal, bar_close_epoch
+from mtdata.utils.time import _format_time_minimal, bar_close_epoch, format_epoch_utc
 
 # ── Helper to build a fake df ────────────────────────────────────────────────
 
-def _make_df(n: int, base_time: float = 1700000000.0, base_close: float = 100.0):
+def _make_df(n: int, base_time: float = 1699999980.0, base_close: float = 100.0):
     """Create a simple DataFrame with 'time' and 'close' columns."""
     times = [base_time + i * 3600 for i in range(n)]
     closes = [base_close + i * 0.5 for i in range(n)]
     return pd.DataFrame({"time": times, "close": closes})
+
+
+def _format_anchor(epoch: float) -> str:
+    value = format_epoch_utc(epoch, timespec="seconds")
+    assert value is not None
+    return value
 
 
 class TestGetForecastMethodsData:
@@ -416,8 +422,7 @@ class TestForecastBacktest:
     def test_explicit_anchors(self, fetch):
         df = _make_df(500)
         fetch.return_value = df
-        from mtdata.utils.time import _format_time_minimal
-        anchor_time = _format_time_minimal(float(df["time"].iloc[100]))
+        anchor_time = _format_anchor(float(df["time"].iloc[100]))
         with patch("mtdata.forecast.backtest.forecast") as fc:
             fc.return_value = {"forecast_price": [101.0] * 12}
             result = forecast_backtest(
@@ -429,11 +434,9 @@ class TestForecastBacktest:
     def test_rejects_overlapping_explicit_anchor_windows(self, fetch):
         df = _make_df(500)
         fetch.return_value = df
-        from mtdata.utils.time import _format_time_minimal
-
         anchors = [
-            _format_time_minimal(float(df["time"].iloc[100])),
-            _format_time_minimal(float(df["time"].iloc[105])),
+            _format_anchor(float(df["time"].iloc[100])),
+            _format_anchor(float(df["time"].iloc[105])),
         ]
 
         with patch("mtdata.forecast.backtest.forecast") as fc:
@@ -445,12 +448,15 @@ class TestForecastBacktest:
                 methods=["naive"],
             )
 
-        assert result == {
-            "error": (
-                "Explicit backtest anchors must be at least horizon bars apart to prevent "
-                f"data leakage: {anchors[0]} -> {anchors[1]}"
-            )
-        }
+        assert result["error_code"] == "forecast_backtest_anchor_resolution_failed"
+        assert result["resolved_anchors"] == anchors
+        assert result["anchor_resolution_issues"] == [
+            {
+                "requested_anchor": anchors[1],
+                "reason": "validation_window_overlap",
+                "overlaps_anchor": anchors[0],
+            }
+        ]
         fc.assert_not_called()
 
     @patch("mtdata.forecast.backtest._fetch_history")
@@ -748,10 +754,10 @@ def test_performance_metrics_sortino_uses_full_sample_downside_deviation():
 
 
 def test_backtest_vol_proxy_not_mutated_across_anchors() -> None:
-    times = np.arange(1700000000, 1700000000 + 80 * 3600, 3600, dtype=float)
+    times = np.arange(1699999980, 1699999980 + 80 * 3600, 3600, dtype=float)
     close = np.linspace(100.0, 120.0, 80, dtype=float)
     df = pd.DataFrame({"time": times, "close": close})
-    anchors = [_format_time_minimal(float(times[60])), _format_time_minimal(float(times[65]))]
+    anchors = [_format_anchor(float(times[60])), _format_anchor(float(times[65]))]
     params_per_method = {"ewma": {"proxy": "abs_return"}}
 
     with patch("mtdata.forecast.backtest._fetch_history", return_value=df), patch(

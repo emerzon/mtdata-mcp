@@ -18,7 +18,7 @@ from mtdata.forecast.backtest import (
 from mtdata.utils.time import _format_time_minimal
 
 
-def _make_df(n: int, base_time: float = 1700000000.0, base_close: float = 100.0):
+def _make_df(n: int, base_time: float = 1699999980.0, base_close: float = 100.0):
     times = [base_time + i * 3600 for i in range(n)]
     closes = [base_close + i * 0.5 for i in range(n)]
     return pd.DataFrame({"time": times, "close": closes})

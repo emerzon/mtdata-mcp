@@ -24,6 +24,7 @@ from typing import Any, Mapping, Sequence
 SCHEMA_VERSION = 1
 VALIDATOR_VERSION = "1.0.0"
 VALIDATOR_NAME = "btcusd_iteration4_smoke"
+SUPPORTED_HARNESS_VERSIONS = frozenset({"0.2.0", "0.3.0"})
 SOURCE_ERROR = "BTC-SMOKE-SOURCE"
 CONFIG_ERROR = "BTC-SMOKE-CONFIG"
 PLAN_ERROR = "BTC-SMOKE-PLAN"
@@ -1271,7 +1272,7 @@ def validate_smoke_run(
             raise SmokeValidationError(CONFIG_ERROR, "Manifest and config must be objects")
         if not _exact_scalar(manifest.get("schema_version"), 1) or manifest.get(
             "harness_version"
-        ) != "0.2.0":
+        ) not in SUPPORTED_HARNESS_VERSIONS:
             raise SmokeValidationError(CONFIG_ERROR, "Manifest schema or harness is unsupported")
         run_id = str(manifest.get("run_id") or run_id)
         _verify_source_runtime(

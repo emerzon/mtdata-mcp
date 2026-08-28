@@ -382,6 +382,24 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "Fixed training bars at each backtest anchor. Omit for the method default "
         "(native theta/fourier_ols: 300 bars)."
     ),
+    ("forecast_backtest_run", "horizon"): (
+        "Bars forecast after each backtest anchor. In rolling mode, --spacing "
+        "must be at least horizon when --steps is greater than 1."
+    ),
+    ("forecast_backtest_run", "steps"): (
+        "Number of rolling-origin anchors when --anchors is omitted. This value "
+        "does not select, truncate, or otherwise alter explicit anchors."
+    ),
+    ("forecast_backtest_run", "spacing"): (
+        "Bars between rolling-origin anchors when --anchors is omitted. This "
+        "value does not select or alter explicit anchors."
+    ),
+    ("forecast_backtest_run", "anchors"): (
+        "Optional explicit backtest anchors (1-200) in strictly increasing UTC "
+        "ISO order. Pass multiple values or a JSON array; values normalize to "
+        "second-precision ...Z form. When set, --steps and --spacing remain "
+        "rolling-mode settings and do not select or alter these anchors."
+    ),
     ("forecast_train", "lookback"): (
         "Historical bars to train on. Omit for the method default "
         "(native theta/fourier_ols: 300 bars)."

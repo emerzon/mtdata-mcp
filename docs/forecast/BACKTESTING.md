@@ -39,6 +39,39 @@ Timeline: [----history----][forecast horizon]
 
 **Example:** `steps=20, spacing=12, horizon=12` creates 20 test points, each 12 bars apart, each forecasting 12 bars ahead.
 
+### Exact explicit anchors
+
+Use `--anchors` when an experiment must evaluate a preregistered timestamp grid
+instead of letting the rolling scheduler work backward from the latest bar. Pass
+1–200 strictly increasing UTC ISO timestamps, either as separate values or as a
+JSON array:
+
+```bash
+mtdata-cli forecast_backtest_run BTCUSD --timeframe H1 --horizon 24 \
+  --lookback 720 --start 2022-06-01 --end 2022-12-31 \
+  --anchors '["2022-07-04T00:00:00Z","2022-07-11T00:00:00Z"]' \
+  --methods mlf_lightgbm --quantity return --detail full
+```
+
+An anchor timestamp is the candle's **open time**. With an H1 anchor at
+`00:00Z`, that input candle completes at `01:00Z`; only then is its forecast
+actionable. The built-in trade simulation enters at the next candle open, also
+`01:00Z` when the feed is continuous.
+
+Explicit mode resolves each timestamp to that exact MT5 candle open. A missing
+or duplicate bar, insufficient prior history, incomplete future horizon, or
+overlapping validation window fails the entire request before any model is fit.
+It never substitutes a nearby candle or drops an origin. `--start` is the
+history floor, not the first scored origin, and `--end` must include every
+realized target candle. `--steps` and `--spacing` remain rolling-mode settings
+and do not alter an explicit list.
+
+Successful output records the canonical list in
+`backtest_plan.requested_anchors` and `resolved_anchors`, with
+`anchor_resolution=exact_bar_open`. Full detail also includes each forecast's
+`actual_timestamps`; preserve those fields when matching results across methods
+or horizons.
+
 ---
 
 ## Quick Start
@@ -78,6 +111,7 @@ mtdata-cli forecast_backtest_run <SYMBOL> [OPTIONS]
 | `--horizon` | 12 | Bars to forecast at each anchor |
 | `--steps` | 5 | Number of test anchors |
 | `--spacing` | 20 | Bars between anchors; must be `>= --horizon` when `--steps > 1` |
+| `--anchors` | unset | Exact UTC candle-open timestamps (1–200); replaces rolling anchor selection |
 | `--methods` | auto | Space or comma-separated method names |
 
 ### Method Parameters
