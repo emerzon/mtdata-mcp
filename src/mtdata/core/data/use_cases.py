@@ -301,6 +301,12 @@ def _run_data_fetch_candles_impl(
             request=request,
             page_offset=page_offset,
         )
+        query_applied = result.get("query_applied")
+        if not isinstance(query_applied, dict):
+            query_applied = {}
+        _disclose_in_progress_end_clamp(query_applied, request.end)
+        if query_applied:
+            result["query_applied"] = query_applied
         _reconcile_returned_window_completeness(result)
         if request.start or request.end:
             _normalize_range_limit_contract(
@@ -1012,6 +1018,29 @@ def _forming_bar_exclusion_affects_range(
     return latest_close_epoch < end_dt.astimezone(timezone.utc).timestamp() - 1e-6
 
 
+def _disclose_in_progress_end_clamp(
+    query_applied: Dict[str, Any],
+    end: Optional[str],
+    *,
+    now: Optional[datetime] = None,
+) -> None:
+    """Echo when a date-only current-day --end is clamped to now."""
+    if end in (None, "") or not isinstance(query_applied, dict):
+        return
+    parsed = _parse_end_datetime(str(end))
+    if parsed is None:
+        return
+    now_utc = now or datetime.now(timezone.utc)
+    now_naive = now_utc.astimezone(timezone.utc).replace(tzinfo=None)
+    if parsed.tzinfo is not None:
+        parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    if not _is_in_progress_calendar_day_end(str(end), parsed, now_naive):
+        return
+    query_applied["effective_end"] = format_datetime_utc(now_utc)
+    query_applied["end_clamped_to"] = "now"
+    query_applied.setdefault("end", str(end))
+
+
 def _apply_range_limit_cap(  # noqa: C901
     result: Dict[str, Any],
     *,
@@ -1048,6 +1077,7 @@ def _apply_range_limit_cap(  # noqa: C901
     query_applied["selection"] = "first_n" if start_anchored else "last_n"
     query_applied["order"] = "ascending"
     query_applied["limit_source"] = "user" if limit_explicit else "default"
+    _disclose_in_progress_end_clamp(query_applied, end)
     try:
         limit_value = max(1, int(limit))
     except Exception:

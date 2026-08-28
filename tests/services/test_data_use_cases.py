@@ -15,11 +15,32 @@ from mtdata.core.data.requests import (
 from mtdata.core.data.use_cases import (
     _attach_forming_indicator_warning,
     _compact_tick_row,
+    _disclose_in_progress_end_clamp,
     run_data_fetch_candles,
     run_data_fetch_ticks,
 )
 from mtdata.utils import symbol as symbol_utils
 from mtdata.utils.mt5 import MT5ConnectionError
+
+
+def test_disclose_in_progress_end_clamp_echoes_effective_end():
+    query = {"mode": "range", "end": "2026-08-28", "resolved_end": "2026-08-28T23:59:59.999999Z"}
+    now = datetime(2026, 8, 28, 4, 15, tzinfo=timezone.utc)
+
+    _disclose_in_progress_end_clamp(query, "2026-08-28", now=now)
+
+    assert query["effective_end"] == "2026-08-28T04:15:00Z"
+    assert query["end_clamped_to"] == "now"
+    assert query["end"] == "2026-08-28"
+
+
+def test_disclose_in_progress_end_clamp_skips_elapsed_days():
+    query = {"mode": "range", "end": "2026-08-27"}
+    now = datetime(2026, 8, 28, 4, 15, tzinfo=timezone.utc)
+
+    _disclose_in_progress_end_clamp(query, "2026-08-27", now=now)
+
+    assert "effective_end" not in query
 
 
 def test_run_data_fetch_candles_logs_finish_event(caplog):
