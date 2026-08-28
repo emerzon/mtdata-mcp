@@ -12,7 +12,7 @@ from ...bootstrap.settings import mt5_config
 from ...shared.constants import TIMEFRAME_SECONDS
 from ...shared.validators import unsupported_timeframe_seconds_error
 from ...utils.freshness import closed_session_context
-from ...utils.time import format_epoch_utc
+from ...utils.time import format_datetime_utc, format_epoch_utc
 
 ExpirationValue = Union[int, float, str, datetime]
 _GTC_EXPIRATION_TOKENS = {"GTC"}
@@ -274,8 +274,8 @@ def _next_candle_wait_payload(
         "timeframe": str(timeframe).upper().strip(),
         "buffer_seconds": float(buffer_seconds),
         "sleep_seconds": float(wait_seconds),
-        "started_at_utc": current_utc.isoformat(),
-        "next_candle_close_utc": next_close_utc.isoformat(),
+        "started_at_utc": format_datetime_utc(current_utc, timespec="auto"),
+        "next_candle_close_utc": format_datetime_utc(next_close_utc, timespec="auto"),
         "next_candle_close_server": server_close_aware.isoformat(),
         "server_timezone": str(server_tz_name),
         "server_utc_offset": server_utc_offset,

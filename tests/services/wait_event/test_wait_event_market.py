@@ -1182,7 +1182,7 @@ def test_format_account_match_uses_millisecond_timestamp_fields() -> None:
         gateway=SequenceGateway(),
     )
 
-    assert match["observed"]["time_utc"] == "1970-01-01T02:00:01.500000+00:00"
+    assert match["observed"]["time_utc"] == "1970-01-01T02:00:01.500000Z"
 
 def test_merge_market_ticks_dedupes_rows_with_missing_volume_fields() -> None:
     existing = wait_events_mod._normalize_tick_rows(

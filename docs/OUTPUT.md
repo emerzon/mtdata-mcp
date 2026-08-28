@@ -242,7 +242,8 @@ mtdata-cli tools_list --category forecast --limit 20 --offset 20 --json
 For candle and tick rows, `timestamp_format` is the authoritative description
 of the serialized `time` value. `iso_utc` means an ISO 8601 value with a UTC
 offset, `iso_offset` means an ISO 8601 value in the named `timezone`, and
-`epoch_seconds` means Unix seconds in UTC.
+`epoch_seconds` means Unix seconds in UTC. UTC instants use the RFC 3339 `Z`
+suffix (`2026-08-28T04:15:00Z`), not `+00:00`.
 
 Compact responses keep `timestamp_format` and `timezone`. They include
 `time_basis`, `timestamp_mode`, `public_timestamp_mode`, or

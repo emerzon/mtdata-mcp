@@ -1259,7 +1259,7 @@ def test_run_wait_event_boundary_only_includes_gateway_quote_when_symbol_is_set(
     assert result["event"] == "candle_close"
     assert result["bid"] == 1.305
     assert result["ask"] == 1.3054
-    assert result["observed_at_utc"] == "2026-03-15T12:00:00+00:00"
+    assert result["observed_at_utc"] == "2026-03-15T12:00:00Z"
 
 def test_run_wait_event_boundary_only_includes_closed_candle_stats(monkeypatch) -> None:
     monkeypatch.setattr(
@@ -1327,8 +1327,8 @@ def test_run_wait_event_boundary_only_includes_closed_candle_stats(monkeypatch) 
     closed_candle = result["boundary_event"]["closed_candle"]
     assert closed_candle["symbol"] == "EURUSD"
     assert closed_candle["timeframe"] == "M1"
-    assert closed_candle["open_time_utc"] == "2026-03-15T12:00:00+00:00"
-    assert closed_candle["close_time_utc"] == "2026-03-15T12:01:00+00:00"
+    assert closed_candle["open_time_utc"] == "2026-03-15T12:00:00Z"
+    assert closed_candle["close_time_utc"] == "2026-03-15T12:01:00Z"
     assert closed_candle["open"] == 1.1
     assert closed_candle["high"] == 1.2
     assert closed_candle["low"] == 1.0
@@ -1552,7 +1552,7 @@ def test_run_wait_event_waits_across_dst_gap(monkeypatch) -> None:
     assert result["matched"] is False
     assert result["error_code"] == "wait_event_boundary_reached"
     assert result["boundary_event"]["type"] == "candle_close"
-    assert result["boundary_event"]["next_candle_close_utc"] == "2026-03-29T01:00:00+00:00"
+    assert result["boundary_event"]["next_candle_close_utc"] == "2026-03-29T01:00:00Z"
     assert result["elapsed_seconds"] == 361.0
     assert result["polls"] > 1
 

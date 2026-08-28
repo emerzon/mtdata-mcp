@@ -18,6 +18,7 @@ from mtdata.core.data.requests import WaitEventWindow
 from mtdata.utils.coercion import coerce_finite_float as _finite_number
 from mtdata.utils.mt5 import _to_server_query_dt
 from mtdata.utils.tick_flags import is_mt5_trade_event
+from mtdata.utils.time import format_datetime_utc
 
 _MARKET_BOOTSTRAP_MIN_SECONDS = 60.0
 
@@ -929,3 +930,8 @@ def _normalize_utc_datetime(value: Any) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
     return value.astimezone(timezone.utc)
+
+
+def _format_utc_iso(value: Any) -> str:
+    """Serialize a UTC datetime with the shared RFC 3339 ``Z`` suffix."""
+    return format_datetime_utc(_normalize_utc_datetime(value), timespec="auto")

@@ -75,7 +75,7 @@ def test_sleep_until_next_candle_returns_expected_wait(utc_server_clock) -> None
     assert payload["sleep_seconds"] == 171.0
     assert payload["slept"] is True
     assert payload["status"] == "completed"
-    assert payload["next_candle_close_utc"] == "2026-03-13T10:05:00+00:00"
+    assert payload["next_candle_close_utc"] == "2026-03-13T10:05:00Z"
 
 
 def test_next_candle_wait_payload_handles_dst_gap(monkeypatch) -> None:
@@ -95,7 +95,7 @@ def test_next_candle_wait_payload_handles_dst_gap(monkeypatch) -> None:
     assert datetime.fromisoformat(payload["next_candle_close_server"]).astimezone(
         timezone.utc
     ) == datetime.fromisoformat(payload["next_candle_close_utc"])
-    assert payload["next_candle_close_utc"] == "2026-03-29T01:00:00+00:00"
+    assert payload["next_candle_close_utc"] == "2026-03-29T01:00:00Z"
     assert payload["sleep_seconds"] == 361.0
 
 

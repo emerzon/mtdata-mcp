@@ -46,6 +46,7 @@ from mtdata.core.data.wait_events.ticks import (
     _build_market_state,
     _coerce_rows,
     _finite_number,
+    _format_utc_iso,
     _market_symbols,
     _normalize_utc_datetime,
     _refresh_market_state,
@@ -453,7 +454,7 @@ def _run_candle_boundary_only(
     if request.symbols is not None:
         payload["symbols"] = list(request.symbols)
     observed_at_value = _normalize_utc_datetime(now_utc_impl())
-    payload["observed_at_utc"] = observed_at_value.isoformat()
+    payload["observed_at_utc"] = _format_utc_iso(observed_at_value)
     quote_after_wait = _wait_result_quote_payload(
         request=request,
         watch_for_payload=[],
@@ -870,8 +871,8 @@ def _build_wait_result(
         "events": [matched_event] if matched_event is not None else [],
         "matched_event": matched_event,
         "boundary_event": boundary_event,
-        "started_at_utc": started_at_utc.isoformat(),
-        "observed_at_utc": observed_at_utc.isoformat(),
+        "started_at_utc": _format_utc_iso(started_at_utc),
+        "observed_at_utc": _format_utc_iso(observed_at_utc),
         "elapsed_seconds": round(elapsed_seconds, 6),
         "polls": int(polls),
         "poll_interval_seconds": float(request.poll_interval_seconds),
@@ -1227,7 +1228,7 @@ def _market_quote_alignment_error(
                 "tolerance": tolerance,
                 "history_tick_epoch": history_epoch,
                 "live_tick_epoch": live_epoch,
-                "observed_at_utc": observed_at_utc.isoformat(),
+                "observed_at_utc": _format_utc_iso(observed_at_utc),
             },
         }
     return None

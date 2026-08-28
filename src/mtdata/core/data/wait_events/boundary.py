@@ -16,6 +16,7 @@ from mtdata.core.data.wait_events.compile import _resolved_wait_result_symbol
 from mtdata.core.data.wait_events.ticks import (
     _coerce_rows,
     _finite_number,
+    _format_utc_iso,
     _normalize_optional_utc_datetime,
     _row_float,
     _row_value,
@@ -259,8 +260,8 @@ def _format_boundary_closed_candle(
     payload: Dict[str, Any] = {
         "symbol": str(symbol).upper().strip(),
         "timeframe": timeframe,
-        "open_time_utc": open_at_utc.isoformat(),
-        "close_time_utc": close_at_utc.isoformat(),
+        "open_time_utc": _format_utc_iso(open_at_utc),
+        "close_time_utc": _format_utc_iso(close_at_utc),
         "open": float(open_price),
         "high": float(high_price),
         "low": float(low_price),

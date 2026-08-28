@@ -17,6 +17,7 @@ from mtdata.core.data.wait_events.ticks import (
     _datetime_epoch_millis,
     _finite_number,
     _first_int,
+    _format_utc_iso,
     _mt5_millis_to_utc,
     _normalize_optional_utc_datetime,
     _normalize_utc_datetime,
@@ -485,7 +486,7 @@ def _format_inferred_position_closed(row: Any, *, gateway: Any, observed_at_utc:
             "side": _row_side(row, gateway=gateway),
             "reason": None,
             "comment": None,
-            "time_utc": _normalize_utc_datetime(observed_at_utc).isoformat(),
+            "time_utc": _format_utc_iso(observed_at_utc),
             "inferred": True,
             "source": "position_disappeared",
         },
@@ -766,14 +767,16 @@ def _row_time_iso(row: Any) -> Optional[str]:
     for key in ("time", "time_done", "time_setup", "time_update"):
         value_millis = _row_int(row, f"{key}_msc")
         if value_millis is not None:
-            return datetime.fromtimestamp(
-                _mt5_millis_to_utc(value_millis) / 1000.0,
-                tz=timezone.utc,
-            ).isoformat()
+            return _format_utc_iso(
+                datetime.fromtimestamp(
+                    _mt5_millis_to_utc(value_millis) / 1000.0,
+                    tz=timezone.utc,
+                )
+            )
         value = _row_value(row, key)
         if value is None:
             continue
         dt = _normalize_optional_utc_datetime(value)
         if dt is not None:
-            return dt.isoformat()
+            return _format_utc_iso(dt)
     return None
