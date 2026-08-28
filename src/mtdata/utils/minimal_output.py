@@ -1231,11 +1231,9 @@ def _normalize_market_ticker_payload(  # noqa: C901
         "spread_valid",
         "spread_quality",
         "quote_source_state",
-        "quote_source_conflict",
         "quote_conflict_pips",
         "alternate_bid",
         "alternate_ask",
-        "source",
     ]
     if not _is_empty_value(payload.get("spread")):
         compact_keys.append("spread")
@@ -1268,6 +1266,8 @@ def _normalize_market_ticker_payload(  # noqa: C901
         "market_status",
         "note",
         "warning",
+        "quote_source_conflict",
+        "source",
     )
     if verbose:
         selected_keys = tuple(dict.fromkeys([*compact_keys, *verbose_extra_keys]))
@@ -1310,6 +1310,9 @@ def _normalize_market_ticker_payload(  # noqa: C901
         out["time"] = canonical_time
     if verbose and not _is_empty_value(epoch_time):
         out["time_epoch"] = epoch_time
+    source = payload.get("source")
+    if not _is_empty_value(source):
+        out["source"] = source
 
     diagnostics = payload.get("diagnostics")
     if isinstance(diagnostics, dict) and diagnostics:

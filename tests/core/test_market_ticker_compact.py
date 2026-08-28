@@ -117,6 +117,8 @@ def test_compact_ticker_keeps_market_status_and_conflict_size() -> None:
                 "symbol_info_tick": {"bid": 1.16749, "ask": 1.16767},
                 "stream_tick": {"bid": 1.16753, "ask": 1.16763},
             },
+            "source": {"provider": "mt5"},
+            "spread": 0.0001,
         }
     )
 
@@ -125,6 +127,10 @@ def test_compact_ticker_keeps_market_status_and_conflict_size() -> None:
     assert result["quote_conflict_pips"] == 0.4
     assert result["alternate_bid"] == 1.16749
     assert result["alternate_ask"] == 1.16767
+    assert "quote_source_conflict" not in result
+    keys = list(result)
+    assert keys.index("spread") < keys.index("source")
+    assert keys.index("quote_source_state") < keys.index("source")
 
 
 def test_compact_ticker_omits_last_unavailable_flag() -> None:

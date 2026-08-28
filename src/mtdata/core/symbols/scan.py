@@ -715,6 +715,7 @@ def _market_scan_units_for_rows(rows: List[Dict[str, Any]]) -> Dict[str, str]:
 def _attach_top_markets_units(
     out: Dict[str, Any],
     *row_groups: List[Dict[str, Any]],
+    headers: Optional[List[str]] = None,
 ) -> None:
     rows = [
         row
@@ -723,6 +724,14 @@ def _attach_top_markets_units(
         if isinstance(row, dict)
     ]
     units = _market_scan_units_for_rows(rows)
+    allowed_headers = [str(header) for header in (headers or []) if str(header)]
+    if not allowed_headers:
+        columns = out.get("columns")
+        if isinstance(columns, list):
+            allowed_headers = [str(header) for header in columns if str(header)]
+    if allowed_headers:
+        allowed = set(allowed_headers)
+        units = {key: unit for key, unit in units.items() if key in allowed}
     if units:
         out["units"] = units
     _attach_market_scan_volume_semantics(out, units)
@@ -2311,8 +2320,9 @@ def symbols_top_markets(  # noqa: C901
                 )
 
             if rank_kind == "spread":
+                spread_headers = _top_markets_headers("spread", detail_mode=detail_mode)
                 out = _market_scan_table(
-                    _top_markets_headers("spread", detail_mode=detail_mode),
+                    spread_headers,
                     spread_rows,
                     include_contract_meta=detail_mode == "full",
                 )
@@ -2325,7 +2335,7 @@ def symbols_top_markets(  # noqa: C901
                         include_stale_symbols=detail_mode == "full",
                     )
                 )
-                _attach_top_markets_units(out, spread_rows)
+                _attach_top_markets_units(out, spread_rows, headers=spread_headers)
                 if detail_mode == "full":
                     out["evaluated_symbols"] = evaluated_counts["spread"]
                     out["skipped_symbols"] = metric_skips["spread"]
@@ -2333,8 +2343,9 @@ def symbols_top_markets(  # noqa: C901
                 return out
 
             if rank_kind == "volume":
+                volume_headers = _top_markets_headers("volume", detail_mode=detail_mode)
                 out = _market_scan_table(
-                    _top_markets_headers("volume", detail_mode=detail_mode),
+                    volume_headers,
                     volume_rows,
                     include_contract_meta=detail_mode == "full",
                 )
@@ -2347,7 +2358,7 @@ def symbols_top_markets(  # noqa: C901
                         include_stale_symbols=detail_mode == "full",
                     )
                 )
-                _attach_top_markets_units(out, volume_rows)
+                _attach_top_markets_units(out, volume_rows, headers=volume_headers)
                 _attach_tick_volume_comparability(out, volume_rows)
                 if detail_mode == "full":
                     out["evaluated_symbols"] = evaluated_counts["volume"]
@@ -2356,8 +2367,11 @@ def symbols_top_markets(  # noqa: C901
                 return out
 
             if rank_kind in {"price_change", "abs_price_change"}:
+                price_change_headers = _top_markets_headers(
+                    "price_change", detail_mode=detail_mode
+                )
                 out = _market_scan_table(
-                    _top_markets_headers("price_change", detail_mode=detail_mode),
+                    price_change_headers,
                     price_change_rows,
                     include_contract_meta=detail_mode == "full",
                 )
@@ -2385,7 +2399,9 @@ def symbols_top_markets(  # noqa: C901
                         include_stale_symbols=detail_mode == "full",
                     )
                 )
-                _attach_top_markets_units(out, price_change_rows)
+                _attach_top_markets_units(
+                    out, price_change_rows, headers=price_change_headers
+                )
                 if detail_mode == "full":
                     out["evaluated_symbols"] = evaluated_counts["price_change"]
                     out["skipped_symbols"] = metric_skips["price_change"]
@@ -2406,8 +2422,9 @@ def symbols_top_markets(  # noqa: C901
                     abs_price_change_rows,
                 ),
             ]
+            all_headers = _top_markets_all_headers(detail_mode=detail_mode)
             out = _market_scan_table(
-                _top_markets_all_headers(detail_mode=detail_mode),
+                all_headers,
                 all_rows,
                 include_contract_meta=detail_mode == "full",
             )
@@ -2547,7 +2564,7 @@ def symbols_top_markets(  # noqa: C901
                         "skipped_examples": metric_issues["price_change"],
                     },
                 }
-            _attach_top_markets_units(out, all_rows)
+            _attach_top_markets_units(out, all_rows, headers=all_headers)
             _attach_tick_volume_comparability(out, volume_rows)
             return out
         except MT5ConnectionError as exc:
@@ -3238,7 +3255,6 @@ def market_scan(  # noqa: C901
                 "ask",
                 "spread_quality",
                 "quote_source_state",
-                "quote_source_conflict",
                 "quote_usable_for_live_trading",
                 "price_change_pct",
                 "live_price_change_pct",

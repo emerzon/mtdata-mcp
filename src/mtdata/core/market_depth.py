@@ -167,7 +167,10 @@ def _compact_market_ticker_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
         "bid",
         "ask",
         "mid",
+        "spread_valid",
+        "spread_quality",
         "market_status",
+        "market_status_reason",
         "freshness",
         "freshness_state",
         "freshness_reason",
@@ -177,17 +180,13 @@ def _compact_market_ticker_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
         "related_live_symbols",
         "timestamp_warning",
         "warning",
-        "source",
-        "quote_source",
         "quote_source_state",
         "data_age_seconds",
-        "quote_source_conflict",
-        "spread_valid",
-        "spread_quality",
-        "market_status_reason",
         "quote_as_of",
         "time",
         "timezone",
+        "quote_source",
+        "source",
     )
     if skew_active:
         compact_keys = compact_keys + (
@@ -208,7 +207,7 @@ def _compact_market_ticker_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
             value = payload.get(key)
         if value is not None:
             out[key] = value
-    quote_conflict = out.get("quote_source_conflict")
+    quote_conflict = payload.get("quote_source_conflict")
     if isinstance(quote_conflict, dict):
         conflict_pips = quote_conflict.get("max_disagreement_pips")
         if conflict_pips is not None:
@@ -219,9 +218,22 @@ def _compact_market_ticker_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
                 out["alternate_bid"] = cached_pair.get("bid")
             if cached_pair.get("ask") is not None:
                 out["alternate_ask"] = cached_pair.get("ask")
-    for key in ("spread", "spread_points", "spread_pips", "spread_pct"):
-        if payload.get(key) is not None:
-            out[key] = payload[key]
+    spread_fields = {
+        key: payload[key]
+        for key in ("spread", "spread_points", "spread_pips", "spread_pct")
+        if payload.get(key) is not None
+    }
+    if spread_fields:
+        reordered = {}
+        inserted_spread = False
+        for key, value in out.items():
+            if not inserted_spread and key in {"spread_valid", "spread_quality", "market_status"}:
+                reordered.update(spread_fields)
+                inserted_spread = True
+            reordered[key] = value
+        if not inserted_spread:
+            reordered.update(spread_fields)
+        out = reordered
     if "spread_points" in out and payload.get("point") is not None:
         out["point"] = payload.get("point")
     units = payload.get("units")

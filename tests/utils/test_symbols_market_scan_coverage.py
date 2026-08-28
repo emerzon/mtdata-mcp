@@ -9,6 +9,25 @@ from unittest.mock import patch
 import pytest
 
 
+def test_top_markets_units_follow_emitted_headers():
+    from mtdata.core.symbols.scan import _attach_top_markets_units
+
+    out: dict = {}
+    rows = [
+        {
+            "bid": 1.1,
+            "close": 1.2,
+            "spread_cost_per_lot": 3.0,
+            "price_change_pct": 0.1,
+        }
+    ]
+    _attach_top_markets_units(out, rows, headers=["bid", "price_change_pct"])
+
+    assert set(out["units"]) == {"bid", "price_change_pct"}
+    assert "close" not in out["units"]
+    assert "spread_cost_per_lot" not in out["units"]
+
+
 def _unwrap(fn):
     while hasattr(fn, "__wrapped__"):
         fn = fn.__wrapped__

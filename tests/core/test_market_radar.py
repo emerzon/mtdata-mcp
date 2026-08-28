@@ -9,6 +9,7 @@ from pydantic import ValidationError
 from mtdata.core.radar import (
     RADAR_MAX_SYMBOLS,
     MarketRadarRequest,
+    compact_radar_row,
     parse_radar_symbols,
     run_market_radar,
 )
@@ -146,6 +147,27 @@ def test_market_radar_keeps_compact_clock_skew_evidence() -> None:
     assert row["quote_freshness_reason"] == "clock_skew_within_tolerance"
     assert row["quote_timestamp_ahead_of_wall_clock"] is True
     assert row["quote_timestamp_skew_seconds"] == 3.0
+
+
+def test_compact_radar_row_drops_quote_source_conflict_blob() -> None:
+    row = compact_radar_row(
+        {
+            "symbol": "USDJPY",
+            "bid": 159.4,
+            "ask": 159.4,
+            "quote_usable_for_live_trading": True,
+            "quote_source_state": "reconciled_equal_timestamp_conflict",
+            "quote_source_conflict": {
+                "reason": "equal_timestamp_bid_ask_disagreement",
+                "time_epoch": 1787876270,
+                "selected_source": "mt5.copy_ticks_range",
+            },
+        }
+    )
+
+    assert row is not None
+    assert row["quote_source_state"] == "reconciled_equal_timestamp_conflict"
+    assert "quote_source_conflict" not in row
 
 
 def test_market_radar_fails_closed_when_quote_readiness_is_missing() -> None:

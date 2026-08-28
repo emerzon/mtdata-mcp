@@ -51,7 +51,6 @@ _ROW_KEYS = (
     "quote_timestamp_skew_seconds",
     "quote_timestamp_warning",
     "quote_source_state",
-    "quote_source_conflict",
     "quote_usable_for_live_trading",
     "quote_usable_for_live_trading_basis",
     "quote_not_live_ready",
