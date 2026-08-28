@@ -195,6 +195,7 @@ def test_forecast_delegates_to_engine_without_mutating_params(monkeypatch):
         quantity="return",
         params=params,
         features={"include": "open,high low", "future_covariates": "hour,dow,fourier:24,is_weekend"},
+        model_cache="ephemeral",
     )
 
     assert out["success"] is True
@@ -202,7 +203,23 @@ def test_forecast_delegates_to_engine_without_mutating_params(monkeypatch):
     assert captured["timeframe"] == "H1"
     assert captured["params"] == {"alpha": 1}
     assert captured["features"] == {"include": "open,high low", "future_covariates": "hour,dow,fourier:24,is_weekend"}
+    assert captured["model_cache"] == "ephemeral"
     assert params == {"alpha": 1}
+
+
+def test_forecast_defaults_to_reusable_model_cache(monkeypatch):
+    captured = {}
+
+    def fake_engine(**kwargs):
+        captured.update(kwargs)
+        return {"success": True, "forecast_price": [1.0]}
+
+    monkeypatch.setattr(fe, "forecast_engine", fake_engine)
+
+    out = ff.forecast(symbol="EURUSD", timeframe="H1", method="theta", horizon=1)
+
+    assert out["success"] is True
+    assert captured["model_cache"] == "reuse"
 
 
 def test_forecast_engine_error_passthrough(monkeypatch):

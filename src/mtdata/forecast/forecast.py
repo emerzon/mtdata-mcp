@@ -162,6 +162,7 @@ def forecast(
     prefetched_df: Optional[Any] = None,
     prefetched_base_col: Optional[str] = None,
     prefetched_denoise_spec: Optional[Any] = None,
+    model_cache: Literal["reuse", "ephemeral", "require_existing"] = "reuse",
 ) -> Dict[str, Any]:
     """Compatibility entrypoint that returns expected forecast errors as data."""
     try:
@@ -186,6 +187,7 @@ def forecast(
             prefetched_df=prefetched_df,
             prefetched_base_col=prefetched_base_col,
             prefetched_denoise_spec=prefetched_denoise_spec,
+            model_cache=model_cache,
         )
     except ForecastResultError as exc:
         return {"error": str(exc)}

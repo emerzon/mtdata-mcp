@@ -3252,6 +3252,7 @@ def forecast_backtest(  # noqa: C901
                             dimred_method=dimred_method,
                             dimred_params=dimred_params,
                             prefetched_df=anchor_history,
+                            model_cache="ephemeral",
                         ))
                 except Exception as ex:
                     per_anchor.append({"anchor": anchor_time, "success": False, "error": str(ex)})
@@ -3749,6 +3750,7 @@ def forecast_backtest(  # noqa: C901
             "methods_planned": list(methods),
             "method_count": int(len(methods)),
             "fits_planned": int(len(methods) * len(anchor_indices)),
+            "fit_artifact_policy": "ephemeral_not_persisted",
         }
         if model_lookback is not None:
             backtest_plan["model_lookback_bars"] = model_lookback

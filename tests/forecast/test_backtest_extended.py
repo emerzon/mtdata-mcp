@@ -231,7 +231,7 @@ class TestForecastBacktest:
         assert isinstance(result, dict)
 
     @patch("mtdata.forecast.backtest._fetch_history")
-    def test_reuses_prefetched_anchor_history_for_nested_forecasts(self, fetch):
+    def test_reuses_prefetched_history_with_ephemeral_nested_forecasts(self, fetch):
         df = _make_df(500)
         fetch.return_value = df
         captured = []
@@ -247,6 +247,7 @@ class TestForecastBacktest:
                         prefetched["close"].to_numpy(),
                         df["close"].to_numpy(),
                     ),
+                    "model_cache": kwargs.get("model_cache"),
                 }
             )
             return {"forecast_price": [101.0] * 12}
@@ -262,18 +263,23 @@ class TestForecastBacktest:
             )
 
         assert result.get("success") is True
+        assert result["backtest_plan"]["fit_artifact_policy"] == (
+            "ephemeral_not_persisted"
+        )
         assert captured == [
             {
                 "as_of": _format_time_minimal(float(df["time"].iloc[474])),
                 "prefetched_len": 475,
                 "prefetched_last_time": float(df["time"].iloc[474]),
                 "shares_source_memory": True,
+                "model_cache": "ephemeral",
             },
             {
                 "as_of": _format_time_minimal(float(df["time"].iloc[487])),
                 "prefetched_len": 488,
                 "prefetched_last_time": float(df["time"].iloc[487]),
                 "shares_source_memory": True,
+                "model_cache": "ephemeral",
             },
         ]
 
