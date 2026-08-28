@@ -3292,7 +3292,7 @@ def forecast_backtest(  # noqa: C901
                     mae = float(abs(pred_sigma - realized_sigma)) if np.isfinite(pred_sigma) and np.isfinite(realized_sigma) else float('nan')
                     rmse = mae
                     nested_data_window = r.get("data_window") or {}
-                    per_anchor.append({
+                    detail_row = {
                         "anchor": anchor_time,
                         "success": np.isfinite(pred_sigma) and np.isfinite(realized_sigma),
                         "mae": mae,
@@ -3318,7 +3318,10 @@ def forecast_backtest(  # noqa: C901
                             ),
                             "end": nested_data_window.get("end", anchor_time),
                         },
-                    })
+                    }
+                    if include_paths and isinstance(r.get("params_used"), dict):
+                        detail_row["params_used"] = deepcopy(r["params_used"])
+                    per_anchor.append(detail_row)
                 else:
                     if target_mode == 'return':
                         fc = r.get('forecast_return')

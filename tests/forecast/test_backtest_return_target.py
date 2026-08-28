@@ -78,6 +78,110 @@ def test_backtest_volatility_with_return_target_uses_price_truth_windows() -> No
     assert "directional_accuracy_reference" not in res
 
 
+def test_backtest_volatility_full_detail_propagates_effective_params() -> None:
+    times = np.arange(1699999980, 1699999980 + 70 * 3600, 3600, dtype=float)
+    close = np.linspace(100.0, 120.0, 70, dtype=float)
+    df = pd.DataFrame({"time": times, "close": close})
+
+    idx = 60
+    anchor = _format_time_minimal(float(times[idx]))
+    params_used = {
+        "lookback": 60,
+        "lambda_": 0.97,
+        "lambda_source": "lambda_",
+    }
+
+    with patch("mtdata.forecast.backtest._fetch_history", return_value=df), patch(
+        "mtdata.forecast.backtest.forecast_volatility",
+        return_value={
+            "volatility_horizon": 0.02,
+            "params_used": params_used,
+        },
+    ) as volatility:
+        result = forecast_backtest(
+            symbol="BTCUSD",
+            timeframe="H1",
+            horizon=3,
+            lookback=60,
+            methods=["ewma"],
+            params_per_method={"ewma": {"lambda_": 0.97}},
+            anchors=[anchor],
+            quantity="volatility",
+            detail="full",
+        )
+
+    volatility.assert_called_once()
+    assert volatility.call_args.kwargs["params"] == {
+        "lambda_": 0.97,
+        "lookback": 60,
+    }
+    detail = result["results"]["ewma"]["details"][0]
+    assert detail["params_used"] == params_used
+
+
+def test_backtest_volatility_compact_detail_omits_effective_params() -> None:
+    times = np.arange(1699999980, 1699999980 + 70 * 3600, 3600, dtype=float)
+    close = np.linspace(100.0, 120.0, 70, dtype=float)
+    df = pd.DataFrame({"time": times, "close": close})
+
+    idx = 60
+    anchor = _format_time_minimal(float(times[idx]))
+    with patch("mtdata.forecast.backtest._fetch_history", return_value=df), patch(
+        "mtdata.forecast.backtest.forecast_volatility",
+        return_value={
+            "volatility_horizon": 0.02,
+            "params_used": {"lookback": 60, "lambda_": 0.97},
+        },
+    ):
+        result = forecast_backtest(
+            symbol="BTCUSD",
+            timeframe="H1",
+            horizon=3,
+            lookback=60,
+            methods=["ewma"],
+            params_per_method={"ewma": {"lambda_": 0.97}},
+            anchors=[anchor],
+            quantity="volatility",
+        )
+
+    detail = result["results"]["ewma"]["details"][0]
+    assert "params_used" not in detail
+
+
+def test_backtest_volatility_copies_effective_params_per_anchor() -> None:
+    times = np.arange(1699999980, 1699999980 + 80 * 3600, 3600, dtype=float)
+    close = np.linspace(100.0, 120.0, 80, dtype=float)
+    df = pd.DataFrame({"time": times, "close": close})
+    anchors = [
+        _format_time_minimal(float(times[idx]))
+        for idx in (60, 64)
+    ]
+    shared_params = {"lookback": 60, "lambda_": 0.97}
+
+    with patch("mtdata.forecast.backtest._fetch_history", return_value=df), patch(
+        "mtdata.forecast.backtest.forecast_volatility",
+        side_effect=[
+            {"volatility_horizon": 0.02, "params_used": shared_params},
+            {"volatility_horizon": 0.03, "params_used": shared_params},
+        ],
+    ):
+        result = forecast_backtest(
+            symbol="BTCUSD",
+            timeframe="H1",
+            horizon=3,
+            lookback=60,
+            methods=["ewma"],
+            anchors=anchors,
+            quantity="volatility",
+            detail="full",
+        )
+
+    details = result["results"]["ewma"]["details"]
+    details[0]["params_used"]["lambda_"] = 0.5
+    assert details[1]["params_used"]["lambda_"] == 0.97
+    assert shared_params["lambda_"] == 0.97
+
+
 def test_backtest_aggregates_volatility_rmse_from_squared_errors() -> None:
     times = np.arange(1699999980, 1699999980 + 70 * 3600, 3600, dtype=float)
     close = np.linspace(100.0, 120.0, 70, dtype=float)

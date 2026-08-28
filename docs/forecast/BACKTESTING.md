@@ -326,6 +326,7 @@ Use `detail=full` to include individual test results:
       "mae": 0.00128,
       "rmse": 0.00165,
       "directional_accuracy": 0.636,
+      "params_used": {"season_length": 24},
       "forecast": [1.0542, 1.0545, ...],
       "actual": [1.0540, 1.0548, ...],
       "entry_price": 1.0538,
@@ -337,6 +338,10 @@ Use `detail=full` to include individual test results:
   ]
 }
 ```
+
+`params_used` contains the effective parameters returned by the underlying
+forecaster after defaults and normalization. It is included for successful
+price, return, and volatility anchors at full detail and can vary by anchor.
 
 ---
 
