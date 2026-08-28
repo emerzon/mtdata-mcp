@@ -1,5 +1,6 @@
 import re
 import time
+from difflib import SequenceMatcher
 from typing import Any, Callable, Optional, Sequence
 
 from ..shared.symbols import CRYPTO_QUOTE_CODES, CRYPTO_SYMBOL_HINTS
@@ -14,6 +15,42 @@ from .quote import (
 
 def _normalize_symbol_token(value: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+
+
+_REVERSE_SYMBOL_MIN_LEN = 4
+_FUZZY_SYMBOL_RATIO = 0.8
+
+
+def catalog_symbol_name_matches_query(
+    name: str,
+    query: str,
+    *,
+    fuzzy: bool = False,
+) -> bool:
+    """Match a catalog symbol to a typed query, including suffix-style typos.
+
+    Exact and forward substring matches stay first. Reverse substring covers
+    broker-suffix typos such as ``EURUSD1`` → ``EURUSD``. Optional fuzzy
+    matching is reserved for suggestion lists, not live search results.
+    """
+    name_text = str(name or "")
+    query_text = str(query or "").strip()
+    if not name_text or not query_text:
+        return False
+    if query_text.upper() in name_text.upper():
+        return True
+    name_token = _normalize_symbol_token(name_text)
+    query_token = _normalize_symbol_token(query_text)
+    if not name_token or not query_token:
+        return False
+    if len(name_token) >= _REVERSE_SYMBOL_MIN_LEN and name_token in query_token:
+        return True
+    if (
+        fuzzy
+        and SequenceMatcher(None, query_token, name_token).ratio() >= _FUZZY_SYMBOL_RATIO
+    ):
+        return True
+    return False
 
 
 def symbol_shorthand_rank(symbol: Any, query: str) -> int:
@@ -98,8 +135,10 @@ def match_symbol_infos(
             group = str(getattr(info, "path", "") or "")
         searchable = f"{name} {description} {group}"
         searchable_token = _normalize_symbol_token(searchable)
-        if query_upper in searchable.upper() or any(
-            token and token in searchable_token for token in query_tokens
+        if (
+            query_upper in searchable.upper()
+            or any(token and token in searchable_token for token in query_tokens)
+            or catalog_symbol_name_matches_query(name, text, fuzzy=True)
         ):
             matches.append(info)
     if sort_key is None:

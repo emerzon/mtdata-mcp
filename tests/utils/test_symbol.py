@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 from mtdata.utils.symbol import (
     _extract_group_path,
+    catalog_symbol_name_matches_query,
     match_symbol_infos,
     symbol_shorthand_rank,
 )
@@ -71,3 +72,20 @@ def test_extended_crypto_shorthand_prefers_pair_over_stock_prefix():
     crypto = SimpleNamespace(name="ATOMUSD", description="Cosmos", path="Crypto")
 
     assert match_symbol_infos([stock, crypto], "ATOM") == [crypto, stock]
+
+
+def test_catalog_symbol_name_matches_suffix_typo():
+    assert catalog_symbol_name_matches_query("EURUSD", "EURUSD1") is True
+    assert catalog_symbol_name_matches_query("EURUSD", "EURUSD.a") is True
+    assert catalog_symbol_name_matches_query("EURUSD", "EURJPY") is False
+    assert catalog_symbol_name_matches_query("EURUSD", "EURUSP", fuzzy=True) is True
+    assert catalog_symbol_name_matches_query("EURUSD", "EURUSP") is False
+
+
+def test_match_symbol_infos_suggests_suffix_typo():
+    eurusd = SimpleNamespace(name="EURUSD", description="Euro vs US Dollar", path="Forex\\Majors")
+    eurusd_m = SimpleNamespace(name="EURUSDm", description="Euro vs US Dollar mini", path="Forex")
+    gbpusd = SimpleNamespace(name="GBPUSD", description="Pound vs US Dollar", path="Forex\\Majors")
+
+    matches = match_symbol_infos([gbpusd, eurusd, eurusd_m], "EURUSD1")
+    assert [item.name for item in matches] == ["EURUSD", "EURUSDm"]

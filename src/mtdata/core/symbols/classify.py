@@ -14,6 +14,7 @@ from ...shared.symbols import FOREX_CURRENCY_CODES as _FOREX_CURRENCY_CODES
 from ...utils.symbol import _extract_group_path as _extract_group_path_util
 from ...utils.symbol import (
     _normalize_group_path_query,
+    catalog_symbol_name_matches_query,
     symbol_shorthand_rank,
 )
 from ..error_envelope import build_error_payload
@@ -506,7 +507,10 @@ def _match_symbols_for_search(
 
         symbol_name = str(getattr(symbol, "name", "") or "")
         description = str(getattr(symbol, "description", "") or "")
-        name_hit = search_upper in symbol_name.upper()
+        name_hit = search_upper in symbol_name.upper() or catalog_symbol_name_matches_query(
+            symbol_name,
+            search_term,
+        )
         description_hit = search_upper in description.upper()
         group_hit = search_upper in str(group_path or "").upper()
 

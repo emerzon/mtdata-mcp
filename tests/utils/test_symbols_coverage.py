@@ -1150,6 +1150,27 @@ class TestSymbolsDescribe:
             },
         ]
 
+    @patch(f"{_MT5}.symbols_get")
+    @patch(f"{_MT5}.symbol_info")
+    def test_symbol_not_found_suggests_suffix_typo(self, mock_info, mock_symbols):
+        mock_info.return_value = None
+        mock_symbols.return_value = [
+            _make_symbol("EURUSD", path="Forex\\Majors", description="Euro vs US Dollar"),
+            _make_symbol("GBPUSD", path="Forex\\Majors", description="Pound vs US Dollar"),
+        ]
+        fn = _get_symbols_describe()
+
+        res = fn("EURUSD1")
+
+        assert res["error_code"] == "symbol_not_found"
+        assert res["details"]["did_you_mean"] == [
+            {
+                "symbol": "EURUSD",
+                "group": "Forex\\Majors",
+                "description": "Euro vs US Dollar",
+            },
+        ]
+
     @patch(f"{_MT5}.symbol_info")
     def test_basic_describe(self, mock_info):
         info = MagicMock()
