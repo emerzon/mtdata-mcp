@@ -90,7 +90,7 @@ def test_clean_24h_data_excludes_only_leading_request_boundary() -> None:
         "preserve_observed_utc_day_positions_with_nan_for_exclusions"
     )
     assert quality["whole_missing_day_detection"] == (
-        "unavailable_without_symbol_session_calendar"
+        "calendar_absence_listed_session_eligibility_unknown"
     )
 
 
@@ -774,7 +774,7 @@ def test_session_limited_days_use_prior_same_weekday_counts() -> None:
         "high_water_of_retained_same_weekday_profiles"
     )
     assert quality["whole_missing_day_detection"] == (
-        "unavailable_without_symbol_session_calendar"
+        "calendar_absence_listed_session_eligibility_unknown"
     )
 
 

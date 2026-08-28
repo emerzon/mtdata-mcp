@@ -867,7 +867,6 @@ def test_forecast_volatility_ensemble_aggregates_component_methods(monkeypatch):
     monkeypatch.setattr(vol, "TIMEFRAME_MAP", {"H1": 1})
     monkeypatch.setattr(vol, "TIMEFRAME_SECONDS", {"H1": 3600})
     monkeypatch.setattr(vol, "fetch_history_frame", lambda *args, **kwargs: _rates(240))
-
     ewma = vol.forecast_volatility(symbol="EURUSD", timeframe="H1", horizon=5, method="ewma")
     rolling_std = vol.forecast_volatility(symbol="EURUSD", timeframe="H1", horizon=5, method="rolling_std")
     ensemble = vol.forecast_volatility(
@@ -875,6 +874,7 @@ def test_forecast_volatility_ensemble_aggregates_component_methods(monkeypatch):
         timeframe="H1",
         horizon=5,
         method="ensemble",
+        end="2023-12-31T00:00:00Z",
         params={
             "methods": ["ewma", "rolling_std"],
             "aggregator": "mean",

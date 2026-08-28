@@ -653,10 +653,12 @@ class TestForecastVolatilityGarch:
         variances = np.full((1, max(1, horizon)), 0.5)
         mock_fc = MagicMock()
         mock_fc.variance.values = variances
-
-        mock_res = MagicMock()
+        mock_res = MagicMock(
+            convergence_flag=0,
+            optimization_result=MagicMock(success=True),
+            params=pd.Series({"omega": 0.1, "alpha[1]": 0.05, "beta[1]": 0.9}),
+        )
         mock_res.forecast.return_value = mock_fc
-
         mock_am = MagicMock()
         mock_am.fit.return_value = mock_res
         return MagicMock(return_value=mock_am)
@@ -671,8 +673,7 @@ class TestForecastVolatilityGarch:
                 patch(f"{MOD}._ARCH_AVAILABLE", True),
                 patch(f"{MOD}._arch_model", self._mock_arch_model(1)),
             ):
-                result = forecast_volatility(
-                    "EURUSD", "H1", 1, method=method)
+                result = forecast_volatility("EURUSD", "H1", 1, method=method)
                 assert result.get("success") is True
                 assert result["method"] == method
 
@@ -712,7 +713,6 @@ class TestForecastVolatilityGarch:
                     "EURUSD", "H1", 1, method="garch",
                     params={"mean": "constant"},
                 )
-
         assert result.get("success") is True
         assert arch_model.call_args.kwargs["mean"] == "Constant"
         assert arch_model.call_args.kwargs["rescale"] is False

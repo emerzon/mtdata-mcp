@@ -2,8 +2,9 @@ import difflib
 import math
 from contextlib import contextmanager
 from contextvars import ContextVar
+from copy import deepcopy
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterator, List, Literal, Optional
+from typing import Any, Dict, Iterator, List, Literal, Optional, Sequence
 
 import numpy as np
 import pandas as pd
@@ -45,6 +46,14 @@ from .forecast_registry import (
     get_forecast_method_availability_snapshot,
 )
 from .requests import VOLATILITY_PROXY_VALUES
+from .volatility_evidence import (
+    VOLATILITY_DIGEST_ALGORITHM,
+    VOLATILITY_DIGEST_ENCODING,
+    VOLATILITY_INPUT_EVIDENCE_SCHEMA_VERSION,
+    build_array_evidence,
+    build_volatility_input_evidence,
+    source_positions_for_returns,
+)
 
 HAR_RV_MIN_ALIGNED_ROWS = 20
 HAR_RV_MIN_DAILY_RV = 30
@@ -468,6 +477,8 @@ def _har_rv_sample_error(
     window_w: int,
     days_requested: int,
     daily_rv_quality: Optional[Dict[str, Any]] = None,
+    daily_rv: Optional[List[Dict[str, Any]]] = None,
+    input_evidence: Optional[Dict[str, Any]] = None,
     remediation: Optional[str] = None,
 ) -> Dict[str, Any]:
     recommended_days = _har_rv_recommended_days(
@@ -497,6 +508,10 @@ def _har_rv_sample_error(
         payload["aligned_rows_observed"] = int(aligned_rows_observed)
     if daily_rv_quality is not None:
         payload["daily_rv_quality"] = daily_rv_quality
+    if daily_rv is not None:
+        payload["daily_rv"] = daily_rv
+    if input_evidence is not None:
+        payload["input_evidence"] = input_evidence
     return payload
 
 
@@ -519,6 +534,7 @@ def _volatility_proxy_required_error(method: str) -> Dict[str, Any]:
 
 
 # --- Range-based variance helpers -------------------------------------------------
+
 
 def _parkinson_sigma_sq(high: np.ndarray, low: np.ndarray) -> np.ndarray:
     eps = 1e-12
@@ -558,6 +574,7 @@ def _rogers_satchell_sigma_sq(open_: np.ndarray, high: np.ndarray, low: np.ndarr
     rs = term1 + term2
     rs[~np.isfinite(rs)] = np.nan
     return np.maximum(rs, 0.0)
+
 
 def _kernel_weight(kind: str, h: int, bandwidth: int) -> float:
     if bandwidth <= 0:
@@ -666,21 +683,309 @@ def _volatility_price_column(
     return effective_denoise_base_col(frame, spec, base_col=name)
 
 
+def _finite_log_return_inputs(
+    frame: pd.DataFrame,
+    *,
+    close_col: str,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Return finite log returns, their diff positions, and end timestamps."""
+    prices = pd.to_numeric(frame[close_col], errors="coerce").to_numpy(dtype=float)
+    raw_returns = _log_returns_from_prices(prices)
+    finite_mask = np.isfinite(raw_returns)
+    positions = np.flatnonzero(finite_mask).astype(np.int64)
+    all_timestamps = pd.to_numeric(
+        frame["time"],
+        errors="coerce",
+    ).to_numpy(dtype=float)
+    return (
+        raw_returns[finite_mask],
+        positions,
+        all_timestamps[positions],
+        all_timestamps[positions + 1],
+    )
+
+
+def _snapshot_volatility_raw_columns(
+    frame: pd.DataFrame,
+    columns: Sequence[str],
+) -> Dict[str, str]:
+    """Keep private pre-denoise values available for full-detail digests."""
+    snapshots: Dict[str, str] = {}
+    for column in columns:
+        if column not in frame.columns:
+            continue
+        snapshot = f"_mtdata_volatility_raw_{column}"
+        frame[snapshot] = pd.to_numeric(frame[column], errors="coerce")
+        snapshots[str(column)] = snapshot
+    return snapshots
+
+
+def _volatility_denoise_application(
+    frame: pd.DataFrame,
+    spec: Any,
+) -> Optional[Dict[str, Any]]:
+    if not isinstance(spec, dict) or not spec:
+        return None
+    application = frame.attrs.get("denoise_last_application")
+    if not isinstance(application, dict):
+        return {
+            "status": "not_attested",
+            "added_columns": [],
+            "overwrote_columns": [],
+            "warnings": [],
+        }
+    added = [str(value) for value in application.get("added_columns") or []]
+    overwritten = [str(value) for value in application.get("overwrote_columns") or []]
+    warnings_out = [str(value) for value in frame.attrs.get("denoise_warnings") or []]
+    return {
+        "status": "applied" if added or overwritten else "not_applied",
+        "added_columns": added,
+        "overwrote_columns": overwritten,
+        "ohlc_geometry_repaired_rows": int(
+            application.get("ohlc_geometry_repaired") or 0
+        ),
+        "warnings": warnings_out,
+    }
+
+
+def _finite_int_or_none(value: Any) -> Optional[int]:
+    if isinstance(value, (bool, np.bool_)):
+        return None
+    try:
+        numeric = float(value)
+    except TypeError, ValueError:
+        return None
+    if not math.isfinite(numeric) or not numeric.is_integer():
+        return None
+    return int(numeric)
+
+
+def _finite_float_or_none(value: Any) -> Optional[float]:
+    try:
+        numeric = float(value)
+    except TypeError, ValueError:
+        return None
+    return numeric if math.isfinite(numeric) else None
+
+
+def _garch_fit_diagnostics(
+    result: Any,
+    *,
+    method: str,
+    timeframe: str,
+    fit_returns: np.ndarray,
+    forecast_variances_percent_sq: np.ndarray,
+    expected_horizon: int,
+) -> tuple[Optional[Dict[str, Any]], Optional[str]]:
+    """Extract strict JSON-native ARCH fit evidence and readiness."""
+    convergence_flag = _finite_int_or_none(getattr(result, "convergence_flag", None))
+    optimizer_result = getattr(result, "optimization_result", None)
+    raw_optimizer_success = getattr(optimizer_result, "success", None)
+    optimizer_success = (
+        bool(raw_optimizer_success)
+        if isinstance(raw_optimizer_success, (bool, np.bool_))
+        else None
+    )
+    optimizer_status = _finite_int_or_none(getattr(optimizer_result, "status", None))
+    optimizer_iterations = _finite_int_or_none(getattr(optimizer_result, "nit", None))
+    optimizer_objective = _finite_float_or_none(getattr(optimizer_result, "fun", None))
+    raw_optimizer_message = getattr(optimizer_result, "message", None)
+    optimizer_message = (
+        str(raw_optimizer_message)[:500]
+        if isinstance(raw_optimizer_message, (str, bytes))
+        else None
+    )
+    if isinstance(raw_optimizer_message, bytes):
+        optimizer_message = raw_optimizer_message.decode(
+            "utf-8",
+            errors="replace",
+        )[:500]
+
+    diagnostics: Dict[str, Any] = {
+        "converged": False,
+        "convergence_flag": convergence_flag,
+        "optimizer": {
+            "success": optimizer_success,
+            "status": optimizer_status,
+            "message": optimizer_message,
+            "iterations": optimizer_iterations,
+            "objective": optimizer_objective,
+        },
+        "fit_return_count": int(len(fit_returns)),
+        "model_input_scale": "percent_log_return",
+        "coefficient_parameterization": (
+            "arch_native_units_for_percent_log_return_input"
+        ),
+        "expected_horizon": int(expected_horizon),
+    }
+
+    coefficient_error: Optional[str] = None
+    coefficient_error_message: Optional[str] = None
+    params = getattr(result, "params", None)
+    coefficient_rows: List[Dict[str, Any]] = []
+    if isinstance(params, pd.Series):
+        coefficient_items = list(params.items())
+    elif isinstance(params, dict):
+        coefficient_items = list(params.items())
+    else:
+        try:
+            values = np.asarray(params, dtype=float).reshape(-1)
+        except TypeError, ValueError:
+            values = np.asarray([], dtype=float)
+        names = getattr(params, "index", None)
+        if names is None or len(names) != len(values):
+            names = [f"parameter_{index}" for index in range(len(values))]
+        coefficient_items = list(zip(names, values))
+    for name, value in coefficient_items:
+        try:
+            numeric = float(value)
+        except TypeError, ValueError:
+            coefficient_error = "non_numeric_coefficient"
+            coefficient_error_message = (
+                "GARCH fitted coefficients are unavailable or non-numeric."
+            )
+            break
+        if not math.isfinite(numeric):
+            coefficient_error = "non_finite_coefficient"
+            coefficient_error_message = (
+                "GARCH fitted coefficients contain a non-finite value."
+            )
+            break
+        coefficient_rows.append({"name": str(name), "value": numeric})
+    if coefficient_error is None and not coefficient_rows:
+        coefficient_error = "coefficients_unavailable"
+        coefficient_error_message = "GARCH fitted coefficients are unavailable."
+    coefficient_names = [row["name"] for row in coefficient_rows]
+    if coefficient_error is None and (
+        any(not name.strip() for name in coefficient_names)
+        or len(coefficient_names) != len(set(coefficient_names))
+    ):
+        coefficient_error = "coefficient_names_invalid"
+        coefficient_error_message = "GARCH fitted coefficient names are invalid."
+    if coefficient_error is not None:
+        diagnostics.update(
+            {
+                "coefficients_finite": False,
+                "coefficient_error": coefficient_error,
+            }
+        )
+    else:
+        coefficient_values = np.asarray(
+            [[row["value"] for row in coefficient_rows]],
+            dtype=float,
+        )
+        diagnostics.update(
+            {
+                "coefficients_finite": True,
+                "coefficients": coefficient_rows,
+                "coefficient_evidence": build_array_evidence(
+                    coefficient_values,
+                    domain="volatility_garch_fitted_coefficients",
+                    operation="ordered_arch_native_fitted_coefficients",
+                    fields=coefficient_names,
+                    context={"method": method, "timeframe": timeframe},
+                ),
+            }
+        )
+
+    try:
+        variance_percent_sq = np.asarray(
+            forecast_variances_percent_sq,
+            dtype=float,
+        ).reshape(-1)
+        variance_conversion_error = None
+    except (TypeError, ValueError) as exc:
+        variance_percent_sq = np.asarray([], dtype=float)
+        variance_conversion_error = type(exc).__name__
+    variance_finite = bool(np.all(np.isfinite(variance_percent_sq)))
+    variance_positive = bool(np.all(variance_percent_sq > 0.0))
+    variance_count_matches = bool(variance_percent_sq.size == int(expected_horizon))
+    converged = bool(convergence_flag == 0 and optimizer_success is not False)
+    diagnostics.update(
+        {
+            "converged": converged,
+            "forecast_variance_path_count": int(variance_percent_sq.size),
+            "forecast_variance_path_count_matches_horizon": (variance_count_matches),
+            "forecast_variance_path_finite": variance_finite,
+            "forecast_variance_path_positive": variance_positive,
+            "forecast_variance_unit": "decimal_return_squared",
+            **(
+                {"forecast_variance_conversion_error": variance_conversion_error}
+                if variance_conversion_error is not None
+                else {}
+            ),
+        }
+    )
+    if variance_finite:
+        variance_decimal_sq = variance_percent_sq / 10_000.0
+        diagnostics.update(
+            {
+                "forecast_variance_path": [
+                    float(value) for value in variance_decimal_sq.tolist()
+                ],
+                "forecast_variance_path_evidence": build_array_evidence(
+                    variance_decimal_sq,
+                    domain="volatility_garch_forecast_variance_path",
+                    operation=(
+                        "arch_forecast_variance_percent_squared_divided_by_10000"
+                    ),
+                    fields=["forecast_variance_decimal_return_squared"],
+                    context={"method": method, "timeframe": timeframe},
+                ),
+            }
+        )
+    fit_ready = bool(
+        coefficient_error is None
+        and variance_count_matches
+        and variance_finite
+        and variance_positive
+        and converged
+    )
+    diagnostics["fit_ready"] = fit_ready
+    if coefficient_error_message is not None:
+        return diagnostics, coefficient_error_message
+    if not (variance_count_matches and variance_finite and variance_positive):
+        return diagnostics, (
+            "GARCH forecast variance path must match the requested horizon and "
+            "contain only finite positive values."
+        )
+    if not converged:
+        if convergence_flag is None:
+            return diagnostics, "GARCH convergence_flag is unavailable."
+        if convergence_flag != 0:
+            return diagnostics, (
+                f"GARCH optimizer did not converge (convergence_flag={convergence_flag})."
+            )
+        return diagnostics, "GARCH optimizer reported success=false."
+    return diagnostics, None
+
+
 def _realized_variance_rows(
     frame: pd.DataFrame,
     *,
     close_col: str = "close",
+    raw_close_col: Optional[str] = None,
     expected_bar_seconds: Optional[int] = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
+    raw_column = raw_close_col or close_col
     values = pd.DataFrame(
         {
             "time": pd.to_numeric(frame.get("time"), errors="coerce"),
             "close": pd.to_numeric(frame.get(close_col), errors="coerce"),
+            "raw_close": pd.to_numeric(
+                frame.get(raw_column),
+                errors="coerce",
+            ),
         }
-    ).dropna()
+    ).dropna(subset=["time", "close"])
     values = values.sort_values("time", kind="stable")
     values["day"] = pd.to_datetime(values["time"], unit="s", utc=True).dt.floor("D")
     values["time_delta_seconds"] = values.groupby("day", sort=True)["time"].diff()
+    values["previous_time"] = values.groupby("day", sort=True)["time"].shift(1)
+    values["previous_close"] = values.groupby("day", sort=True)["close"].shift(1)
+    values["previous_raw_close"] = values.groupby("day", sort=True)["raw_close"].shift(
+        1
+    )
     step_seconds = int(expected_bar_seconds or 0)
     if step_seconds <= 0:
         positive_deltas = values.loc[
@@ -880,15 +1185,18 @@ def _har_daily_realized_variance(
     frame: pd.DataFrame,
     *,
     close_col: str = "close",
+    raw_close_col: Optional[str] = None,
     expected_bar_seconds: Optional[int] = None,
     minimum_coverage_fraction: float = HAR_RV_MIN_DAILY_COVERAGE_FRACTION,
     maximum_missing_bars_per_gap: int = HAR_RV_MAX_MISSING_BARS_PER_GAP,
+    history_start_epoch: Optional[float] = None,
     history_cutoff_epoch: Optional[float] = None,
 ) -> tuple[pd.Series, int, Dict[str, Any]]:
     """Build causal, gap-aware UTC-day RV aggregates for HAR-RV."""
     values, finite = _realized_variance_rows(
         frame,
         close_col=close_col,
+        raw_close_col=raw_close_col,
         expected_bar_seconds=expected_bar_seconds,
     )
     step_seconds = int(values.attrs.get("expected_bar_seconds") or 0)
@@ -907,6 +1215,46 @@ def _har_daily_realized_variance(
         else None
     )
     day_index = bar_counts.index
+    candidate_start = day_index[0]
+    candidate_end = day_index[-1]
+    calendar_candidate_scope = "first_to_last_observed_utc_day"
+    if history_start_epoch is not None and math.isfinite(float(history_start_epoch)):
+        candidate_start = pd.to_datetime(
+            float(history_start_epoch),
+            unit="s",
+            utc=True,
+        ).floor("D")
+        calendar_candidate_scope = "requested_start_to_last_observed_utc_day"
+    if history_cutoff_epoch is not None and math.isfinite(float(history_cutoff_epoch)):
+        last_closable_bar_open = float(history_cutoff_epoch) - float(step_seconds)
+        candidate_end = pd.to_datetime(
+            last_closable_bar_open,
+            unit="s",
+            utc=True,
+        ).floor("D")
+        calendar_candidate_scope = (
+            "requested_history_bounds_through_last_closable_bar"
+            if history_start_epoch is not None
+            else "first_observed_to_requested_last_closable_bar"
+        )
+    if candidate_end < candidate_start:
+        calendar_day_candidates = pd.DatetimeIndex([], tz="UTC")
+    else:
+        calendar_day_candidates = pd.date_range(
+            start=candidate_start,
+            end=candidate_end,
+            freq="D",
+        )
+    observed_day_set = set(day_index.tolist())
+    absent_observed_days = [
+        day for day in calendar_day_candidates if day not in observed_day_set
+    ]
+    boundary_candidates = list(calendar_day_candidates[:1])
+    if len(calendar_day_candidates) > 1:
+        boundary_candidates.extend(calendar_day_candidates[-1:])
+    absent_requested_boundary_days = [
+        day for day in boundary_candidates if day not in observed_day_set
+    ]
     daily_rv = daily_rv_raw.reindex(day_index).astype(float)
     values_by_day = {
         day: group for day, group in values.groupby("day", sort=True)
@@ -1228,8 +1576,7 @@ def _har_daily_realized_variance(
         ),
         "complete_24h_grid_evidence_scope": "same_weekday_only",
         "complete_24h_grid_evidence_policy": (
-            "timestamp_schedule_evidence_is_separate_from_eligible_rv_"
-            "baseline_updates"
+            "timestamp_schedule_evidence_is_separate_from_eligible_rv_baseline_updates"
         ),
         "minimum_complete_24h_grid_observations": (
             HAR_RV_MIN_SAME_WEEKDAY_BASELINE_OBSERVATIONS
@@ -1238,9 +1585,7 @@ def _har_daily_realized_variance(
         "withheld_full_grid_updates": int(withheld_full_grid_updates),
         "coverage_baseline_state_by_weekday": {
             str(weekday): {
-                "retained_observations": int(
-                    len(prior_counts_by_weekday[weekday])
-                ),
+                "retained_observations": int(len(prior_counts_by_weekday[weekday])),
                 "established": bool(
                     len(prior_counts_by_weekday[weekday])
                     >= HAR_RV_MIN_SAME_WEEKDAY_BASELINE_OBSERVATIONS
@@ -1267,9 +1612,7 @@ def _har_daily_realized_variance(
             for weekday in range(7)
         },
         "coverage_baseline_weekday_numbering": "Monday=0_through_Sunday=6",
-        "return_interval_policy": (
-            "use_only_returns_exactly_one_rv_timeframe_apart"
-        ),
+        "return_interval_policy": ("use_only_returns_exactly_one_rv_timeframe_apart"),
         "timestamp_grid_policy": (
             "absolute_utc_phase_zero_for_subhour_timeframes"
             if absolute_grid_validation_enforced
@@ -1279,17 +1622,45 @@ def _har_daily_realized_variance(
             "preserve_observed_utc_day_positions_with_nan_for_exclusions"
         ),
         "whole_missing_day_detection": (
-            "unavailable_without_symbol_session_calendar"
+            "calendar_absence_listed_session_eligibility_unknown"
         ),
+        "calendar_candidate_scope": calendar_candidate_scope,
+        "calendar_candidate_start": (
+            calendar_day_candidates[0].strftime("%Y-%m-%d")
+            if len(calendar_day_candidates)
+            else None
+        ),
+        "calendar_candidate_end": (
+            calendar_day_candidates[-1].strftime("%Y-%m-%d")
+            if len(calendar_day_candidates)
+            else None
+        ),
+        "calendar_day_candidates": [
+            {
+                "utc_day": day.strftime("%Y-%m-%d"),
+                "classification": (
+                    "observed"
+                    if day in observed_day_set
+                    else "unknown_without_session_calendar"
+                ),
+            }
+            for day in calendar_day_candidates
+        ],
+        "absent_observed_utc_days": [
+            day.strftime("%Y-%m-%d") for day in absent_observed_days
+        ],
+        "absent_observed_utc_days_count": int(len(absent_observed_days)),
+        "absent_requested_boundary_utc_days": [
+            day.strftime("%Y-%m-%d") for day in absent_requested_boundary_days
+        ],
         "observed_utc_days": int(len(day_index)),
         "included_utc_days": int(len(included_days)),
         "excluded_utc_days": int(len(exclusions)),
         "candidate_return_intervals": candidate_return_intervals,
         "exact_interval_returns": int(len(finite)),
         "returns_used": returns_used,
-        "return_intervals_rejected": int(
-            candidate_return_intervals - len(finite)
-        ),
+        "return_intervals_rejected": int(candidate_return_intervals - len(finite)),
+        "daily_aggregates": [dict(aggregates[day]) for day in day_index],
         "excluded_days": exclusions,
         "final_daily_aggregate": aggregates[final_day],
     }
@@ -1654,6 +2025,18 @@ def _finalize_volatility_with_context(
     data_timeframe: Optional[str] = None,
     forecast_grid_anchor_epoch: Optional[float] = None,
 ) -> Dict[str, Any]:
+    denoise_application = _volatility_denoise_application(
+        df,
+        payload.get("denoise_used"),
+    )
+    if denoise_application is not None:
+        payload.setdefault("denoise_application", denoise_application)
+        input_evidence = payload.get("input_evidence")
+        if isinstance(input_evidence, dict):
+            input_evidence.setdefault(
+                "denoise_application",
+                deepcopy(denoise_application),
+            )
     annualization_bars, annualization_basis = _annualization_context(
         timeframe,
         symbol,
@@ -1684,11 +2067,24 @@ def _finalize_volatility_output(
     detail: str = "full",
 ) -> Dict[str, Any]:
     """Add explanatory metadata to canonical volatility output."""
-    if not isinstance(payload, dict) or not payload.get("success"):
+    if not isinstance(payload, dict):
         return payload
-
-    out = dict(payload)
     detail_mode = str(detail or "compact").strip().lower()
+    out = dict(payload)
+    if not payload.get("success"):
+        if detail_mode != "full":
+            for key in (
+                "daily_rv",
+                "daily_rv_quality",
+                "denoise_used",
+                "denoise_application",
+                "fit_diagnostics",
+                "input_evidence",
+                "params_used",
+            ):
+                out.pop(key, None)
+        return out
+
     out.setdefault("volatility_unit", "return_fraction")
     out.setdefault("volatility_measure", "standard_deviation_of_returns")
     out.setdefault(
@@ -1712,6 +2108,11 @@ def _finalize_volatility_output(
     if detail_mode != "full":
         for key in (
             "daily_rv_quality",
+            "daily_rv",
+            "denoise_used",
+            "denoise_application",
+            "fit_diagnostics",
+            "input_evidence",
             "params_explained",
             "params_used",
             "volatility_interpretation",
@@ -2154,6 +2555,9 @@ def forecast_volatility(  # noqa: C901
             component_results: list[dict[str, Any]] = []
             component_errors: list[dict[str, Any]] = []
             first_component_context: Optional[Dict[str, Any]] = None
+            component_denoise = deepcopy(denoise)
+            if user_denoise_columns is None and isinstance(component_denoise, dict):
+                component_denoise.pop("columns", None)
             for base_method in base_methods:
                 call_params = dict(shared_params)
                 per_method_params = method_params.get(base_method)
@@ -2169,12 +2573,63 @@ def forecast_volatility(  # noqa: C901
                     as_of=as_of,
                     start=start,
                     end=end,
-                    denoise=denoise,
+                    denoise=component_denoise,
                     detail="full",
                 )
-                if not isinstance(result, dict) or not result.get('success'):
+                component_unusable = bool(
+                    isinstance(result, dict)
+                    and (
+                        result.get("trust_level") == "unusable"
+                        or result.get("history_policy_ok") is False
+                    )
+                )
+                if (
+                    not isinstance(result, dict)
+                    or not result.get("success")
+                    or component_unusable
+                ):
                     err = result.get('error') if isinstance(result, dict) else None
-                    component_errors.append({"method": base_method, "error": str(err or "Component forecast failed")})
+                    component_error: Dict[str, Any] = {
+                        "method": base_method,
+                        "error": str(
+                            err
+                            or (
+                                "Component forecast was marked unusable"
+                                if component_unusable
+                                else "Component forecast failed"
+                            )
+                        ),
+                    }
+                    if isinstance(result, dict) and result.get("error_code"):
+                        component_error["error_code"] = str(result["error_code"])
+                    elif component_unusable:
+                        component_error["error_code"] = "volatility_component_unusable"
+                    if (
+                        isinstance(result, dict)
+                        and str(detail or "compact").strip().lower() == "full"
+                    ):
+                        for evidence_key in (
+                            "remediation",
+                            "params_used",
+                            "denoise_used",
+                            "denoise_application",
+                            "proxy",
+                            "trust_level",
+                            "history_policy_ok",
+                            "clipped_forecast_steps",
+                            "daily_rv",
+                            "daily_rv_quality",
+                            "final_daily_aggregate",
+                            "fit_diagnostics",
+                            "input_evidence",
+                            "warnings",
+                            "data_window",
+                        ):
+                            if result.get(evidence_key) is not None:
+                                component_error[evidence_key] = deepcopy(
+                                    result[evidence_key]
+                                )
+                    component_errors.append(component_error)
                     continue
                 try:
                     sigma_bar = float(result['volatility_per_bar'])
@@ -2190,18 +2645,36 @@ def forecast_volatility(  # noqa: C901
                     "volatility_per_bar": sigma_bar,
                     "volatility_horizon": horizon_sigma,
                     "volatility_annualized": float(
-                        result.get('volatility_annualized', float('nan'))
+                        result.get("volatility_annualized", float("nan"))
                     ),
                     "volatility_horizon_annualized": float(
                         result.get(
-                            'volatility_horizon_annualized',
-                            result.get('volatility_annualized', float('nan')),
+                            "volatility_horizon_annualized",
+                            result.get("volatility_annualized", float("nan")),
                         )
                     ),
-                    "params_used": result.get('params_used'),
                 }
                 if result.get('proxy') is not None:
                     component_row['proxy'] = result.get('proxy')
+                if str(detail or "compact").strip().lower() == "full":
+                    if result.get("params_used") is not None:
+                        component_row["params_used"] = deepcopy(result["params_used"])
+                    for evidence_key in (
+                        "input_evidence",
+                        "fit_diagnostics",
+                        "denoise_used",
+                        "denoise_application",
+                        "daily_rv",
+                        "daily_rv_quality",
+                        "final_daily_aggregate",
+                        "warnings",
+                        "data_window",
+                        "trust_level",
+                        "history_policy_ok",
+                        "clipped_forecast_steps",
+                    ):
+                        if result.get(evidence_key) is not None:
+                            component_row[evidence_key] = deepcopy(result[evidence_key])
                 component_results.append(component_row)
                 if first_component_context is None:
                     first_component_context = {
@@ -2227,17 +2700,59 @@ def forecast_volatility(  # noqa: C901
                     }
 
             if not component_results:
-                return {"error": "Ensemble failed: no successful component methods", "component_errors": component_errors}
+                return _finalize_volatility_output(
+                    {
+                        "success": False,
+                        "error": "Ensemble failed: no successful component methods",
+                        "error_code": "volatility_ensemble_all_components_failed",
+                        "component_errors": component_errors,
+                    },
+                    detail=detail,
+                )
+
+            effective_weight_map: Dict[str, float] = {}
+            if aggregator == "weighted":
+                surviving_weight_total = float(
+                    sum(
+                        weight_map.get(str(row["method"]), 0.0)
+                        for row in component_results
+                    )
+                )
+                if surviving_weight_total <= 0.0:
+                    return _finalize_volatility_output(
+                        {
+                            "success": False,
+                            "error": (
+                                "Ensemble failed: successful components have "
+                                "no positive configured weight"
+                            ),
+                            "error_code": (
+                                "volatility_ensemble_survivor_weights_invalid"
+                            ),
+                            "component_errors": component_errors,
+                        },
+                        detail=detail,
+                    )
+                effective_weight_map = {
+                    str(row["method"]): float(
+                        weight_map.get(str(row["method"]), 0.0) / surviving_weight_total
+                    )
+                    for row in component_results
+                }
 
             def _aggregate_metric(metric_name: str) -> float:
                 values = np.asarray([float(row[metric_name]) for row in component_results], dtype=float)
                 if aggregator == 'median':
                     return float(np.median(values))
-                if aggregator == 'weighted' and weight_map:
-                    weights = np.asarray([float(weight_map.get(str(row['method']), 0.0)) for row in component_results], dtype=float)
-                    total = float(np.sum(weights))
-                    if total > 0.0:
-                        return float(np.sum(values * weights) / total)
+                if aggregator == "weighted" and effective_weight_map:
+                    weights = np.asarray(
+                        [
+                            float(effective_weight_map[str(row["method"])])
+                            for row in component_results
+                        ],
+                        dtype=float,
+                    )
+                    return float(np.sum(values * weights))
                 return float(np.mean(values))
 
             try:
@@ -2269,13 +2784,87 @@ def forecast_volatility(  # noqa: C901
                 "params_used": {
                     "methods": base_methods,
                     "aggregator": aggregator,
-                    "weights": [weight_map.get(method_name) for method_name in base_methods] if weight_map else None,
+                    "weights": [
+                        weight_map.get(method_name) for method_name in base_methods
+                    ]
+                    if weight_map
+                    else None,
+                    "effective_component_weights": (
+                        [
+                            effective_weight_map.get(str(row["method"]))
+                            for row in component_results
+                        ]
+                        if effective_weight_map
+                        else None
+                    ),
                 },
             }
             if proxy is not None:
                 out["proxy"] = str(proxy).lower().strip()
             if expose_components:
                 out["components"] = component_results
+            if str(detail or "compact").strip().lower() == "full":
+                aggregation_rows = np.asarray(
+                    [
+                        [
+                            float(row["volatility_per_bar"]),
+                            float(row["volatility_horizon"]),
+                            float(
+                                effective_weight_map.get(
+                                    str(row["method"]),
+                                    1.0,
+                                )
+                            ),
+                        ]
+                        for row in component_results
+                    ],
+                    dtype=float,
+                )
+                out["input_evidence"] = {
+                    "schema_version": VOLATILITY_INPUT_EVIDENCE_SCHEMA_VERSION,
+                    "digest_algorithm": VOLATILITY_DIGEST_ALGORITHM,
+                    "digest_encoding": VOLATILITY_DIGEST_ENCODING,
+                    "method": "ensemble",
+                    "timeframe": timeframe,
+                    "operation": f"{aggregator}_of_component_volatility_outputs",
+                    "component_count": int(len(component_results)),
+                    "component_methods": [
+                        str(row["method"]) for row in component_results
+                    ],
+                    "transformed_input": build_array_evidence(
+                        aggregation_rows,
+                        domain="volatility_ensemble_aggregation_input",
+                        operation=f"{aggregator}_component_aggregation",
+                        fields=[
+                            "volatility_per_bar",
+                            "volatility_horizon",
+                            "survivor_normalized_weight_or_one",
+                        ],
+                        context={"method": "ensemble", "timeframe": timeframe},
+                    ),
+                    "components": [
+                        {
+                            key: deepcopy(row[key])
+                            for key in (
+                                "method",
+                                "proxy",
+                                "params_used",
+                                "input_evidence",
+                                "fit_diagnostics",
+                                "denoise_used",
+                                "denoise_application",
+                                "daily_rv",
+                                "daily_rv_quality",
+                                "final_daily_aggregate",
+                                "trust_level",
+                                "history_policy_ok",
+                                "clipped_forecast_steps",
+                            )
+                            if row.get(key) is not None
+                        }
+                        for row in component_results
+                    ],
+                }
             if component_errors:
                 out["component_errors"] = component_errors
                 out["warning"] = f"{len(component_errors)} ensemble component(s) failed."
@@ -2331,6 +2920,10 @@ def forecast_volatility(  # noqa: C901
                 df = df.iloc[-int(requested_lookback):].copy()
             if len(df) < 5:
                 return {"error": "Not enough closed bars"}
+            proxy_raw_columns = _snapshot_volatility_raw_columns(
+                df,
+                ["close"],
+            )
             bpy, _ = _annualization_context(
                 timeframe,
                 symbol,
@@ -2339,8 +2932,15 @@ def forecast_volatility(  # noqa: C901
             if denoise:
                 apply_denoise(df, denoise)
             close_col = _volatility_price_column(df, denoise, "close")
-            r = _log_returns_from_prices(df[close_col].astype(float).to_numpy())
-            r = r[np.isfinite(r)]
+            (
+                r,
+                r_positions,
+                r_start_timestamps,
+                r_timestamps,
+            ) = _finite_log_return_inputs(
+                df,
+                close_col=close_col,
+            )
             if r.size < 10:
                 return {"error": "Insufficient returns to estimate volatility proxy"}
             # Build proxy
@@ -2349,11 +2949,14 @@ def forecast_volatility(  # noqa: C901
             proxy_l = str(proxy).lower().strip()
             eps = 1e-12
             if proxy_l == 'squared_return':
-                y = r * r; back = 'sqrt'
+                raw_y = r * r
+                back = "sqrt"
             elif proxy_l == 'abs_return':
-                y = np.abs(r); back = 'abs'
+                raw_y = np.abs(r)
+                back = "abs"
             elif proxy_l == 'log_r2':
-                y = np.log(r * r + eps); back = 'exp_sqrt'
+                raw_y = np.log(r * r + eps)
+                back = "exp_sqrt"
             else:
                 return {
                     "success": False,
@@ -2369,10 +2972,74 @@ def forecast_volatility(  # noqa: C901
                         "squared_return, abs_return, or log_r2."
                     ),
                 }
-            y = y[np.isfinite(y)]
+            proxy_finite = np.isfinite(raw_y)
+            y = raw_y[proxy_finite]
+            proxy_returns = r[proxy_finite]
+            proxy_return_positions = r_positions[proxy_finite]
+            proxy_return_start_timestamps = r_start_timestamps[proxy_finite]
+            proxy_return_timestamps = r_timestamps[proxy_finite]
             fh = int(horizon)
             model_params = dict(p)
             model_params.pop("lookback", None)
+            input_evidence = build_volatility_input_evidence(
+                df,
+                method=method_l,
+                timeframe=timeframe,
+                operation=f"forecast_{method_l}_on_{proxy_l}_volatility_proxy",
+                value_columns=[close_col],
+                raw_value_columns=["close"],
+                raw_source_columns=[proxy_raw_columns["close"]],
+                source_positions=source_positions_for_returns(proxy_return_positions),
+                returns=proxy_returns,
+                return_start_timestamps=proxy_return_start_timestamps,
+                return_timestamps=proxy_return_timestamps,
+                return_operation=(
+                    "adjacent_observed_rows_log_return_no_exact_timeframe_requirement"
+                ),
+                return_timestamp_policy=("adjacent_observed_rows_no_time_gap_filter"),
+                transformed_input=y,
+                transformed_fields=[proxy_l],
+                transformed_operation=(
+                    "square_log_return"
+                    if proxy_l == "squared_return"
+                    else "absolute_log_return"
+                    if proxy_l == "abs_return"
+                    else "log_of_squared_log_return_plus_1e-12"
+                ),
+            )
+
+            def _proxy_failure(
+                error: str,
+                *,
+                error_code: str,
+                diagnostics: Dict[str, Any],
+                params_used: Optional[Dict[str, Any]] = None,
+            ) -> Dict[str, Any]:
+                return _finalize_volatility_with_context(
+                    {
+                        "success": False,
+                        "error": error,
+                        "error_code": error_code,
+                        "method": method_l,
+                        "proxy": proxy_l,
+                        "horizon": fh,
+                        "input_evidence": input_evidence,
+                        "fit_diagnostics": diagnostics,
+                        "params_used": params_used
+                        or {
+                            **model_params,
+                            "lookback": int(len(df)),
+                        },
+                        "denoise_used": denoise,
+                    },
+                    df=df,
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    returns_used=int(r.size),
+                    live_window=as_of is None and end is None,
+                    detail=detail,
+                )
+
             try:
                 forecast_result = ForecastRegistry.get(method_l).forecast(
                     pd.Series(y.astype(float)),
@@ -2381,43 +3048,200 @@ def forecast_volatility(  # noqa: C901
                     params=model_params,
                     timeframe=timeframe,
                 )
-                yhat = np.asarray(forecast_result.forecast, dtype=float)
                 model_params_used = dict(forecast_result.params_used or {})
             except Exception as exc:
-                return {"error": f"{method_l.upper()} proxy forecast error: {exc}"}
+                return _proxy_failure(
+                    (f"{method_l.upper()} proxy forecast error: {str(exc)[:500]}"),
+                    error_code="volatility_proxy_forecast_error",
+                    diagnostics={
+                        "forecast_ready": False,
+                        "error_stage": "proxy_forecaster",
+                        "exception_type": type(exc).__name__,
+                        "requested_horizon": fh,
+                    },
+                )
+            try:
+                yhat = np.asarray(forecast_result.forecast, dtype=float)
+            except Exception as exc:
+                output_shape = getattr(forecast_result.forecast, "shape", None)
+                bounded_shape = (
+                    [int(size) for size in output_shape]
+                    if isinstance(output_shape, tuple)
+                    and len(output_shape) <= 4
+                    and all(
+                        isinstance(size, (int, np.integer)) and int(size) >= 0
+                        for size in output_shape
+                    )
+                    else None
+                )
+                return _proxy_failure(
+                    "Volatility proxy forecast output must be numeric.",
+                    error_code="volatility_proxy_forecast_not_ready",
+                    diagnostics={
+                        "forecast_ready": False,
+                        "error_stage": "proxy_forecast_output_validation",
+                        "exception_type": type(exc).__name__,
+                        "requested_horizon": fh,
+                        **(
+                            {
+                                "output_shape": bounded_shape,
+                                "output_ndim": int(len(bounded_shape)),
+                            }
+                            if bounded_shape is not None
+                            else {}
+                        ),
+                    },
+                    params_used={
+                        **model_params_used,
+                        "lookback": int(len(df)),
+                    },
+                )
+            proxy_output_diagnostics = {
+                "forecast_ready": bool(
+                    yhat.ndim == 1 and yhat.size == fh and np.all(np.isfinite(yhat))
+                ),
+                "error_stage": "proxy_forecast_output_validation",
+                "requested_horizon": fh,
+                "output_shape": [int(size) for size in yhat.shape],
+                "output_ndim": int(yhat.ndim),
+                "output_count": int(yhat.size),
+                "output_finite": bool(np.all(np.isfinite(yhat))),
+            }
+            if not proxy_output_diagnostics["forecast_ready"]:
+                return _proxy_failure(
+                    (
+                        "Volatility proxy forecast output must be a finite "
+                        f"one-dimensional path of exactly {fh} step(s)."
+                    ),
+                    error_code="volatility_proxy_forecast_not_ready",
+                    diagnostics=proxy_output_diagnostics,
+                    params_used={
+                        **model_params_used,
+                        "lookback": int(len(df)),
+                    },
+                )
             # Back-transform to per-step sigma and aggregate horizon
             clipped_forecast_steps = 0
             if back == 'sqrt':
-                clipped_forecast_steps = int(np.sum(np.asarray(yhat, dtype=float) < 0.0))
+                back_transform_policy = (
+                    "clip_negative_variance_proxy_to_zero_then_square_root"
+                )
+                clipped_forecast_steps = int(np.sum(yhat < 0.0))
                 sig = np.sqrt(np.clip(yhat, 0.0, None))
             elif back == 'abs':
+                back_transform_policy = (
+                    "clip_negative_absolute_return_proxy_to_zero_then_"
+                    "multiply_by_sqrt_pi_over_2"
+                )
+                clipped_forecast_steps = int(np.sum(yhat < 0.0))
                 sig = np.maximum(0.0, yhat) * math.sqrt(math.pi/2.0)
             else:
+                back_transform_policy = (
+                    "duan_smearing_then_exponentiate_and_square_root"
+                )
                 # Duan smearing corrects the Jensen gap when converting a
                 # forecast of E[log(r²)] back to the arithmetic r² scale.
                 centered_log_r2 = y - float(np.mean(y))
                 log_r2_smearing_factor = float(np.mean(np.exp(centered_log_r2)))
                 if not math.isfinite(log_r2_smearing_factor) or log_r2_smearing_factor <= 0:
                     log_r2_smearing_factor = 1.0
-                sig = np.sqrt(np.exp(yhat) * log_r2_smearing_factor)
-            hsig = float(math.sqrt(np.sum(sig[:fh]**2)))
+                with np.errstate(over="ignore", invalid="ignore"):
+                    sig = np.sqrt(np.exp(yhat) * log_r2_smearing_factor)
+            if not bool(np.all(np.isfinite(sig))) or not bool(np.all(sig >= 0.0)):
+                return _proxy_failure(
+                    "Volatility proxy back-transform produced a non-finite path.",
+                    error_code="volatility_proxy_forecast_not_ready",
+                    diagnostics={
+                        **proxy_output_diagnostics,
+                        "forecast_ready": False,
+                        "error_stage": "proxy_forecast_back_transform",
+                        "back_transform_policy": back_transform_policy,
+                        "sigma_path_finite": bool(np.all(np.isfinite(sig))),
+                        "sigma_path_nonnegative": bool(np.all(sig >= 0.0)),
+                    },
+                    params_used={
+                        **model_params_used,
+                        "lookback": int(len(df)),
+                    },
+                )
+            hsig = float(math.sqrt(np.sum(sig**2)))
             # Root-mean-square forecast sigma per modeled horizon step.
             sbar = float(hsig / math.sqrt(max(1, int(fh))))
-            zero_path = not math.isfinite(hsig) or hsig <= 0.0 or not np.any(sig[:fh] > 0.0)
+            if not math.isfinite(hsig) or not math.isfinite(sbar):
+                return _proxy_failure(
+                    "Volatility proxy aggregation produced a non-finite result.",
+                    error_code="volatility_proxy_forecast_not_ready",
+                    diagnostics={
+                        **proxy_output_diagnostics,
+                        "forecast_ready": False,
+                        "error_stage": "proxy_forecast_aggregation",
+                        "back_transform_policy": back_transform_policy,
+                    },
+                    params_used={
+                        **model_params_used,
+                        "lookback": int(len(df)),
+                    },
+                )
+            zero_path = hsig <= 0.0 or not np.any(sig > 0.0)
+            input_evidence["forecast_output"] = {
+                "back_transform_policy": back_transform_policy,
+                "clipped_forecast_steps": int(clipped_forecast_steps),
+                "raw_proxy_forecast": build_array_evidence(
+                    yhat,
+                    domain="volatility_proxy_raw_forecast_path",
+                    operation=f"{method_l}_{proxy_l}_raw_forecast_path",
+                    fields=["raw_proxy_forecast"],
+                    context={"method": method_l, "timeframe": timeframe},
+                ),
+                "per_step_sigma": build_array_evidence(
+                    sig,
+                    domain="volatility_proxy_sigma_path",
+                    operation=back_transform_policy,
+                    fields=["per_step_sigma_decimal_return"],
+                    context={"method": method_l, "timeframe": timeframe},
+                ),
+                "horizon_aggregation": build_array_evidence(
+                    np.asarray([[hsig, sbar]], dtype=float),
+                    domain="volatility_proxy_horizon_aggregation",
+                    operation="root_sum_squares_and_horizon_root_mean_square",
+                    fields=["horizon_sigma", "per_bar_rms_sigma"],
+                    context={"method": method_l, "timeframe": timeframe},
+                ),
+            }
+            proxy_output_diagnostics.update(
+                {
+                    "forecast_ready": True,
+                    "error_stage": None,
+                    "back_transform_policy": back_transform_policy,
+                    "clipped_forecast_steps": int(clipped_forecast_steps),
+                }
+            )
             proxy_payload = {
-                "success": True, "symbol": symbol, "timeframe": timeframe, "method": method_l, "proxy": proxy_l,
-                 "horizon": int(horizon), "volatility_per_bar": sbar, "volatility_annualized": float(sbar*math.sqrt(bpy)),
-                 "volatility_horizon": hsig, "volatility_horizon_annualized": _annualize_horizon_sigma(hsig, bpy, int(horizon)),
-                 "params_used": {
-                     **model_params_used,
-                     "per_bar_volatility_basis": "forecast_horizon_rms",
-                     "lookback": int(len(df)),
-                     **(
-                         {"log_r2_smearing_factor": log_r2_smearing_factor}
-                         if back == "exp_sqrt"
-                         else {}
-                     ),
-                 },
+                "success": True,
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "method": method_l,
+                "proxy": proxy_l,
+                "horizon": int(horizon),
+                "volatility_per_bar": sbar,
+                "volatility_annualized": float(sbar * math.sqrt(bpy)),
+                "volatility_horizon": hsig,
+                "volatility_horizon_annualized": _annualize_horizon_sigma(
+                    hsig, bpy, int(horizon)
+                ),
+                "params_used": {
+                    **model_params_used,
+                    "per_bar_volatility_basis": "forecast_horizon_rms",
+                    "lookback": int(len(df)),
+                    **(
+                        {"log_r2_smearing_factor": log_r2_smearing_factor}
+                        if back == "exp_sqrt"
+                        else {}
+                    ),
+                },
+                "input_evidence": input_evidence,
+                "fit_diagnostics": proxy_output_diagnostics,
+                "denoise_used": denoise,
             }
             if clipped_forecast_steps:
                 proxy_payload["clipped_forecast_steps"] = int(clipped_forecast_steps)
@@ -2647,11 +3471,40 @@ def forecast_volatility(  # noqa: C901
                         minimum_bars=50,
                         data_timeframe=rv_tf,
                     )
+                har_raw_columns = _snapshot_volatility_raw_columns(
+                    dfrv,
+                    ["close"],
+                )
                 if dn_spec_used:
                     try:
                         apply_denoise(dfrv, dn_spec_used)
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        denoise_application = _volatility_denoise_application(
+                            dfrv,
+                            dn_spec_used,
+                        )
+                        return _finalize_volatility_output(
+                            {
+                                "success": False,
+                                "error": f"HAR-RV denoise failed: {exc}",
+                                "error_code": "har_rv_denoise_failed",
+                                "denoise_used": dn_spec_used,
+                                **(
+                                    {"denoise_application": (denoise_application)}
+                                    if denoise_application is not None
+                                    else {}
+                                ),
+                                "remediation": (
+                                    "Correct or remove the denoise configuration; "
+                                    "HAR-RV will not report an unattested fallback."
+                                ),
+                            },
+                            detail=detail,
+                        )
+                har_denoise_application = _volatility_denoise_application(
+                    dfrv,
+                    dn_spec_used,
+                )
                 bpy, annualization_basis = _annualization_context(
                     timeframe,
                     symbol,
@@ -2690,19 +3543,20 @@ def forecast_volatility(  # noqa: C901
                                 "timeframe and retry the same historical cutoff."
                             ),
                         }
+                har_close_col = _volatility_price_column(
+                    dfrv,
+                    dn_spec_used,
+                    "close",
+                )
                 daily_rv, realized_returns, daily_rv_quality = (
                     _har_daily_realized_variance(
                         dfrv,
-                        close_col=_volatility_price_column(
-                            dfrv,
-                            dn_spec_used,
-                            "close",
-                        ),
+                        close_col=har_close_col,
+                        raw_close_col=har_raw_columns["close"],
                         expected_bar_seconds=int(rv_tf_secs),
                         minimum_coverage_fraction=minimum_daily_coverage,
-                        maximum_missing_bars_per_gap=(
-                            maximum_missing_bars_per_gap
-                        ),
+                        maximum_missing_bars_per_gap=(maximum_missing_bars_per_gap),
+                        history_start_epoch=history_start_epoch,
                         history_cutoff_epoch=history_cutoff_epoch,
                     )
                 )
@@ -2712,6 +3566,42 @@ def forecast_volatility(  # noqa: C901
                 )
                 daily_rv_required = _har_rv_daily_rv_required(m)
                 RV = daily_rv.to_numpy(dtype=float)
+                daily_rv_vector = [
+                    {
+                        "utc_day": day.strftime("%Y-%m-%d"),
+                        "realized_variance": (
+                            float(value) if math.isfinite(float(value)) else None
+                        ),
+                    }
+                    for day, value in zip(daily_rv.index, RV)
+                ]
+                daily_rv_numeric = np.column_stack(
+                    (
+                        np.asarray(
+                            [float(day.timestamp()) for day in daily_rv.index],
+                            dtype=float,
+                        ),
+                        RV,
+                    )
+                )
+                daily_rv_quality["daily_rv_vector_evidence"] = {
+                    **build_array_evidence(
+                        daily_rv_numeric,
+                        domain="volatility_har_daily_rv_vector",
+                        operation=(
+                            "ordered_observed_utc_day_positions_with_nan_for_"
+                            "excluded_aggregates"
+                        ),
+                        fields=["utc_day_epoch", "daily_realized_variance"],
+                        context={"method": method_l, "timeframe": rv_tf},
+                    ),
+                    "finite_count": int(np.count_nonzero(np.isfinite(RV))),
+                    "null_count": int(np.count_nonzero(~np.isfinite(RV))),
+                    "null_positions": [
+                        int(position)
+                        for position in np.flatnonzero(~np.isfinite(RV)).tolist()
+                    ],
+                }
                 Dlag = RV[:-1]
 
                 def rmean(arr, k):
@@ -2790,8 +3680,129 @@ def forecast_volatility(  # noqa: C901
                     ),
                 }
                 daily_rv_quality["convergence"] = convergence
+
+                rv_values, rv_finite = _realized_variance_rows(
+                    dfrv,
+                    close_col=har_close_col,
+                    raw_close_col=har_raw_columns["close"],
+                    expected_bar_seconds=int(rv_tf_secs),
+                )
+                eligible_days = set(daily_rv.index[np.isfinite(RV)].tolist())
+                effective_rv_returns = rv_finite.loc[
+                    rv_finite["day"].isin(eligible_days)
+                ].copy()
+                har_fit_input = np.column_stack((X, yv))
+                input_evidence = build_volatility_input_evidence(
+                    rv_values,
+                    method=method_l,
+                    timeframe=rv_tf,
+                    operation=(
+                        "gap_aware_intraday_log_returns_to_daily_rv_then_har_"
+                        "ols_and_latest_lag_forecast"
+                    ),
+                    value_columns=["close"],
+                    raw_value_columns=["close"],
+                    raw_source_columns=["raw_close"],
+                    source_positions=np.arange(
+                        len(rv_values),
+                        dtype=np.int64,
+                    ),
+                    returns=rv_finite["return"].to_numpy(dtype=float),
+                    return_start_timestamps=rv_finite["previous_time"].to_numpy(
+                        dtype=float
+                    ),
+                    return_timestamps=rv_finite["time"].to_numpy(dtype=float),
+                    return_operation=(
+                        "same_utc_day_log_return_exactly_one_rv_timeframe_apart_"
+                        "consumed_by_daily_quality_and_rv_aggregation"
+                    ),
+                    return_timestamp_policy=(
+                        "same_utc_day_exact_rv_timeframe_interval_only"
+                    ),
+                    transformed_input=har_fit_input,
+                    transformed_fields=[
+                        "intercept",
+                        "daily_rv_lag",
+                        "weekly_mean_rv_lag",
+                        "monthly_mean_rv_lag",
+                        "target_daily_rv",
+                    ],
+                    transformed_operation=(
+                        "finite_aligned_har_ols_design_and_target_rows"
+                    ),
+                )
+                input_evidence["source"]["upstream_effective_value_columns"] = [
+                    har_close_col
+                ]
+                input_evidence["daily_rv_vector"] = deepcopy(
+                    daily_rv_quality["daily_rv_vector_evidence"]
+                )
+                full_return_ledger = rv_finite[
+                    [
+                        "previous_time",
+                        "time",
+                        "previous_close",
+                        "close",
+                        "return",
+                    ]
+                ].to_numpy(dtype=float)
+                eligible_return_ledger = effective_rv_returns[
+                    [
+                        "previous_time",
+                        "time",
+                        "previous_close",
+                        "close",
+                        "return",
+                    ]
+                ].to_numpy(dtype=float)
+                input_evidence["exact_return_ledger"] = build_array_evidence(
+                    full_return_ledger,
+                    domain="volatility_har_exact_return_ledger",
+                    operation=(
+                        "all_gap_aware_exact_intraday_returns_consumed_by_daily_quality"
+                    ),
+                    fields=[
+                        "previous_time",
+                        "current_time",
+                        "previous_effective_close",
+                        "current_effective_close",
+                        "log_return",
+                    ],
+                    context={"method": method_l, "timeframe": rv_tf},
+                )
+                input_evidence["eligible_return_ledger"] = build_array_evidence(
+                    eligible_return_ledger,
+                    domain="volatility_har_eligible_return_ledger",
+                    operation="exact_intraday_returns_contributing_to_finite_daily_rv",
+                    fields=[
+                        "previous_time",
+                        "current_time",
+                        "previous_effective_close",
+                        "current_effective_close",
+                        "log_return",
+                    ],
+                    context={"method": method_l, "timeframe": rv_tf},
+                )
+                if har_denoise_application is not None:
+                    input_evidence["denoise_application"] = deepcopy(
+                        har_denoise_application
+                    )
+
+                def _har_error(**kwargs: Any) -> Dict[str, Any]:
+                    kwargs.setdefault("daily_rv", daily_rv_vector)
+                    kwargs.setdefault("input_evidence", input_evidence)
+                    error_payload = _har_rv_sample_error(**kwargs)
+                    if dn_spec_used:
+                        error_payload["denoise_used"] = dn_spec_used
+                    if har_denoise_application is not None:
+                        error_payload["denoise_application"] = har_denoise_application
+                    return _finalize_volatility_output(
+                        error_payload,
+                        detail=detail,
+                    )
+
                 if daily_rv_observed < daily_rv_required:
-                    return _har_rv_sample_error(
+                    return _har_error(
                         error=(
                             "Not enough eligible daily RV observations for HAR-RV "
                             f"({daily_rv_observed} observed, "
@@ -2808,7 +3819,7 @@ def forecast_volatility(  # noqa: C901
                         daily_rv_quality=daily_rv_quality,
                     )
                 if X.shape[0] < HAR_RV_MIN_ALIGNED_ROWS:
-                    return _har_rv_sample_error(
+                    return _har_error(
                         error=(
                             "Insufficient samples after alignment for HAR-RV "
                             f"({int(X.shape[0])} aligned rows, "
@@ -2825,7 +3836,7 @@ def forecast_volatility(  # noqa: C901
                         daily_rv_quality=daily_rv_quality,
                     )
                 if not forecast_lags_ready:
-                    return _har_rv_sample_error(
+                    return _har_error(
                         error=(
                             "Recent excluded UTC-day RV positions prevent a "
                             f"contiguous {forecast_lag_days_required}-day HAR "
@@ -2847,12 +3858,131 @@ def forecast_volatility(  # noqa: C901
                             "or shift missing bars."
                         ),
                     )
-                beta, *_ = np.linalg.lstsq(X, yv, rcond=None)
+                try:
+                    beta, residuals, fit_rank, singular_values = np.linalg.lstsq(
+                        X,
+                        yv,
+                        rcond=None,
+                    )
+                except Exception as exc:
+                    return _har_error(
+                        error=f"HAR-RV least-squares fit failed: {exc}",
+                        error_code="har_rv_fit_error",
+                        daily_rv_observed=daily_rv_observed,
+                        daily_rv_required=daily_rv_required,
+                        aligned_rows_observed=int(X.shape[0]),
+                        aligned_rows_required=HAR_RV_MIN_ALIGNED_ROWS,
+                        window_m=m,
+                        window_w=w,
+                        days_requested=days,
+                        daily_rv_quality=daily_rv_quality,
+                        remediation=(
+                            "Inspect the full-detail HAR input and quality "
+                            "evidence before retrying."
+                        ),
+                    )
+                if (
+                    not bool(np.all(np.isfinite(beta)))
+                    or not bool(np.all(np.isfinite(singular_values)))
+                    or not bool(np.all(np.isfinite(residuals)))
+                ):
+                    return _har_error(
+                        error="HAR-RV least-squares fit produced non-finite diagnostics.",
+                        error_code="har_rv_nonfinite_fit",
+                        daily_rv_observed=daily_rv_observed,
+                        daily_rv_required=daily_rv_required,
+                        aligned_rows_observed=int(X.shape[0]),
+                        aligned_rows_required=HAR_RV_MIN_ALIGNED_ROWS,
+                        window_m=m,
+                        window_w=w,
+                        days_requested=days,
+                        daily_rv_quality=daily_rv_quality,
+                        remediation=(
+                            "Inspect the full-detail daily RV quality ledger and "
+                            "correct non-finite source values before retrying."
+                        ),
+                    )
+                input_evidence["ols_fit"] = {
+                    "rank": int(fit_rank),
+                    "columns": int(X.shape[1]),
+                    "full_rank": bool(int(fit_rank) == int(X.shape[1])),
+                    "coefficients_finite": True,
+                    "residual_sum_squares": (
+                        float(residuals[0]) if len(residuals) else None
+                    ),
+                    "singular_values": [
+                        float(value) for value in singular_values.tolist()
+                    ],
+                    "singular_values_evidence": build_array_evidence(
+                        singular_values,
+                        domain="volatility_har_ols_singular_values",
+                        operation="numpy_lstsq_singular_values",
+                        fields=["singular_value"],
+                        context={"method": method_l, "timeframe": rv_tf},
+                    ),
+                }
                 D_last = prediction_rv[-1]
                 W_last = float(pd.Series(prediction_rv).tail(w).mean())
                 M_last = float(pd.Series(prediction_rv).tail(m).mean())
-                rv_next = float(beta[0] + beta[1]*D_last + beta[2]*W_last + beta[3]*M_last)
-                rv_next = max(0.0, rv_next)
+                input_evidence["forecast_lag_input"] = build_array_evidence(
+                    np.asarray([[1.0, D_last, W_last, M_last]], dtype=float),
+                    domain="volatility_har_forecast_lag_input",
+                    operation="intercept_plus_latest_daily_weekly_monthly_rv_lags",
+                    fields=[
+                        "intercept",
+                        "daily_rv_lag",
+                        "weekly_mean_rv_lag",
+                        "monthly_mean_rv_lag",
+                    ],
+                    context={"method": method_l, "timeframe": rv_tf},
+                )
+                rv_next_raw = float(
+                    beta[0] + beta[1] * D_last + beta[2] * W_last + beta[3] * M_last
+                )
+                if not math.isfinite(rv_next_raw):
+                    return _har_error(
+                        error="HAR-RV produced a non-finite daily RV forecast.",
+                        error_code="har_rv_nonfinite_forecast",
+                        daily_rv_observed=daily_rv_observed,
+                        daily_rv_required=daily_rv_required,
+                        aligned_rows_observed=int(X.shape[0]),
+                        aligned_rows_required=HAR_RV_MIN_ALIGNED_ROWS,
+                        window_m=m,
+                        window_w=w,
+                        days_requested=days,
+                        daily_rv_quality=daily_rv_quality,
+                        remediation=(
+                            "Inspect the full-detail HAR fit and input evidence "
+                            "before retrying."
+                        ),
+                    )
+                rv_next_clipped_to_zero = bool(rv_next_raw < 0.0)
+                rv_next = max(0.0, rv_next_raw)
+                input_evidence["forecast_output"] = build_array_evidence(
+                    np.asarray(
+                        [
+                            [
+                                *beta.tolist(),
+                                rv_next_raw,
+                                rv_next,
+                                float(rv_next_clipped_to_zero),
+                            ]
+                        ],
+                        dtype=float,
+                    ),
+                    domain="volatility_har_fit_coefficients_and_forecast",
+                    operation="ols_beta_and_nonnegative_next_daily_rv_forecast",
+                    fields=[
+                        "intercept_beta",
+                        "daily_beta",
+                        "weekly_beta",
+                        "monthly_beta",
+                        "raw_next_daily_realized_variance",
+                        "next_daily_realized_variance_after_nonnegative_clip",
+                        "clipped_to_zero_flag",
+                    ],
+                    context={"method": method_l, "timeframe": rv_tf},
+                )
                 tf_secs = TIMEFRAME_SECONDS.get(timeframe)
                 if not tf_secs:
                     return {"error": unsupported_timeframe_seconds_error(timeframe)}
@@ -2901,35 +4031,55 @@ def forecast_volatility(  # noqa: C901
                         "candle gaps."
                     )
                 return _finalize_volatility_with_context(
-                    {"success": True, "symbol": symbol, "timeframe": timeframe, "method": method_l, "horizon": int(horizon),
-                     "volatility_per_bar": sbar, "volatility_annualized": float(sbar*math.sqrt(bpy)),
-                     "volatility_horizon": hsig, "volatility_horizon_annualized": _annualize_horizon_sigma(hsig, bpy, int(horizon)),
-                     "params_used": {"rv_timeframe": rv_tf, "window_w": w, "window_m": m,
-                                      "beta": [float(b) for b in beta.tolist()],
-                                      "days": days,
-                                      "days_semantics": "maximum_trailing_calendar_days",
-                                      "history_window_policy": "trailing_calendar_days_intersect_requested_start",
-                                      "history_cutoff": _format_time_minimal(history_cutoff_epoch),
-                                      "history_cutoff_epoch": float(history_cutoff_epoch),
-                                      "history_cutoff_source": history_cutoff_source,
-                                      "history_start_bound": _format_time_minimal(history_start_epoch),
-                                      "history_start_bound_epoch": float(history_start_epoch),
-                                      "bars_per_session": float(bars_per_session),
-                                      "daily_rv_gap_policy": (
-                                          "exact_rv_timeframe_returns_and_causal_utc_day_quality"
-                                      ),
-                                      "daily_rv_day_position_policy": daily_rv_quality.get(
-                                          "day_position_policy"
-                                      ),
-                                      "partial_day_policy": daily_rv_quality.get("policy"),
-                                      "minimum_daily_coverage_fraction": minimum_daily_coverage,
-                                      "maximum_missing_bars_per_gap": (
-                                          maximum_missing_bars_per_gap
-                                      )},
-                     "final_daily_aggregate": final_daily_aggregate,
-                     "daily_rv_quality": daily_rv_quality,
-                     **({"warnings": har_warnings} if har_warnings else {}),
-                     "denoise_used": dn_spec_used},
+                    {
+                        "success": True,
+                        "symbol": symbol,
+                        "timeframe": timeframe,
+                        "method": method_l,
+                        "horizon": int(horizon),
+                        "volatility_per_bar": sbar,
+                        "volatility_annualized": float(sbar * math.sqrt(bpy)),
+                        "volatility_horizon": hsig,
+                        "volatility_horizon_annualized": _annualize_horizon_sigma(
+                            hsig, bpy, int(horizon)
+                        ),
+                        "params_used": {
+                            "rv_timeframe": rv_tf,
+                            "window_w": w,
+                            "window_m": m,
+                            "beta": [float(b) for b in beta.tolist()],
+                            "days": days,
+                            "days_semantics": "maximum_trailing_calendar_days",
+                            "history_window_policy": "trailing_calendar_days_intersect_requested_start",
+                            "history_cutoff": _format_time_minimal(
+                                history_cutoff_epoch
+                            ),
+                            "history_cutoff_epoch": float(history_cutoff_epoch),
+                            "history_cutoff_source": history_cutoff_source,
+                            "history_start_bound": _format_time_minimal(
+                                history_start_epoch
+                            ),
+                            "history_start_bound_epoch": float(history_start_epoch),
+                            "bars_per_session": float(bars_per_session),
+                            "daily_rv_gap_policy": (
+                                "exact_rv_timeframe_returns_and_causal_utc_day_quality"
+                            ),
+                            "daily_rv_day_position_policy": daily_rv_quality.get(
+                                "day_position_policy"
+                            ),
+                            "partial_day_policy": daily_rv_quality.get("policy"),
+                            "minimum_daily_coverage_fraction": minimum_daily_coverage,
+                            "maximum_missing_bars_per_gap": (
+                                maximum_missing_bars_per_gap
+                            ),
+                        },
+                        "final_daily_aggregate": final_daily_aggregate,
+                        "daily_rv": daily_rv_vector,
+                        "daily_rv_quality": daily_rv_quality,
+                        "input_evidence": input_evidence,
+                        **({"warnings": har_warnings} if har_warnings else {}),
+                        "denoise_used": dn_spec_used,
+                    },
                     df=dfrv,
                     symbol=symbol,
                     timeframe=timeframe,
@@ -2995,6 +4145,10 @@ def forecast_volatility(  # noqa: C901
             symbol,
             observed_times=df.get("time"),
         )
+        direct_raw_columns = _snapshot_volatility_raw_columns(
+            df,
+            ["open", "high", "low", "close"],
+        )
         # Normalize and apply denoise spec (uniform behavior)
         dn_spec_used = None
         if denoise is not None:
@@ -3012,8 +4166,15 @@ def forecast_volatility(  # noqa: C901
 
         # Compute returns and helpers
         close_col = _volatility_price_column(df, dn_spec_used, "close")
-        r = _log_returns_from_prices(df[close_col].astype(float).to_numpy())
-        r = r[np.isfinite(r)]
+        (
+            r,
+            r_positions,
+            r_start_timestamps,
+            r_timestamps,
+        ) = _finite_log_return_inputs(
+            df,
+            close_col=close_col,
+        )
         if r.size < 5:
             return {"error": "Insufficient returns to estimate volatility"}
         if method_l == 'ewma':
@@ -3046,13 +4207,48 @@ def forecast_volatility(  # noqa: C901
             params_used = {"lookback": lb, "lambda_": lam, "lambda_source": lambda_source}
             if halflife_used is not None:
                 params_used["halflife"] = halflife_used
+            tail_count = int(len(tail))
+            tail_positions = r_positions[-tail_count:]
+            input_evidence = build_volatility_input_evidence(
+                df,
+                method=method_l,
+                timeframe=timeframe,
+                operation="ewma_weighted_mean_of_squared_log_returns",
+                value_columns=[close_col],
+                raw_value_columns=["close"],
+                raw_source_columns=[direct_raw_columns["close"]],
+                source_positions=source_positions_for_returns(tail_positions),
+                returns=tail,
+                return_start_timestamps=r_start_timestamps[-tail_count:],
+                return_timestamps=r_timestamps[-tail_count:],
+                return_operation=(
+                    "adjacent_observed_rows_log_return_no_exact_timeframe_requirement"
+                ),
+                return_timestamp_policy=("adjacent_observed_rows_no_time_gap_filter"),
+                transformed_input=np.column_stack((tail, w)),
+                transformed_fields=["log_return", "normalized_ewma_weight"],
+                transformed_operation=(
+                    "pair_log_returns_with_normalized_exponential_weights"
+                ),
+            )
             return _finalize_volatility_with_context(
-                {"success": True, "symbol": symbol, "timeframe": timeframe, "method": method_l, "horizon": int(horizon),
-                 "volatility_per_bar": sbar, "volatility_annualized": float(sbar*math.sqrt(bpy)),
-                 "volatility_horizon": hsig, "volatility_horizon_annualized": _annualize_horizon_sigma(hsig, bpy, int(horizon)),
-                 "params_used": params_used,
-                 "params_explained": _ewma_param_explanations(lambda_source),
-                 "denoise_used": dn_spec_used},
+                {
+                    "success": True,
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "method": method_l,
+                    "horizon": int(horizon),
+                    "volatility_per_bar": sbar,
+                    "volatility_annualized": float(sbar * math.sqrt(bpy)),
+                    "volatility_horizon": hsig,
+                    "volatility_horizon_annualized": _annualize_horizon_sigma(
+                        hsig, bpy, int(horizon)
+                    ),
+                    "params_used": params_used,
+                    "params_explained": _ewma_param_explanations(lambda_source),
+                    "input_evidence": input_evidence,
+                    "denoise_used": dn_spec_used,
+                },
                 df=df,
                 symbol=symbol,
                 timeframe=timeframe,
@@ -3065,10 +4261,18 @@ def forecast_volatility(  # noqa: C901
             window = int(p.get('window', 20))
             if window < 1:
                 return {"error": "window must be at least 1 bar."}
-            o = df[_volatility_price_column(df, dn_spec_used, "open")].astype(float).to_numpy()
-            h = df[_volatility_price_column(df, dn_spec_used, "high")].astype(float).to_numpy()
-            l = df[_volatility_price_column(df, dn_spec_used, "low")].astype(float).to_numpy()
-            c = df[_volatility_price_column(df, dn_spec_used, "close")].astype(float).to_numpy()
+            open_col = _volatility_price_column(df, dn_spec_used, "open")
+            high_col = _volatility_price_column(df, dn_spec_used, "high")
+            low_col = _volatility_price_column(df, dn_spec_used, "low")
+            range_close_col = _volatility_price_column(
+                df,
+                dn_spec_used,
+                "close",
+            )
+            o = df[open_col].astype(float).to_numpy()
+            h = df[high_col].astype(float).to_numpy()
+            l = df[low_col].astype(float).to_numpy()
+            c = df[range_close_col].astype(float).to_numpy()
             if method_l == 'parkinson':
                 v = _parkinson_sigma_sq(h, l)
             elif method_l == 'gk':
@@ -3110,9 +4314,49 @@ def forecast_volatility(  # noqa: C901
                         )
                     }
                 sigma2 = float(np.mean(finite_tail))
+                range_columns = {
+                    "parkinson": ([high_col, low_col], ["high", "low"]),
+                    "gk": (
+                        [open_col, high_col, low_col, range_close_col],
+                        ["open", "high", "low", "close"],
+                    ),
+                    "rs": (
+                        [open_col, high_col, low_col, range_close_col],
+                        ["open", "high", "low", "close"],
+                    ),
+                }
+                effective_columns, raw_columns = range_columns[method_l]
+                input_evidence = build_volatility_input_evidence(
+                    df,
+                    method=method_l,
+                    timeframe=timeframe,
+                    operation=(f"mean_of_last_{window}_{method_l}_range_variances"),
+                    value_columns=effective_columns,
+                    raw_value_columns=raw_columns,
+                    raw_source_columns=[
+                        direct_raw_columns[column] for column in raw_columns
+                    ],
+                    source_positions=np.arange(
+                        len(df) - window,
+                        len(df),
+                        dtype=np.int64,
+                    ),
+                    returns=np.asarray([], dtype=float),
+                    return_start_timestamps=np.asarray([], dtype=float),
+                    return_timestamps=np.asarray([], dtype=float),
+                    return_operation="not_consumed_by_range_estimator",
+                    return_timestamp_policy="not_applicable_no_return_vector",
+                    transformed_input=range_tail,
+                    transformed_fields=["per_bar_range_variance"],
+                    transformed_operation=(
+                        f"{method_l}_ohlc_variance_then_arithmetic_mean"
+                    ),
+                )
             else:
-                finite_tail = np.asarray(v[-window:], dtype=float)
-                finite_tail = finite_tail[np.isfinite(finite_tail)]
+                tail_start = max(0, len(v) - window)
+                tail_positions = np.arange(tail_start, len(v), dtype=np.int64)
+                finite_mask = np.isfinite(np.asarray(v[-window:], dtype=float))
+                finite_tail = np.asarray(v[-window:], dtype=float)[finite_mask]
                 if finite_tail.size == 0:
                     return {
                         "error": (
@@ -3121,16 +4365,124 @@ def forecast_volatility(  # noqa: C901
                         )
                     }
                 sigma2 = float(finite_tail[-1])
+                selected_output_position = int(tail_positions[finite_mask][-1])
+                input_start = selected_output_position - window + 1
+                if input_start < 0:
+                    return {
+                        "error": (
+                            f"{method_l} requires {window} applicable observations."
+                        )
+                    }
+                effective_return_positions = np.arange(
+                    input_start,
+                    selected_output_position + 1,
+                    dtype=np.int64,
+                )
+                source_positions = np.arange(
+                    input_start,
+                    selected_output_position + 2,
+                    dtype=np.int64,
+                )
+                if method_l == "yang_zhang":
+                    transformed_input = np.column_stack(
+                        (
+                            oc[input_start : selected_output_position + 1],
+                            co[input_start : selected_output_position + 1],
+                            rs[input_start : selected_output_position + 1],
+                        )
+                    )
+                    input_evidence = build_volatility_input_evidence(
+                        df,
+                        method=method_l,
+                        timeframe=timeframe,
+                        operation=("yang_zhang_last_finite_rolling_ohlc_variance"),
+                        value_columns=[
+                            open_col,
+                            high_col,
+                            low_col,
+                            range_close_col,
+                        ],
+                        raw_value_columns=["open", "high", "low", "close"],
+                        raw_source_columns=[
+                            direct_raw_columns[column]
+                            for column in ("open", "high", "low", "close")
+                        ],
+                        source_positions=source_positions,
+                        returns=np.asarray([], dtype=float),
+                        return_start_timestamps=np.asarray([], dtype=float),
+                        return_timestamps=np.asarray([], dtype=float),
+                        return_operation=(
+                            "no_standalone_return_vector_yang_zhang_overnight_"
+                            "component_uses_previous_observed_close"
+                        ),
+                        return_timestamp_policy=(
+                            "yang_zhang_overnight_component_uses_adjacent_"
+                            "observed_rows_no_time_gap_filter"
+                        ),
+                        transformed_input=transformed_input,
+                        transformed_fields=[
+                            "overnight_log_return",
+                            "open_to_close_log_return",
+                            "rogers_satchell_variance",
+                        ],
+                        transformed_operation=(
+                            "population_variance_of_overnight_and_open_close_"
+                            "returns_plus_mean_rogers_satchell"
+                        ),
+                    )
+                else:
+                    simple_tail = simple_returns[effective_return_positions]
+                    range_times = pd.to_numeric(
+                        df["time"],
+                        errors="coerce",
+                    ).to_numpy(dtype=float)
+                    simple_return_start_times = range_times[effective_return_positions]
+                    simple_return_times = range_times[effective_return_positions + 1]
+                    centered_tail = simple_tail - float(np.mean(simple_tail))
+                    input_evidence = build_volatility_input_evidence(
+                        df,
+                        method=method_l,
+                        timeframe=timeframe,
+                        operation=("population_variance_of_last_window_simple_returns"),
+                        value_columns=[range_close_col],
+                        raw_value_columns=["close"],
+                        raw_source_columns=[direct_raw_columns["close"]],
+                        source_positions=source_positions,
+                        returns=simple_tail,
+                        return_start_timestamps=simple_return_start_times,
+                        return_timestamps=simple_return_times,
+                        return_operation=(
+                            "adjacent_observed_rows_simple_return_no_exact_"
+                            "timeframe_requirement"
+                        ),
+                        return_timestamp_policy=(
+                            "adjacent_observed_rows_no_time_gap_filter"
+                        ),
+                        transformed_input=centered_tail,
+                        transformed_fields=["mean_centered_simple_return"],
+                        transformed_operation="subtract_window_mean",
+                    )
             if not math.isfinite(sigma2):
                 return {"error": f"{method_l} produced a non-finite variance estimate."}
             sbar = math.sqrt(max(0.0, sigma2))
             hsig = float(sbar * math.sqrt(max(1, int(horizon))))
             return _finalize_volatility_with_context(
-                {"success": True, "symbol": symbol, "timeframe": timeframe, "method": method_l, "horizon": int(horizon),
-                 "volatility_per_bar": sbar, "volatility_annualized": float(sbar*math.sqrt(bpy)),
-                 "volatility_horizon": hsig, "volatility_horizon_annualized": _annualize_horizon_sigma(hsig, bpy, int(horizon)),
-                 "params_used": {"window": int(window)},
-                 "denoise_used": dn_spec_used},
+                {
+                    "success": True,
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "method": method_l,
+                    "horizon": int(horizon),
+                    "volatility_per_bar": sbar,
+                    "volatility_annualized": float(sbar * math.sqrt(bpy)),
+                    "volatility_horizon": hsig,
+                    "volatility_horizon_annualized": _annualize_horizon_sigma(
+                        hsig, bpy, int(horizon)
+                    ),
+                    "params_used": {"window": int(window)},
+                    "input_evidence": input_evidence,
+                    "denoise_used": dn_spec_used,
+                },
                 df=df,
                 symbol=symbol,
                 timeframe=timeframe,
@@ -3148,11 +4500,40 @@ def forecast_volatility(  # noqa: C901
             except Exception:
                 bandwidth_val = None
             tail = r[-window:] if r.size >= window else r
+            effective_bandwidth = (
+                max(1, int(np.floor(np.sqrt(len(tail)))))
+                if bandwidth_val is None
+                else int(bandwidth_val)
+            )
+            effective_bandwidth = int(max(1, min(effective_bandwidth, len(tail) - 1)))
             rk_var = _realized_kernel_variance(tail, bandwidth=bandwidth_val, kernel=kernel)
             if not math.isfinite(rk_var) or rk_var < 0:
                 return {"error": "Failed to compute realized kernel variance"}
             sigma_bar = math.sqrt(rk_var)
             sigma_h = math.sqrt(max(1, int(horizon)) * rk_var)
+            tail_count = int(len(tail))
+            tail_positions = r_positions[-tail_count:]
+            centered_tail = tail - float(np.mean(tail))
+            input_evidence = build_volatility_input_evidence(
+                df,
+                method=method_l,
+                timeframe=timeframe,
+                operation=(f"realized_kernel_{kernel}_bandwidth_{effective_bandwidth}"),
+                value_columns=[close_col],
+                raw_value_columns=["close"],
+                raw_source_columns=[direct_raw_columns["close"]],
+                source_positions=source_positions_for_returns(tail_positions),
+                returns=tail,
+                return_start_timestamps=r_start_timestamps[-tail_count:],
+                return_timestamps=r_timestamps[-tail_count:],
+                return_operation=(
+                    "adjacent_observed_rows_log_return_no_exact_timeframe_requirement"
+                ),
+                return_timestamp_policy=("adjacent_observed_rows_no_time_gap_filter"),
+                transformed_input=centered_tail,
+                transformed_fields=["mean_centered_log_return"],
+                transformed_operation="subtract_effective_window_mean",
+            )
             return _finalize_volatility_with_context(
                 {
                     "success": True,
@@ -3163,8 +4544,16 @@ def forecast_volatility(  # noqa: C901
                     "volatility_per_bar": float(sigma_bar),
                     "volatility_annualized": float(sigma_bar * math.sqrt(bpy)),
                     "volatility_horizon": float(sigma_h),
-                    "volatility_horizon_annualized": _annualize_horizon_sigma(float(sigma_h), bpy, int(horizon)),
-                    "params_used": {"window": int(window), "kernel": kernel, "bandwidth": bandwidth_val},
+                    "volatility_horizon_annualized": _annualize_horizon_sigma(
+                        float(sigma_h), bpy, int(horizon)
+                    ),
+                    "params_used": {
+                        "window": int(window),
+                        "kernel": kernel,
+                        "bandwidth": bandwidth_val,
+                        "effective_bandwidth": effective_bandwidth,
+                    },
+                    "input_evidence": input_evidence,
                     "denoise_used": dn_spec_used,
                 },
                 df=df,
@@ -3182,54 +4571,182 @@ def forecast_volatility(  # noqa: C901
                 'constant': 'Constant',
             }.get(str(p.get('mean', 'Zero')).strip().lower(), 'Zero')
             dist = str(p.get('dist','normal'))
+            base_method = method_l.replace("_t", "")
+            if method_l.endswith("_t"):
+                dist = "studentst"
+            p_order = int(p.get("p", 1))
+            q_order = int(p.get("q", 1))
+            o_order = int(p.get("o", 1)) if base_method == "gjr_garch" else None
+            params_used = {k: p[k] for k in p}
+            params_used.update(
+                {
+                    "fit_bars": fit_bars,
+                    "dist": dist,
+                    "mean": mean_model,
+                    "p": p_order,
+                    "q": q_order,
+                }
+            )
+            if o_order is not None:
+                params_used["o"] = o_order
             r_pct = 100.0 * r
             r_fit = r_pct[-fit_bars:] if r_pct.size > fit_bars else r_pct
+            fit_count = int(len(r_fit))
+            fit_positions = r_positions[-fit_count:]
+            input_evidence = build_volatility_input_evidence(
+                df,
+                method=method_l,
+                timeframe=timeframe,
+                operation="arch_model_fit_and_multi_step_variance_forecast",
+                value_columns=[close_col],
+                raw_value_columns=["close"],
+                raw_source_columns=[direct_raw_columns["close"]],
+                source_positions=source_positions_for_returns(fit_positions),
+                returns=r[-fit_count:],
+                return_start_timestamps=r_start_timestamps[-fit_count:],
+                return_timestamps=r_timestamps[-fit_count:],
+                return_operation=(
+                    "adjacent_observed_rows_log_return_no_exact_timeframe_requirement"
+                ),
+                return_timestamp_policy=("adjacent_observed_rows_no_time_gap_filter"),
+                transformed_input=r_fit,
+                transformed_fields=["percent_log_return"],
+                transformed_operation="multiply_log_return_by_100",
+            )
+            garch_denoise_application = _volatility_denoise_application(
+                df,
+                dn_spec_used,
+            )
+            if garch_denoise_application is not None:
+                input_evidence["denoise_application"] = deepcopy(
+                    garch_denoise_application
+                )
+
+            def _garch_failure(
+                error: str,
+                *,
+                error_code: str,
+                fit_diagnostics: Optional[Dict[str, Any]] = None,
+            ) -> Dict[str, Any]:
+                return _finalize_volatility_output(
+                    {
+                        "success": False,
+                        "error": error,
+                        "error_code": error_code,
+                        **(
+                            {"fit_diagnostics": fit_diagnostics}
+                            if fit_diagnostics is not None
+                            else {}
+                        ),
+                        "input_evidence": input_evidence,
+                        "params_used": params_used,
+                        "denoise_used": dn_spec_used,
+                        **(
+                            {"denoise_application": (garch_denoise_application)}
+                            if garch_denoise_application is not None
+                            else {}
+                        ),
+                    },
+                    detail=detail,
+                )
+
             try:
-                base_method = method_l.replace('_t', '')
-                if method_l.endswith('_t'):
-                    dist = 'studentst'
-                p_order = int(p.get('p', 1))
-                q_order = int(p.get('q', 1))
                 if base_method == 'egarch':
                     am = _arch_model(r_fit, mean=mean_model, vol='EGARCH', p=p_order, q=q_order, dist=dist, rescale=False)
                 elif base_method == 'gjr_garch':
-                    o_order = int(p.get('o', 1))
                     am = _arch_model(r_fit, mean=mean_model, vol='GARCH', p=p_order, o=o_order, q=q_order, dist=dist, rescale=False)
                 elif base_method == 'figarch':
                     am = _arch_model(r_fit, mean=mean_model, vol='FIGARCH', p=p_order, q=q_order, dist=dist, rescale=False)
                 else:
                     am = _arch_model(r_fit, mean=mean_model, vol='GARCH', p=p_order, q=q_order, dist=dist, rescale=False)
                 res = am.fit(disp='off')
-                fc = res.forecast(horizon=max(1, int(horizon)), reindex=False)
-                variances = fc.variance.values[-1]
-                sbar = float(math.sqrt(max(0.0, float(variances[0])))) / 100.0
-                hsig = float(math.sqrt(max(0.0, float(np.sum(variances))))) / 100.0
-                params_used = {k: p[k] for k in p}
-                params_used.update({
-                    "dist": dist,
-                    "mean": mean_model,
-                    "p": p_order,
-                    "q": q_order,
-                })
-                if base_method == 'gjr_garch':
-                    params_used['o'] = int(p.get('o', 1))
-                return _finalize_volatility_with_context(
-                    {"success": True, "symbol": symbol, "timeframe": timeframe, "method": method_l, "horizon": int(horizon),
-                     "volatility_per_bar": sbar, "volatility_annualized": float(sbar*math.sqrt(bpy)),
-                     "volatility_horizon": hsig, "volatility_horizon_annualized": _annualize_horizon_sigma(hsig, bpy, int(horizon)),
-                     "params_used": params_used,
-                     "denoise_used": dn_spec_used},
-                    df=df,
-                    symbol=symbol,
-                    timeframe=timeframe,
-                    returns_used=int(r.size),
-                    live_window=as_of is None and end is None,
-                    detail=detail,
-                )
             except Exception as ex:
-                return {"error": f"{method_l} error: {ex}"}
+                return _garch_failure(
+                    f"{method_l} fit error: {str(ex)[:500]}",
+                    error_code="garch_fit_error",
+                    fit_diagnostics={
+                        "converged": False,
+                        "fit_ready": False,
+                        "error_stage": "arch_fit",
+                        "exception_type": type(ex).__name__,
+                    },
+                )
+            try:
+                fc = res.forecast(horizon=max(1, int(horizon)), reindex=False)
+                variances = np.asarray(fc.variance.values[-1], dtype=float)
+            except Exception as ex:
+                fit_diagnostics, _fit_error = _garch_fit_diagnostics(
+                    res,
+                    method=method_l,
+                    timeframe=timeframe,
+                    fit_returns=r_fit,
+                    forecast_variances_percent_sq=np.asarray([], dtype=float),
+                    expected_horizon=max(1, int(horizon)),
+                )
+                if fit_diagnostics is not None:
+                    fit_diagnostics.update(
+                        {
+                            "fit_ready": False,
+                            "error_stage": "arch_forecast",
+                            "exception_type": type(ex).__name__,
+                        }
+                    )
+                return _garch_failure(
+                    f"{method_l} forecast error: {str(ex)[:500]}",
+                    error_code="garch_fit_error",
+                    fit_diagnostics=fit_diagnostics,
+                )
+            fit_diagnostics, fit_error = _garch_fit_diagnostics(
+                res,
+                method=method_l,
+                timeframe=timeframe,
+                fit_returns=r_fit,
+                forecast_variances_percent_sq=variances,
+                expected_horizon=max(1, int(horizon)),
+            )
+            if fit_error is not None:
+                return _garch_failure(
+                    fit_error,
+                    error_code="garch_fit_not_ready",
+                    fit_diagnostics=fit_diagnostics,
+                )
+            if fit_diagnostics is None:
+                return _garch_failure(
+                    "GARCH fit diagnostics are unavailable.",
+                    error_code="garch_fit_not_ready",
+                )
+            variance_decimal_sq = np.asarray(
+                fit_diagnostics["forecast_variance_path"],
+                dtype=float,
+            )
+            sbar = float(math.sqrt(float(variance_decimal_sq[0])))
+            hsig = float(math.sqrt(float(np.sum(variance_decimal_sq))))
+            return _finalize_volatility_with_context(
+                {
+                    "success": True,
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "method": method_l,
+                    "horizon": int(horizon),
+                    "volatility_per_bar": sbar,
+                    "volatility_annualized": float(sbar * math.sqrt(bpy)),
+                    "volatility_horizon": hsig,
+                    "volatility_horizon_annualized": _annualize_horizon_sigma(
+                        hsig, bpy, int(horizon)
+                    ),
+                    "params_used": params_used,
+                    "input_evidence": input_evidence,
+                    "fit_diagnostics": fit_diagnostics,
+                    "denoise_used": dn_spec_used,
+                },
+                df=df,
+                symbol=symbol,
+                timeframe=timeframe,
+                returns_used=int(r.size),
+                live_window=as_of is None and end is None,
+                detail=detail,
+            )
 
         return {"error": f"Unsupported direct volatility method: {method_l}"}
     except Exception as e:
         return {"error": f"Error computing volatility forecast: {str(e)}"}
-

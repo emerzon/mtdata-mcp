@@ -3231,7 +3231,7 @@ def forecast_backtest(  # noqa: C901
                             if start
                             else {"as_of": anchor_cutoff}
                         )
-                        r = raise_if_error_result(forecast_volatility(  # type: ignore
+                        volatility_result = forecast_volatility(  # type: ignore
                             symbol=symbol,
                             timeframe=timeframe,
                             method=method,  # type: ignore
@@ -3241,7 +3241,57 @@ def forecast_backtest(  # noqa: C901
                             denoise=_dn_used,
                             detail="full",
                             **volatility_time_bounds,
-                        ))
+                        )
+                        if (
+                            not isinstance(volatility_result, dict)
+                            or volatility_result.get("success") is False
+                            or volatility_result.get("error")
+                        ):
+                            failure_result = (
+                                volatility_result
+                                if isinstance(volatility_result, dict)
+                                else {}
+                            )
+                            failure_row: Dict[str, Any] = {
+                                "anchor": anchor_time,
+                                "success": False,
+                                "error": str(
+                                    failure_result.get("error")
+                                    or "Volatility forecast failed"
+                                ),
+                            }
+                            if failure_result.get("error_code") is not None:
+                                failure_row["error_code"] = str(
+                                    failure_result["error_code"]
+                                )
+                            if include_paths:
+                                for failure_key in (
+                                    "remediation",
+                                    "params_used",
+                                    "denoise_used",
+                                    "denoise_application",
+                                    "proxy",
+                                    "trust_level",
+                                    "history_policy_ok",
+                                    "clipped_forecast_steps",
+                                    "daily_rv",
+                                    "daily_rv_quality",
+                                    "final_daily_aggregate",
+                                    "fit_diagnostics",
+                                    "input_evidence",
+                                    "warnings",
+                                    "warning",
+                                    "data_window",
+                                    "components",
+                                    "component_errors",
+                                ):
+                                    if failure_result.get(failure_key) is not None:
+                                        failure_row[failure_key] = deepcopy(
+                                            failure_result[failure_key]
+                                        )
+                            per_anchor.append(failure_row)
+                            continue
+                        r = volatility_result
                     else:
                         # Choose per-method params falling back to global params
                         pm = params_map.get(method)
@@ -3275,6 +3325,53 @@ def forecast_backtest(  # noqa: C901
                         ))
                 except Exception as ex:
                     per_anchor.append({"anchor": anchor_time, "success": False, "error": str(ex)})
+                    continue
+                if (
+                    quantity == "volatility"
+                    and isinstance(r, dict)
+                    and (
+                        r.get("trust_level") == "unusable"
+                        or r.get("history_policy_ok") is False
+                    )
+                ):
+                    unusable_row: Dict[str, Any] = {
+                        "anchor": anchor_time,
+                        "success": False,
+                        "error": (
+                            "Volatility forecast is marked unusable by the "
+                            "estimator and was not scored."
+                        ),
+                        "error_code": "volatility_forecast_unusable",
+                    }
+                    if include_paths:
+                        for unusable_key in (
+                            "params_used",
+                            "denoise_used",
+                            "denoise_application",
+                            "proxy",
+                            "trust_level",
+                            "history_policy_ok",
+                            "clipped_forecast_steps",
+                            "input_evidence",
+                            "fit_diagnostics",
+                            "daily_rv",
+                            "daily_rv_quality",
+                            "final_daily_aggregate",
+                            "warnings",
+                            "warning",
+                            "data_window",
+                            "components",
+                            "component_errors",
+                        ):
+                            if r.get(unusable_key) is not None:
+                                unusable_row[unusable_key] = deepcopy(r[unusable_key])
+                        try:
+                            forecast_sigma = float(r["volatility_horizon"])
+                        except KeyError, TypeError, ValueError:
+                            forecast_sigma = float("nan")
+                        if np.isfinite(forecast_sigma):
+                            unusable_row["forecast_sigma"] = forecast_sigma
+                    per_anchor.append(unusable_row)
                     continue
                 feature_usage: Optional[Dict[str, Any]] = None
                 if isinstance(features, dict) and features:
@@ -3340,6 +3437,27 @@ def forecast_backtest(  # noqa: C901
                     }
                     if include_paths and isinstance(r.get("params_used"), dict):
                         detail_row["params_used"] = deepcopy(r["params_used"])
+                    if include_paths:
+                        for evidence_key in (
+                            "input_evidence",
+                            "fit_diagnostics",
+                            "denoise_used",
+                            "denoise_application",
+                            "proxy",
+                            "trust_level",
+                            "history_policy_ok",
+                            "clipped_forecast_steps",
+                            "daily_rv",
+                            "daily_rv_quality",
+                            "final_daily_aggregate",
+                            "warnings",
+                            "warning",
+                            "data_window",
+                            "components",
+                            "component_errors",
+                        ):
+                            if r.get(evidence_key) is not None:
+                                detail_row[evidence_key] = deepcopy(r[evidence_key])
                     per_anchor.append(detail_row)
                 else:
                     if target_mode == 'return':

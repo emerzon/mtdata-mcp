@@ -43,6 +43,53 @@ enough timestamps to infer a session and the generic 24-hour fallback was used.
 `data_as_of` is the last completed bar's close in both live and replay
 windows. `last_bar_open` is the open of that same bar.
 
+## Deeper detail
+
+### Auditing the exact model input
+
+Use `--detail full` when a forecast must be reproducible or independently
+verified. Full output includes a versioned `input_evidence` block built inside
+the estimator after history cutoff, filtering, denoising, and selection of the
+method's mathematical input. It reports counts, timestamp bounds, operations,
+ordered field names, shapes, and SHA-256 digests. Source prices remain bounded:
+the response provides raw-MT5 and effective-after-denoise digests, not a raw
+price vector. `denoise_used` and `denoise_application` state the normalized
+filter and whether it added or overwrote columns.
+
+`input_evidence.source` identifies the exact source rows.
+`input_evidence.returns` identifies each return value and its paired previous
+and current timestamps. Most requested-timeframe methods intentionally use
+adjacent **observed** rows and can bridge a missing candle; their operation and
+`timestamp_policy=adjacent_observed_rows_no_time_gap_filter` say so explicitly.
+HAR-RV is different: it accepts only same-UTC-day returns exactly one
+`rv_timeframe` interval apart. `input_evidence.transformed_input` identifies
+the final estimator vector or matrix.
+
+The effective input sizes depend on the method:
+
+| Method family | Exact full-detail input |
+|---------------|-------------------------|
+| EWMA | Selected source closes, trailing adjacent-observed log returns capped by `lookback`, and normalized return/weight pairs |
+| Parkinson, Garman-Klass, Rogers-Satchell | The selected `window` high/low rows for Parkinson or OHLC rows for Garman-Klass/Rogers-Satchell, plus one variance contribution per row |
+| Yang-Zhang | `window + 1` OHLC rows and `window` overnight, open-to-close, and Rogers-Satchell components |
+| Rolling standard deviation | `window + 1` closes, `window` adjacent-observed simple returns, and the centered return vector |
+| Realized kernel | Up to `window` selected finite log-return pairs, their source-row union, centered returns, kernel, and effective bandwidth; contiguous pairs use `window + 1` closes |
+| ARIMA, SARIMA, ETS, Theta proxy | The selected close rows, adjacent-observed log returns, and exact proxy series passed to the forecaster |
+| GARCH family | Up to `fit_bars` selected finite log-return pairs, their source-row union, and the percent-log-return fit vector; contiguous pairs use `fit_bars + 1` closes |
+| HAR-RV | Sorted post-filter intraday rows, all accepted exact-step returns, eligible-return subset, daily RV vector, aligned regression matrix/target, and final lag vector |
+| Ensemble | Ordered component outputs, survivor-normalized weights, and each component's full evidence |
+
+Each numeric digest hashes UTF-8 bytes for a sorted, compact JSON header,
+followed by one newline byte and then the array's C-order little-endian
+float64 bytes. The header binds schema version, SHA-256 algorithm, domain,
+encoding, shape, method, timeframe, operation, and ordered fields. Signed zero
+is normalized. NaN uses one canonical bit pattern only for intentional nullable
+arrays such as the HAR daily-RV vector; successful estimator inputs must be
+finite. This is the `canonical_float64_le_v1` encoding.
+
+Compact, standard, and summary responses omit `input_evidence`, fit evidence,
+daily vectors, and denoise-application evidence.
+
 **Interpretation:**
 - `volatility_per_bar: 0.00062` → Expect ~0.06% moves per hour (1 standard deviation)
 - `volatility_horizon: 0.002145` → Over 12 hours, expect ~0.21% total range (1 σ)
@@ -104,6 +151,17 @@ mtdata-cli forecast_volatility_estimate EURUSD --timeframe H1 --horizon 12 --met
 ```
 
 **When to use:** When volatility clusters are visible (big moves follow big moves). GARCH is slower but more accurate for regime-switching markets.
+
+Full GARCH-family output includes `fit_diagnostics`. A usable result requires
+`convergence_flag=0`, does not accept an explicit optimizer `success=false`,
+and requires finite fitted coefficients plus exactly one finite, positive
+variance for every requested horizon step. The optimizer success, status,
+message, iteration count, and objective are included when the backend exposes
+them. Coefficients retain the ARCH library's native parameterization for
+percent-log-return input. The complete forecast variance path is converted to
+decimal-return-squared units before it is reported and hashed. A failed fit
+returns structured full-detail diagnostics and input evidence but no usable
+forecast; compact output omits those large blocks.
 
 ---
 
@@ -195,15 +253,22 @@ Full output exposes `daily_rv_quality`, including the effective interval,
 coverage, gap, and day-position policies; per-date exclusions and reasons;
 return intervals rejected at gaps; and the daily-count, aligned-row, and recent
 lag evidence used to decide whether the fit and forecast are ready.
+The top-level `daily_rv` vector preserves every observed UTC-day position and
+uses `null` for excluded aggregates. `daily_rv_quality.daily_aggregates`
+contains the corresponding per-day decisions without duplicating that vector.
 `final_daily_aggregate` remains available as the focused trailing-day view.
 `daily_rv_quality.final_boundary_authorization` records the exact prefix check
 and authorization reason. The baseline bootstrap/update policies, retained
 state per weekday, rejected updates, and weekday-scoped 24-hour-grid evidence
 are reported alongside it.
-Because MT5 candles do not carry a historical symbol-session calendar, HAR-RV
-cannot distinguish an entirely absent trading day from a scheduled closed day
-when that UTC date has no bars at all. The quality contract reports this limit
-as `whole_missing_day_detection=unavailable_without_symbol_session_calendar`;
+The calendar candidate ledger covers the requested history start through the
+last intraday bar that could have closed at the cutoff. It lists dates with no
+rows, including absent leading or trailing boundary dates, as
+`classification=unknown_without_session_calendar`; an exact-midnight cutoff
+does not falsely add the new day. Because MT5 candles do not carry a historical
+symbol-session calendar, HAR-RV cannot decide whether an absent date is a
+history outage or a scheduled closure. The quality contract reports
+`whole_missing_day_detection=calendar_absence_listed_session_eligibility_unknown`;
 session-aware research should independently bind its expected trading calendar.
 When `rv_timeframe` differs from the requested forecast timeframe, target times
 are aligned to actual MT5 candle opens for the requested timeframe; `data_as_of`
@@ -232,9 +297,19 @@ mtdata-cli forecast_volatility_estimate EURUSD --timeframe H1 --horizon 12 --met
 ```
 
 **Proxies available:**
-- `squared_return`: (close/prev_close - 1)²
-- `abs_return`: |close/prev_close - 1|
-- `log_r2`: squared log-return
+- `squared_return`: `ln(close_t / close_{t-1})²`
+- `abs_return`: `|ln(close_t / close_{t-1})|`
+- `log_r2`: `ln(ln(close_t / close_{t-1})² + 1e-12)`
+
+The proxy forecaster must return a one-dimensional, finite path whose length
+exactly matches `horizon`; short, long, two-dimensional, or nonfinite output
+fails closed. Full evidence fingerprints that raw proxy forecast, names the
+back-transform and clipping policy, fingerprints the resulting per-step sigma
+path, and fingerprints the horizon root-sum-square and per-bar RMS aggregate.
+Only digests and bounded diagnostics are returned, not the numeric forecast
+vectors. A finite path that collapses entirely to zero remains explicitly
+`trust_level=unusable` and is not scored by volatility backtests or included as
+an ensemble survivor.
 
 ---
 

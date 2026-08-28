@@ -141,8 +141,11 @@ Notes:
 - Volatility methods can own method-specific fit windows. For HAR-RV, omit
   `--lookback` and set `--params-per-method
   '{"har_rv":{"days":120,"rv_timeframe":"M5"}}'`. Full-detail
-  `training_window`, `training_bars_used`, and `params_used` report the
-  actual per-anchor intraday fit evidence.
+  `training_window` and `training_bars_used` describe the prepared or available
+  per-anchor window; they are not proof of the rows mathematically consumed by
+  range, kernel, GARCH, proxy, or HAR-RV estimators. Use
+  `input_evidence.source`, `input_evidence.returns`, and
+  `input_evidence.transformed_input` for exact fit-input evidence.
 
 **Examples:**
 ```bash
@@ -348,6 +351,15 @@ Use `detail=full` to include individual test results:
 `params_used` contains the effective parameters returned by the underlying
 forecaster after defaults and normalization. It is included for successful
 price, return, and volatility anchors at full detail and can vary by anchor.
+
+For volatility backtests, every full-detail row deep-copies the evidence
+created by the estimator. This includes `input_evidence`, GARCH
+`fit_diagnostics`, denoise application metadata, proxy trust flags, and HAR-RV
+`daily_rv`, `daily_rv_quality`, and final-boundary evidence. Structured failed
+anchors retain the same available evidence in full detail. A proxy forecast
+marked `trust_level=unusable` or `history_policy_ok=false` is not scored.
+Compact, standard, and summary output keeps bounded error information but omits
+the full evidence blocks.
 
 ---
 
