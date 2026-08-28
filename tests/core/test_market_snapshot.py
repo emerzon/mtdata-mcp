@@ -1057,6 +1057,7 @@ def test_market_snapshot_qualifies_uncertain_pattern_bias(monkeypatch):
     assert "latest_pattern_bias" not in snapshot
     assert snapshot["latest_bar_pattern"] == "uncertain"
     assert snapshot["latest_match_score"] == 0.225
+    assert snapshot["latest_match_score_scale"] == "similarity_0_to_1"
     assert snapshot["pattern_conflict"] == "both_bullish_and_bearish_patterns_present"
     assert snapshot["pattern_count"] == 4
     assert snapshot["pattern_is_signal"] is False
@@ -1066,6 +1067,40 @@ def test_market_snapshot_qualifies_uncertain_pattern_bias(monkeypatch):
         "Candlestick triggers are limited to the latest 3 bars; "
         "use patterns_detect for a wider historical scan."
     )
+
+
+def test_market_snapshot_compact_carries_score_basis(monkeypatch):
+    def fake_call_section(name, symbol, timeframe, horizon, detail):
+        if name == "levels":
+            return {
+                "success": True,
+                "supports": [{"value": 1.16, "score": 18.9}],
+                "resistances": [],
+                "ranges": [{"low": 1.15, "high": 1.17, "score": 18.9}],
+                "score_basis": {
+                    "scale": "unbounded_nonnegative",
+                    "higher_is_stronger": True,
+                    "definition": "omitted from snapshot compact",
+                },
+            }
+        if name == "patterns":
+            return {
+                "success": True,
+                "pattern_confidence": 0.94,
+                "n_patterns": 1,
+            }
+        return {"success": True, "symbol": symbol, "mid": 1.164}
+
+    monkeypatch.setattr(snapshot_mod, "_call_section", fake_call_section)
+
+    snapshot = _raw_market_snapshot(symbol="EURUSD", detail="compact")["snapshot"]
+
+    assert snapshot["score_basis"] == {
+        "scale": "unbounded_nonnegative",
+        "higher_is_stronger": True,
+    }
+    assert snapshot["latest_match_score"] == 0.94
+    assert snapshot["latest_match_score_scale"] == "similarity_0_to_1"
 
 
 def test_market_snapshot_discloses_pattern_window_when_no_patterns(monkeypatch):

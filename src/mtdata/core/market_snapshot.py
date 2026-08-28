@@ -745,6 +745,15 @@ def _snapshot_summary_payload(sections: Dict[str, Any]) -> Dict[str, Any]:  # no
             out["range_count"] = int(range_count)
             if isinstance(ranges, list) and ranges:
                 out["containing_range"] = ranges[0]
+        score_basis = levels.get("score_basis")
+        if isinstance(score_basis, dict):
+            compact_basis = {
+                key: score_basis[key]
+                for key in ("scale", "higher_is_stronger")
+                if key in score_basis
+            }
+            if compact_basis:
+                out["score_basis"] = compact_basis
         levels_context = _compact_levels_context(levels)
         if levels_context:
             out["levels_context"] = levels_context
@@ -765,6 +774,8 @@ def _snapshot_summary_payload(sections: Dict[str, Any]) -> Dict[str, Any]:  # no
             value = patterns.get(source_key)
             if value is not None:
                 out[output_key] = value
+        if out.get("latest_match_score") is not None:
+            out["latest_match_score_scale"] = "similarity_0_to_1"
         if "is_signal" in patterns:
             out["pattern_is_signal"] = bool(patterns["is_signal"])
         usage = patterns.get("usage")
