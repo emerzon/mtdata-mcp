@@ -185,6 +185,19 @@ The run saves the exact argv, source commit, dirty-state check, feature catalog,
 and SHA-256 hashes. A failed gate stops later MT5 calls until the cause is fixed
 and committed.
 
+For the six-command smoke, run the verifier immediately after each feature/raw
+pair becomes complete:
+
+```powershell
+python scripts/btcusd_forecast_smoke_validate.py --run-dir <study> --pair <feature-variant>
+```
+
+It writes one immutable pair artifact below `validation/`; any failed artifact
+ends that run. After all six commands, run it without `--pair` to require
+identical evaluation evidence across both adapters and write the aggregate
+`smoke_validation.json`. These artifacts verify contracts only and deliberately
+compute no outcome metric.
+
 Before A1 is parsed, a tested offline scorer must implement the exact anchor
 grid, fixed-H reconstruction, feature/raw matching, confusion matrices,
 threshold rules, week-cluster inference, multiplicity diagnostics, costs,
