@@ -2048,6 +2048,47 @@ def _new_manifest(
     runtime_identity: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     now = utc_now()
+    raw_screen = config.get("screen")
+    screen = raw_screen if isinstance(raw_screen, Mapping) else {}
+    explicit_anchor_grid = screen.get("anchor_grid")
+    uses_explicit_anchors = isinstance(explicit_anchor_grid, Mapping)
+    baseline_matrix = {
+        key: screen.get(key)
+        for key in (
+            "timeframes",
+            "horizons",
+            "quantities",
+            "lookbacks",
+            "methods",
+            "spacing_policy",
+            "sharding",
+            "steps_per_shard",
+            "slippage_bps",
+            "spread_bps",
+            "commission_bps_per_side",
+            "trade_threshold",
+            "variants",
+        )
+    }
+    if uses_explicit_anchors:
+        baseline_matrix.update(
+            {
+                "anchor_grid": explicit_anchor_grid,
+                "spacing_policy": "explicit_anchor_grid",
+                "steps_per_shard": None,
+            }
+        )
+        screen_training_floor_policy = (
+            "Every explicit-anchor command passes anchor_grid.history_start as "
+            "--start only to provide causal lookback history; scored anchors and "
+            "their complete target paths remain inside the registered role window."
+        )
+    else:
+        screen_training_floor_policy = (
+            "Every rolling command passes the registered window start; shards "
+            "without lookback plus full evaluation history inside that window are "
+            "omitted."
+        )
     runtime = dict(runtime_identity or _runtime_identity_snapshot())
     runtime.update(
         {
@@ -2105,30 +2146,8 @@ def _new_manifest(
         },
         "protocol": {
             "research_windows": redact(config.get("research_windows", {})),
-            "baseline_matrix": redact(
-                {
-                    key: config.get("screen", {}).get(key)
-                    for key in (
-                        "timeframes",
-                        "horizons",
-                        "quantities",
-                        "lookbacks",
-                        "methods",
-                        "spacing_policy",
-                        "sharding",
-                        "steps_per_shard",
-                        "slippage_bps",
-                        "spread_bps",
-                        "commission_bps_per_side",
-                        "trade_threshold",
-                        "variants",
-                    )
-                }
-            ),
-            "screen_training_floor_policy": (
-                "Every command passes the registered window start; shards without "
-                "lookback plus full evaluation history inside that window are omitted."
-            ),
+            "baseline_matrix": redact(baseline_matrix),
+            "screen_training_floor_policy": screen_training_floor_policy,
             "candidate_gate": {
                 "validation_windows": ["validation", "confirmation"],
                 "validation_candidate_write_once": True,

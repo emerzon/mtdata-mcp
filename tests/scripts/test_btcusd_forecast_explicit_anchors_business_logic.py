@@ -214,6 +214,32 @@ def test_stage_registration_preserves_canonical_anchor_inventory(tmp_path: Path)
     )
 
 
+def test_explicit_manifest_records_history_only_training_floor_policy(
+    tmp_path: Path,
+) -> None:
+    config = _explicit_config()
+    config["screen"]["spacing_policy"] = "equal_to_horizon"
+    config["screen"]["steps_per_shard"] = "auto_month"
+
+    manifest = experiment._new_manifest(
+        "a1-weekly",
+        config,
+        tmp_path / "study",
+        source_state={"git_head": "test"},
+        runtime_identity={"python": "test"},
+    )
+
+    protocol = manifest["protocol"]
+    baseline = protocol["baseline_matrix"]
+    assert baseline["anchor_grid"] == config["screen"]["anchor_grid"]
+    assert baseline["spacing_policy"] == "explicit_anchor_grid"
+    assert baseline["steps_per_shard"] is None
+    assert "anchor_grid.history_start" in protocol["screen_training_floor_policy"]
+    assert "inside the registered role window" in protocol[
+        "screen_training_floor_policy"
+    ]
+
+
 def test_explicit_screen_contract_accepts_exact_plan_and_timestamp_paths() -> None:
     specs = experiment.build_screen_specs(_explicit_config(horizons=[6, 24]))
     by_horizon = {
