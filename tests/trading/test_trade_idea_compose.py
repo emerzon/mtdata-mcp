@@ -5,8 +5,25 @@ from typing import Any, Dict
 import pytest
 
 import mtdata.core.trading.ideas as ideas_module
-from mtdata.core.trading.ideas import run_trade_idea_compose
+from mtdata.core.trading.ideas import _compact_forecast, run_trade_idea_compose
 from mtdata.core.trading.ideas_requests import TradeIdeaComposeRequest
+
+
+def test_compact_forecast_exposes_forming_bar_state() -> None:
+    compact = _compact_forecast(
+        {
+            "method": "theta",
+            "first_forecast_bar_state": "forming",
+            "horizon_includes_forming_bar": True,
+            "forecast_bar_states": ["forming", "future"],
+        },
+        [1.16457, 1.1648],
+        "up",
+    )
+
+    assert compact["first"] == 1.16457
+    assert compact["first_bar_state"] == "forming"
+    assert compact["horizon_includes_forming_bar"] is True
 
 
 def _session(*, usable: bool = True, tradable: bool = True) -> Dict[str, Any]:

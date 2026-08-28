@@ -684,6 +684,21 @@ def _compact_forecast(
         compact["first"] = values[0]
         compact["last"] = values[-1]
         compact["bars"] = len(values)
+    if isinstance(payload, dict):
+        first_bar_state = payload.get("first_forecast_bar_state")
+        if first_bar_state in (None, ""):
+            bar_states = payload.get("forecast_bar_states")
+            if isinstance(bar_states, list) and bar_states:
+                first_bar_state = bar_states[0]
+        if first_bar_state not in (None, ""):
+            compact["first_bar_state"] = first_bar_state
+        forming = payload.get("horizon_includes_forming_bar")
+        if forming is None:
+            bar_states = payload.get("forecast_bar_states")
+            if isinstance(bar_states, list) and bar_states:
+                forming = "forming" in bar_states
+        if forming is not None:
+            compact["horizon_includes_forming_bar"] = bool(forming)
     if trend:
         compact["trend"] = trend
     if isinstance(payload, dict) and isinstance(payload.get("forecast_vs_last_price"), dict):
