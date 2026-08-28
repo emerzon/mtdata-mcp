@@ -441,7 +441,7 @@ class TestForecastBacktest:
 
         with patch("mtdata.forecast.backtest.forecast") as fc:
             result = forecast_backtest(
-                "EURUSD",
+                "BTCUSD",
                 timeframe="H1",
                 horizon=12,
                 anchors=anchors,

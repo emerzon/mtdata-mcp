@@ -65,6 +65,7 @@ def test_explicit_anchors_resolve_exact_epoch_and_echo_canonical_plan() -> None:
     assert plan["requested_anchors"] == [canonical]
     assert plan["resolved_anchors"] == [canonical]
     assert plan["anchor_resolution"] == "exact_bar_open"
+    assert plan["target_resolution"] == "forecast_calendar_projection_exact"
     detail = result["results"]["naive"]["details"][0]
     assert detail["anchor"] == canonical
     assert detail["entry_time"] == expected_actual_times[0]
@@ -103,6 +104,91 @@ def test_explicit_anchor_history_and_target_fail_closed_before_forecast(
     assert result["error_code"] == "forecast_backtest_anchor_resolution_failed"
     assert expected_reason in _failure_reasons(result)
     forecast.assert_not_called()
+
+
+def test_explicit_btc_anchor_rejects_gapped_target_before_forecast() -> None:
+    frame = _history()
+    frame.loc[62:, "time"] += 3600.0
+    anchor = _anchor(frame, 60)
+
+    with patch(
+        "mtdata.forecast.backtest._fetch_history",
+        return_value=frame,
+    ), patch("mtdata.forecast.backtest.forecast") as forecast:
+        result = forecast_backtest(
+            "BTCUSD",
+            timeframe="H1",
+            horizon=3,
+            anchors=[anchor],
+            methods=["naive"],
+        )
+
+    assert result["error_code"] == "forecast_backtest_anchor_resolution_failed"
+    assert result["resolved_anchors"] == [anchor]
+    issue = result["anchor_resolution_issues"][0]
+    assert issue == {
+        "position": 0,
+        "requested_anchor": anchor,
+        "reason": "target_timestamp_mismatch",
+        "target_step": 2,
+        "expected_target_timestamp": _anchor(_history(), 62),
+        "observed_target_timestamp": _anchor(frame, 62),
+        "expected_bar_seconds": 3600,
+        "expected_target_bars": 3,
+        "observed_target_bars": 3,
+    }
+    forecast.assert_not_called()
+
+
+def test_explicit_fx_anchor_accepts_projected_weekend_target_window() -> None:
+    history_times = pd.date_range(
+        "2024-01-03T00:00:00Z",
+        "2024-01-05T21:00:00Z",
+        freq="h",
+    )
+    target_times = pd.to_datetime(
+        [
+            "2024-01-07T22:00:00Z",
+            "2024-01-07T23:00:00Z",
+            "2024-01-08T00:00:00Z",
+        ]
+    )
+    times = np.array(
+        [timestamp.timestamp() for timestamp in (*history_times, *target_times)],
+        dtype=float,
+    )
+    close = np.linspace(100.0, 120.0, len(times), dtype=float)
+    frame = pd.DataFrame(
+        {"time": times, "open": close - 0.1, "close": close}
+    )
+    anchor = _anchor(frame, len(history_times) - 1)
+
+    with patch(
+        "mtdata.forecast.backtest._fetch_history",
+        return_value=frame,
+    ), patch(
+        "mtdata.forecast.backtest.forecast",
+        return_value={"forecast_price": [111.0, 112.0, 113.0]},
+    ) as forecast:
+        result = forecast_backtest(
+            "EURUSD",
+            timeframe="H1",
+            horizon=3,
+            anchors=[anchor],
+            methods=["naive"],
+            detail="full",
+        )
+
+    assert result["complete_success"] is True
+    assert result["backtest_plan"]["target_resolution"] == (
+        "forecast_calendar_projection_exact"
+    )
+    detail = result["results"]["naive"]["details"][0]
+    assert detail["actual_timestamps"] == [
+        timestamp.isoformat().replace("+00:00", "Z")
+        for timestamp in target_times
+    ]
+    forecast.assert_called_once()
 
 
 def test_missing_explicit_anchor_does_not_shift_or_drop() -> None:
@@ -227,7 +313,7 @@ def test_sparse_explicit_anchors_size_history_by_elapsed_span() -> None:
         return_value={"forecast_price": [111.0] * 12},
     ):
         result = forecast_backtest(
-            "EURUSD",
+            "BTCUSD",
             timeframe="H1",
             horizon=12,
             lookback=50,

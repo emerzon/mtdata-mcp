@@ -29,10 +29,12 @@ from .common import (
     log_returns_from_prices as _log_returns_from_prices,
 )
 from .common import (
-    quantity_to_target as _quantity_to_target,
+    next_times_from_last,
+    resolve_forecast_symbol,
+    uses_standard_weekend_projection,
 )
 from .common import (
-    resolve_forecast_symbol,
+    quantity_to_target as _quantity_to_target,
 )
 from .contracts import (
     AnchorMetadata,
@@ -63,6 +65,7 @@ from .volatility import forecast_volatility
 _BREAKEVEN_RETURN_EPS = 1e-12
 _ANCHOR_RESOLUTION_ERROR_CODE = "forecast_backtest_anchor_resolution_failed"
 _ANCHOR_RESOLUTION_POLICY = "exact_bar_open"
+_TARGET_RESOLUTION_POLICY = "forecast_calendar_projection_exact"
 _FEATURE_CAPABILITY_ERROR_CODE = "feature_consumption_unsupported"
 _FEATURE_ATTESTATION_ERROR_CODE = "feature_consumption_unverified"
 _LOW_SAMPLE_TRADING_METRIC_KEYS = (
@@ -154,7 +157,8 @@ def _explicit_anchor_failure(
         "success": False,
         "error": (
             "Explicit backtest anchors did not resolve to complete, "
-            "non-overlapping validation windows; no model fits were run."
+            "calendar-aligned, non-overlapping validation windows; no model "
+            "fits were run."
         ),
         "error_code": _ANCHOR_RESOLUTION_ERROR_CODE,
         "anchor_resolution": _ANCHOR_RESOLUTION_POLICY,
@@ -163,9 +167,90 @@ def _explicit_anchor_failure(
         "anchor_resolution_issues": issues,
         "remediation": (
             "Use exact closed-candle bar-open timestamps, include enough prior "
-            "history and the complete future horizon, and keep validation "
-            "windows non-overlapping."
+            "history and the complete calendar-projected future horizon, and "
+            "keep validation windows non-overlapping."
         ),
+    }
+
+
+def _explicit_target_resolution_issue(
+    *,
+    position: int,
+    requested_anchor: str,
+    anchor_epoch: float,
+    observed_target_epochs: List[float],
+    observed_times: Any,
+    horizon: int,
+    timeframe: TimeframeLiteral,
+    symbol: str,
+) -> Optional[Dict[str, Any]]:
+    timeframe_seconds = int(TIMEFRAME_SECONDS[timeframe])
+    expected_target_epochs = next_times_from_last(
+        anchor_epoch,
+        timeframe_seconds,
+        horizon,
+        skip_weekends=uses_standard_weekend_projection(
+            symbol,
+            timeframe_seconds,
+        ),
+        timeframe=timeframe,
+        symbol=symbol,
+        observed_times=observed_times,
+    )
+    mismatch_offset = next(
+        (
+            offset
+            for offset, (expected, observed) in enumerate(
+                zip(expected_target_epochs, observed_target_epochs)
+            )
+            if not math.isclose(
+                float(expected),
+                float(observed),
+                rel_tol=0.0,
+                abs_tol=1e-6,
+            )
+        ),
+        None,
+    )
+    if mismatch_offset is None and (
+        len(expected_target_epochs) != horizon
+        or len(observed_target_epochs) != horizon
+    ):
+        mismatch_offset = min(
+            len(expected_target_epochs),
+            len(observed_target_epochs),
+        )
+    if mismatch_offset is None:
+        return None
+
+    expected_epoch = (
+        expected_target_epochs[mismatch_offset]
+        if mismatch_offset < len(expected_target_epochs)
+        else None
+    )
+    observed_epoch = (
+        observed_target_epochs[mismatch_offset]
+        if mismatch_offset < len(observed_target_epochs)
+        else None
+    )
+    return {
+        "position": int(position),
+        "requested_anchor": requested_anchor,
+        "reason": "target_timestamp_mismatch",
+        "target_step": int(mismatch_offset) + 1,
+        "expected_target_timestamp": (
+            format_epoch_utc(float(expected_epoch), timespec="seconds")
+            if expected_epoch is not None
+            else None
+        ),
+        "observed_target_timestamp": (
+            format_epoch_utc(float(observed_epoch), timespec="seconds")
+            if observed_epoch is not None
+            else None
+        ),
+        "expected_bar_seconds": timeframe_seconds,
+        "expected_target_bars": int(len(expected_target_epochs)),
+        "observed_target_bars": int(len(observed_target_epochs)),
     }
 
 
@@ -2939,6 +3024,30 @@ def forecast_backtest(  # noqa: C901
                             "required_target_bars": int(horizon),
                         }
                     )
+                else:
+                    projection_history = df.iloc[: index + 1]
+                    if model_lookback is not None:
+                        projection_history = projection_history.iloc[
+                            -model_lookback:
+                        ]
+                    target_resolution_issue = (
+                        _explicit_target_resolution_issue(
+                            position=position,
+                            requested_anchor=label,
+                            anchor_epoch=float(tvals[index]),
+                            observed_target_epochs=tvals[
+                                index + 1: index + 1 + int(horizon)
+                            ].tolist(),
+                            observed_times=projection_history.get("time"),
+                            horizon=int(horizon),
+                            timeframe=timeframe,
+                            symbol=symbol,
+                        )
+                    )
+                    if target_resolution_issue is not None:
+                        anchor_resolution_issues.append(
+                            target_resolution_issue
+                        )
 
             ordered_resolutions = sorted(
                 zip(anchor_indices, resolved_anchor_labels),
@@ -3647,6 +3756,7 @@ def forecast_backtest(  # noqa: C901
             backtest_plan["requested_anchors"] = list(requested_anchor_labels)
             backtest_plan["resolved_anchors"] = list(resolved_anchor_labels)
             backtest_plan["anchor_resolution"] = _ANCHOR_RESOLUTION_POLICY
+            backtest_plan["target_resolution"] = _TARGET_RESOLUTION_POLICY
         if anchor_mode == "rolling":
             backtest_plan["anchor_spacing_bars"] = int(spacing)
             backtest_plan["validation_span_bars"] = int(horizon) + max(

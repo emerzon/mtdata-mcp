@@ -155,7 +155,7 @@ def test_backtest_return_target_converts_log_returns_to_simple_trade_returns() -
         return_value={"forecast_return": [float(v) for v in actual_returns.tolist()]},
     ):
         res = forecast_backtest(
-            symbol="EURUSD",
+            symbol="BTCUSD",
             timeframe="H1",
             horizon=horizon,
             methods=["naive"],
@@ -183,7 +183,7 @@ def test_backtest_executes_completed_close_signal_at_next_open() -> None:
         return_value={"forecast_price": [forecast_target]},
     ):
         result = forecast_backtest(
-            symbol="AAPL.NAS",
+            symbol="BTCUSD",
             timeframe="H1",
             horizon=1,
             methods=["naive"],
@@ -268,7 +268,7 @@ def test_backtest_price_target_trade_returns_vary_by_forecast_implied_exit() -> 
         side_effect=_fake_forecast,
     ):
         res = forecast_backtest(
-            symbol="EURUSD",
+            symbol="BTCUSD",
             timeframe="H1",
             horizon=horizon,
             methods=["slow", "aggressive"],

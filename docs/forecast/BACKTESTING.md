@@ -59,18 +59,20 @@ actionable. The built-in trade simulation enters at the next candle open, also
 `01:00Z` when the feed is continuous.
 
 Explicit mode resolves each timestamp to that exact MT5 candle open. A missing
-or duplicate bar, insufficient prior history, incomplete future horizon, or
-overlapping validation window fails the entire request before any model is fit.
-It never substitutes a nearby candle or drops an origin. `--start` is the
+or duplicate bar, insufficient prior history, incomplete future horizon,
+target timestamp that differs from the forecast's market-calendar projection,
+or overlapping validation window fails the entire request before any model is
+fit. It never substitutes a nearby candle or drops an origin. `--start` is the
 history floor, not the first scored origin, and `--end` must include every
 realized target candle. `--steps` and `--spacing` remain rolling-mode settings
 and do not alter an explicit list.
 
 Successful output records the canonical list in
 `backtest_plan.requested_anchors` and `resolved_anchors`, with
-`anchor_resolution=exact_bar_open`. Full detail also includes each forecast's
-`actual_timestamps`; preserve those fields when matching results across methods
-or horizons.
+`anchor_resolution=exact_bar_open` and
+`target_resolution=forecast_calendar_projection_exact`. Full detail also
+includes each forecast's `actual_timestamps`; preserve those fields when
+matching results across methods or horizons.
 
 ---
 

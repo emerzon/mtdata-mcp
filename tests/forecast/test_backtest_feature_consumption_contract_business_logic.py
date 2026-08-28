@@ -200,7 +200,7 @@ def test_feature_backtest_rejects_feature_identity_change_across_anchors() -> No
         side_effect=[first, second],
     ):
         result = forecast_backtest(
-            symbol="EURUSD",
+            symbol="BTCUSD",
             timeframe="H1",
             horizon=3,
             methods=["mlf_lightgbm"],
