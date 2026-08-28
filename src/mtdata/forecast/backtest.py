@@ -3519,8 +3519,8 @@ def forecast_backtest(  # noqa: C901
                     }
                     if feature_usage is not None:
                         detail_row["_feature_usage"] = feature_usage
-                        if include_paths and isinstance(r.get("params_used"), dict):
-                            detail_row["params_used"] = deepcopy(r["params_used"])
+                    if include_paths and isinstance(r.get("params_used"), dict):
+                        detail_row["params_used"] = deepcopy(r["params_used"])
                     for key in (
                         "history_sample_ok",
                         "forecast_reliability",

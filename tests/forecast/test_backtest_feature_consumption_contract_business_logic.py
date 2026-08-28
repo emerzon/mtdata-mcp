@@ -137,6 +137,33 @@ def test_full_feature_backtest_propagates_verified_usage_and_params() -> None:
     assert method["feature_usage"]["observed_future_policy"] == "carry_forward"
 
 
+def test_full_backtest_propagates_params_without_features() -> None:
+    frame = _history_frame()
+    anchor = _format_time_minimal(float(frame["time"].iloc[60]))
+    payload = {
+        "forecast_price": [116.0, 116.5, 117.0],
+        "params_used": {"season_length": 24},
+    }
+
+    with patch("mtdata.forecast.backtest._fetch_history", return_value=frame), patch(
+        "mtdata.forecast.backtest.forecast",
+        return_value=payload,
+    ):
+        result = forecast_backtest(
+            symbol="EURUSD",
+            timeframe="H1",
+            horizon=3,
+            methods=["naive"],
+            anchors=[anchor],
+            detail="full",
+        )
+
+    assert result["complete_success"] is True
+    detail = result["results"]["naive"]["details"][0]
+    assert detail["params_used"] == {"season_length": 24}
+    assert "feature_usage" not in detail
+
+
 def test_feature_backtest_fails_anchor_when_attestation_is_inconsistent() -> None:
     result = _run_feature_backtest(
         _feature_forecast_payload(historical_rows=60),
