@@ -1552,12 +1552,14 @@ def forecast_volatility(  # noqa: C901
                 }
             y = y[np.isfinite(y)]
             fh = int(horizon)
+            model_params = dict(p)
+            model_params.pop("lookback", None)
             try:
                 forecast_result = ForecastRegistry.get(method_l).forecast(
                     pd.Series(y.astype(float)),
                     horizon=fh,
                     seasonality=_default_seasonality_period(timeframe),
-                    params=dict(p),
+                    params=model_params,
                     timeframe=timeframe,
                 )
                 yhat = np.asarray(forecast_result.forecast, dtype=float)

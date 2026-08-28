@@ -1469,6 +1469,43 @@ class TestRegistryGeneralMethods:
 
         assert "ARIMA proxy forecast error: singular" in result["error"]
 
+    def test_proxy_lookback_is_not_forwarded_as_model_parameter(self):
+        forecaster = MagicMock()
+        forecaster.forecast.return_value = ForecastResult(
+            forecast=np.full(5, 0.001),
+            params_used={"canonical": True},
+        )
+        with _mock_env(n_bars=200), patch.object(
+            vol_mod.ForecastRegistry, "get", return_value=forecaster
+        ):
+            result = forecast_volatility(
+                "EURUSD",
+                "H1",
+                5,
+                method="arima",
+                proxy="squared_return",
+                lookback=80,
+            )
+
+        assert result["success"] is True
+        assert result["params_used"]["lookback"] == 80
+        model_params = forecaster.forecast.call_args.kwargs["params"]
+        assert model_params == {}
+
+    def test_theta_proxy_accepts_wrapper_lookback(self):
+        with _mock_env(n_bars=200):
+            result = forecast_volatility(
+                "EURUSD",
+                "H1",
+                5,
+                method="theta",
+                proxy="abs_return",
+                params={"lookback": 80},
+            )
+
+        assert result["success"] is True
+        assert result["params_used"]["lookback"] == 80
+
 
 # ===================================================================
 # 9. Theta  (lines 475-481)
