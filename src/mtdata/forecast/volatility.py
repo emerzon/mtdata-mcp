@@ -24,16 +24,18 @@ from ..utils.freshness import (
 from ..utils.time import _format_time_minimal, bar_close_epoch
 from ..utils.utils import _parse_end_datetime, _parse_start_datetime, parse_kv_or_json
 from .common import (
+    _parse_as_of_bound,
+    describe_forecast_calendar_treatment,
+    future_as_of_error,
+    next_times_from_last,
+    uses_exchange_intraday_projection,
+    uses_standard_weekend_projection,
+)
+from .common import (
     annualization_context as _annualization_context,
 )
 from .common import (
     default_seasonality as _default_seasonality_period,
-)
-from .common import (
-    describe_forecast_calendar_treatment,
-    next_times_from_last,
-    uses_exchange_intraday_projection,
-    uses_standard_weekend_projection,
 )
 from .common import (
     log_returns_from_prices as _log_returns_from_prices,
@@ -47,6 +49,11 @@ from .requests import VOLATILITY_PROXY_VALUES
 HAR_RV_MIN_ALIGNED_ROWS = 20
 HAR_RV_MIN_DAILY_RV = 30
 VOLATILITY_PROXY_METHODS = ("arima", "sarima", "ets", "theta")
+_DEFAULT_VOLATILITY_ENSEMBLE_METHODS = (
+    "ewma",
+    "parkinson",
+    "rolling_std",
+)
 
 _VOLATILITY_METHOD_HINTS = (
     "ewma",
@@ -149,13 +156,23 @@ def get_volatility_methods_data() -> Dict[str, Any]:
         "requires": [],
         "description": "HAR-RV model on realized variance aggregated from intraday bars.",
         "params": [
-            {"name": "rv_timeframe", "type": "str", "default": "M5", "description": "Timeframe used to build intraday realized variance."},
+            {
+                "name": "rv_timeframe",
+                "type": "str",
+                "default": "M5",
+                "description": (
+                    "Intraday timeframe used to build realized variance; "
+                    "calendar/session timeframes D1, W1, and MN1 are rejected."
+                ),
+            },
             {
                 "name": "days",
                 "type": "int",
                 "default": 120,
                 "description": (
-                    "Number of calendar days fetched for the HAR fit. Need enough "
+                    "Maximum trailing calendar-day span used for the HAR fit, ending "
+                    "at the requested cutoff and intersected with an explicit start. "
+                    "This is independent of requested-timeframe lookback. Need enough "
                     "history for max(30, window_m+5) daily RV observations and 20 "
                     "aligned regression rows after the monthly lag; default 120."
                 ),
@@ -250,6 +267,73 @@ def _volatility_allowed_param_keys(method: str) -> set[str]:
         )
         return keys
     return keys
+
+
+def _har_rv_lookback_error() -> Dict[str, Any]:
+    return {
+        "success": False,
+        "error": (
+            "HAR-RV does not accept lookback because its fit history is built "
+            "from intraday bars over a calendar-day window. Omit lookback and "
+            "set params.days (and optionally params.rv_timeframe) instead."
+        ),
+        "error_code": "har_rv_lookback_unsupported",
+        "remediation": (
+            "Remove lookback and use params.days to set the maximum trailing "
+            "calendar-day fit window."
+        ),
+    }
+
+
+def _volatility_ensemble_methods(params: Dict[str, Any]) -> list[str]:
+    """Return normalized ensemble components using the execution defaults."""
+    methods_value = params.get("methods")
+    if isinstance(methods_value, str):
+        methods = [
+            token.strip().lower()
+            for token in methods_value.split(",")
+            if token.strip()
+        ]
+    elif isinstance(methods_value, (list, tuple)):
+        methods = [
+            str(item).strip().lower()
+            for item in methods_value
+            if str(item).strip()
+        ]
+    else:
+        methods = list(_DEFAULT_VOLATILITY_ENSEMBLE_METHODS)
+    seen: set[str] = set()
+    return [
+        method
+        for method in methods
+        if not (method in seen or seen.add(method))
+    ]
+
+
+def _har_rv_lookback_requested(
+    method: str,
+    params: Optional[Dict[str, Any]],
+    *,
+    lookback_supplied: bool = False,
+) -> bool:
+    """Detect an unsupported HAR-RV lookback before fetching any history."""
+    method_l = str(method or "").strip().lower()
+    effective_params = params if isinstance(params, dict) else {}
+    if method_l == "har_rv":
+        return lookback_supplied or "lookback" in effective_params
+    if method_l != "ensemble":
+        return False
+    if "har_rv" not in _volatility_ensemble_methods(effective_params):
+        return False
+    if lookback_supplied or "lookback" in effective_params:
+        return True
+    method_params = effective_params.get("method_params")
+    har_params = (
+        method_params.get("har_rv")
+        if isinstance(method_params, dict)
+        else None
+    )
+    return isinstance(har_params, dict) and "lookback" in har_params
 
 
 def _forecast_method_supports(method: str) -> Dict[str, bool]:
@@ -1060,6 +1144,19 @@ def _volatility_range_bounds(
     return start_dt, end_dt, None
 
 
+def _utc_epoch(value: datetime) -> float:
+    """Return a UTC epoch, treating repository-naive datetimes as UTC."""
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=timezone.utc)
+    else:
+        value = value.astimezone(timezone.utc)
+    return float(value.timestamp())
+
+
+def _utc_now_epoch() -> float:
+    return float(datetime.now(timezone.utc).timestamp())
+
+
 def _requested_timeframe_grid_anchor(
     symbol: str,
     mt5_timeframe: Any,
@@ -1218,6 +1315,12 @@ def forecast_volatility(  # noqa: C901
         # Parse method params: accept dict, JSON string, or k=v pairs
         __stage = 'parse_params'
         p = parse_kv_or_json(params)
+        if _har_rv_lookback_requested(
+            method_l,
+            p,
+            lookback_supplied=lookback is not None,
+        ):
+            return _har_rv_lookback_error()
         if lookback is not None:
             nested_lookback = p.get("lookback")
             if nested_lookback is not None:
@@ -1265,14 +1368,7 @@ def forecast_volatility(  # noqa: C901
                     return {"error": "EWMA lambda_ must be finite and strictly between 0 and 1."}
 
         if method_l == 'ensemble':
-            default_methods = ['ewma', 'parkinson', 'rolling_std']
-            base_methods_in = p.get('methods')
-            if isinstance(base_methods_in, str):
-                base_methods = [tok.strip().lower() for tok in base_methods_in.split(',') if tok.strip()]
-            elif isinstance(base_methods_in, (list, tuple)):
-                base_methods = [str(item).strip().lower() for item in base_methods_in if str(item).strip()]
-            else:
-                base_methods = list(default_methods)
+            base_methods = _volatility_ensemble_methods(p)
             invalid_components = sorted(
                 set(base_methods) - valid_direct.union(valid_general)
             )
@@ -1283,8 +1379,6 @@ def forecast_volatility(  # noqa: C901
                         + ", ".join([*invalid_components, *(["ensemble"] if "ensemble" in base_methods else [])])
                     )
                 }
-            seen_methods: set[str] = set()
-            base_methods = [m for m in base_methods if not (m in seen_methods or seen_methods.add(m))]
             if not base_methods:
                 return {"error": "Ensemble requires at least one valid component method."}
 
@@ -1302,7 +1396,6 @@ def forecast_volatility(  # noqa: C901
             shared_params = dict(p)
             for key in ('methods', 'aggregator', 'weights', 'expose_components', 'method_params'):
                 shared_params.pop(key, None)
-
             raw_weights = p.get('weights')
             weight_map: dict[str, float] = {}
             if isinstance(raw_weights, (list, tuple)) and len(raw_weights) == len(base_methods):
@@ -1639,17 +1732,99 @@ def forecast_volatility(  # noqa: C901
                 rv_mt5_tf = TIMEFRAME_MAP.get(rv_tf)
                 if rv_mt5_tf is None:
                     return {"error": f"Invalid rv_timeframe: {rv_tf}"}
-                days = int(p.get('days', 120))
+                if rv_tf in CALENDAR_TIMEFRAMES:
+                    return {
+                        "success": False,
+                        "error": (
+                            "HAR-RV rv_timeframe must be intraday; "
+                            f"{rv_tf} is a calendar/session timeframe."
+                        ),
+                        "error_code": "har_rv_intraday_timeframe_required",
+                        "remediation": (
+                            "Use an intraday rv_timeframe such as M5, M15, or H1."
+                        ),
+                    }
+                days_value = p.get('days', 120)
+                try:
+                    days = int(days_value)
+                    days_numeric = float(days_value)
+                except (OverflowError, TypeError, ValueError):
+                    return {"error": "HAR-RV days must be a positive integer."}
+                if (
+                    isinstance(days_value, bool)
+                    or not math.isfinite(days_numeric)
+                    or days_numeric != float(days)
+                    or days <= 0
+                ):
+                    return {"error": "HAR-RV days must be a positive integer."}
                 w = int(p.get('window_w', 5))
                 m = int(p.get('window_m', 22))
                 rv_tf_secs = TIMEFRAME_SECONDS.get(rv_tf, 300)
                 bars_needed = int(days * max(1, (86400 // max(1, rv_tf_secs))) + 50)
+                if as_of and (start or end):
+                    return _volatility_fetch_error_payload(
+                        "as_of cannot be combined with start/end.",
+                        start=start,
+                        end=end,
+                    )
+                range_start_dt, range_end_dt, range_error = (
+                    _volatility_range_bounds(start, end)
+                )
+                if range_error:
+                    return _volatility_fetch_error_payload(
+                        range_error,
+                        start=start,
+                        end=end,
+                    )
+                now_epoch = _utc_now_epoch()
+                if as_of:
+                    as_of_error = future_as_of_error(
+                        as_of,
+                        now_epoch=now_epoch,
+                    )
+                    if as_of_error:
+                        return _volatility_fetch_error_payload(
+                            as_of_error,
+                            start=start,
+                            end=end,
+                        )
+                    as_of_dt = _parse_as_of_bound(
+                        as_of,
+                        timeframe=rv_tf,
+                    )
+                    if as_of_dt is None:
+                        return _volatility_fetch_error_payload(
+                            "Invalid as_of time.",
+                            start=start,
+                            end=end,
+                        )
+                    requested_cutoff_epoch = _utc_epoch(as_of_dt)
+                    history_cutoff_source = "as_of"
+                elif range_end_dt is not None:
+                    requested_cutoff_epoch = _utc_epoch(range_end_dt)
+                    history_cutoff_source = "end" if end else "current_utc_time"
+                else:
+                    requested_cutoff_epoch = now_epoch
+                    history_cutoff_source = "current_utc_time"
+                history_cutoff_epoch = min(requested_cutoff_epoch, now_epoch)
+                history_start_epoch = history_cutoff_epoch - (
+                    float(days) * 86400.0
+                )
+                if range_start_dt is not None:
+                    history_start_epoch = max(
+                        history_start_epoch,
+                        _utc_epoch(range_start_dt),
+                    )
+
+                effective_start = start
+                if as_of is None and (start or end):
+                    effective_start = _format_time_minimal(history_start_epoch)
                 rates_rv, fetch_error = _fetch_mt5_rates_guarded(
                     symbol,
                     rv_mt5_tf,
                     bars_needed,
                     as_of=as_of,
-                    start=start,
+                    start=effective_start,
                     end=end,
                     timeframe=rv_tf,
                 )
@@ -1659,16 +1834,42 @@ def forecast_volatility(  # noqa: C901
                         start=start,
                         end=end,
                     )
-                if rates_rv is None or len(rates_rv) < 50:
+                if rates_rv is None:
                     return _volatility_no_rates_payload(
                         symbol,
                         start=start,
                         end=end,
-                        observed_bars=0 if rates_rv is None else len(rates_rv),
+                        observed_bars=0,
                         minimum_bars=50,
                         data_timeframe=rv_tf,
                     )
                 dfrv = pd.DataFrame(rates_rv)
+                observed_times = pd.to_numeric(dfrv.get("time"), errors="coerce")
+                finite_times = observed_times[np.isfinite(observed_times)]
+                if finite_times.empty:
+                    return {"error": "Insufficient intraday bars for RV"}
+                observed_close_times = observed_times.map(
+                    lambda value: (
+                        bar_close_epoch(float(value), rv_tf)
+                        if math.isfinite(float(value))
+                        else float("nan")
+                    )
+                )
+                history_mask = (
+                    np.isfinite(observed_times)
+                    & (observed_times >= history_start_epoch)
+                    & (observed_close_times <= history_cutoff_epoch)
+                )
+                dfrv = dfrv.loc[history_mask].copy()
+                if len(dfrv) < 50:
+                    return _volatility_no_rates_payload(
+                        symbol,
+                        start=start,
+                        end=end,
+                        observed_bars=len(dfrv),
+                        minimum_bars=50,
+                        data_timeframe=rv_tf,
+                    )
                 if dn_spec_used:
                     try:
                         apply_denoise(dfrv, dn_spec_used)
@@ -1790,6 +1991,13 @@ def forecast_volatility(  # noqa: C901
                      "params_used": {"rv_timeframe": rv_tf, "window_w": w, "window_m": m,
                                       "beta": [float(b) for b in beta.tolist()],
                                       "days": days,
+                                      "days_semantics": "maximum_trailing_calendar_days",
+                                      "history_window_policy": "trailing_calendar_days_intersect_requested_start",
+                                      "history_cutoff": _format_time_minimal(history_cutoff_epoch),
+                                      "history_cutoff_epoch": float(history_cutoff_epoch),
+                                      "history_cutoff_source": history_cutoff_source,
+                                      "history_start_bound": _format_time_minimal(history_start_epoch),
+                                      "history_start_bound_epoch": float(history_start_epoch),
                                       "bars_per_session": float(bars_per_session),
                                       "daily_rv_gap_policy": "within_utc_day_returns_only",
                                       "partial_day_policy": final_daily_aggregate.get("policy"),

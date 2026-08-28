@@ -379,8 +379,9 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "(native theta/fourier_ols: 300 bars)."
     ),
     ("forecast_backtest_run", "lookback"): (
-        "Fixed training bars at each backtest anchor. Omit for the method default "
-        "(native theta/fourier_ols: 300 bars)."
+        "Fixed requested-timeframe training bars at each anchor; HAR-RV rejects "
+        "lookback, so set params.days and optionally params.rv_timeframe for its "
+        "intraday fit window."
     ),
     ("forecast_backtest_run", "horizon"): (
         "Bars forecast after each backtest anchor. In rolling mode, --spacing "
@@ -421,8 +422,9 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "(native theta/fourier_ols: 300 bars)."
     ),
     ("forecast_volatility_estimate", "lookback"): (
-        "Historical bars used by the volatility estimator. Omit for the method default "
-        "(native theta/fourier_ols: 300 bars)."
+        "Historical bars used where applicable; HAR-RV rejects lookback, so set "
+        "params.days and optionally params.rv_timeframe for its intraday fit "
+        "window."
     ),
     ("outliers_detect", "limit"): "Max anomalous bars to return.",
     ("temporal_analyze", "limit"): (

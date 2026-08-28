@@ -1,16 +1,23 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from mtdata.forecast.backtest import (
     _compact_metrics_payload,
     _compute_performance_metrics,
+    execute_forecast_backtest,
     forecast_backtest,
 )
-from mtdata.utils.time import _format_time_minimal, format_epoch_utc
+from mtdata.utils.time import (
+    _format_time_minimal,
+    bar_close_epoch,
+    format_epoch_utc,
+)
 
 
 def test_backtest_return_target_scores_against_returns() -> None:
@@ -115,6 +122,7 @@ def test_backtest_volatility_full_detail_propagates_effective_params() -> None:
         "lambda_": 0.97,
         "lookback": 60,
     }
+    assert volatility.call_args.kwargs["detail"] == "full"
     detail = result["results"]["ewma"]["details"][0]
     assert detail["params_used"] == params_used
 
@@ -180,6 +188,319 @@ def test_backtest_volatility_copies_effective_params_per_anchor() -> None:
     details[0]["params_used"]["lambda_"] = 0.5
     assert details[1]["params_used"]["lambda_"] == 0.97
     assert shared_params["lambda_"] == 0.97
+
+
+@pytest.mark.parametrize(
+    "window_args",
+    [
+        {"lookback": 2160},
+        {"params": {"lookback": 2160}},
+        {"params": {"lookback": None}},
+        {"params_per_method": {"har_rv": {"lookback": 2160}}},
+        {"params_per_method": {"har_rv": {"lookback": None}}},
+    ],
+)
+def test_backtest_har_rv_rejects_bar_lookback_before_history_fetch(
+    window_args,
+) -> None:
+    with patch("mtdata.forecast.backtest._fetch_history") as fetch:
+        result = forecast_backtest(
+            symbol="BTCUSD",
+            timeframe="H1",
+            horizon=3,
+            methods=["har_rv"],
+            quantity="volatility",
+            **window_args,
+        )
+
+    assert result["success"] is False
+    assert result["error_code"] == "har_rv_lookback_unsupported"
+    assert "params.days" in result["error"]
+    fetch.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "window_args",
+    [
+        {
+            "lookback": 2160,
+            "params_per_method": {
+                "ensemble": {"methods": ["ewma", "har_rv"]},
+            },
+        },
+        {
+            "params": {"lookback": 2160},
+            "params_per_method": {
+                "ensemble": {"methods": "ewma,har_rv"},
+            },
+        },
+        {
+            "params_per_method": {
+                "ensemble": {
+                    "methods": ["ewma", "har_rv"],
+                    "lookback": None,
+                },
+            },
+        },
+        {
+            "params_per_method": {
+                "ensemble": {
+                    "methods": ["ewma", "har_rv"],
+                    "method_params": {"har_rv": {"lookback": 2160}},
+                },
+            },
+        },
+        {
+            "params_per_method": {
+                "ensemble": {
+                    "methods": ["ewma", "har_rv"],
+                    "method_params": {"har_rv": {"lookback": None}},
+                },
+            },
+        },
+    ],
+)
+def test_backtest_har_rv_ensemble_rejects_lookback_before_history_fetch(
+    window_args,
+) -> None:
+    with patch("mtdata.forecast.backtest._fetch_history") as fetch:
+        result = forecast_backtest(
+            symbol="BTCUSD",
+            timeframe="H1",
+            horizon=3,
+            methods=["ensemble"],
+            quantity="volatility",
+            **window_args,
+        )
+
+    assert result["success"] is False
+    assert result["error_code"] == "har_rv_lookback_unsupported"
+    assert "params.days" in result["error"]
+    fetch.assert_not_called()
+
+
+def test_backtest_non_har_ensemble_accepts_lookback() -> None:
+    times = np.arange(1699999980, 1699999980 + 70 * 3600, 3600, dtype=float)
+    frame = pd.DataFrame(
+        {
+            "time": times,
+            "open": np.linspace(100.0, 120.0, 70, dtype=float),
+            "close": np.linspace(100.0, 120.0, 70, dtype=float),
+        }
+    )
+    anchor = _format_time_minimal(float(times[60]))
+    ensemble_params = {
+        "methods": ["ewma", "rolling_std"],
+        "lookback": 60,
+    }
+
+    with patch(
+        "mtdata.forecast.backtest._fetch_history",
+        return_value=frame,
+    ) as fetch, patch(
+        "mtdata.forecast.backtest.forecast_volatility",
+        return_value={"volatility_horizon": 0.02},
+    ) as volatility:
+        result = forecast_backtest(
+            symbol="BTCUSD",
+            timeframe="H1",
+            horizon=3,
+            methods=["ensemble"],
+            params_per_method={"ensemble": ensemble_params},
+            anchors=[anchor],
+            quantity="volatility",
+        )
+
+    fetch.assert_called_once()
+    assert result["success"] is True
+    assert volatility.call_args.kwargs["params"] == ensemble_params
+
+
+def test_backtest_har_rv_ignores_other_methods_nested_lookback_guard() -> None:
+    times = np.arange(1699999980, 1699999980 + 70 * 3600, 3600, dtype=float)
+    frame = pd.DataFrame(
+        {
+            "time": times,
+            "open": np.linspace(100.0, 120.0, 70, dtype=float),
+            "close": np.linspace(100.0, 120.0, 70, dtype=float),
+        }
+    )
+    anchor = _format_time_minimal(float(times[60]))
+
+    with patch(
+        "mtdata.forecast.backtest._fetch_history",
+        return_value=frame,
+    ) as fetch, patch(
+        "mtdata.forecast.backtest.forecast_volatility",
+        return_value={"volatility_horizon": 0.02},
+    ) as volatility:
+        result = forecast_backtest(
+            symbol="BTCUSD",
+            timeframe="H1",
+            horizon=3,
+            methods=["har_rv", "ewma"],
+            params_per_method={"ewma": {"lookback": 60}},
+            anchors=[anchor],
+            quantity="volatility",
+        )
+
+    fetch.assert_called_once()
+    assert result["success"] is True
+    assert result.get("error_code") != "har_rv_lookback_unsupported"
+    assert [call.kwargs["params"] for call in volatility.call_args_list] == [
+        {},
+        {"lookback": 60},
+    ]
+
+
+def test_backtest_har_rv_explicit_anchors_expose_bounded_fit_windows() -> None:
+    h1_start = datetime(2024, 3, 1, tzinfo=timezone.utc).timestamp()
+    h1_times = h1_start + np.arange(100, dtype=float) * 3600.0
+    h1_close = 100.0 * np.exp(
+        np.cumsum(0.0002 + 0.0001 * np.sin(np.arange(100, dtype=float)))
+    )
+    h1 = pd.DataFrame(
+        {
+            "time": h1_times,
+            "open": np.concatenate(([100.0], h1_close[:-1])),
+            "close": h1_close,
+        }
+    )
+    anchors = [
+        format_epoch_utc(float(h1_times[index]), timespec="seconds")
+        for index in (60, 72)
+    ]
+    assert all(anchor is not None for anchor in anchors)
+
+    m5_start = datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp()
+    m5_times = m5_start + np.arange(70 * 24 * 12, dtype=float) * 300.0
+    m5_returns = (
+        0.00005
+        + 0.0004 * np.sin(np.arange(len(m5_times), dtype=float) / 17.0)
+        + 0.0002 * np.cos(np.arange(len(m5_times), dtype=float) / 31.0)
+    )
+    m5_close = 100.0 * np.exp(np.cumsum(m5_returns))
+    m5 = pd.DataFrame(
+        {
+            "time": m5_times,
+            "open": np.concatenate(([100.0], m5_close[:-1])),
+            "high": np.maximum(
+                np.concatenate(([100.0], m5_close[:-1])),
+                m5_close,
+            )
+            * 1.0001,
+            "low": np.minimum(
+                np.concatenate(([100.0], m5_close[:-1])),
+                m5_close,
+            )
+            * 0.9999,
+            "close": m5_close,
+            "tick_volume": np.full(len(m5_times), 1000),
+        }
+    )
+
+    def fetch_rates(
+        _symbol,
+        _mt5_timeframe,
+        _count,
+        *,
+        timeframe,
+        **_kwargs,
+    ):
+        return (m5, None) if timeframe == "M5" else (h1, None)
+
+    with patch(
+        "mtdata.forecast.backtest._fetch_history",
+        return_value=h1,
+    ), patch(
+        "mtdata.forecast.volatility._fetch_mt5_rates_guarded",
+        side_effect=fetch_rates,
+    ):
+        result = forecast_backtest(
+            symbol="BTCUSD",
+            timeframe="H1",
+            horizon=3,
+            start="2024-01-01T00:00:00Z",
+            methods=["har_rv"],
+            params_per_method={
+                "har_rv": {
+                    "days": 40,
+                    "rv_timeframe": "M5",
+                    "window_w": 3,
+                    "window_m": 5,
+                }
+            },
+            anchors=anchors,
+            quantity="volatility",
+            detail="full",
+        )
+
+    assert result["success"] is True
+    assert result["backtest_plan"]["model"] == (
+        "rolling_origin_method_specific_window"
+    )
+    details = result["results"]["har_rv"]["details"]
+    assert len(details) == 2
+    for detail in details:
+        anchor_epoch = datetime.fromisoformat(
+            detail["anchor"].replace("Z", "+00:00")
+        ).timestamp()
+        cutoff_epoch = bar_close_epoch(anchor_epoch, "H1")
+        start_epoch = cutoff_epoch - 40 * 86400
+        assert bool(detail["success"]) is True
+        assert detail["training_bars_used"] == 40 * 24 * 12
+        assert detail["training_window"] == {
+            "start": _format_time_minimal(start_epoch),
+            "end": _format_time_minimal(cutoff_epoch - 300),
+        }
+        params_used = detail["params_used"]
+        assert params_used["days"] == 40
+        assert params_used["days_semantics"] == (
+            "maximum_trailing_calendar_days"
+        )
+        assert params_used["history_cutoff_epoch"] == cutoff_epoch
+        assert params_used["history_start_bound_epoch"] == start_epoch
+        assert params_used["history_window_policy"] == (
+            "trailing_calendar_days_intersect_requested_start"
+        )
+
+
+def test_execute_entrypoint_preserves_har_rv_lookback_failure() -> None:
+    failure = {
+        "success": False,
+        "error": "HAR-RV does not accept lookback.",
+        "error_code": "har_rv_lookback_unsupported",
+        "remediation": "Remove lookback and use params.days.",
+    }
+    with patch(
+        "mtdata.forecast.backtest.forecast_backtest",
+        return_value=failure,
+    ):
+        result = execute_forecast_backtest(symbol="BTCUSD")
+
+    assert result == failure
+
+
+def test_execute_entrypoint_preserves_har_rv_ensemble_lookback_failure() -> None:
+    with patch("mtdata.forecast.backtest._fetch_history") as fetch:
+        result = execute_forecast_backtest(
+            symbol="BTCUSD",
+            timeframe="H1",
+            horizon=3,
+            methods=["ensemble"],
+            params_per_method={
+                "ensemble": {
+                    "methods": ["ewma", "har_rv"],
+                    "method_params": {"har_rv": {"lookback": None}},
+                },
+            },
+            quantity="volatility",
+        )
+
+    assert result["success"] is False
+    assert result["error_code"] == "har_rv_lookback_unsupported"
+    assert "params.days" in result["error"]
+    fetch.assert_not_called()
 
 
 def test_backtest_aggregates_volatility_rmse_from_squared_errors() -> None:

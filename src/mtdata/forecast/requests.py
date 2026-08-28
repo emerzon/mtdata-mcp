@@ -369,8 +369,11 @@ class ForecastBacktestRequest(_RollingWindowForecastRequest):
         None,
         ge=1,
         description=(
-            "Training bars available at each anchor. When set, validation uses "
-            "a fixed rolling window matching forecast_generate lookback."
+            "Requested-timeframe training bars available at each anchor. When "
+            "set, validation uses a fixed rolling window matching "
+            "forecast_generate lookback. Specialized volatility methods may "
+            "define another fit window: HAR-RV rejects lookback and uses "
+            "params.days plus params.rv_timeframe instead."
         ),
     )
     methods: Optional[List[str]] = Field(
@@ -989,7 +992,8 @@ class ForecastVolatilityEstimateRequest(_PublicForecastRequest):
         description=(
             "Historical bars to use. Mapped into the estimator where applicable "
             "(for example EWMA lookback). Conflicts with params.lookback when "
-            "the two values disagree."
+            "the two values disagree. HAR-RV rejects lookback; use params.days "
+            "and optionally params.rv_timeframe for its intraday fit window."
         ),
     )
     as_of: Optional[str] = None

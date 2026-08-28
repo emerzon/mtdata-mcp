@@ -115,6 +115,7 @@ mtdata-cli forecast_backtest_run <SYMBOL> [OPTIONS]
 | `--spacing` | 20 | Bars between anchors; must be `>= --horizon` when `--steps > 1` |
 | `--anchors` | unset | Exact UTC candle-open timestamps (1–200); replaces rolling anchor selection |
 | `--methods` | auto | Space or comma-separated method names |
+| `--lookback` | unset | Fixed requested-timeframe training bars at each anchor. HAR-RV rejects this option and uses `params.days` plus `params.rv_timeframe`. |
 
 ### Method Parameters
 
@@ -137,6 +138,11 @@ mtdata-cli forecast_backtest_run EURUSD --horizon 12 --methods "fourier_ols arim
 Notes:
 - `return` uses **log returns** (`ln(close_t / close_{t-1})`), which is often more stationary than prices.
 - `volatility` backtests compare predicted volatility vs realized volatility; use volatility methods like `ewma`, `garch`, `har_rv`.
+- Volatility methods can own method-specific fit windows. For HAR-RV, omit
+  `--lookback` and set `--params-per-method
+  '{"har_rv":{"days":120,"rv_timeframe":"M5"}}'`. Full-detail
+  `training_window`, `training_bars_used`, and `params_used` report the
+  actual per-anchor intraday fit evidence.
 
 **Examples:**
 ```bash

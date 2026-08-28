@@ -132,3 +132,15 @@ def test_trade_modify_confirmation_flags_have_descriptions() -> None:
     assert properties["clear_take_profit"]["description"] == (
         "Explicitly remove take-profit protection from the ticket."
     )
+
+
+def test_forecast_lookback_schemas_disclose_har_rv_window_contract() -> None:
+    for tool_name in (
+        "forecast_backtest_run",
+        "forecast_volatility_estimate",
+    ):
+        properties = get_public_tool_schema(tool_name)["properties"]
+        description = str(properties["lookback"]["description"])
+
+        assert "HAR-RV" in description
+        assert "params.days" in description

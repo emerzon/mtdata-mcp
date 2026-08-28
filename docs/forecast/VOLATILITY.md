@@ -122,10 +122,21 @@ mtdata-cli forecast_volatility_estimate EURUSD --timeframe H1 --horizon 12 --met
 ```
 
 **Parameters:**
-- `rv_timeframe`: Timeframe for computing realized variance (M1, M5, M15)
-- `days`: Historical days for HAR regression
+- `rv_timeframe`: Intraday timeframe for realized variance (for example M1,
+  M5, M15, or H1). `D1`, `W1`, and `MN1` are rejected.
+- `days`: Maximum trailing calendar-day span for the HAR regression. The span
+  ends at the requested cutoff and is intersected with an explicit `start`.
 - `window_w`: Weekly window (default: 5)
 - `window_m`: Monthly window (default: 22)
+
+HAR-RV does not accept the requested-timeframe `lookback` option. Use
+`params.days` to control its calendar span and `params.rv_timeframe` to
+control the intraday observations. In full detail,
+`params_used.history_cutoff`, `history_start_bound`, their exact epoch
+fields, and `history_window_policy` make the fitted interval auditable;
+`data_window` reports the bars actually available inside that bound. A stale
+provider response can shorten the observed window, but it does not move the
+requested cutoff backward and silently broaden the fit.
 
 HAR-RV computes returns only within each UTC day, so overnight gaps are not
 counted as intraday variance. It estimates normal daily coverage from the

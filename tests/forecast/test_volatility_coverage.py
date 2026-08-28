@@ -1202,10 +1202,23 @@ def _mock_env(
         seconds = float(vol_mod.TIMEFRAME_SECONDS[timeframe])
         return math.floor(observed / seconds) * seconds, None
 
+    rate_batches = (
+        list(rates_side_effect)
+        if isinstance(rates_side_effect, (list, tuple))
+        else [rates]
+    )
+    observed_ends = [
+        float(batch["time"][-1]) + 300.0
+        for batch in rate_batches
+        if batch is not None and len(batch) > 0 and "time" in batch.dtype.names
+    ]
+    test_now_epoch = max(observed_ends, default=float(tick_time or 1_704_067_200.0))
+
     with (
         patch(f"{MOD}.fetch_history_frame", **copy_kw) as m_copy,
         patch("mtdata.utils.mt5._mt5_epoch_to_utc", return_value=1_704_067_200.0),
         patch(f"{MOD}._parse_start_datetime", return_value=parse_dt_return),
+        patch(f"{MOD}._utc_now_epoch", return_value=test_now_epoch),
         patch(
             f"{MOD}._requested_timeframe_grid_anchor",
             side_effect=test_grid_anchor,
@@ -1874,6 +1887,509 @@ class TestHarRvBlock:
                                             "window_w": 3,
                                             "window_m": 10})
             assert r.get("success") is True or "error" in r
+
+    def test_explicit_range_is_capped_to_requested_calendar_days(self):
+        range_start = int(
+            datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp()
+        )
+        rates = _make_rates_ext(
+            70 * 24 * 12,
+            bar_secs=300,
+            start_epoch=range_start,
+        )
+        captured = {}
+
+        def fetch(*args, **kwargs):
+            captured.update(kwargs)
+            return rates, None
+
+        with patch(
+            f"{MOD}._fetch_mt5_rates_guarded",
+            side_effect=fetch,
+        ), patch(
+            f"{MOD}._requested_timeframe_grid_anchor",
+            return_value=(float(rates["time"][-1]), None),
+        ):
+            result = forecast_volatility(
+                "BTCUSD",
+                "H1",
+                12,
+                method="har_rv",
+                start="2024-01-01T00:00:00Z",
+                end="2024-03-01T00:00:00Z",
+                params={
+                    "days": 40,
+                    "rv_timeframe": "M5",
+                    "window_w": 3,
+                    "window_m": 5,
+                },
+                detail="full",
+            )
+
+        assert result["success"] is True
+        assert captured["start"] == "2024-01-21T00:00Z"
+        assert captured["end"] == "2024-03-01T00:00:00Z"
+        assert result["params_used"]["days"] == 40
+        assert result["params_used"]["days_semantics"] == (
+            "maximum_trailing_calendar_days"
+        )
+        assert result["params_used"]["history_window_policy"] == (
+            "trailing_calendar_days_intersect_requested_start"
+        )
+        assert result["params_used"]["history_cutoff"] == "2024-03-01T00:00Z"
+        assert result["params_used"]["history_cutoff_source"] == "end"
+        assert result["params_used"]["history_start_bound"] == (
+            "2024-01-21T00:00Z"
+        )
+        assert result["data_window"]["start"] == "2024-01-21T00:00Z"
+        assert result["data_window"]["end"] == "2024-02-29T23:55Z"
+        assert result["data_window"]["bars_used"] == 40 * 24 * 12
+
+    def test_har_rv_keeps_later_user_range_start(self):
+        range_start = int(
+            datetime(2024, 1, 15, tzinfo=timezone.utc).timestamp()
+        )
+        rates = _make_rates_ext(
+            70 * 24 * 12,
+            bar_secs=300,
+            start_epoch=range_start,
+        )
+        captured = {}
+
+        def fetch(*args, **kwargs):
+            captured.update(kwargs)
+            return rates, None
+
+        with patch(
+            f"{MOD}._fetch_mt5_rates_guarded",
+            side_effect=fetch,
+        ), patch(
+            f"{MOD}._requested_timeframe_grid_anchor",
+            return_value=(float(rates["time"][-1]), None),
+        ):
+            result = forecast_volatility(
+                "BTCUSD",
+                "H1",
+                12,
+                method="har_rv",
+                start="2024-02-01T00:00:00Z",
+                end="2024-03-15T00:00:00Z",
+                params={"days": 60, "window_w": 3, "window_m": 5},
+                detail="full",
+            )
+
+        assert result["success"] is True
+        assert captured["start"] == "2024-02-01T00:00Z"
+        assert result["data_window"]["start"] == "2024-02-01T00:00Z"
+        assert result["data_window"]["end"] == "2024-03-14T23:55Z"
+
+    def test_har_rv_as_of_uses_trailing_calendar_window(self):
+        range_start = int(
+            datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp()
+        )
+        rates = _make_rates_ext(
+            60 * 24 * 12,
+            bar_secs=300,
+            start_epoch=range_start,
+        )
+        captured = {}
+
+        def fetch(*args, **kwargs):
+            captured.update(kwargs)
+            return rates, None
+
+        with patch(
+            f"{MOD}._fetch_mt5_rates_guarded",
+            side_effect=fetch,
+        ), patch(
+            f"{MOD}._requested_timeframe_grid_anchor",
+            return_value=(float(rates["time"][-1]), None),
+        ):
+            result = forecast_volatility(
+                "BTCUSD",
+                "H1",
+                12,
+                method="har_rv",
+                as_of="2024-03-01T00:00:00Z",
+                params={"days": 40, "window_w": 3, "window_m": 5},
+                detail="full",
+            )
+
+        assert result["success"] is True
+        assert captured["as_of"] == "2024-03-01T00:00:00Z"
+        assert captured["start"] is None
+        assert captured["end"] is None
+        assert result["data_window"]["start"] == "2024-01-21T00:00Z"
+        assert result["data_window"]["end"] == "2024-02-29T23:55Z"
+        assert result["data_window"]["bars_used"] == 40 * 24 * 12
+
+    @pytest.mark.parametrize(
+        "days",
+        [0, -1, True, 1.5, "bad", 10**1000],
+    )
+    def test_days_must_be_a_positive_integer(self, days):
+        with patch(f"{MOD}._fetch_mt5_rates_guarded") as fetch:
+            result = forecast_volatility(
+                "EURUSD",
+                "H1",
+                5,
+                method="har_rv",
+                params={"days": days},
+            )
+
+        assert result["error"] == "HAR-RV days must be a positive integer."
+        fetch.assert_not_called()
+
+    def test_invalid_original_start_is_rejected_before_fetch(self):
+        with patch(f"{MOD}._fetch_mt5_rates_guarded") as fetch:
+            result = forecast_volatility(
+                "BTCUSD",
+                "H1",
+                12,
+                method="har_rv",
+                start="not-a-time",
+                end="2024-03-01T00:00:00Z",
+                params={"days": 40},
+            )
+
+        assert result["error"] == "Invalid start time."
+        fetch.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("start", "end", "expected_error"),
+        [
+            (
+                "2024-01-01T00:00:00Z",
+                "not-a-time",
+                "Invalid end time.",
+            ),
+            (
+                "2024-03-02T00:00:00Z",
+                "2024-03-01T00:00:00Z",
+                "start must be before or equal to end.",
+            ),
+        ],
+    )
+    def test_invalid_original_range_is_rejected_before_fetch(
+        self,
+        start,
+        end,
+        expected_error,
+    ):
+        with patch(f"{MOD}._fetch_mt5_rates_guarded") as fetch:
+            result = forecast_volatility(
+                "BTCUSD",
+                "H1",
+                12,
+                method="har_rv",
+                start=start,
+                end=end,
+                params={"days": 40},
+            )
+
+        assert result["error"] == expected_error
+        fetch.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "lookback_kwargs",
+        [
+            {"lookback": 2160},
+            {"params": {"lookback": 2160}},
+            {"params": {"lookback": None}},
+        ],
+    )
+    def test_har_rv_rejects_bar_lookback(self, lookback_kwargs):
+        with patch(f"{MOD}._fetch_mt5_rates_guarded") as fetch:
+            result = forecast_volatility(
+                "BTCUSD",
+                "H1",
+                12,
+                method="har_rv",
+                **lookback_kwargs,
+            )
+
+        assert result["success"] is False
+        assert result["error_code"] == "har_rv_lookback_unsupported"
+        assert "params.days" in result["error"]
+        fetch.assert_not_called()
+
+    @pytest.mark.parametrize("rv_timeframe", ["D1", "W1", "MN1"])
+    def test_har_rv_rejects_calendar_rv_timeframe(self, rv_timeframe):
+        with patch(f"{MOD}._fetch_mt5_rates_guarded") as fetch:
+            result = forecast_volatility(
+                "BTCUSD",
+                "H1",
+                12,
+                method="har_rv",
+                params={"rv_timeframe": rv_timeframe},
+            )
+
+        assert result["success"] is False
+        assert result["error_code"] == "har_rv_intraday_timeframe_required"
+        assert "intraday" in result["error"]
+        fetch.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "ensemble_params",
+        [
+            {
+                "methods": ["ewma", "har_rv"],
+                "lookback": 2160,
+            },
+            {
+                "methods": ["ewma", "har_rv"],
+                "method_params": {"har_rv": {"lookback": None}},
+            },
+        ],
+    )
+    def test_ensemble_fails_closed_for_har_rv_lookback(
+        self,
+        ensemble_params,
+    ):
+        with patch(f"{MOD}._fetch_mt5_rates_guarded") as fetch:
+            result = forecast_volatility(
+                "BTCUSD",
+                "H1",
+                12,
+                method="ensemble",
+                params=ensemble_params,
+            )
+
+        assert result["success"] is False
+        assert result["error_code"] == "har_rv_lookback_unsupported"
+        fetch.assert_not_called()
+
+    def test_as_of_cutoff_does_not_broaden_to_stale_last_bar(self):
+        range_start = int(
+            datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp()
+        )
+        rates = _make_rates_ext(
+            56 * 24 * 12,
+            bar_secs=300,
+            start_epoch=range_start,
+        )
+
+        with patch(
+            f"{MOD}._fetch_mt5_rates_guarded",
+            return_value=(rates, None),
+        ), patch(
+            f"{MOD}._requested_timeframe_grid_anchor",
+            return_value=(float(rates["time"][-1]), None),
+        ):
+            result = forecast_volatility(
+                "BTCUSD",
+                "H1",
+                12,
+                method="har_rv",
+                as_of="2024-03-01T00:00:00Z",
+                params={"days": 40, "window_w": 3, "window_m": 5},
+                detail="full",
+            )
+
+        assert result["success"] is True
+        assert result["params_used"]["history_cutoff"] == "2024-03-01T00:00Z"
+        assert result["params_used"]["history_start_bound"] == (
+            "2024-01-21T00:00Z"
+        )
+        assert result["data_window"]["start"] == "2024-01-21T00:00Z"
+        assert result["data_window"]["end"] == "2024-02-25T23:55Z"
+        assert result["data_window"]["bars_used"] == 36 * 24 * 12
+
+    def test_date_only_as_of_matches_explicit_inclusive_day_end(self):
+        range_start = int(
+            datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp()
+        )
+        rates = _make_rates_ext(
+            70 * 24 * 12,
+            bar_secs=300,
+            start_epoch=range_start,
+        )
+
+        with patch(
+            f"{MOD}._fetch_mt5_rates_guarded",
+            return_value=(rates, None),
+        ), patch(
+            f"{MOD}._requested_timeframe_grid_anchor",
+            return_value=(float(rates["time"][-1]), None),
+        ):
+            date_result = forecast_volatility(
+                "BTCUSD",
+                "H1",
+                12,
+                method="har_rv",
+                as_of="2024-03-01",
+                params={"days": 40, "window_w": 3, "window_m": 5},
+                detail="full",
+            )
+            exact_result = forecast_volatility(
+                "BTCUSD",
+                "H1",
+                12,
+                method="har_rv",
+                as_of="2024-03-01T23:59:59.999999Z",
+                params={"days": 40, "window_w": 3, "window_m": 5},
+                detail="full",
+            )
+
+        assert date_result["success"] is True
+        assert date_result["data_window"] == exact_result["data_window"]
+        assert date_result["data_window"]["start"] == "2024-01-22T00:00Z"
+        assert date_result["data_window"]["end"] == "2024-03-01T23:50Z"
+        assert date_result["data_window"]["bars_used"] == 40 * 24 * 12 - 1
+        assert date_result["params_used"]["history_cutoff_epoch"] == (
+            pytest.approx(
+                datetime(
+                    2024,
+                    3,
+                    1,
+                    23,
+                    59,
+                    59,
+                    999999,
+                    tzinfo=timezone.utc,
+                ).timestamp()
+            )
+        )
+        assert date_result["params_used"]["history_cutoff_epoch"] == (
+            exact_result["params_used"]["history_cutoff_epoch"]
+        )
+
+    def test_as_of_timezone_offset_uses_same_exact_cutoff(self):
+        range_start = int(
+            datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp()
+        )
+        rates = _make_rates_ext(
+            70 * 24 * 12,
+            bar_secs=300,
+            start_epoch=range_start,
+        )
+
+        with patch(
+            f"{MOD}._fetch_mt5_rates_guarded",
+            return_value=(rates, None),
+        ), patch(
+            f"{MOD}._requested_timeframe_grid_anchor",
+            return_value=(float(rates["time"][-1]), None),
+        ):
+            utc_result = forecast_volatility(
+                "BTCUSD",
+                "H1",
+                12,
+                method="har_rv",
+                as_of="2024-03-01T00:00:00Z",
+                params={"days": 40, "window_w": 3, "window_m": 5},
+                detail="full",
+            )
+            offset_result = forecast_volatility(
+                "BTCUSD",
+                "H1",
+                12,
+                method="har_rv",
+                as_of="2024-03-01T02:00:00+02:00",
+                params={"days": 40, "window_w": 3, "window_m": 5},
+                detail="full",
+            )
+
+        assert offset_result["success"] is True
+        assert offset_result["data_window"] == utc_result["data_window"]
+        assert offset_result["params_used"]["history_cutoff"] == (
+            utc_result["params_used"]["history_cutoff"]
+        )
+        assert offset_result["params_used"]["history_start_bound"] == (
+            utc_result["params_used"]["history_start_bound"]
+        )
+        cutoff_epoch = datetime(
+            2024,
+            3,
+            1,
+            tzinfo=timezone.utc,
+        ).timestamp()
+        last_open_epoch = datetime.fromisoformat(
+            offset_result["data_window"]["end"].replace("Z", "+00:00")
+        ).timestamp()
+        assert vol_mod.bar_close_epoch(last_open_epoch, "M5") <= cutoff_epoch
+
+    @pytest.mark.parametrize("use_current_day_end", [False, True])
+    def test_live_or_current_day_cutoff_is_capped_to_now(
+        self,
+        use_current_day_end,
+    ):
+        range_start = int(
+            datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp()
+        )
+        cutoff = float(
+            datetime(2024, 3, 1, 12, tzinfo=timezone.utc).timestamp()
+        )
+        rates = _make_rates_ext(
+            70 * 24 * 12,
+            bar_secs=300,
+            start_epoch=range_start,
+        )
+        kwargs = {"end": "2024-03-01"} if use_current_day_end else {}
+
+        with patch(
+            f"{MOD}._utc_now_epoch",
+            return_value=cutoff,
+        ), patch(
+            f"{MOD}._fetch_mt5_rates_guarded",
+            return_value=(rates, None),
+        ), patch(
+            f"{MOD}._requested_timeframe_grid_anchor",
+            return_value=(cutoff - 3600.0, None),
+        ):
+            result = forecast_volatility(
+                "BTCUSD",
+                "H1",
+                12,
+                method="har_rv",
+                params={"days": 40, "window_w": 3, "window_m": 5},
+                detail="full",
+                **kwargs,
+            )
+
+        assert result["success"] is True
+        assert result["params_used"]["history_cutoff"] == "2024-03-01T12:00Z"
+        assert result["params_used"]["history_start_bound"] == (
+            "2024-01-21T12:00Z"
+        )
+        assert result["data_window"]["start"] == "2024-01-21T12:00Z"
+        assert result["data_window"]["end"] == "2024-03-01T11:55Z"
+        assert result["data_window"]["bars_used"] == 40 * 24 * 12
+
+    def test_har_rv_uses_bar_close_helper_for_cutoff_mask(self):
+        range_start = int(
+            datetime(2024, 1, 1, tzinfo=timezone.utc).timestamp()
+        )
+        rates = _make_rates_ext(
+            70 * 24 * 12,
+            bar_secs=300,
+            start_epoch=range_start,
+        )
+        real_bar_close = vol_mod.bar_close_epoch
+
+        with patch(
+            f"{MOD}._fetch_mt5_rates_guarded",
+            return_value=(rates, None),
+        ), patch(
+            f"{MOD}._requested_timeframe_grid_anchor",
+            return_value=(float(rates["time"][-1]), None),
+        ), patch(
+            f"{MOD}.bar_close_epoch",
+            wraps=real_bar_close,
+        ) as close_epoch:
+            result = forecast_volatility(
+                "BTCUSD",
+                "H1",
+                12,
+                method="har_rv",
+                end="2024-03-01T00:00:00Z",
+                params={"days": 40, "window_w": 3, "window_m": 5},
+                detail="full",
+            )
+
+        assert result["success"] is True
+        assert close_epoch.call_count >= len(rates)
+        assert all(call.args[1] == "M5" for call in close_epoch.call_args_list)
 
     def test_har_rv_resolves_requested_grid_after_intraday_fetch(self):
         with _mock_env(rates_side_effect=self._har_rv_side_effect()) as env:

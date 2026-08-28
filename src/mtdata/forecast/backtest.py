@@ -60,7 +60,11 @@ from .forecast_validation import (
 )
 from .gpu_runtime import cleanup_forecast_gpu_runtime, forecast_methods_may_use_gpu
 from .target_builder import _log_return_array
-from .volatility import forecast_volatility
+from .volatility import (
+    _har_rv_lookback_error,
+    _har_rv_lookback_requested,
+    forecast_volatility,
+)
 
 _BREAKEVEN_RETURN_EPS = 1e-12
 _ANCHOR_RESOLUTION_ERROR_CODE = "forecast_backtest_anchor_resolution_failed"
@@ -2885,6 +2889,20 @@ def forecast_backtest(  # noqa: C901
         )
         if params_error is not None:
             return params_error
+        if quantity == "volatility":
+            for method in methods:
+                effective_params = (
+                    dict(params) if isinstance(params, dict) else {}
+                )
+                method_params = params_map.get(method)
+                if isinstance(method_params, dict):
+                    effective_params.update(method_params)
+                if _har_rv_lookback_requested(
+                    method,
+                    effective_params,
+                    lookback_supplied=lookback is not None,
+                ):
+                    return _har_rv_lookback_error()
         feature_capability_error = _feature_method_capability_error(
             methods,
             features=features,
@@ -3221,6 +3239,7 @@ def forecast_backtest(  # noqa: C901
                             params=pm if isinstance(pm, dict) else None,
                             proxy=proxy,  # type: ignore
                             denoise=_dn_used,
+                            detail="full",
                             **volatility_time_bounds,
                         ))
                     else:
@@ -3736,7 +3755,9 @@ def forecast_backtest(  # noqa: C901
         )
         backtest_plan: Dict[str, Any] = {
             "model": (
-                "rolling_origin_fixed_window"
+                "rolling_origin_method_specific_window"
+                if quantity == "volatility"
+                else "rolling_origin_fixed_window"
                 if model_lookback is not None
                 else "rolling_origin_expanding_window"
             ),
@@ -3941,12 +3962,16 @@ def forecast_backtest(  # noqa: C901
 
 
 def execute_forecast_backtest(*args: Any, **kwargs: Any) -> Dict[str, Any]:
-    """Execute a backtest while preserving structured anchor preflight failures."""
+    """Execute a backtest while preserving structured preflight failures."""
     try:
         result = forecast_backtest(*args, **kwargs)
         if (
             isinstance(result, dict)
-            and result.get("error_code") == _ANCHOR_RESOLUTION_ERROR_CODE
+            and result.get("error_code")
+            in {
+                _ANCHOR_RESOLUTION_ERROR_CODE,
+                "har_rv_lookback_unsupported",
+            }
         ):
             return result
         return raise_if_error_result(result)
