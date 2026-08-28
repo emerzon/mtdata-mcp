@@ -74,7 +74,7 @@ def _attach_report_compute_hint(report: Any, request: ReportGenerateRequest) -> 
 def report_generate(
     request: ReportGenerateRequest,
 ) -> Union[str, Dict[str, Any]]:
-    """Generate fast context+forecast; use template=basic for broader analysis.
+    """Generate a fast market-context and forecast report; use template=basic for broader analysis.
 
     - template: 'minimal' (default fast path: context + direct forecast),
                 'basic' (context, daily pivots, confluence, one vol estimator, optional backtest,

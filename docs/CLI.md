@@ -337,6 +337,9 @@ and timezone when automation needs an exact instant, using either an ISO offset
 (`2026-08-03 09:30 America/New_York`). Ambiguous or nonexistent daylight-saving
 local times are rejected; use an ISO offset to choose a specific instant.
 Candle responses echo the resolved instants and bound modes in `query_applied`.
+A date-only `--end` for the current UTC day is allowed (it has not fully
+elapsed yet); `query_applied.effective_end` then records the clamp to now, and
+`end_clamped_to` is `now`.
 For an exact timestamp end, only candles whose close is at or before that
 instant are returned; completed OHLC values from an overlapping bar are never
 included early. Calendar-period ends retain their date/session-label behavior.
@@ -533,7 +536,7 @@ See [ADVANCED_ANALYTICS.md](ADVANCED_ANALYTICS.md) for data requirements, exampl
 ### Reports
 | Command | Description |
 |---------|-------------|
-| `report_generate` | Generate fast context+forecast; use `--template basic` for broader analysis |
+| `report_generate` | Generate a fast market-context and forecast report; use `--template basic` for broader analysis |
 
 ### Temporal Analysis
 | Command | Description |

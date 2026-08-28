@@ -2112,14 +2112,15 @@ def _detect_rule_based(  # noqa: C901
         "bearish": "downward",
         "neutral": "neutral",
     }.get(direction, "neutral")
+    direction_article = "an" if direction_bias == "upward" else "a"
     if regime_state == "ranging":
         interpretation = (
-            f"Price is ranging with a {direction_bias} net move over "
+            f"Price is ranging with {direction_article} {direction_bias} net move over "
             f"{int(window_bars)} bars; direction is a window bias, not a trend classification."
         )
     elif regime_state == "transition":
         interpretation = (
-            f"Price is in transition with a {direction_bias} net move over "
+            f"Price is in transition with {direction_article} {direction_bias} net move over "
             f"{int(window_bars)} bars."
         )
     else:

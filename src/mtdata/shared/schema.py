@@ -146,7 +146,7 @@ PARAM_HINTS = {
     "month": "Month filter (1-12 or Jan..Dec).",
     "time_range": "Time-of-day filter 'HH:MM-HH:MM' (start inclusive, end exclusive; wraps midnight).",
     "rank_by": (
-        "Ranking to compute for market scans. Default abs_price_change_pct uses "
+        "Ranking metric for radar and scan tools. Default abs_price_change_pct uses "
         "completed-bar closes, not the live bid/ask; use abs_live_price_change_pct "
         "to rank by executable quotes."
     ),
