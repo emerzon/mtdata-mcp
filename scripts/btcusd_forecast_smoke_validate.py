@@ -86,6 +86,7 @@ EXPECTED_VARIANT_METHOD = {
     "rf-momentum": "mlf_rf",
     "rf-volatility-time": "mlf_rf",
 }
+EXPECTED_VARIANT_ORDER = tuple(EXPECTED_VARIANT_METHOD)
 EXPECTED_VARIANT_FEATURE = {
     "lgbm-momentum": EXPECTED_FEATURES[0],
     "lgbm-volatility-time": EXPECTED_FEATURES[1],
@@ -550,21 +551,23 @@ def _validate_plan(  # noqa: C901 - fail-closed protocol validation is intention
             )
         command_records[raw_id] = raw_record
         plans[raw_id] = plan
+    if set(by_variant) != set(pairs) | set(pairs.values()):
+        raise SmokeValidationError(PLAN_ERROR, "Pair mapping does not cover the six screen variants")
     ordered_plan = [
         {
             "command_id": command_id,
             "argv": list(record["argv"]),
             "metadata": record["metadata"],
         }
-        for command_id, record in command_records.items()
+        for variant in EXPECTED_VARIANT_ORDER
+        for command_id, record in [
+            (by_variant[variant], command_records[by_variant[variant]])
+        ]
     ]
     if not isinstance(screen, Mapping) or screen.get("plan_digest") != _sha256_json(
         ordered_plan
     ):
         raise SmokeValidationError(PLAN_ERROR, "Screen plan digest does not match its commands")
-    if set(by_variant) != set(pairs) | set(pairs.values()):
-        raise SmokeValidationError(PLAN_ERROR, "Pair mapping does not cover the six screen variants")
-
     features_by_method: dict[str, list[Any]] = {method: [] for method in EXPECTED_PARAMS}
     raw_methods: dict[str, str] = {}
     for variant, command_id in by_variant.items():

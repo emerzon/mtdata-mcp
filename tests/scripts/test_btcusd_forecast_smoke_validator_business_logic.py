@@ -224,7 +224,7 @@ def _make_run(
         },
     }
     commands: dict[str, Any] = {}
-    for variant in sorted(all_variants):
+    for variant in validator.EXPECTED_VARIANT_ORDER:
         method, family = _variant_parts(variant)
         params = copy.deepcopy(validator.EXPECTED_PARAMS[method])
         argv = [
