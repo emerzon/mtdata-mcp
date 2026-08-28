@@ -88,7 +88,7 @@ mtdata-cli options_chain TSLA --min-open-interest 100 --min-volume 50 --json
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `symbol` | (required) | US-listed ticker. Venue suffixes such as `.L` and `.TO` are rejected |
-| `--expiration` | (nearest) | Currently listed expiration date `YYYY-MM-DD`; use `options_expirations` to discover valid dates |
+| `--expiration` | (nearest live listed date) | Currently listed expiration date `YYYY-MM-DD`. The default is the nearest expiration that is still live in US equity hours, which can be 0DTE. Use `options_expirations` to pick a later date. When `option_chain_quality` is not `live_usable`, the response includes `warnings` and `remediation` pointing at `--expiration`. |
 | `--option-type` | `both` | `call`, `put`, or `both` |
 | `--min-open-interest` | 0 | Minimum open interest filter; must be at least 0 |
 | `--min-volume` | 0 | Minimum volume filter; must be at least 0 |
@@ -110,6 +110,22 @@ filters and a larger `--limit` over paging when you need one consistent slice.
 mtdata-cli options_chain AAPL --min-moneyness-pct 5 --max-moneyness-pct 10 --option-type put --json
 mtdata-cli options_chain AAPL --limit 20 --offset 0 --json
 ```
+
+Underlying quotes may include Yahoo `market_state` values. Treat them as venue
+session labels, not mtdata freshness:
+
+| `market_state` | Meaning |
+|----------------|---------|
+| `PREPRE` | Overnight / pre-pre-market |
+| `PRE` | Regular pre-market |
+| `REGULAR` | Regular cash session |
+| `POST` | After-hours |
+| `POSTPOST` | Post-after-hours / overnight |
+| `CLOSED` | Officially closed |
+
+`option_chain_quality` (`live_usable`, `partially_usable`, `unusable`) is the
+actionability flag. `success: true` means the provider call succeeded, not that
+quotes are live-tradable.
 
 Each option row reports the provider's `contract_size` classification,
 `contract_multiplier`, `settlement_type`, deliverable status, and

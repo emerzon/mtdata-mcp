@@ -499,8 +499,18 @@ def _option_chain_quality_metadata(rows: List[Dict[str, Any]]) -> Dict[str, Any]
                 "Returned option contracts are not all live-usable. Quote "
                 "usability requires a provider quote timestamp; last-trade "
                 "recency is reported separately and is not quote freshness."
-            )
+            ),
+            (
+                "If this chain is unusable, pass --expiration from "
+                "options_expirations to pick a later listed expiry, or retry "
+                "during regular US cash-session hours."
+            ),
         ]
+        out["related_tools"] = ["options_expirations"]
+        out["remediation"] = (
+            "Call options_expirations, then retry options_chain with "
+            "--expiration YYYY-MM-DD."
+        )
     return out
 
 

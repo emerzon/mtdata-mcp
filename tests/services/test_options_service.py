@@ -448,6 +448,9 @@ def test_options_chain_separates_fresh_underlying_from_stale_zero_sided_contract
     assert out["option_contract_quote_usable_count"] == 0
     assert out["warnings"]
 
+    assert any("options_expirations" in warning for warning in out["warnings"])
+    assert "options_expirations" in out["related_tools"]
+    assert "--expiration" in out["remediation"]
 
 def test_option_contract_terms_fail_closed_for_adjusted_and_missing_metadata():
     regular = osvc._option_contract_terms("REGULAR")

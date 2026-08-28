@@ -764,6 +764,8 @@ def _apply_options_detail(
                 "pagination",
                 "selection_order",
                 "warnings",
+                "related_tools",
+                "remediation",
                 "detail",
             )
             if key in out
