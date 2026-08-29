@@ -327,6 +327,40 @@ class TestForecastBacktest:
         )
 
     @patch("mtdata.forecast.backtest._fetch_history")
+    def test_unset_lookback_uses_expanding_window(self, fetch):
+        fetch.return_value = _make_df(80)
+        captured = []
+
+        def fake_forecast(**kwargs):
+            captured.append(len(kwargs["prefetched_df"]))
+            return {"forecast_price": [101.0] * 3}
+
+        with patch(
+            "mtdata.forecast.backtest.forecast",
+            side_effect=fake_forecast,
+        ):
+            result = forecast_backtest(
+                "EURUSD",
+                timeframe="H1",
+                horizon=3,
+                steps=2,
+                spacing=3,
+                methods=["theta"],
+                detail="full",
+            )
+
+        assert result["success"] is True
+        assert result["backtest_plan"]["model"] == (
+            "rolling_origin_expanding_window"
+        )
+        assert captured[1] > captured[0]
+        used = [
+            row["training_bars_used"]
+            for row in result["results"]["theta"]["details"]
+        ]
+        assert used[1] > used[0]
+
+    @patch("mtdata.forecast.backtest._fetch_history")
     def test_volatility_explicit_start_bounds_every_training_window(self, fetch):
         df = _make_df(185)
         fetch.return_value = df

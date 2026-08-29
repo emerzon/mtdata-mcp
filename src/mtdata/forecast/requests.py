@@ -370,10 +370,11 @@ class ForecastBacktestRequest(_RollingWindowForecastRequest):
         ge=1,
         description=(
             "Requested-timeframe training bars available at each anchor. When "
-            "set, validation uses a fixed rolling window matching "
-            "forecast_generate lookback. Specialized volatility methods may "
-            "define another fit window: HAR-RV rejects lookback and uses "
-            "params.days plus params.rv_timeframe instead."
+            "omitted, each origin trains on all available history up to that "
+            "anchor (expanding window). When set, validation uses a fixed "
+            "rolling window matching forecast_generate lookback. Specialized "
+            "volatility methods may define another fit window: HAR-RV rejects "
+            "lookback and uses params.days plus params.rv_timeframe instead."
         ),
     )
     methods: Optional[List[str]] = Field(

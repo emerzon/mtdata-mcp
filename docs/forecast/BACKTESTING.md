@@ -115,7 +115,7 @@ mtdata-cli forecast_backtest_run <SYMBOL> [OPTIONS]
 | `--spacing` | 20 | Bars between anchors; must be `>= --horizon` when `--steps > 1` |
 | `--anchors` | unset | Exact UTC candle-open timestamps (1–200); replaces rolling anchor selection |
 | `--methods` | auto | Space or comma-separated method names |
-| `--lookback` | unset | Fixed requested-timeframe training bars at each anchor. HAR-RV rejects this option and uses `params.days` plus `params.rv_timeframe`. |
+| `--lookback` | unset | Expanding: all available history up to each anchor. Pass `--lookback N` for a fixed N-bar window at every origin. HAR-RV rejects this option and uses `params.days` plus `params.rv_timeframe`. |
 
 ### Method Parameters
 
@@ -412,7 +412,7 @@ mtdata-cli forecast_tune_genetic EURUSD --timeframe H1 --methods fourier_ols --h
 | `--methods` / `--method` | `fourier_ols` | One or more methods to optimize |
 | `--metric` | `avg_rmse` | Metric to optimize |
 | `--mode` | `auto` | Uses the metric's standard direction; `min` or `max` explicitly overrides it |
-| `--lookback` | unset (expanding ~400 bars) | Optional fixed training bars available at each rolling-origin anchor |
+| `--lookback` | unset | Optional fixed training bars at each rolling-origin anchor. Omit for the method default (native theta/fourier_ols: 300 bars). |
 | `--steps` | 5 | Rolling-origin anchors evaluated for every candidate |
 | `--spacing` | 20 | Bars between anchors; must be at least the horizon when steps is greater than 1 |
 | `--slippage-bps` | `0` | Execution slippage per side; always disclosed in tuning output |
