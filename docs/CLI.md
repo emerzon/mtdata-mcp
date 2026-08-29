@@ -744,7 +744,9 @@ market row carries its exchange-local weekday; mixed-region summaries report
 
 In symbol mode, `is_tradable` reflects the broker trade mode (including
 close-only symbols), while `can_open_new_positions` additionally requires a
-live-ready quote and an active session.
+live-ready quote and is forced false on the standard FX weekend (unless crypto
+or the inferred M1 schedule says the session is open). Inferred session is
+otherwise advisory.
 
 `--symbol` always means an exact broker instrument, even when its name matches a
 venue ID. Use `--venue` for one of the static exchange calendars. The former
