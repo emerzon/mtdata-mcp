@@ -1508,9 +1508,8 @@ def _select_output_fields(
         )
         projection_remediation = (
             "Choose one or more paths from valid_output_fields and retry "
-            "--output-fields. valid_output_fields lists paths present in this "
-            "response; compact detail omits some diagnostics, so retry with "
-            "--detail full if a declared field is absent."
+            "--output-fields. Targeted full-detail paths may be selected directly "
+            "without requesting the complete full payload."
         )
         if (
             not selected["valid_output_fields"]
@@ -1552,12 +1551,18 @@ def _available_output_fields(
     available = {
         str(key) for key in value if key not in preserved_keys
     }
+    def _add_nested_paths(prefix: str, nested: Any) -> None:
+        if not isinstance(nested, dict) or not nested:
+            return
+        available.add(prefix)
+        for nested_key, nested_value in nested.items():
+            path = f"{prefix}.{nested_key}"
+            available.add(path)
+            _add_nested_paths(path, nested_value)
+
     for key in preserved_keys:
-        nested = value.get(key)
-        if isinstance(nested, dict) and nested:
-            available.add(str(key))
-            for nested_key in nested:
-                available.add(f"{key}.{nested_key}")
+        _add_nested_paths(str(key), value.get(key))
+    _add_nested_paths("meta", value.get("meta"))
     for name in _row_collection_names(value):
         rows = value.get(name)
         if not isinstance(rows, list):
@@ -1582,6 +1587,39 @@ def _available_output_fields(
         if matched:
             available.add(path)
     return sorted(available)
+
+
+def _selection_source_with_targeted_rich_fields(
+    *,
+    raw: Dict[str, Any],
+    compact: Dict[str, Any],
+    rich: Dict[str, Any],
+    fields: Any,
+) -> Dict[str, Any]:
+    """Expose requested rich paths without restoring the full verbose payload."""
+    requested = _normalize_output_fields(fields)
+    source = dict(rich)
+
+    # Automatic context must come from the compact contract.  This prevents
+    # full-only counters and telemetry from leaking back through projection.
+    for key in _FIELD_SELECTION_META_KEYS:
+        if key in compact:
+            source[key] = compact[key]
+        else:
+            source.pop(key, None)
+
+    for requested_field in requested:
+        parts = tuple(part for part in requested_field.split(".") if part)
+        if not parts:
+            continue
+        filtered, matched = _filter_output_path(raw, parts)
+        if matched:
+            source = _merge_output_field_selection(source, filtered)
+            continue
+        root = parts[0]
+        if len(parts) == 1 and root in raw:
+            source[root] = raw[root]
+    return source
 
 
 def _callable_accepts_kwarg(func: Any, name: str) -> bool:
@@ -1694,6 +1732,7 @@ def shape_public_tool_output(
         contract_state = resolve_output_contract({}, detail=detail)
     normalized_tool_name = str(tool_name or "").strip()
     public_out = result
+    rich_input = result
     if normalized_tool_name.lower() == "news":
         from .news import normalize_news_output
 
@@ -1701,6 +1740,10 @@ def shape_public_tool_output(
             public_out,
             detail=contract_state.detail,
         )
+        if output_fields and contract_state.detail != "full":
+            rich_input = normalize_news_output(result, detail="full")
+        else:
+            rich_input = public_out
     public_out = apply_public_output_profile(
         public_out,
         tool_name=normalized_tool_name,
@@ -1716,6 +1759,23 @@ def shape_public_tool_output(
         tool_name=normalized_tool_name,
         detail=contract_state.shape_detail,
     )
+    if output_fields and contract_state.detail != "full":
+        rich_out = apply_public_output_profile(
+            rich_input,
+            tool_name=normalized_tool_name,
+            detail="full",
+        )
+        selection_source = _selection_source_with_targeted_rich_fields(
+            raw=rich_input,
+            compact=public_out,
+            rich=rich_out,
+            fields=output_fields,
+        )
+        return _select_output_fields(
+            selection_source,
+            output_fields,
+            tool_name=normalized_tool_name,
+        )
     return _select_output_fields(
         public_out,
         output_fields,

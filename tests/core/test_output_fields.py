@@ -1,4 +1,4 @@
-from mtdata.core._mcp_tools import _select_output_fields
+from mtdata.core._mcp_tools import _select_output_fields, shape_public_tool_output
 
 
 def test_output_fields_projects_into_preserved_source() -> None:
@@ -113,7 +113,7 @@ def test_output_fields_partial_projection_is_explicit() -> None:
     assert result["unresolved_output_fields"] == ["details.missing"]
     assert result["valid_output_fields"] == ["details"]
     assert result["output_fields_status"] == "partial"
-    assert "detail full" in result["remediation"]
+    assert "Targeted full-detail paths" in result["remediation"]
 
 
 def test_output_fields_total_miss_returns_structured_error() -> None:
@@ -129,10 +129,9 @@ def test_output_fields_total_miss_returns_structured_error() -> None:
         "valid_output_fields": ["value"],
         "output_fields_status": "failed",
         "remediation": (
-            "Choose one or more paths from valid_output_fields and retry "
-            "--output-fields. valid_output_fields lists paths present in this "
-            "response; compact detail omits some diagnostics, so retry with "
-            "--detail full if a declared field is absent."
+        "Choose one or more paths from valid_output_fields and retry "
+        "--output-fields. Targeted full-detail paths may be selected directly "
+        "without requesting the complete full payload."
         ),
     }
 
@@ -175,7 +174,7 @@ def test_output_fields_does_not_advertise_absent_compact_row_paths() -> None:
     assert "items.comment" in result["valid_output_fields"]
     assert "items.raw" not in result["valid_output_fields"]
     assert result["output_fields_status"] == "partial"
-    assert "detail full" in result["remediation"]
+    assert "Targeted full-detail paths" in result["remediation"]
 
 
 def test_output_fields_rejects_unknown_path_through_empty_collection() -> None:
@@ -352,6 +351,88 @@ def test_output_fields_prefers_top_level_quote_values_over_nested_diagnostics() 
         "bid": 1.1,
         "ask": 1.1002,
     }
+
+
+def test_public_projection_can_select_legacy_rich_fields_from_compact_detail() -> None:
+    payload = {
+        "success": True,
+        "symbol": "BTCUSD",
+        "timeframe": "M15",
+        "data": [{"time": "2026-08-29T04:00Z", "close": 77580.78}],
+        "indicator_engine": {"effective_backend": "pandas-ta-classic+talib"},
+        "source": {"provider": "mt5", "server": "Demo"},
+        "data_stale": False,
+        "data_age_seconds": 10,
+    }
+
+    result = shape_public_tool_output(
+        payload,
+        tool_name="data_fetch_candles",
+        detail="compact",
+        output_fields="indicator_engine,source.server",
+    )
+
+    assert result == {
+        "success": True,
+        "symbol": "BTCUSD",
+        "timeframe": "M15",
+        "indicator_engine": {
+            "effective_backend": "pandas-ta-classic+talib"
+        },
+        "source": {"server": "Demo"},
+    }
+
+
+def test_public_projection_can_select_canonical_deep_meta_path() -> None:
+    payload = {
+        "success": True,
+        "symbol": "BTCUSD",
+        "data": [{"time": "2026-08-29T04:00Z", "close": 77580.78}],
+        "indicator_columns": ["ema_20"],
+        "indicator_engine": {"effective_backend": "test"},
+    }
+
+    result = shape_public_tool_output(
+        payload,
+        tool_name="data_fetch_candles",
+        detail="compact",
+        output_fields="meta.processing.indicators.engine",
+    )
+
+    assert result == {
+        "success": True,
+        "symbol": "BTCUSD",
+        "meta": {
+            "processing": {
+                "indicators": {"engine": {"effective_backend": "test"}}
+            }
+        },
+    }
+
+
+def test_public_projection_keeps_compact_safety_context() -> None:
+    payload = {
+        "success": True,
+        "symbol": "EURUSD",
+        "bid": 1.1,
+        "ask": 1.2,
+        "data_stale": True,
+        "freshness_state": "stale",
+        "data_age_seconds": 900,
+        "usable_for_live_trading": False,
+    }
+
+    result = shape_public_tool_output(
+        payload,
+        tool_name="market_ticker",
+        detail="compact",
+        output_fields="bid",
+    )
+
+    assert result["bid"] == 1.1
+    assert result["usable_for_live_trading"] is False
+    assert result["warnings"][0]["code"] == "data_stale"
+    assert "data_age_seconds" not in result
 
 
 def test_output_fields_projects_bare_fields_from_row_collections() -> None:
