@@ -402,7 +402,8 @@ class DataFetchCandlesRequest(_DetailNormalizedRequest):
             "Which end of a bounded candle range to keep when limit truncates the "
             "result. first_n keeps the earliest bars; last_n keeps the latest, "
             "including start-only queries whose implied end is now. Omit to use "
-            "the default: first_n when start is set, otherwise last_n."
+            "the default: first_n when start is set, otherwise last_n. End-only "
+            "queries cannot use first_n."
         ),
     )
     cursor: Optional[str] = Field(

@@ -482,13 +482,13 @@ def test_run_data_fetch_candles_passes_include_spread_to_service():
     assert captured["kwargs"]["include_spread"] is True
 
 
-def test_run_data_fetch_candles_expands_default_limit_for_indicators():
+def test_run_data_fetch_candles_keeps_default_limit_for_indicators():
     captured = {}
     request = DataFetchCandlesRequest(symbol="EURUSD", indicators="rsi(14)")
 
     def _fetch(**kwargs):
         captured["kwargs"] = kwargs
-        return {"success": True, "count": 100, "data": []}
+        return {"success": True, "count": 20, "data": []}
 
     result = run_data_fetch_candles(
         request,
@@ -497,7 +497,26 @@ def test_run_data_fetch_candles_expands_default_limit_for_indicators():
     )
 
     assert result["success"] is True
-    assert captured["kwargs"]["limit"] == 100
+    assert captured["kwargs"]["limit"] == 20
+
+
+def test_run_data_fetch_candles_rejects_end_only_first_n():
+    def _fetch(**_kwargs):
+        raise AssertionError("end-only first_n must not fetch")
+
+    result = run_data_fetch_candles(
+        DataFetchCandlesRequest(
+            symbol="EURUSD",
+            end="2020-01-01",
+            limit=50,
+            selection="first_n",
+        ),
+        gateway=SimpleNamespace(ensure_connection=lambda: None),
+        fetch_candles_impl=_fetch,
+    )
+
+    assert result.get("success") is not True
+    assert result["error_code"] == "selection_unsupported_for_end_only"
 
 
 def test_run_data_fetch_candles_honors_explicit_indicator_limit():

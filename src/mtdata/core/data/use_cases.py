@@ -112,9 +112,6 @@ _COMPACT_TICK_TOP_LEVEL_FIELDS = (
     "_tick_page",
 )
 
-_ANALYSIS_CANDLE_DEFAULT_LIMIT = 100
-
-
 def _ensure_gateway_connection(gateway: Any) -> Dict[str, Any] | None:
     return mt5_connection_error(gateway)
 
@@ -227,6 +224,22 @@ def _run_data_fetch_candles_impl(
             operation="data_fetch_candles",
             details=details,
             remediation="Use start and end timestamps at or before the current time.",
+        )
+    selection = str(request.selection or "").strip().lower()
+    if (
+        request.start in (None, "")
+        and request.end not in (None, "")
+        and selection == "first_n"
+    ):
+        return build_error_payload(
+            "selection=first_n is not supported for end-only candle queries.",
+            code="selection_unsupported_for_end_only",
+            operation="data_fetch_candles",
+            details={"selection": "first_n", "end": str(request.end)},
+            remediation=(
+                "Omit selection or pass last_n, or supply start to page from "
+                "the beginning of a bounded window."
+            ),
         )
     fetch_start = request.start
     page_offset = 0
@@ -799,15 +812,9 @@ def _normalize_candle_query_error(  # noqa: C901
 
 def _effective_candle_limit(request: DataFetchCandlesRequest) -> int:
     try:
-        limit = max(1, int(request.limit))
+        return max(1, int(request.limit))
     except Exception:
-        limit = DATA_FETCH_CANDLES_DEFAULT_LIMIT
-    fields_set = getattr(request, "model_fields_set", set())
-    limit_explicit = "limit" in fields_set
-    has_indicators = request.indicators not in (None, "", [], {})
-    if has_indicators and not limit_explicit:
-        return max(limit, _ANALYSIS_CANDLE_DEFAULT_LIMIT)
-    return limit
+        return DATA_FETCH_CANDLES_DEFAULT_LIMIT
 
 
 def _annotate_empty_candle_result(
