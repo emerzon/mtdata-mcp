@@ -2893,7 +2893,6 @@ class TestEdgeCases:
         assert status == 0
         assert json.loads(capsys.readouterr().out) == {
             "success": True,
-            "count": 0,
             "items": [],
         }
 

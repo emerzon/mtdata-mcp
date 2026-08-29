@@ -243,7 +243,10 @@ def _dedupe_text_list(values: Iterable[Any]) -> List[str]:
     out: List[str] = []
     seen: set[str] = set()
     for value in values:
-        text = str(value).strip()
+        if isinstance(value, dict) and value.get("message") not in (None, ""):
+            text = str(value["message"]).strip()
+        else:
+            text = str(value).strip()
         if not text or text in seen:
             continue
         seen.add(text)
@@ -1616,7 +1619,7 @@ def _normalize_trade_idea_payload(
     return out or None
 
 
-def _normalize_trade_risk_payload(
+def _normalize_trade_risk_payload(  # noqa: C901
     payload: Dict[str, Any],
     *,
     verbose: bool,

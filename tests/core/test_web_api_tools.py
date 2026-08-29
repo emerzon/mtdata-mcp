@@ -217,7 +217,7 @@ class TestListAndInvoke:
         assert "diagnostics" not in compact["result"]
         assert rich["result"]["detail_seen"] == "full"
         assert rich["result"]["meta"]["domain"]["template"] == "minimal"
-        assert rich["result"]["diagnostics"] == {"source": "test"}
+        assert rich["result"]["meta"]["diagnostics"] == {"source": "test"}
 
     def test_invoke_adds_guidance_only_when_requested(self):
         def market_ticker(detail: str = "compact"):

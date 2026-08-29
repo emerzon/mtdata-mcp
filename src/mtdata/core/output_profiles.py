@@ -121,6 +121,23 @@ _ANALYSIS_INFO_TOOLS = frozenset(
     }
 )
 _PHASE_SIX_TOOLS = frozenset({"report_generate"})
+_TRADING_TOOLS = frozenset(
+    {
+        "trade_account_info",
+        "trade_close",
+        "trade_execution_quality",
+        "trade_get_open",
+        "trade_get_pending",
+        "trade_history",
+        "trade_idea_compose",
+        "trade_journal_analyze",
+        "trade_modify",
+        "trade_place",
+        "trade_risk_analyze",
+        "trade_stress_test",
+        "trade_var_cvar_calculate",
+    }
+)
 _GENERIC_COMPACT_TIME_OMIT = LEGACY_TIME_FIELDS - {"data_window"}
 _GENERIC_VERBOSE_ROOT_FIELDS = frozenset(
     {
@@ -138,6 +155,7 @@ _GENERIC_VERBOSE_ROOT_FIELDS = frozenset(
         "query_applied",
         "query_latency_ms",
         "request",
+        "request_echo",
         "runtime",
     }
 )
@@ -265,11 +283,171 @@ def apply_public_output_profile(
         return _shape_ticks(result, detail=detail)
     if normalized in _MARKET_TOOLS:
         return _shape_market(result, detail=detail, tool_name=normalized)
-    if normalized in _PHASE_SIX_TOOLS or normalized.startswith("trade_"):
-        return result
+    if normalized in _TRADING_TOOLS:
+        return _shape_trading(result, detail=detail, tool_name=normalized)
+    if normalized in _PHASE_SIX_TOOLS:
+        return _shape_report(result, detail=detail)
     if normalized in _ANALYSIS_INFO_TOOLS:
         return _shape_analysis_info(result, detail=detail, tool_name=normalized)
     return result
+
+
+def _shape_trading(
+    payload: Mapping[str, Any],
+    *,
+    detail: str,
+    tool_name: str,
+) -> Dict[str, Any]:
+    if detail == "full":
+        sampling = payload.get("sample_provenance")
+        quote_quality = payload.get("quote_freshness_summary")
+        out = _full_generic_payload(payload, scope=tool_name)
+        meta = out.setdefault("meta", {})
+        if isinstance(sampling, Mapping) and sampling:
+            meta["sampling"] = dict(sampling)
+            out.pop("sample_provenance", None)
+        if isinstance(quote_quality, Mapping) and quote_quality:
+            quality = meta.get("quality")
+            meta["quality"] = {
+                **(dict(quality) if isinstance(quality, Mapping) else {}),
+                "quote_freshness": dict(quote_quality),
+            }
+            out.pop("quote_freshness_summary", None)
+        return out
+
+    out = dict(payload)
+    source = SourceContext.from_payload(payload)
+    freshness = FreshnessObservation.from_payload(payload, scope=tool_name)
+    protected_freshness_fields = {
+        "market_status",
+        "market_status_reason",
+        "usable_for_live_trading",
+    }
+    for key in (
+        (LEGACY_FRESHNESS_FIELDS - protected_freshness_fields)
+        | _GENERIC_COMPACT_TIME_OMIT
+        | _GENERIC_VERBOSE_ROOT_FIELDS
+        | {
+            "meta",
+            "related_tools",
+            "row_key",
+            "sample_provenance",
+            "source",
+        }
+    ):
+        out.pop(key, None)
+    if source:
+        out["source"] = source.compact()
+
+    for quote_key in ("quote", "quote_context"):
+        quote = out.get(quote_key)
+        if isinstance(quote, Mapping):
+            out[quote_key] = _compact_market_mapping(
+                quote,
+                scope=f"{tool_name}.{quote_key}",
+            )
+    _compact_trade_rows(out)
+    _compact_pagination(out)
+    if isinstance(out.get("items"), list):
+        out.pop("count", None)
+
+    _normalize_warnings(out)
+    if freshness and (warning := freshness.to_warning()):
+        append_output_warning(out, warning)
+    quote_summary = payload.get("quote_freshness_summary")
+    if isinstance(quote_summary, Mapping):
+        stale_quotes = quote_summary.get("stale_quotes")
+        if isinstance(stale_quotes, int) and stale_quotes > 0:
+            append_output_warning(
+                out,
+                OutputWarning(
+                    code="stale_position_quotes",
+                    scope=tool_name,
+                    message=(
+                        "Some position quotes are stale and must not drive live execution."
+                    ),
+                    context={
+                        "stale_quotes": stale_quotes,
+                        "positions_checked": quote_summary.get(
+                            "positions_enriched"
+                        ),
+                    },
+                ),
+            )
+    out.pop("quote_freshness_summary", None)
+    _drop_empty_warnings(out)
+    return out
+
+
+def _shape_report(payload: Mapping[str, Any], *, detail: str) -> Dict[str, Any]:
+    if detail == "full":
+        return _full_generic_payload(payload, scope="report_generate")
+
+    out = dict(payload)
+    source = SourceContext.from_payload(payload)
+    freshness = FreshnessObservation.from_payload(payload, scope="report_generate")
+    report_time_omit = _GENERIC_COMPACT_TIME_OMIT - {"data_as_of"}
+    for key in (
+        LEGACY_FRESHNESS_FIELDS
+        | report_time_omit
+        | _GENERIC_VERBOSE_ROOT_FIELDS
+        | {
+            "content_detail",
+            "detail",
+            "meta",
+            "related_tools",
+            "runtime_plan",
+            "source",
+        }
+    ):
+        out.pop(key, None)
+    if out.get("section_run_status") == "complete":
+        out.pop("section_run_status", None)
+    sections_status = out.get("sections_status")
+    if _sections_status_is_nominal(sections_status):
+        out.pop("sections_status", None)
+    if source:
+        out["source"] = source.compact()
+    _normalize_warnings(out)
+    if freshness and (warning := freshness.to_warning()):
+        append_output_warning(out, warning)
+    _drop_empty_warnings(out)
+    return out
+
+
+def _compact_trade_rows(payload: MutableMapping[str, Any]) -> None:
+    items = payload.get("items")
+    if not isinstance(items, list):
+        return
+    compact_items: list[Any] = []
+    row_omit = LEGACY_FRESHNESS_FIELDS | {
+        "quote_refresh_attempted",
+        "quote_source",
+        "quote_source_conflict",
+        "quote_source_state",
+    }
+    for item in items:
+        if not isinstance(item, Mapping):
+            compact_items.append(item)
+            continue
+        compact_items.append(
+            {key: value for key, value in item.items() if key not in row_omit}
+        )
+    payload["items"] = compact_items
+
+
+def _sections_status_is_nominal(value: Any) -> bool:
+    if not isinstance(value, Mapping) or not value:
+        return False
+    for section in value.values():
+        if not isinstance(section, Mapping):
+            return False
+        try:
+            if int(section.get("partial", 0)) or int(section.get("error", 0)):
+                return False
+        except (TypeError, ValueError):
+            return False
+    return True
 
 
 def _shape_analysis_info(
@@ -355,7 +533,7 @@ def _full_generic_payload(
     meta.update(canonical)
     request = {
         key: payload[key]
-        for key in ("query_applied", "request")
+        for key in ("query_applied", "request", "request_echo")
         if payload.get(key) not in (None, "", [], {})
     }
     if request:
