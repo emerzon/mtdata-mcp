@@ -801,7 +801,7 @@ def report_market_quote(  # noqa: C901
         if isinstance(dom, dict) and dom.get('success'):
             t = dom.get('type')
             data = dom.get('data') or {}
-            if t == 'tick_data':
+            if t == 'quote_fallback':
                 depth_status = "quote_only"
                 depth_reason = "Broker returned Level 1 data without an order book."
             elif t == 'full_depth':

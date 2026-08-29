@@ -795,13 +795,14 @@ class TestMarketSnapshot:
                 "mtdata.core.market_depth.market_depth_fetch",
                 new=lambda *args, **kwargs: {
                     "success": True,
-                    "type": "tick_data",
+                    "type": "quote_fallback",
                     "data": {"bid": 100.0, "ask": 101.0},
                 },
             ),
         ):
             snap = report_market_quote("US30")
 
+        assert snap["depth_status"] == "quote_only"
         assert snap["spread_ticks"] == pytest.approx(2.0)
         assert snap["spread_points"] == pytest.approx(10.0)
         assert snap["spread_pips"] is None
