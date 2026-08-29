@@ -262,6 +262,39 @@ def test_modify_pending_order_blocks_symbol_not_in_allowlist(
     assert result["guardrail_rule"] == "symbol_policy"
 
 
+def test_modify_pending_order_blocks_naked_price_change_on_blocked_symbol(
+    restore_trade_guardrails,
+    patch_gateway,
+):
+    trade_guardrails_config.enabled = True
+    trade_guardrails_config.blocked_symbols = ["EURUSD"]
+    order = patch_gateway.orders_get()[0]
+    order.sl = 0.0
+    patch_gateway.orders_get = lambda *args, **kwargs: [order]
+
+    result = _modify_pending_order(ticket=100, take_profit=1.1300)
+
+    assert result["guardrail_blocked"] is True
+    assert result["guardrail_rule"] == "symbol_policy"
+    assert "blocked" in result["violations"][0].lower()
+
+
+def test_modify_pending_order_blocks_naked_price_change_when_trading_disabled(
+    restore_trade_guardrails,
+    patch_gateway,
+):
+    trade_guardrails_config.enabled = True
+    trade_guardrails_config.trading_enabled = False
+    order = patch_gateway.orders_get()[0]
+    order.sl = 0.0
+    patch_gateway.orders_get = lambda *args, **kwargs: [order]
+
+    result = _modify_pending_order(ticket=100, take_profit=1.1300)
+
+    assert result["guardrail_blocked"] is True
+    assert result["guardrail_rule"] == "trading_disabled"
+
+
 def test_modify_pending_order_allows_tighter_stop_on_blocked_symbol(
     restore_trade_guardrails,
     patch_gateway,

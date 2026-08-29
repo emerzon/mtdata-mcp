@@ -17,6 +17,7 @@ from .positions import _resolve_open_position, _resolve_pending_order
 from .safety import (
     _build_guardrail_block,
     _guardrails_ignored_for_demo,
+    _normalize_stop_loss_value,
     _resolve_pending_order_side,
     evaluate_trade_guardrails,
     load_guardrail_book_snapshots,
@@ -1011,59 +1012,78 @@ def _modify_pending_order(  # noqa: C901
                     "error": f"Unsupported pending order type {order_type_value}.",
                     "error_code": "unsupported_pending_order_type",
                 }
+            candidate_entry_price = float(
+                normalized_stop_limit
+                if normalized_stop_limit is not None
+                else normalized_price
+            )
+            risk_increased = pending_order_risk_increased(
+                symbol_info=symbol_info,
+                side=side,
+                volume=float(order_volume),
+                existing_entry_price=existing_entry_price,
+                existing_stop_loss=current_stop_loss,
+                candidate_entry_price=candidate_entry_price,
+                candidate_stop_loss=candidate_stop_loss,
+            )
+            unquantifiable_stop = (
+                _normalize_stop_loss_value(current_stop_loss) is None
+                and _normalize_stop_loss_value(candidate_stop_loss) is None
+            )
             if (
                 trade_guardrails_config.is_enabled()
                 and order_volume is not None
-                and pending_order_risk_increased(
-                    symbol_info=symbol_info,
-                    side=side,
-                    volume=float(order_volume),
-                    existing_entry_price=existing_entry_price,
-                    existing_stop_loss=current_stop_loss,
-                    candidate_entry_price=float(
-                        normalized_stop_limit
-                        if normalized_stop_limit is not None
-                        else normalized_price
-                    ),
-                    candidate_stop_loss=candidate_stop_loss,
-                )
+                and (risk_increased or unquantifiable_stop)
             ):
                 try:
                     account_info = mt5.account_info()
                 except Exception:
                     account_info = None
-                positions, pending_orders, snapshot_error = load_guardrail_book_snapshots(
-                    mt5,
-                    trade_guardrails_config,
-                    account_info=account_info,
-                )
-                if snapshot_error is not None:
-                    snapshot_error["pending_order_ticket"] = resolved_ticket
-                    snapshot_error["ticket_requested"] = ticket_id
-                    snapshot_error["ticket_resolution"] = ticket_resolution
-                    return snapshot_error
-                guardrail_block = evaluate_trade_guardrails(
-                    trade_guardrails_config,
-                    symbol=order.symbol,
-                    volume=float(order_volume),
-                    stop_loss=candidate_stop_loss,
-                    deviation=None,
-                    side=side,
-                    entry_price=float(
-                        normalized_stop_limit
-                        if normalized_stop_limit is not None
-                        else normalized_price
-                    ),
-                    account_info=account_info,
-                    existing_positions=positions,
-                    existing_pending_orders=_trade_rows_excluding_current(
-                        pending_orders,
-                        resolved_ticket=resolved_ticket,
-                        requested_ticket=ticket_id,
-                    ),
-                    symbol_info=symbol_info,
-                    symbol_info_resolver=mt5.symbol_info,
-                )
+                if risk_increased:
+                    positions, pending_orders, snapshot_error = load_guardrail_book_snapshots(
+                        mt5,
+                        trade_guardrails_config,
+                        account_info=account_info,
+                    )
+                    if snapshot_error is not None:
+                        snapshot_error["pending_order_ticket"] = resolved_ticket
+                        snapshot_error["ticket_requested"] = ticket_id
+                        snapshot_error["ticket_resolution"] = ticket_resolution
+                        return snapshot_error
+                    guardrail_block = evaluate_trade_guardrails(
+                        trade_guardrails_config,
+                        symbol=order.symbol,
+                        volume=float(order_volume),
+                        stop_loss=candidate_stop_loss,
+                        deviation=None,
+                        side=side,
+                        entry_price=candidate_entry_price,
+                        account_info=account_info,
+                        existing_positions=positions,
+                        existing_pending_orders=_trade_rows_excluding_current(
+                            pending_orders,
+                            resolved_ticket=resolved_ticket,
+                            requested_ticket=ticket_id,
+                        ),
+                        symbol_info=symbol_info,
+                        symbol_info_resolver=mt5.symbol_info,
+                    )
+                else:
+                    guardrail_block = evaluate_trade_guardrails(
+                        trade_guardrails_config,
+                        symbol=order.symbol,
+                        volume=float(order_volume),
+                        stop_loss=candidate_stop_loss,
+                        deviation=None,
+                        side=side,
+                        entry_price=candidate_entry_price,
+                        account_info=account_info,
+                        symbol_info=symbol_info,
+                        symbol_info_resolver=mt5.symbol_info,
+                        enforce_safety_policy=False,
+                        enforce_account_risk=False,
+                        enforce_wallet_risk=False,
+                    )
                 if guardrail_block is not None:
                     guardrail_block["pending_order_ticket"] = resolved_ticket
                     guardrail_block["ticket_requested"] = ticket_id
