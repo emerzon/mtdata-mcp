@@ -2,7 +2,9 @@
 
 **Audience:** User
 
-Markets switch **behavior modes** — trending, ranging, or stressed. A tactic that works in one mode often fails in another. `regime_detect` tries to label the current mode so you can **wait**, **shrink size**, or **pick a different tool** — not so it can place an order for you.
+Markets switch **behavior modes** — trending, ranging, or high-volatility. A tactic that works in one mode often fails in another. `regime_detect` tries to label the current mode so you can **wait**, **shrink size**, or **pick a different tool** — not so it can place an order for you.
+
+`rule_based` returns `trending`, `ranging`, or `transition`. HMM/GMM and similar methods use numeric or volatility-ranked states (`low_vol` / `high_vol`), not a named `stress` label. Elevated BOCPD transition probability is the usual stand-down signal when the statistical regime may have just changed.
 
 The method names below look dense. Each one has a one-line “plain idea” in the [glossary](../GLOSSARY.md#regime). Start with `hmm` (two quiet/loud states) or `bocpd` (“did something just change?”).
 

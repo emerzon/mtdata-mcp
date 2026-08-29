@@ -63,7 +63,7 @@ Optional guardrails (allowed symbols, max volume, max risk % of equity) are docu
 | **Data** | Candles, ticks, depth (optional), market scans | `data_fetch_candles`, `data_fetch_ticks`, `symbols_top_markets` |
 | **Forecasting** | Theta → ARIMA/ML → Chronos-class foundation models; async train & model cache | `forecast_generate`, `forecast_backtest_run`, `forecast_train` |
 | **Volatility & barriers** | Movement estimates; TP/SL hit probabilities via simulation | `forecast_volatility_estimate`, `forecast_barrier_prob` |
-| **Regimes** | Trending / ranging / stress-style market states | `regime_detect` |
+| **Regimes** | Trending / ranging / transition; HMM/BOCPD for vol and breaks | `regime_detect` |
 | **Patterns & levels** | Candlesticks, chart patterns, Elliott/fractals; pivots & confluence | `patterns_detect`, level tools |
 | **Indicators & denoise** | 100+ technicals; smooth noise to see structure | `--indicators`, `--denoise` |
 | **Multi-asset & diagnostics** | Correlation, cointegration, stationarity, outliers, seasonality | `correlation_matrix`, `stationarity_test`, `outliers_detect` |

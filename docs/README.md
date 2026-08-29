@@ -69,7 +69,7 @@ How we write these pages: [STYLE.md](STYLE.md) (Contributor).
 | [forecast/FORECAST_GENERATE.md](forecast/FORECAST_GENERATE.md) | Operator | `forecast_generate` parameter reference |
 | [forecast/BACKTESTING.md](forecast/BACKTESTING.md) | User | Rolling backtests |
 | [forecast/VOLATILITY.md](forecast/VOLATILITY.md) | User | How much price tends to move |
-| [forecast/REGIMES.md](forecast/REGIMES.md) | User | Trending / ranging / stress-style states |
+| [forecast/REGIMES.md](forecast/REGIMES.md) | User | Trending / ranging / transition; HMM/BOCPD states |
 | [TIME_SERIES_DIAGNOSTICS.md](TIME_SERIES_DIAGNOSTICS.md) | User | Stationarity, seasonality, outliers |
 | [forecast/UNCERTAINTY.md](forecast/UNCERTAINTY.md) | User | Confidence and conformal intervals |
 | [BARRIER_FUNCTIONS.md](BARRIER_FUNCTIONS.md) | User | Take-profit / stop-loss hit odds |
