@@ -144,6 +144,18 @@ def test_apply_ta_indicators_prefers_nonzero_tick_volume_over_zero_volume(monkey
     assert observed["volume"].reset_index(drop=True).equals(df["tick_volume"].reset_index(drop=True))
 
 
+def test_apply_ta_indicators_rejects_all_zero_volume() -> None:
+    df = _sample_df()
+    df["high"] = df["close"] + 0.1
+    df["low"] = df["close"] - 0.1
+    df["volume"] = 0.0
+    df["tick_volume"] = 0.0
+    df["real_volume"] = 0.0
+
+    with pytest.raises(ValueError, match="volume"):
+        _apply_ta_indicators(df, "obv")
+
+
 def test_apply_ta_indicators_prefers_real_volume_over_tick_alias(monkeypatch) -> None:
     df = _sample_df()
     df["volume"] = np.arange(1, len(df) + 1, dtype=float)

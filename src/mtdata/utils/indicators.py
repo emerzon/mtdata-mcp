@@ -425,13 +425,10 @@ def _format_missing_indicator_columns(
 
 
 def _resolve_indicator_volume_series(df: pd.DataFrame) -> Optional[pd.Series]:
-    fallback: Optional[pd.Series] = None
     for col_name in _VOLUME_SOURCE_COLUMNS:
         if col_name not in df.columns:
             continue
         series = df[col_name]
-        if fallback is None:
-            fallback = series
         try:
             numeric = pd.to_numeric(series, errors="coerce")
         except Exception:
@@ -442,7 +439,7 @@ def _resolve_indicator_volume_series(df: pd.DataFrame) -> Optional[pd.Series]:
                 return series
         except Exception:
             pass
-    return fallback
+    return None
 
 
 def _resolve_indicator_series_inputs(
