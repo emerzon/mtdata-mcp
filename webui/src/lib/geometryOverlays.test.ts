@@ -31,10 +31,12 @@ describe('geometryOverlays', () => {
     const lines = confluencePriceLines([
       { price: 1.1, type: 'support' },
       { price: 1.2, type: 'resistance' },
+      { price: 1.05, role: 'below' },
     ])
-    expect(lines).toHaveLength(2)
+    expect(lines).toHaveLength(3)
     expect(lines[0].title).toBe('Conf support')
     expect(lines[1].color).toBe('#fb7185')
+    expect(lines[2].title).toBe('Conf support')
   })
 
   it('maps volume profile poc/vah/val', () => {

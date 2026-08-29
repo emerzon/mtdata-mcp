@@ -352,9 +352,14 @@ def _compact_structure(payload: Any) -> List[Dict[str, Any]]:
         if price is None:
             continue
         item: Dict[str, Any] = {"price": price}
-        for key in ("type", "score", "source_families"):
+        for key in ("type", "role", "score", "source_families"):
             if row.get(key) not in (None, "", []):
                 item[key] = row[key]
+        if "type" not in item:
+            role = str(row.get("role") or "").strip().lower()
+            mapped = {"below": "support", "above": "resistance", "inside": "inside"}.get(role)
+            if mapped:
+                item["type"] = mapped
         range_payload = row.get("range")
         if isinstance(range_payload, dict):
             compact_range = {

@@ -23,16 +23,25 @@ def test_compact_confluence_payload_keeps_zones() -> None:
             "sr_timeframe": "auto",
             "levels": [
                 {
-                    "type": "resistance",
+                    "role": "above",
                     "price": 1.1044,
                     "score": 4.2,
+                    "source_families": ["pivot_formula", "touch_derived"],
+                    "source_count": 2,
+                    "record_count": 3,
                     "range": {"low": 1.1042, "high": 1.1046, "width": 0.0004},
                 }
             ],
         }
     )
-    assert payload["levels"][0]["price"] == pytest.approx(1.1044)
-    assert payload["levels"][0]["range"]["low"] == pytest.approx(1.1042)
+    level = payload["levels"][0]
+    assert level["price"] == pytest.approx(1.1044)
+    assert level["range"]["low"] == pytest.approx(1.1042)
+    assert level["role"] == "above"
+    assert level["type"] == "resistance"
+    assert level["source_families"] == ["pivot_formula", "touch_derived"]
+    assert level["source_count"] == 2
+    assert level["record_count"] == 3
 
 
 def test_compact_confluence_payload_rejects_non_finite_geometry() -> None:

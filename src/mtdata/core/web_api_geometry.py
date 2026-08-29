@@ -9,6 +9,22 @@ from ._mcp_tools import shape_public_tool_output
 from .tool_calling import call_tool_sync_structured
 from .web_api_handlers import _http_error, _raise_tool_error
 
+_CONFLUENCE_ROLE_TO_TYPE = {
+    "below": "support",
+    "above": "resistance",
+    "inside": "inside",
+    "support": "support",
+    "resistance": "resistance",
+}
+
+
+def _confluence_level_type(row: Dict[str, Any]) -> Optional[str]:
+    level_type = str(row.get("type") or "").strip().lower()
+    if level_type:
+        return level_type
+    role = str(row.get("role") or "").strip().lower()
+    return _CONFLUENCE_ROLE_TO_TYPE.get(role)
+
 
 def compact_confluence_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     levels: List[Dict[str, Any]] = []
@@ -21,12 +37,30 @@ def compact_confluence_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
             if price is None:
                 continue
             item: Dict[str, Any] = {"price": price}
-            level_type = str(row.get("type") or "").strip().lower()
+            level_type = _confluence_level_type(row)
             if level_type:
                 item["type"] = level_type
+            role = str(row.get("role") or "").strip().lower()
+            if role:
+                item["role"] = role
             score = _as_float(row.get("score"))
             if score is not None:
                 item["score"] = score
+            source_count = row.get("source_count")
+            if isinstance(source_count, int):
+                item["source_count"] = source_count
+            record_count = row.get("record_count")
+            if isinstance(record_count, int):
+                item["record_count"] = record_count
+            families = row.get("source_families")
+            if isinstance(families, list):
+                compact_families = [
+                    str(name).strip()
+                    for name in families
+                    if str(name).strip()
+                ]
+                if compact_families:
+                    item["source_families"] = compact_families
             range_payload = row.get("range")
             if isinstance(range_payload, dict):
                 compact_range = {

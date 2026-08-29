@@ -51,11 +51,18 @@ export function supportResistancePriceLines(
     .filter((item): item is PriceLineSpec => item !== null)
 }
 
+function confluenceKind(level: ConfluenceLevel): string {
+  const raw = String(level.type || level.role || '').toLowerCase()
+  if (raw === 'below') return 'support'
+  if (raw === 'above') return 'resistance'
+  return raw
+}
+
 export function confluencePriceLines(levels: ConfluenceLevel[] | null | undefined): PriceLineSpec[] {
   if (!levels?.length) return []
   return levels
     .map((level) => {
-      const kind = String(level.type || '').toLowerCase()
+      const kind = confluenceKind(level)
       const color = kind === 'support' ? '#34d399' : kind === 'resistance' ? '#fb7185' : '#94a3b8'
       const title = kind ? `Conf ${kind}` : 'Confluence'
       return line(level.price, color, title)

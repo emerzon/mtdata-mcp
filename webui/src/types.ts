@@ -469,7 +469,11 @@ export type ConfluenceResponse = {
   levels?: Array<{
     price: number
     type?: string
+    role?: string
     score?: number
+    source_families?: string[]
+    source_count?: number
+    record_count?: number
     range?: { low?: number; high?: number }
   }>
 }
