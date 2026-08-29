@@ -578,6 +578,7 @@ def test_market_snapshot_summary_detail_returns_lean_snapshot(monkeypatch):
         },
         "pattern_count": 2,
         "latest_pattern_bias": "bullish",
+        "latest_bar_pattern_active": False,
         "pattern_is_signal": False,
         "pattern_usage": "information_only",
         "pattern_window_bars": 3,
@@ -680,6 +681,7 @@ def test_market_snapshot_compact_defaults_to_lean_snapshot(monkeypatch):
         },
         "pattern_count": 2,
         "latest_pattern_bias": "bullish",
+        "latest_bar_pattern_active": False,
         "pattern_is_signal": False,
         "pattern_usage": "information_only",
         "pattern_window_bars": 3,
@@ -1030,6 +1032,16 @@ def test_market_snapshot_standard_strips_nested_request_echoes(monkeypatch):
     }
 
 
+def test_latest_bar_has_pattern_requires_newest_bar_row() -> None:
+    assert snapshot_mod._latest_bar_has_pattern({"n_patterns": 1}) is False
+    assert snapshot_mod._latest_bar_has_pattern(
+        {"highlights": [{"bias": "bullish", "bars_ago": 1}]}
+    ) is False
+    assert snapshot_mod._latest_bar_has_pattern(
+        {"highlights": [{"bias": "bullish", "bars_ago": 0}]}
+    ) is True
+
+
 def test_market_snapshot_qualifies_uncertain_pattern_bias(monkeypatch):
     def fake_call_section(name, symbol, timeframe, horizon, detail):
         if name == "quote":
@@ -1055,7 +1067,9 @@ def test_market_snapshot_qualifies_uncertain_pattern_bias(monkeypatch):
     snapshot = result["snapshot"]
     assert "pattern_bias" not in snapshot
     assert "latest_pattern_bias" not in snapshot
-    assert snapshot["latest_bar_pattern"] == "uncertain"
+    assert "latest_bar_pattern" not in snapshot
+    assert snapshot["window_pattern_bias"] == "uncertain"
+    assert snapshot["latest_bar_pattern_active"] is False
     assert snapshot["latest_match_score"] == 0.225
     assert snapshot["latest_match_score_scale"] == "similarity_0_to_1"
     assert snapshot["pattern_conflict"] == "both_bullish_and_bearish_patterns_present"

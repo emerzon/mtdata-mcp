@@ -38,6 +38,40 @@ def test_asset_performance_rejects_inapplicable_universe_selectors(monkeypatch) 
     assert result["details"]["invalid"] == ["symbol"]
 
 
+def test_asset_performance_infers_crypto_universe_from_btcusd(monkeypatch) -> None:
+    captured = {}
+
+    def _fake_crypto(**kwargs):
+        captured.update(kwargs)
+        return {
+            "success": True,
+            "items": [{"symbol": "BTC", "name": "Bitcoin"}],
+            "requested_symbol": kwargs.get("symbol"),
+            "provider_symbol": "BTC",
+        }
+
+    monkeypatch.setattr("mtdata.core.finviz.finviz_crypto", _fake_crypto)
+    monkeypatch.setattr(
+        "mtdata.core.finviz.finviz_forex",
+        lambda **_kwargs: pytest.fail("BTCUSD must not use the forex adapter"),
+    )
+
+    result = _unwrap(asset_performance)(symbol="BTCUSD")
+
+    assert captured["symbol"] == "BTCUSD"
+    assert result["success"] is True
+    assert result["universe"] == "crypto"
+
+
+def test_asset_performance_names_universe_for_metal_symbol() -> None:
+    result = _unwrap(asset_performance)(symbol="XAUUSD")
+
+    assert result["success"] is False
+    assert result["error_code"] == "asset_performance_universe_mismatch"
+    assert "--universe futures" in result["remediation"]
+    assert "GOLD" in result["remediation"]
+
+
 def test_asset_performance_forwards_crypto_symbol_filter(monkeypatch) -> None:
     captured = {}
 

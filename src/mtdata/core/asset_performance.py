@@ -11,9 +11,58 @@ from ..services.research.capabilities import PERFORMANCE, ResearchSourcePin
 from ..services.research.errors import finviz_only_source_error
 from ..services.research.payload import stamp_provider
 from ..shared.schema import DetailLiteral
+from ..shared.symbols import finviz_forex_symbol_to_mt5, is_probably_crypto_symbol
 from ._mcp_instance import mcp
 from .error_envelope import build_error_payload
 from .execution_logging import run_logged_operation
+
+_PERFORMANCE_FUTURES_ALIASES = {
+    "XAU": "GOLD",
+    "XAUUSD": "GOLD",
+    "GOLD": "GOLD",
+    "XAG": "SILVER",
+    "XAGUSD": "SILVER",
+    "SILVER": "SILVER",
+}
+
+
+def _compact_performance_symbol(symbol: Any) -> str:
+    return "".join(ch for ch in str(symbol or "").upper() if ch.isalnum())
+
+
+def _infer_performance_universe(symbol: Optional[str]) -> Optional[str]:
+    if not symbol:
+        return None
+    if is_probably_crypto_symbol(symbol):
+        return "crypto"
+    if finviz_forex_symbol_to_mt5(symbol) is not None:
+        return "forex"
+    return None
+
+
+def _wrong_universe_error(symbol: str, *, requested_universe: str) -> Dict[str, Any]:
+    compact = _compact_performance_symbol(symbol)
+    provider_symbol = _PERFORMANCE_FUTURES_ALIASES.get(compact)
+    if provider_symbol:
+        remediation = (
+            f"Retry with --universe futures. Finviz lists this contract as "
+            f"{provider_symbol}."
+        )
+    else:
+        remediation = (
+            "Retry with --universe crypto or --universe futures, or pass a "
+            "six-letter fiat pair such as EURUSD under the default forex universe."
+        )
+    return build_error_payload(
+        (
+            f"'{symbol}' is not valid for --universe {requested_universe}."
+        ),
+        code="asset_performance_universe_mismatch",
+        operation="asset_performance",
+        details={"symbol": symbol, "universe": requested_universe},
+        valid_values={"universe": ["forex", "crypto", "futures", "insider"]},
+        remediation=remediation,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -91,8 +140,10 @@ def asset_performance(
         Optional[str],
         Field(
             description=(
-                "Optional forex, crypto, or futures filter such as EURUSD, "
-                "BTCUSD/BTC, or the provider ticker/name."
+                "Optional symbol filter such as EURUSD, BTCUSD/BTC, GOLD, or "
+                "the provider ticker/name. Crypto names are routed to "
+                "--universe crypto. Metals such as XAUUSD need "
+                "--universe futures (Finviz name GOLD)."
             )
         ),
     ] = None,
@@ -156,6 +207,20 @@ def asset_performance(
         if pin_error is not None:
             return pin_error
         universe_key = str(universe)
+        inferred_universe = _infer_performance_universe(symbol)
+        if (
+            symbol
+            and universe_key == "forex"
+            and inferred_universe == "crypto"
+        ):
+            universe_key = "crypto"
+        elif (
+            symbol
+            and universe_key == "forex"
+            and inferred_universe != "forex"
+            and finviz_forex_symbol_to_mt5(symbol) is None
+        ):
+            return _wrong_universe_error(symbol, requested_universe=universe_key)
         invalid: list[str] = []
         if universe_key == "insider" and symbol is not None:
             invalid.append("symbol")
@@ -208,7 +273,7 @@ def asset_performance(
                 ),
             )
         payload = _fetch_finviz_performance(
-            universe=str(universe),
+            universe=universe_key,
             symbol=symbol,
             option=str(option),
             limit=int(limit),
@@ -225,7 +290,7 @@ def asset_performance(
                 if provider_operation not in (None, "", "asset_performance"):
                     out["provider_operation"] = provider_operation
                 out["operation"] = "asset_performance"
-            out.setdefault("universe", universe)
+            out.setdefault("universe", universe_key)
             out.setdefault(
                 "quote_role",
                 "research_context_not_live_broker_quote",

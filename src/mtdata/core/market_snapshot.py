@@ -566,6 +566,24 @@ def _pattern_row_bias(row: Any) -> Optional[str]:
     return None
 
 
+def _latest_bar_has_pattern(payload: Any) -> bool:
+    """True only when a detected pattern is on the newest bar, not the window."""
+    if not isinstance(payload, dict):
+        return False
+    if payload.get("latest_bar_has_pattern") is True:
+        return True
+    for rows_key in ("highlights", "patterns", "data"):
+        rows = payload.get(rows_key)
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            if row.get("is_latest_bar") is True or row.get("bars_ago") == 0:
+                return True
+    return False
+
+
 def _pattern_bias(payload: Any) -> Optional[str]:
     if not isinstance(payload, dict):
         return None
@@ -766,7 +784,7 @@ def _snapshot_summary_payload(sections: Dict[str, Any]) -> Dict[str, Any]:  # no
         out["pattern_window_bars"] = _SNAPSHOT_PATTERN_LAST_N_BARS
     if isinstance(patterns, dict):
         for source_key, output_key in (
-            ("pattern_status", "latest_bar_pattern"),
+            ("pattern_status", "window_pattern_bias"),
             ("pattern_confidence", "latest_match_score"),
             ("conflict", "pattern_conflict"),
             ("n_patterns", "pattern_count"),
@@ -774,6 +792,7 @@ def _snapshot_summary_payload(sections: Dict[str, Any]) -> Dict[str, Any]:  # no
             value = patterns.get(source_key)
             if value is not None:
                 out[output_key] = value
+        out["latest_bar_pattern_active"] = _latest_bar_has_pattern(patterns)
         if out.get("latest_match_score") is not None:
             out["latest_match_score_scale"] = "similarity_0_to_1"
         if "is_signal" in patterns:

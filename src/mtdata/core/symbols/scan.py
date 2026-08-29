@@ -18,6 +18,8 @@ from pydantic import Field
 
 from ...services.data_service.candles import _drop_incomplete_tail
 from ...shared.constants import (
+    FETCH_RETRY_ATTEMPTS,
+    FETCH_RETRY_DELAY,
     TIMEFRAME_MAP,
     TIMEFRAME_SECONDS,
 )
@@ -37,6 +39,7 @@ from ...utils.market_metadata import (
     FRESHNESS_ANCHOR_WALL_CLOCK,
     FRESHNESS_METRIC_LAST_COMPLETED_BAR_AGE,
     TICK_VOLUME_SEMANTICS,
+    TICK_VOLUME_UNIT,
     build_tick_freshness_context,
 )
 from ...utils.mt5 import (
@@ -390,6 +393,49 @@ def _build_market_scan_spread_row(
         row["spread_cost_currency"] = spread_cost_currency
     return row, None
 
+def _market_scan_completed_bar_age(
+    rates: Any,
+    *,
+    timeframe: str,
+    now_epoch: float,
+) -> Optional[float]:
+    if rates is None or len(rates) < 1:
+        return None
+    latest_time = _market_scan_float(rates[-1]["time"])
+    if latest_time is None:
+        return None
+    latest_close = bar_close_epoch(latest_time, timeframe)
+    if latest_close is None:
+        return None
+    return max(0.0, now_epoch - latest_close)
+
+
+def _market_scan_open_session_stale(
+    symbol: str,
+    *,
+    timeframe: str,
+    rates: Any,
+    now_epoch: float,
+) -> bool:
+    age_seconds = _market_scan_completed_bar_age(
+        rates,
+        timeframe=timeframe,
+        now_epoch=now_epoch,
+    )
+    if (
+        age_seconds is None
+        or age_seconds <= _market_scan_stale_bar_seconds(timeframe)
+    ):
+        return False
+    closed = closed_session_context(
+        symbol,
+        now_epoch=now_epoch,
+        item="bar",
+        data_age_seconds=age_seconds,
+    )
+    return not bool(closed and closed.get("freshness_policy_relaxed"))
+
+
 def _market_scan_completed_rates(
     symbol: str,
     *,
@@ -419,21 +465,17 @@ def _market_scan_completed_rates(
     )
     if rates is None or len(rates) < 1:
         return rates
-    latest_time = _market_scan_float(rates[-1]["time"])
-    latest_close = (
-        bar_close_epoch(latest_time, timeframe)
-        if latest_time is not None
-        else None
-    )
-    age_seconds = (
-        max(0.0, now_epoch - latest_close)
-        if latest_close is not None
-        else None
-    )
-    if (
-        age_seconds is not None
-        and age_seconds > _market_scan_stale_bar_seconds(timeframe)
+    if not _market_scan_open_session_stale(
+        symbol,
+        timeframe=timeframe,
+        rates=rates,
+        now_epoch=now_epoch,
     ):
+        return rates
+    saw_refresh = False
+    for attempt in range(FETCH_RETRY_ATTEMPTS):
+        if attempt:
+            time.sleep(FETCH_RETRY_DELAY)
         refreshed = _completed(
             _mt5_copy_rates_from(
                 symbol,
@@ -443,8 +485,19 @@ def _market_scan_completed_rates(
             ),
             now_epoch=now_epoch,
         )
-        if refreshed is not None and len(refreshed) >= 1:
-            rates = refreshed
+        if refreshed is None or len(refreshed) < 1:
+            continue
+        saw_refresh = True
+        rates = refreshed
+        if not _market_scan_open_session_stale(
+            symbol,
+            timeframe=timeframe,
+            rates=rates,
+            now_epoch=now_epoch,
+        ):
+            return rates
+    if saw_refresh:
+        return None
     return rates
 
 def _project_market_scan_completed_bars(
@@ -629,7 +682,7 @@ _MARKET_SCAN_UNITS = {
     "price_change_pct": "percent (1.0 = 1%)",
     "live_price_change_pct": "percent (1.0 = 1%)",
     "gap_pct": "percent (1.0 = 1%)",
-    "tick_volume": "broker_tick_count",
+    "tick_volume": TICK_VOLUME_UNIT,
     "real_volume": "traded_volume",
     "spread_points": "broker_points",
     "spread_pips": "pips (forex_only; null when not applicable)",
@@ -740,7 +793,7 @@ def _attach_market_scan_volume_semantics(
     out: Dict[str, Any],
     units: Dict[str, str],
 ) -> None:
-    if units.get("tick_volume") == "broker_tick_count":
+    if units.get("tick_volume") in {TICK_VOLUME_UNIT, "broker_tick_count"}:
         out["volume_type"] = "tick_volume"
         out["volume_semantics"] = TICK_VOLUME_SEMANTICS
 
@@ -1644,6 +1697,40 @@ def _market_scan_row_matches_filters(
         return False
     return True
 
+def _larger_abs_metric_cut_for_freshness(
+    ranked_rows: List[Dict[str, Any]],
+    visible_rows: List[Dict[str, Any]],
+    metric_key: str,
+) -> bool:
+    """True when freshness-first sort dropped a larger-magnitude mover."""
+    if len(visible_rows) >= len(ranked_rows):
+        return False
+    visible_symbols = {
+        str(row.get("symbol") or "")
+        for row in visible_rows
+        if isinstance(row, dict)
+    }
+    visible_mags = [
+        abs(value)
+        for row in visible_rows
+        if isinstance(row, dict)
+        for value in (_market_scan_float(row.get(metric_key)),)
+        if value is not None
+    ]
+    if not visible_mags:
+        return False
+    best_visible = max(visible_mags)
+    for row in ranked_rows:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("symbol") or "") in visible_symbols:
+            continue
+        omitted = _market_scan_float(row.get(metric_key))
+        if omitted is not None and abs(omitted) > best_visible:
+            return True
+    return False
+
+
 def _market_scan_sort_rows(
     rows: List[Dict[str, Any]],
     *,
@@ -2166,6 +2253,11 @@ def symbols_top_markets(  # noqa: C901
                 "price_change": len(price_change_rows),
                 "abs_price_change": len(abs_price_change_rows),
             }
+            freshness_cut_larger_mover = _larger_abs_metric_cut_for_freshness(
+                abs_price_change_rows,
+                abs_price_change_rows[:limit_value],
+                "price_change_pct",
+            )
 
             spread_rows = _top_market_rows_with_data_context(
                 "spread",
@@ -2227,6 +2319,7 @@ def symbols_top_markets(  # noqa: C901
                 ),
                 "ranking_complete": bool(
                     scan_completed
+                    and not freshness_cut_larger_mover
                     and (
                         not partition_requested
                         or (
@@ -3181,6 +3274,23 @@ def market_scan(  # noqa: C901
             )
             total_matches = len(matched_rows)
             limited_rows = matched_rows[offset_value : offset_value + limit_value]
+            freshness_cut_larger_mover = False
+            if rank_by_value in {
+                "abs_price_change_pct",
+                "price_change_pct",
+                "abs_live_price_change_pct",
+                "live_price_change_pct",
+            }:
+                metric_key = (
+                    "live_price_change_pct"
+                    if "live_price_change" in rank_by_value
+                    else "price_change_pct"
+                )
+                freshness_cut_larger_mover = _larger_abs_metric_cut_for_freshness(
+                    matched_rows,
+                    limited_rows,
+                    metric_key,
+                )
 
             full_headers = [
                 "symbol",
@@ -3373,6 +3483,7 @@ def market_scan(  # noqa: C901
                 "count": table_payload["row_count"],
                 "rank_by": rank_by_value,
                 "rank_order": effective_rank_order,
+                "ranking_complete": not freshness_cut_larger_mover,
                 "ranking": _market_scan_ranking_label(
                     rank_by_value,
                     rank_order=effective_rank_order,

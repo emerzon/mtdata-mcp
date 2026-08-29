@@ -212,6 +212,31 @@ def test_pivot_compute_points_as_of_alias_matches_end():
     assert res["levels"]["PP"] == round((1.12 + 1.09 + 1.11) / 3.0, 5)
 
 
+def test_pivot_compute_points_attaches_freshness_and_bid_price_basis():
+    fn = _get_pivot_fn()
+    info = _make_symbol_info()
+    rates = [_make_rate(time_=1_700_000_000.0)]
+
+    @contextmanager
+    def _guard(symbol):
+        yield None, info
+
+    with patch(_TF_MAP_PATCH, {"H1": 1}), \
+         patch(_TF_SECS_PATCH, {"H1": 3600}), \
+         patch(_GUARD, _guard), \
+         patch(_COPY_RATES, return_value=rates), \
+         patch(_USE_CTZ, return_value=False), \
+         patch(_FMT, side_effect=lambda x: f"T{int(x)}"):
+        result = fn("EURUSD", timeframe="H1")
+
+    assert result["success"] is True
+    assert result["price_basis"] == "bid"
+    assert "data_stale" in result
+    assert "data_age_seconds" in result
+    assert "market_status" in result or result["data_stale"] is True
+    assert result.get("freshness_basis") == "last_completed_bar_close"
+
+
 def test_pivot_compute_points_demark_compact_returns_nonzero_levels():
     fn = _get_pivot_fn()
     info = _make_symbol_info(digits=5)

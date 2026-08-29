@@ -865,6 +865,42 @@ def test_market_scan_completed_rates_refreshes_stale_open_session_tail(
     mock_rates_from.assert_called_once()
 
 
+@patch("mtdata.core.symbols.scan.time.sleep")
+@patch("mtdata.core.symbols.scan._ensure_symbol_ready", return_value=None)
+@patch("mtdata.core.symbols.scan.time.time", return_value=20_000.0)
+@patch("mtdata.core.symbols.scan._mt5_copy_rates_from")
+@patch("mtdata.core.symbols.scan._mt5_copy_rates_from_pos")
+def test_market_scan_completed_rates_omits_unverified_open_session_tail(
+    mock_rates,
+    mock_rates_from,
+    mock_time,
+    _ready,
+    mock_sleep,
+):
+    from mtdata.core.symbols import _market_scan_completed_rates
+
+    stale = _make_bars([1.0, 2.0, 3.0])
+    for row, timestamp in zip(
+        stale,
+        [20_000.0 - 5 * 3600, 20_000.0 - 4 * 3600, 20_000.0 - 3 * 3600],
+        strict=True,
+    ):
+        row["time"] = timestamp
+    mock_rates.return_value = stale
+    mock_rates_from.return_value = stale
+
+    result = _market_scan_completed_rates(
+        "EURUSD",
+        timeframe="H1",
+        mt5_timeframe=16385,
+        count=2,
+    )
+
+    assert result is None
+    assert mock_rates_from.call_count >= 1
+    assert mock_sleep.call_count >= 1
+
+
 def test_market_scan_signal_price_change_uses_previous_close(monkeypatch):
     from mtdata.core import symbols as symbols_mod
 
@@ -1313,10 +1349,10 @@ class TestSymbolsTopMarkets:
             "percent (1.0 = 1%)"
         )
         assert "spread_points" not in result["data"][0]
-        assert result["units"]["tick_volume"] == "broker_tick_count"
+        assert result["units"]["tick_volume"] == "bid_update_count"
         assert result["units"]["bar_close"] == "price"
         assert result["volume_type"] == "tick_volume"
-        assert result["volume_semantics"] == "tick_volume_is_broker_tick_count_not_lots"
+        assert result["volume_semantics"] == "tick_volume_is_bid_update_count_not_lots"
         assert "lowest_spread" not in result
         assert "highest_volume" not in result
         assert "highest_price_change_pct" not in result
@@ -1361,6 +1397,16 @@ class TestSymbolsTopMarkets:
             0.25,
             0.75,
         ]
+        assert result["ranking_complete"] is True
+
+        truncated = _get_symbols_top_markets()(
+            rank_by="abs_price_change_pct",
+            limit=1,
+            timeframe="H1",
+        )
+
+        assert [row["symbol"] for row in truncated["data"]] == ["FRESH"]
+        assert truncated["ranking_complete"] is False
 
     @patch("mtdata.core.symbols.scan._extract_group_path_util", side_effect=lambda s: s.path)
     @patch("mtdata.core.symbols.scan._mt5_copy_rates_from_pos")
@@ -1753,10 +1799,10 @@ class TestSymbolsTopMarkets:
         assert first_spread["symbol"] == "EURUSD"
         assert first_volume["symbol"] == "EURUSD"
         assert first_price_change["symbol"] == "GBPUSD"
-        assert result["units"]["tick_volume"] == "broker_tick_count"
+        assert result["units"]["tick_volume"] == "bid_update_count"
         assert result["units"]["bar_close"] == "price"
         assert result["volume_type"] == "tick_volume"
-        assert result["volume_semantics"] == "tick_volume_is_broker_tick_count_not_lots"
+        assert result["volume_semantics"] == "tick_volume_is_bid_update_count_not_lots"
         assert "data_sources" not in result
         assert "collection_kind" not in result
         assert "collection_contract_version" not in result

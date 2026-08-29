@@ -22,6 +22,10 @@ from ..shared.validators import (
 )
 from ..utils.coercion import round_finite
 from ..utils.level_confluence import build_level_confluence_payload
+from ..utils.freshness import (
+    COMPLETED_BAR_FRESHNESS_KEYS,
+    completed_bar_freshness_fields,
+)
 from ..utils.market_metadata import build_tick_freshness_context
 from ..utils.mt5 import (
     MT5ConnectionError,
@@ -79,6 +83,27 @@ from .volume_profile import compute_volume_profile_payload
 logger = logging.getLogger(__name__)
 
 
+def _as_warning_object(item: Any, *, default_code: str = "warning") -> Dict[str, Any]:
+    """Normalize a warning list item to ``{code, message}``."""
+    if isinstance(item, dict):
+        message = item.get("message")
+        if message in (None, ""):
+            message = item.get("warning")
+        if message in (None, ""):
+            message = str(item)
+        out = dict(item)
+        out["code"] = str(item.get("code") or default_code)
+        out["message"] = str(message)
+        return out
+    return {"code": default_code, "message": str(item)}
+
+
+def _normalize_warning_list(warnings: Any) -> List[Dict[str, Any]]:
+    if not isinstance(warnings, list):
+        return []
+    return [_as_warning_object(item) for item in warnings]
+
+
 def _has_field(row: Any, name: str) -> bool:
     try:
         if isinstance(row, dict):
@@ -88,6 +113,44 @@ def _has_field(row: Any, name: str) -> bool:
         return bool(names and name in names)
     except Exception:
         return False
+
+
+def _attach_pivot_trust_metadata(
+    payload: Dict[str, Any],
+    *,
+    symbol: str,
+    timeframe: Any,
+    last_bar_epoch: Any,
+    now_epoch: Any,
+) -> None:
+    freshness = completed_bar_freshness_fields(
+        symbol,
+        timeframe,
+        last_bar_epoch,
+        now_epoch=now_epoch,
+        item="bar",
+    )
+    for key in COMPLETED_BAR_FRESHNESS_KEYS:
+        if key in freshness:
+            payload[key] = freshness[key]
+    payload["price_basis"] = "bid"
+    warnings = _normalize_warning_list(payload.get("warnings"))
+    stale_warning = freshness.get("stale_warning")
+    if stale_warning:
+        stale_item = _as_warning_object(stale_warning, default_code="stale_bar")
+        if stale_item not in warnings and stale_item["message"] not in {
+            item.get("message") for item in warnings
+        }:
+            warnings.append(stale_item)
+    note = freshness.get("note")
+    if note:
+        note_item = _as_warning_object(note, default_code="freshness_note")
+        if note_item not in warnings and note_item["message"] not in {
+            item.get("message") for item in warnings
+        }:
+            warnings.append(note_item)
+    if warnings:
+        payload["warnings"] = warnings
 
 
 _LEVEL_PRICE_FIELD_NAMES = frozenset(
@@ -726,6 +789,13 @@ def pivot_compute_points(  # noqa: C901
             if period_note:
                 payload["period_note"] = period_note
             payload["timezone"] = timezone_label
+            _attach_pivot_trust_metadata(
+                payload,
+                symbol=symbol,
+                timeframe=timeframe,
+                last_bar_epoch=period_start,
+                now_epoch=system_now_ts,
+            )
             if detail_value == "compact":
                 compact_method_name = method_filter or "classic"
                 selected_method = next(
@@ -769,6 +839,13 @@ def pivot_compute_points(  # noqa: C901
                 if period_note:
                     compact_payload["period_note"] = period_note
                 compact_payload["timezone"] = timezone_label
+                _attach_pivot_trust_metadata(
+                    compact_payload,
+                    symbol=symbol,
+                    timeframe=timeframe,
+                    last_bar_epoch=period_start,
+                    now_epoch=system_now_ts,
+                )
                 degenerate_info = _degenerate_levels_info(compact_payload["levels"])
                 if degenerate_info:
                     compact_payload.update(degenerate_info)
@@ -800,7 +877,7 @@ def confluence_levels(  # noqa: C901
     symbol: str,
     pivot_timeframe: TimeframeLiteral = "D1",
     sr_timeframe: AutoTimeframeLiteral = "auto",
-    lookback: Annotated[int, Field(ge=1)] = 200,
+    lookback: Annotated[int, Field(ge=1, le=20_000)] = 200,
     start: Optional[str] = None,
     end: Optional[str] = None,
     tolerance_pct: Annotated[float, Field(ge=0.0)] = 0.15,
@@ -1113,10 +1190,15 @@ def confluence_levels(  # noqa: C901
                     else "no live quote available"
                 )
                 payload.setdefault("warnings", []).append(
-                    "reference_price is the latest completed bar close because the "
-                    f"{fallback_reason}; "
-                    "the proximity of price to support/resistance reflects the analysis window, "
-                    "not a live quote."
+                    {
+                        "code": "reference_price_fallback_last_close",
+                        "message": (
+                            "reference_price is the latest completed bar close because the "
+                            f"{fallback_reason}; "
+                            "the proximity of price to support/resistance reflects the "
+                            "analysis window, not a live quote."
+                        ),
+                    }
                 )
             if math.isfinite(period_start):
                 _use_ctz = _use_client_tz()
@@ -1194,7 +1276,7 @@ def confluence_levels(  # noqa: C901
 def support_resistance_levels(
     symbol: str,
     timeframe: AutoTimeframeLiteral = "H1",
-    lookback: Annotated[int, Field(ge=1)] = 200,
+    lookback: Annotated[int, Field(ge=1, le=20_000)] = 200,
     start: Optional[str] = None,
     end: Optional[str] = None,
     tolerance_pct: Annotated[float, Field(ge=0.0)] = 0.15,
@@ -1339,9 +1421,17 @@ def support_resistance_levels(
                         "reference_price_fallback_last_close"
                     )
                     result.setdefault("warnings", []).append(
-                        "The latest quote was not usable for live trading, so distances "
-                        "and nearest-level ordering use the latest completed bar close."
+                        {
+                            "code": "reference_price_fallback_last_close",
+                            "message": (
+                                "The latest quote was not usable for live trading, so "
+                                "distances and nearest-level ordering use the latest "
+                                "completed bar close."
+                            ),
+                        }
                     )
+            if isinstance(result.get("warnings"), list):
+                result["warnings"] = _normalize_warning_list(result["warnings"])
             detail_value = str(detail).strip().lower()
             if detail_value in {"summary"}:
                 detail_value = "compact"
