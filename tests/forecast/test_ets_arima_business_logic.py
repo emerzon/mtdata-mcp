@@ -293,18 +293,28 @@ def test_arima_requires_statsmodels(monkeypatch):
         )
 
 
-def test_arima_prefers_auto_arima_when_no_order_supplied(monkeypatch):
-    def _fake_forecast(self, series, horizon, seasonality, params, exog_future=None, **kwargs):
-        assert params["model_name"] == "AutoARIMA"
-        return ForecastResult(
-            forecast=np.array([21.0, 22.0], dtype=float),
-            params_used={"seasonality": seasonality},
-        )
+def test_arima_uses_fixed_order_when_no_order_supplied(monkeypatch):
+    calls = {}
 
-    monkeypatch.setattr(
-        "mtdata.forecast.methods.statsforecast.GenericStatsForecastMethod.forecast",
-        _fake_forecast,
-    )
+    class FakePred:
+        predicted_mean = np.array([21.0, 22.0], dtype=float)
+
+        def conf_int(self, alpha):
+            return pd.DataFrame({"lower": [20.0, 21.0], "upper": [22.0, 23.0]})
+
+    class FakeRes:
+        def get_forecast(self, steps, exog=None):
+            return FakePred()
+
+    class FakeSarimax:
+        def __init__(self, vals, **kwargs):
+            calls["init"] = kwargs
+
+        def fit(self, **kwargs):
+            return FakeRes()
+
+    monkeypatch.setattr(ea, "_SM_SARIMAX_AVAILABLE", True)
+    monkeypatch.setattr(ea, "_SARIMAX", FakeSarimax)
 
     out = ea.ARIMAMethod().forecast(
         pd.Series([10.0, 11.0, 12.0]),
@@ -314,9 +324,9 @@ def test_arima_prefers_auto_arima_when_no_order_supplied(monkeypatch):
     )
 
     assert np.allclose(out.forecast, [21.0, 22.0])
-    assert out.params_used["model_name"] == "AutoARIMA"
-    assert out.params_used["backend"] == "statsforecast"
-    assert out.params_used["auto_selected"] is True
+    assert tuple(calls["init"]["order"]) == (1, 1, 1)
+    assert out.params_used["order"] == (1, 1, 1)
+    assert "auto_selected" not in out.params_used
 
 
 def test_arima_builds_orders_ci_and_exog_metadata(monkeypatch):
