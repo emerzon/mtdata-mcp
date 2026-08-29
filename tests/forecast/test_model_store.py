@@ -296,6 +296,19 @@ class TestModelStoreTTL(unittest.TestCase):
         self.assertEqual(removed, 1)
         self.assertFalse(model_dir.exists())
 
+    def test_cleanup_expired_removes_orphans_when_ttl_disabled(self):
+        store = ModelStore(root=self._tmpdir, ttl_seconds=0)
+        model_dir = store._model_dir("m", "d", "orphan")
+        model_dir.mkdir(parents=True)
+        (model_dir / "model.bin").write_bytes(b"orphan")
+        store.save("keep", "d", "p", b"keep")
+
+        removed = store.cleanup_expired()
+
+        self.assertEqual(removed, 1)
+        self.assertFalse(model_dir.exists())
+        self.assertIsNotNone(store.find("keep", "d", "p"))
+
     def test_cleanup_expired_deletes_under_store_lock(self):
         self.store.save("m1", "d", "p1", b"d")
         meta_path = self.store._model_dir("m1", "d", "p1") / "metadata.json"

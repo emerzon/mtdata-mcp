@@ -445,42 +445,44 @@ class ModelStore:
     def cleanup_expired(self) -> int:
         """Remove all models that have exceeded the TTL. Returns count removed."""
         self._sweep_deleted()
-        if self._ttl <= 0:
-            return 0
-        removed = 0
         now = time.time()
-        for handle in self.list_models(include_expired=True):
-            model_dir = self._model_dir(handle.method, handle.data_scope, handle.params_hash)
-            meta = self._read_raw_meta(model_dir)
-            last_used = (
-                self._last_used_from_meta(meta, handle.created_at)
-                if meta
-                else handle.created_at
-            )
-            if (now - last_used) <= self._ttl:
-                continue
-            with self._model_dir_lock(model_dir, blocking=False) as locked:
-                if not locked:
-                    logger.debug("Skipping cleanup for %s while another process is saving it", handle.model_id)
+        removed = 0
+        if self._ttl > 0:
+            for handle in self.list_models(include_expired=True):
+                model_dir = self._model_dir(handle.method, handle.data_scope, handle.params_hash)
+                meta = self._read_raw_meta(model_dir)
+                last_used = (
+                    self._last_used_from_meta(meta, handle.created_at)
+                    if meta
+                    else handle.created_at
+                )
+                if (now - last_used) <= self._ttl:
                     continue
-                with self._lock:
-                    meta = self._read_raw_meta(model_dir)
-                    if meta is None:
+                with self._model_dir_lock(model_dir, blocking=False) as locked:
+                    if not locked:
+                        logger.debug(
+                            "Skipping cleanup for %s while another process is saving it",
+                            handle.model_id,
+                        )
                         continue
-                    locked_last_used = self._last_used_from_meta(meta, handle.created_at)
-                    if (time.time() - locked_last_used) <= self._ttl:
-                        continue
-                    if self._remove_dir(model_dir):
-                        removed += 1
-        removed += self._cleanup_expired_orphans(now)
+                    with self._lock:
+                        meta = self._read_raw_meta(model_dir)
+                        if meta is None:
+                            continue
+                        locked_last_used = self._last_used_from_meta(meta, handle.created_at)
+                        if (time.time() - locked_last_used) <= self._ttl:
+                            continue
+                        if self._remove_dir(model_dir):
+                            removed += 1
+        removed += self._cleanup_expired_orphans()
         return removed
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _cleanup_expired_orphans(self, now: float) -> int:
-        """Remove old artifacts that have no readable metadata handle."""
+    def _cleanup_expired_orphans(self) -> int:
+        """Remove artifacts that have no readable metadata handle."""
         if not self._root.is_dir():
             return 0
         removed = 0
@@ -496,12 +498,6 @@ class ModelStore:
                     artifact_path = model_dir / "model.bin"
                     if not artifact_path.is_file() or self._read_raw_meta(model_dir) is not None:
                         continue
-                    metadata_path = model_dir / "metadata.json"
-                    mtimes = [artifact_path.stat().st_mtime]
-                    if metadata_path.exists():
-                        mtimes.append(metadata_path.stat().st_mtime)
-                    if (now - max(mtimes)) <= self._ttl:
-                        continue
                     with self._model_dir_lock(model_dir, blocking=False) as locked:
                         if not locked:
                             continue
@@ -509,11 +505,6 @@ class ModelStore:
                             if self._read_raw_meta(model_dir) is not None:
                                 continue
                             if not artifact_path.is_file():
-                                continue
-                            current_mtimes = [artifact_path.stat().st_mtime]
-                            if metadata_path.exists():
-                                current_mtimes.append(metadata_path.stat().st_mtime)
-                            if (time.time() - max(current_mtimes)) <= self._ttl:
                                 continue
                             if self._remove_dir(model_dir):
                                 removed += 1
