@@ -163,6 +163,10 @@ def _tick_spread_points(spread: Any, price_point: Optional[float]) -> Optional[f
     return round(spread_value / price_point, 4)
 
 
+def _ticks_lookback_days() -> int:
+    return max(1, int(TICKS_LOOKBACK_DAYS))
+
+
 def _tick_spread_pct(spread: Any, mid: Any) -> Optional[float]:
     spread_value = _finite_or_none(spread)
     mid_value = _finite_or_none(mid)
@@ -202,7 +206,7 @@ def _fetch_recent_ticks_backwards(
             to_date = to_date.replace(tzinfo=min_from_date.tzinfo if min_is_aware else None)
 
     chunk_days = 1
-    max_lookback_days = max(max(1, int(TICKS_LOOKBACK_DAYS)), 30)
+    max_lookback_days = _ticks_lookback_days()
     budget_floor = to_date - timedelta(days=max_lookback_days)
     effective_floor = (
         max(min_from_date, budget_floor)
@@ -679,7 +683,7 @@ def fetch_ticks(  # noqa: C901
                         return {"error": f"Could not parse end date {end!r}. {_DATE_FORMAT_HINT}"}
                     if from_date > to_date:
                         return {"error": "start must be before or equal to end."}
-                    max_lookback_days = max(max(1, int(TICKS_LOOKBACK_DAYS)), 30)
+                    max_lookback_days = _ticks_lookback_days()
                     history_window_floor = to_date - timedelta(days=max_lookback_days)
                     history_window_truncated = from_date < history_window_floor
                     effective_from_date = max(from_date, history_window_floor)
@@ -698,7 +702,7 @@ def fetch_ticks(  # noqa: C901
                             limit=fetch_limit,
                         )
                 else:
-                    max_lookback_days = max(max(1, int(TICKS_LOOKBACK_DAYS)), 30)
+                    max_lookback_days = _ticks_lookback_days()
                     history_to_date = datetime.now(dt_timezone.utc)
                     if from_date.tzinfo is None or from_date.utcoffset() is None:
                         history_to_date = history_to_date.replace(tzinfo=None)
@@ -792,9 +796,7 @@ def fetch_ticks(  # noqa: C901
             }
             if history_window_truncated:
                 empty_payload["history_window_truncated"] = True
-                empty_payload["history_window_limit_days"] = max(
-                    max(1, int(TICKS_LOOKBACK_DAYS)), 30
-                )
+                empty_payload["history_window_limit_days"] = _ticks_lookback_days()
                 if history_window_floor is not None:
                     effective_start = format_epoch_utc(
                         _utc_epoch_seconds(history_window_floor), timespec="microseconds"
@@ -1187,9 +1189,7 @@ def fetch_ticks(  # noqa: C901
                 }
             if history_window_truncated:
                 payload["history_window_truncated"] = True
-                payload["history_window_limit_days"] = max(
-                    max(1, int(TICKS_LOOKBACK_DAYS)), 30
-                )
+                payload["history_window_limit_days"] = _ticks_lookback_days()
                 if history_window_floor is not None:
                     effective_start = format_epoch_utc(
                         _utc_epoch_seconds(history_window_floor), timespec="microseconds"

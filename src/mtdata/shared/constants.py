@@ -41,7 +41,7 @@ CALENDAR_TIMEFRAMES = frozenset({"D1", "W1", "MN1"})
 
 # Constants (centralize defaults instead of hardcoding inline)
 SERVICE_NAME = "MetaTrader5 Market Data Server"
-TICKS_LOOKBACK_DAYS = 1
+TICKS_LOOKBACK_DAYS = 30
 DATA_READY_TIMEOUT = 3.0
 DATA_POLL_INTERVAL = 0.2
 FETCH_RETRY_ATTEMPTS = 3
