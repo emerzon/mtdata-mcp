@@ -185,6 +185,18 @@ def test_catalog_cache_miss_stores_successful_rendered_output(
     assert stored[0]["output"] == rendered
 
 
+def test_unknown_command_candles_suggests_data_fetch_candles(capsys):
+    from mtdata.core.cli import main
+
+    with patch.dict("sys.modules", {"mtdata.core.cli.api": None}):
+        status = main(["candles"])
+
+    captured = capsys.readouterr()
+    assert status == 2
+    assert "Unknown command: candles" in captured.out
+    assert "Did you mean: data_fetch_candles" in captured.out
+
+
 def test_unknown_command_path_does_not_import_cli_api(capsys):
     from mtdata.core.cli import main
 
@@ -631,6 +643,47 @@ def test_noninteractive_shell_frames_pretty_json_as_ndjson(monkeypatch, capsys):
         "GBPUSD",
     ]
     assert all(record["success"] for record in records)
+
+
+def test_noninteractive_shell_uses_result_key_for_success_and_failure(
+    monkeypatch, capsys
+):
+    from mtdata.core.cli import api
+
+    batch = "ok_command\nbogus_command\n"
+
+    def _main():
+        command = api.sys.argv[1]
+        if command == "ok_command":
+            print("success: true\nsymbol: EURUSD")
+            return 0
+        print(
+            json.dumps(
+                {
+                    "success": False,
+                    "error": "Unknown command: bogus_command",
+                    "error_code": "cli_unknown_command",
+                }
+            )
+        )
+        return 2
+
+    monkeypatch.setattr(api.sys, "stdin", io.StringIO(batch))
+    monkeypatch.setattr(api, "main", _main)
+    monkeypatch.setattr(api, "known_command_names", lambda: {"ok_command", "bogus_command"})
+
+    assert api.run_shell(interactive=False) == 2
+    records = [json.loads(line) for line in capsys.readouterr().out.splitlines()]
+    assert [set(record) for record in records] == [
+        {"line", "command", "success", "status", "result"},
+        {"line", "command", "success", "status", "result"},
+    ]
+    assert records[0]["success"] is True
+    assert records[0]["result"] == "success: true\nsymbol: EURUSD"
+    assert "output" not in records[0]
+    assert records[1]["success"] is False
+    assert records[1]["result"]["error_code"] == "cli_unknown_command"
+    assert "output" not in records[1]
 
 
 def test_static_command_catalog_matches_registered_tools():

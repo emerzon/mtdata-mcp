@@ -1448,10 +1448,15 @@ def _select_output_fields(
     preserved_keys = _FIELD_SELECTION_META_KEYS
     if value.get("success") is False or bool(value.get("error")):
         preserved_keys = preserved_keys | _ERROR_FIELD_SELECTION_META_KEYS
+    requested_projection_roots = {
+        field.split(".", 1)[0]
+        for field in requested
+        if "." in field
+    }
     selected = {
         key: subvalue
         for key, subvalue in value.items()
-        if key in preserved_keys
+        if key in preserved_keys and key not in requested_projection_roots
     }
     declared_paths = _DECLARED_OUTPUT_PATHS.get(
         str(tool_name or "").strip().lower(),
@@ -1546,6 +1551,12 @@ def _available_output_fields(
     available = {
         str(key) for key in value if key not in preserved_keys
     }
+    for key in preserved_keys:
+        nested = value.get(key)
+        if isinstance(nested, dict) and nested:
+            available.add(str(key))
+            for nested_key in nested:
+                available.add(f"{key}.{nested_key}")
     for name in _row_collection_names(value):
         rows = value.get(name)
         if not isinstance(rows, list):

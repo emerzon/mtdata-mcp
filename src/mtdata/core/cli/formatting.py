@@ -1,4 +1,3 @@
-import json
 import re
 from typing import Any, Callable, Dict, Optional
 
@@ -11,7 +10,7 @@ from ...utils.minimal_output import (
     format_result_minimal as _shared_minimal,
 )
 from ..output_contract import apply_output_verbosity
-from ..output_serialization import sanitize_json as _sanitize_json
+from ..output_serialization import dumps_json as _dumps_json
 from .catalog import current_cli_program_name
 from .output_format import (
     CLI_FORMAT_JSON,
@@ -97,11 +96,11 @@ def _format_result_for_cli(
     )
     if fmt_s == CLI_FORMAT_JSON:
         payload = {"text": prepared} if isinstance(prepared, str) else prepared
-        payload = _sanitize_json(
+        return _dumps_json(
             payload,
+            indent=2,
             compact_numbers=precision_policy.simplify_numbers,
         )
-        return json.dumps(payload, ensure_ascii=False, indent=2, allow_nan=False)
     if isinstance(prepared, str):
         return prepared
     try:
@@ -351,6 +350,8 @@ def _normalize_trade_session_context_cli_payload(  # noqa: C901
         "market_status",
         "market_status_reason",
         "is_tradable",
+        "is_session_open",
+        "now_tradable",
         "execution_preconditions_allow_open",
         "trade_mode_allows_opening",
     ):

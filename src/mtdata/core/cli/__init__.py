@@ -9,7 +9,12 @@ from typing import Optional, Sequence
 
 from ...utils.minimal_output_toon import _format_to_toon
 from ..error_envelope import build_error_payload
-from .catalog import display_program_name, format_root_help, known_command_names
+from .catalog import (
+    COMMAND_SUGGESTION_CUTOFF,
+    display_program_name,
+    format_root_help,
+    known_command_names,
+)
 from .catalog_cache import (
     is_cacheable_catalog_invocation,
     load_catalog_output,
@@ -140,7 +145,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     known_commands = {*known_command_names(), "shell"}
     if not raw_command.startswith("-") and normalized_command not in known_commands:
         message = f"Unknown command: {raw_command}"
-        suggestions = get_close_matches(normalized_command, sorted(known_commands), n=3)
+        suggestions = get_close_matches(
+            normalized_command,
+            sorted(known_commands),
+            n=3,
+            cutoff=COMMAND_SUGGESTION_CUTOFF,
+        )
         if suggestions:
             message += f". Did you mean: {', '.join(suggestions)}?"
         payload = build_error_payload(

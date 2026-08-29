@@ -10,6 +10,9 @@ import os
 
 from ...shared.tool_categories import TOOL_CATEGORY_IDS, tool_catalog_category
 
+# Shared by --help search and the unknown-command execute path.
+COMMAND_SUGGESTION_CUTOFF = 0.45
+
 CLI_COMMAND_NAMES = (
     "asset_performance",
     "calendar",
@@ -226,6 +229,7 @@ def format_root_help(program: str) -> str:
 
 __all__ = [
     "CLI_COMMAND_NAMES",
+    "COMMAND_SUGGESTION_CUTOFF",
     "MULTI_VALUE_SYMBOL_POSITIONAL_COMMANDS",
     "known_command_names",
     "format_root_help",

@@ -1626,10 +1626,38 @@ def _normalize_trade_risk_payload(
         return None
 
     out: Dict[str, Any] = {}
-    for key in ("success", "error_code", "error", "missing_fields", "remediation"):
+    for key in (
+        "success",
+        "error_code",
+        "error",
+        "missing_fields",
+        "remediation",
+        "analysis_mode",
+        "market_status",
+        "market_status_reason",
+        "data_stale",
+        "as_of",
+    ):
         value = payload.get(key)
         if not _is_empty_value(value):
             out[key] = value
+    quote_context = payload.get("quote_context")
+    if isinstance(quote_context, dict):
+        quote_out = {
+            key: quote_context.get(key)
+            for key in (
+                "usable_for_live_trading",
+                "freshness",
+                "freshness_state",
+                "market_status",
+                "market_status_reason",
+                "data_stale",
+                "entry_source",
+            )
+            if not _is_empty_value(quote_context.get(key))
+        }
+        if quote_out:
+            out["quote_context"] = quote_out
 
     account = payload.get("account")
     if isinstance(account, dict):
@@ -2109,6 +2137,7 @@ def _normalize_forecast_methods_payload(
                             "params_count": params_count,
                             "supports_ci": row.get("supports_ci"),
                             "supports_training": row.get("supports_training"),
+                            "unavailable_reason": row.get("unavailable_reason"),
                             "training_category": row.get("training_category"),
                             "concept": row.get("concept"),
                             "method_id": row.get("method_id"),
@@ -2135,6 +2164,7 @@ def _normalize_forecast_methods_payload(
                             "available",
                             "supports_ci",
                             "supports_training",
+                            "unavailable_reason",
                         )
                         if key in row and not _is_empty_value(row.get(key))
                     }

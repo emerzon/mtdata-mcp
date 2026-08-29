@@ -1481,6 +1481,28 @@ class TestAddDynamicArguments:
         assert "threshold_mode=fixed_pct" in compact_help
         assert '{"type":"order_filled","symbol":"EURUSD"}' in compact_help
 
+    def test_wait_event_help_description_leads_with_examples(self):
+        from mtdata.core.cli.api import _wait_event_help_description
+
+        description = _wait_event_help_description(
+            "BLOCKING: Wait for a timeframe boundary and/or a duration deadline."
+        )
+        help_text = _strip_ansi(
+            argparse.ArgumentParser(
+                prog="mtdata-cli wait_event",
+                description=description,
+            ).format_help()
+        )
+        compact_help = " ".join(help_text.split())
+
+        examples_at = compact_help.find("Examples:")
+        watch_for_at = compact_help.find("--watch-for")
+        assert examples_at != -1
+        assert "wait_event --max-wait-seconds 10" in compact_help
+        assert "wait_event EURUSD --timeframe H1" in compact_help
+        assert "price_above" in compact_help
+        assert watch_for_at == -1 or examples_at < watch_for_at
+
     def test_calendar_prefers_start_end_and_hides_legacy_date_flags(self):
         parser = argparse.ArgumentParser()
         func_info = {

@@ -48,6 +48,7 @@ from ..output_contract import resolve_output_contract
 from ..output_serialization import json_default as _json_default
 from ..request_context import ensure_request_id_scope
 from .catalog import (
+    COMMAND_SUGGESTION_CUTOFF,
     current_cli_program_name,
     display_program_name,
     format_root_help,
@@ -1906,8 +1907,8 @@ _COMMAND_USAGE_EXAMPLES: Dict[str, Tuple[str, Optional[str]]] = {
         None,
     ),
     "wait_event": (
-        f"{CLI_PROGRAM} wait_event --max-wait-seconds 1",
-        f"{CLI_PROGRAM} wait_event EURUSD --timeframe M1",
+        f"{CLI_PROGRAM} wait_event --max-wait-seconds 10",
+        f"{CLI_PROGRAM} wait_event EURUSD --timeframe H1",
     ),
     "trade_stress_test": (
         f"{CLI_PROGRAM} trade_stress_test --shocks '{{\"EURUSD\":-1}}'",
@@ -2141,6 +2142,18 @@ def _example_value(param: Dict[str, Any], *, prefer_default: bool) -> str:
     return f"<{name}>"
 
 
+def _wait_event_help_description(summary: str) -> str:
+    """Put short usage examples above the dense wait_event schema dump."""
+    return (
+        f"{summary}\n\n"
+        "Examples:\n"
+        f"  {CLI_PROGRAM} wait_event --max-wait-seconds 10\n"
+        f"  {CLI_PROGRAM} wait_event EURUSD --timeframe H1\n"
+        f"  {CLI_PROGRAM} wait_event --watch-for "
+        "'{\"type\":\"price_above\",\"symbol\":\"EURUSD\",\"price\":1.16}'"
+    )
+
+
 def _build_usage_examples(
     cmd_name: str, func_info: Dict[str, Any]
 ) -> Tuple[str, Optional[str]]:
@@ -2257,7 +2270,10 @@ def _suggest_commands(
     if not name_map:
         return []
     matches = difflib.get_close_matches(
-        needle, list(name_map.keys()), n=max(1, int(limit)), cutoff=0.45
+        needle,
+        list(name_map.keys()),
+        n=max(1, int(limit)),
+        cutoff=COMMAND_SUGGESTION_CUTOFF,
     )
     return [name_map[name] for name in matches]
 
@@ -2527,7 +2543,10 @@ def main():  # noqa: C901
             "Run an interactive mtdata-cli session or read a batch from stdin. "
             "Enter ordinary command lines without the mtdata-cli prefix; blank "
             "lines and comments are ignored, and exit or quit stops the session. "
-            "Batch output is one JSON envelope per command (NDJSON)."
+            "Batch output is one JSON envelope per command (NDJSON) with a stable "
+            "key set: line, command, success, status, and result. result is a "
+            "parsed JSON object when the child printed JSON, otherwise the "
+            "rendered stdout string."
         ),
         formatter_class=_CLIHelpFormatter,
         allow_abbrev=False,
@@ -2588,7 +2607,9 @@ def main():  # noqa: C901
             suggest_on_error=True,
             color=_argparse_color_enabled(),
         )
-        if cmd_name in LIVE_TRADE_MUTATION_TOOLS:
+        if cmd_name == "wait_event":
+            cmd_parser.description = _wait_event_help_description(summary)
+        elif cmd_name in LIVE_TRADE_MUTATION_TOOLS:
             cmd_parser.description = (
                 f"{summary}\n\n{LIVE_TRADE_MUTATION_WARNING}"
             )
@@ -2947,7 +2968,7 @@ def _shell_batch_record(
         try:
             record["result"] = json.loads(stdout)
         except (TypeError, ValueError):
-            record["output"] = stdout
+            record["result"] = stdout
     stderr = stderr_buffer.getvalue().strip()
     if stderr:
         record["stderr"] = stderr
@@ -3134,6 +3155,7 @@ def run_shell(
                     normalized_command,
                     sorted(shell_commands),
                     n=3,
+                    cutoff=COMMAND_SUGGESTION_CUTOFF,
                 )
                 if suggestions:
                     message += f". Did you mean: {', '.join(suggestions)}?"

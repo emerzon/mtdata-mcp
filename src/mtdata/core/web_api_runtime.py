@@ -18,7 +18,7 @@ from starlette.staticfiles import StaticFiles
 
 from ..bootstrap.runtime import WebApiRuntimeSettings, load_web_api_runtime_settings
 from .error_envelope import build_error_payload
-from .output_serialization import sanitize_json
+from .output_serialization import dumps_json
 from .request_context import current_request_id, normalize_request_id, request_id_scope
 
 logger = logging.getLogger(__name__)
@@ -39,7 +39,11 @@ class SafeJSONResponse(JSONResponse):
     """JSON response that preserves strict JSON by converting NaN/inf to null."""
 
     def render(self, content: Any) -> bytes:
-        return super().render(sanitize_json(content))
+        return dumps_json(
+            content,
+            indent=None,
+            separators=(",", ":"),
+        ).encode("utf-8")
 
 
 @dataclass(frozen=True)

@@ -1,6 +1,40 @@
 from mtdata.core._mcp_tools import _select_output_fields
 
 
+def test_output_fields_projects_into_preserved_source() -> None:
+    payload = {
+        "success": True,
+        "symbol": "EURUSD",
+        "source": {
+            "provider": "mt5",
+            "broker_company": "Raw Trading Ltd",
+            "server": "ICMarketsSC-Demo",
+        },
+        "data_window": {"start": "2026-08-28T20:00Z", "end": "2026-08-28T21:00Z"},
+    }
+
+    result = _select_output_fields(payload, "source.provider")
+
+    assert result["success"] is True
+    assert result["source"] == {"provider": "mt5"}
+    assert "unresolved_output_fields" not in result
+    assert "output_fields_status" not in result
+
+
+def test_output_fields_lists_preserved_nested_paths_when_unresolved() -> None:
+    payload = {
+        "success": True,
+        "symbol": "EURUSD",
+        "source": {"provider": "mt5", "server": "Demo"},
+    }
+
+    result = _select_output_fields(payload, "source.no_such_key")
+
+    assert result["unresolved_output_fields"] == ["source.no_such_key"]
+    assert "source" in result["valid_output_fields"]
+    assert "source.provider" in result["valid_output_fields"]
+
+
 def test_output_fields_keeps_quote_trust_core() -> None:
     payload = {
         "success": True,
