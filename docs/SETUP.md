@@ -395,7 +395,7 @@ Web UI / API configuration:
 - `WEBAPI_ALLOW_REMOTE=1` to permit a non-loopback bind
 - `WEBAPI_AUTH_TOKEN` to require `Authorization: Bearer <token>` or `X-API-Key: <token>` on API requests
 - `CORS_ORIGINS` with explicit origins only (wildcard `*` is rejected when credentials are enabled)
-- `WEBUI_DIST_DIR` to override the built UI directory (default `webui/dist`)
+- `WEBUI_DIST_DIR` to override the built UI directory (default `webui/dist`; run `mtdata-webapi` from the repository root or set an absolute path)
 
 The Python package does not ship generated `webui/dist/` assets. Without a
 production build, the REST API remains available and `/app` returns an explicit

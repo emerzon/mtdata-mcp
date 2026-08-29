@@ -157,7 +157,7 @@ mtdata-webapi
 # → open http://127.0.0.1:8000/app/
 ```
 
-If `webui/dist` is missing, the API still starts and `/app` returns a clear enablement page (build steps above). Live UI development: `cd webui && npm run dev` (proxies `/api` to `:8000`). User tour: [Web UI](docs/WEBUI.md). HTTP reference: [Web API](docs/WEB_API.md) · [Setup](docs/SETUP.md).
+Run `mtdata-webapi` from the repository root (or set `WEBUI_DIST_DIR` to an absolute path). If `webui/dist` is missing, the API still starts and `/app` returns a clear enablement page (build steps above). Live UI development: `cd webui && npm run dev` (proxies `/api` to `:8000`). User tour: [Web UI](docs/WEBUI.md). HTTP reference: [Web API](docs/WEB_API.md) · [Setup](docs/SETUP.md).
 
 Keep the first session **read-only** unless you are on a demo account and intentionally testing trading.
 

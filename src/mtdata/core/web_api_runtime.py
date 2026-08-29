@@ -122,9 +122,10 @@ def create_web_api_app(settings: WebApiRuntimeSettings | None = None) -> FastAPI
     return app
 
 
-def resolve_webui_dist(directory: str | Path) -> Path | None:
-    """Return the dist path when it contains a production `index.html`, else None."""
-    path = Path(directory)
+_WEBUI_DIST_PARENT_WALK_LIMIT = 8
+
+
+def _webui_dist_if_built(path: Path) -> Path | None:
     try:
         if path.is_dir() and (path / "index.html").is_file():
             return path.resolve()
@@ -133,17 +134,62 @@ def resolve_webui_dist(directory: str | Path) -> Path | None:
     return None
 
 
+def resolve_webui_dist(directory: str | Path) -> Path | None:
+    """Return the dist path when it contains a production `index.html`, else None."""
+    path = Path(directory)
+    built = _webui_dist_if_built(path)
+    if built is not None:
+        return built
+    if path.is_absolute():
+        return None
+    try:
+        cwd = Path.cwd()
+    except OSError:
+        return None
+    seen: set[Path] = set()
+    for index, parent in enumerate([cwd, *cwd.parents]):
+        if index > _WEBUI_DIST_PARENT_WALK_LIMIT:
+            break
+        candidate = parent / path
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            continue
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        built = _webui_dist_if_built(candidate)
+        if built is not None:
+            return built
+    return None
+
+
 def missing_webui_payload(directory: str) -> dict[str, Any]:
     """Structured payload describing how to enable the bundled Web UI."""
+    configured = Path(directory)
+    try:
+        cwd = str(Path.cwd())
+    except OSError:
+        cwd = ""
+    try:
+        attempted = str(
+            configured if configured.is_absolute() else Path.cwd() / configured
+        )
+    except OSError:
+        attempted = directory
     return {
         "service": "mtdata-webui",
         "status": "ui_not_built",
         "error_code": "webui_dist_missing",
         "message": (
             "The Web UI production build was not found. "
-            "Build it once, then restart mtdata-webapi and open /app/."
+            "Build it once from the repository root, then restart mtdata-webapi "
+            "and open /app/. If you launched the server from another directory, "
+            "run it from the repo root or set WEBUI_DIST_DIR to an absolute path."
         ),
         "directory": directory,
+        "cwd": cwd,
+        "attempted_path": attempted,
         "enable": {
             "commands": [
                 "cd webui",
@@ -246,13 +292,15 @@ def missing_webui_html(directory: str) -> str:
       <h1>Web UI is not built yet</h1>
       <p>
         The API is running, but the production SPA was not found at
-        <span class="path"><code>{html.escape(directory, quote=True)}</code></span>.
-        Build the frontend once, restart the server, then open
+        <span class="path"><code>{html.escape(str(payload.get("attempted_path") or directory), quote=True)}</code></span>.
+        Current working directory:
+        <span class="path"><code>{html.escape(str(payload.get("cwd") or ""), quote=True)}</code></span>.
+        Build the frontend once from the repository root, restart the server, then open
         <code>{html.escape(payload["enable"]["open"], quote=True)}</code>.
       </p>
       <pre>{html.escape(commands, quote=True)}</pre>
       <ul>
-        <li>Override the dist path with <code>WEBUI_DIST_DIR</code> if needed.</li>
+        <li>Run <code>mtdata-webapi</code> from the repository root, or set <code>WEBUI_DIST_DIR</code> to an absolute path.</li>
         <li>For live frontend development: <code>cd webui && npm run dev</code> (proxies API on :8000).</li>
         <li>Full details: <code>docs/WEB_API.md</code> and <code>docs/SETUP.md</code>.</li>
       </ul>

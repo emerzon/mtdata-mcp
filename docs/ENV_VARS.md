@@ -106,7 +106,7 @@ Settings for the FastAPI server that powers the React Web UI.
 | `WEBAPI_ALLOW_REMOTE` | `false` | Set to `1` to allow non-loopback binds |
 | `WEBAPI_AUTH_TOKEN` | — | Bearer / API-key token. **Required** when binding to a non-loopback address. |
 | `CORS_ORIGINS` | `http://127.0.0.1:5173,http://localhost:5173` | Comma-separated allowed origins. Wildcard `*` is rejected when credentials are enabled. |
-| `WEBUI_DIST_DIR` | `webui/dist` | Path to the built Web UI static files (`index.html` required). When missing, `/app` returns enablement guidance instead of a silent skip. |
+| `WEBUI_DIST_DIR` | `webui/dist` | Path to the built Web UI static files (`index.html` required). Relative defaults are resolved from the process working directory, then parent directories. Run `mtdata-webapi` from the repository root, or set an absolute path. When missing, `/app` returns enablement guidance instead of a silent skip. |
 
 ```ini
 # Expose the Web API on the local network with auth

@@ -31,8 +31,9 @@ mtdata-webapi
 
 Then open [http://127.0.0.1:8000/app/](http://127.0.0.1:8000/app/).
 
-If `webui/dist` is missing, the API still starts and `/app` shows an enablement
-page with these same build steps — not a blank error.
+Run `mtdata-webapi` from the repository root, or set `WEBUI_DIST_DIR` to an
+absolute path. If `webui/dist` is missing, the API still starts and `/app` shows
+an enablement page with these same build steps — not a blank error.
 
 For day-to-day UI development, `cd webui && npm run dev` serves the site on
 port 5173 and forwards `/api` to the API on port 8000.

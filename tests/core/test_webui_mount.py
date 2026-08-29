@@ -57,6 +57,22 @@ def test_missing_webui_payload_explains_build_steps():
     assert "npm run build" in payload["enable"]["commands"]
     assert payload["enable"]["open"].endswith("/app/")
     assert "WEBUI_DIST_DIR" in payload["enable"]["override_env"]
+    assert payload["cwd"]
+    assert payload["attempted_path"]
+    assert "repository root" in payload["message"]
+
+
+def test_resolve_webui_dist_walks_up_from_cwd(tmp_path: Path, monkeypatch):
+    dist = tmp_path / "webui" / "dist"
+    dist.mkdir(parents=True)
+    (dist / "index.html").write_text("<html><body>ok</body></html>", encoding="utf-8")
+    nested = tmp_path / "scripts" / "nested"
+    nested.mkdir(parents=True)
+    monkeypatch.chdir(nested)
+
+    resolved = resolve_webui_dist("webui/dist")
+    assert resolved is not None
+    assert resolved == dist.resolve()
 
 
 def test_mount_webui_missing_serves_html_and_json(tmp_path: Path, caplog):

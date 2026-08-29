@@ -38,7 +38,7 @@ Then open the chart workspace:
 http://127.0.0.1:8000/app/
 ```
 
-The Python package does not ship generated `webui/dist/` assets. Without a build, REST stays available and `/app` returns a deliberate enablement page (HTML or JSON) with the same commands — not a silent skip or bare framework 404. Override the dist path with `WEBUI_DIST_DIR` if needed.
+The Python package does not ship generated `webui/dist/` assets. Without a build, REST stays available and `/app` returns a deliberate enablement page (HTML or JSON) with the same commands — not a silent skip or bare framework 404. Run `mtdata-webapi` from the repository root, or override the dist path with an absolute `WEBUI_DIST_DIR`.
 
 ### API smoke checks
 
@@ -445,7 +445,7 @@ Control the server host and port via environment variables:
 - `WEBAPI_ALLOW_REMOTE`: Set to `1` to allow non-loopback binds.
 - `WEBAPI_AUTH_TOKEN`: Bearer/API key token required for authenticated API access.
 - `CORS_ORIGINS`: Comma-separated list of explicit allowed origins.
-- `WEBUI_DIST_DIR`: Override the built SPA directory (default `webui/dist`).
+- `WEBUI_DIST_DIR`: Override the built SPA directory (default `webui/dist`, resolved from the process working directory). Use an absolute path when launching outside the repository root.
 
 ---
 
