@@ -281,7 +281,8 @@ def test_support_resistance_tool_rejects_non_live_tick_as_level_reference():
     assert result["reference_quote_as_of"] == "2023-11-16T02:00Z"
     assert result["reference_quote_usable_for_live_trading"] is False
     assert result["reference_quote_freshness_reason"] == "stale_age"
-    assert "latest completed bar close" in result["warnings"][0]
+    assert result["warnings"][0]["code"] == "reference_price_fallback_last_close"
+    assert "latest completed bar close" in result["warnings"][0]["message"]
 
 
 def test_support_resistance_tool_rejects_locked_live_tick_reference():
@@ -312,7 +313,8 @@ def test_support_resistance_tool_rejects_locked_live_tick_reference():
     assert result["reference_quote_usable_for_live_trading"] is False
     assert result["reference_spread_quality"] == "locked"
     assert result["reference_execution_blockers"] == ["invalid_spread"]
-    assert "latest completed bar close" in result["warnings"][0]
+    assert result["warnings"][0]["code"] == "reference_price_fallback_last_close"
+    assert "latest completed bar close" in result["warnings"][0]["message"]
 
 
 def test_support_resistance_close_derived_as_of_not_before_source_bar_close():

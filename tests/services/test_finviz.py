@@ -3355,6 +3355,7 @@ class TestFinvizTools:
             {
                 "country": "United States",
                 "country_code": "US",
+                "country_attribution": "inferred",
                 "event": "Nonfarm Payrolls",
                 "category": "Employment",
                 "scheduled_at": "2026-01-04T13:30:00Z",

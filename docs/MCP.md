@@ -93,6 +93,9 @@ Stay off `trade_*` until you have read [TRADING_SAFETY.md](TRADING_SAFETY.md).
 ## Deeper detail
 
 - Tool names and flags match the [CLI](CLI.md).
+- Compact results omit healthy telemetry and surface non-nominal conditions
+  once in `warnings`. Use `detail=full` for the consolidated `meta` envelope,
+  or `output_fields` for one normally-full path without restoring everything.
 - Long-running training belongs in an interactive shell, MCP, or the Web API —
   not a one-shot `mtdata-cli` process. See [FORECAST.md](FORECAST.md).
 - Output shape: [OUTPUT.md](OUTPUT.md).

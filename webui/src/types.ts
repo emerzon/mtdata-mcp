@@ -39,9 +39,16 @@ export type RuntimeTimezoneMeta = {
   }
 }
 
+export type OutputWarning = {
+  code: string
+  message: string
+  scope?: string
+  [key: string]: unknown
+}
+
 export type HistoryResponse = {
   data: HistoryBar[]
-  candles?: number
+  count: number
   timeframe?: string
   symbol?: string
   success?: boolean
@@ -49,13 +56,15 @@ export type HistoryResponse = {
   indicator_columns?: string[]
   /** Normalized indicator spec that produced those columns. */
   indicators_spec?: string
-  has_forming_candle?: boolean
   forming_candle_status?: 'included' | 'skipped' | 'detected' | 'none'
-  forming_candle_included?: boolean
-  forming_candle_skipped?: boolean
-  incomplete_candles_skipped?: number
+  forming_candle_index?: number
+  data_as_of?: string
+  data_as_of_basis?: string
+  timestamp_format?: 'iso_utc' | 'iso_offset' | 'epoch_seconds'
   server_utc_offset_seconds?: number
   server_timezone?: string
+  source?: { provider: string }
+  warnings?: OutputWarning[]
   meta?: {
     runtime?: {
       timezone?: RuntimeTimezoneMeta
@@ -582,7 +591,7 @@ export type Tick = {
   symbol: string
   time: string
   time_epoch: number
-  timezone: string
+  timezone?: string
   bid: number
   ask: number
   mid?: number
@@ -590,8 +599,7 @@ export type Tick = {
   spread?: number
   spread_pips?: number
   spread_points?: number
-  freshness?: string
-  freshness_state?: string
-  data_age_seconds?: number
   usable_for_live_trading?: boolean
+  source?: { provider: string }
+  warnings?: OutputWarning[]
 }

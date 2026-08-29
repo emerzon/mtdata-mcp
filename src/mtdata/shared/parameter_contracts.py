@@ -63,8 +63,9 @@ PARAMETER_HELP: Final[dict[str, str]] = {
     "output_mode": "Barrier optimization output shape.",
     "json": "Return structured JSON instead of default TOON text.",
     "output_fields": (
-        "Comma-separated output fields to keep; preserves essential top-level "
-        "metadata, quote trust fields, and matching nested row fields."
+        "Comma-separated output fields or dotted paths to keep. Full-detail "
+        "paths may be selected directly without returning the complete full "
+        "payload; compact warnings and trading safety gates are preserved."
     ),
     "page": "One-based page number for tools that expose page-based pagination.",
     "calendar": "Calendar dataset: economic, earnings, or dividends.",

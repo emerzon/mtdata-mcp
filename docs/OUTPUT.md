@@ -9,7 +9,8 @@ worked (`success`) plus the payload. This page is the contract for that wrapper
 
 CLI and [MCP](GLOSSARY.md#mcp-model-context-protocol) expose the canonical tool
 payloads described here. Dedicated Web API chart routes may be more compact;
-the Tools invoke path uses the same domain semantics. See [WEB_API.md](WEB_API.md).
+the Tools invoke path uses the same domain semantics. See
+[WEB_API.md](WEB_API.md).
 
 Presentation flags and exit codes: [CLI.md](CLI.md#output-contract).
 
@@ -50,16 +51,25 @@ item fails, `success` is false regardless of `allow_partial`.
 
 ### Data provenance
 
-Successful MT5 market-data, analytics, forecast, account, and broker-symbol
-status envelopes expose a root `source` object:
+Compact MT5-backed output identifies the provider once:
+
+```json
+{"source": {"provider": "mt5"}}
+```
+
+`detail=full` moves the complete source context under `meta.source`:
 
 ```json
 {
-  "provider": "mt5",
-  "broker_company": "Broker Co",
-  "server": "Broker-Demo",
-  "source_context_id": "2d86b49c6e6c8b9e",
-  "context_available": true
+  "meta": {
+    "source": {
+      "provider": "mt5",
+      "broker_company": "Broker Co",
+      "server": "Broker-Demo",
+      "context_id": "2d86b49c6e6c8b9e",
+      "context_available": true
+    }
+  }
 }
 ```
 
@@ -74,7 +84,7 @@ example, venue-level `market_status` uses
 `provider: mtdata_exchange_calendar` with its holiday-calendar provider.
 Pure timers omit `source` because they observe only elapsed time. A narrower
 legacy label may remain in `data_lineage`; it never replaces the structured
-root provenance object.
+source context.
 
 ---
 
@@ -86,15 +96,41 @@ values for tools that expose the complete detail contract are:
 
 | Value | Meaning |
 |-------|---------|
-| `compact` | **Default.** Essential fields only — the slim, token-efficient shared shape used for TOON output. |
+| `compact` | **Default.** Results, safety gates, and non-nominal warnings only. Healthy telemetry and request echoes are omitted. |
 | `standard` | Shared stripping is the same as `compact`; an individual tool may provide a distinct standard shape. |
 | `summary` | Shared stripping is the same as `compact`; an individual tool may provide a distinct summary shape. |
-| `full` | Retains runtime metadata and verbose-only sections that the shared compact strip removes. |
+| `full` | Consolidates source, time, freshness, processing, quality, request, units, and diagnostics under `meta`. |
 
 Notes:
 - `detail` changes verbosity **within** the sections a tool already returns; it does **not** add new analysis. (For example, `market_snapshot` uses a separate `sections` parameter to choose analysis modules. Its compact/summary envelope reports `sections_summarized`, while standard/full reports `sections_embedded`.)
 - The shared output layer has two retention modes: `full`, and the compact strip used by `compact`, `standard`, and `summary`. Tools can independently distinguish the accepted values in their own payloads.
-- Use `detail=full` when runtime metadata, diagnostics, request context, or raw supporting rows are needed.
+- Use `detail=full` when you need several metadata sections. For one field,
+  prefer `output_fields` so the rest remains compact.
+
+### Anomaly-first warnings
+
+Healthy compact output does not repeat `freshness`, `data_stale=false`, age,
+threshold, reason, or policy fields. A non-nominal condition appears once:
+
+```json
+{
+  "warnings": [
+    {
+      "code": "data_stale",
+      "scope": "candles",
+      "message": "The latest data is outside the expected freshness window.",
+      "data_as_of": "2026-08-29T04:15:00Z",
+      "age_seconds": 581
+    }
+  ]
+}
+```
+
+`code`, `scope`, and `message` are stable warning fields. Additional keys are
+small condition-specific context. Candle rows do not repeat `bar_state` or
+`gap_before`: a forming row is identified once by `forming_candle_index`, and
+session gaps produce one `session_gap` warning. Full output retains the
+complete gap and forming-bar diagnostics under `meta.quality`.
 
 ---
 
@@ -112,15 +148,21 @@ mtdata-cli market_status --detail full
 
 # Full forecast context
 mtdata-cli forecast_generate EURUSD --horizon 12 --detail full --json
+
+# One full-detail field without the complete metadata envelope
+mtdata-cli data_fetch_candles BTCUSD --output-fields symbol,source.server --json
 ```
 
 ## Field selection (output_fields)
 
 `output_fields` narrows a response to specific top-level keys or dotted paths.
-Combine it with `--json` for token-lean machine parsing:
+It can select a normally-full field directly while the rest of the response
+stays compact. Combine it with `--json` for token-lean machine parsing:
 
 ```bash
 mtdata-cli symbols_describe EURUSD --output-fields symbol,details.digits,details.point --json
+mtdata-cli data_fetch_candles BTCUSD --output-fields symbol,indicator_engine.effective_backend --json
+mtdata-cli data_fetch_candles BTCUSD --output-fields symbol,meta.processing.indicators.engine --json
 ```
 
 Bare names select top-level keys only. Use a dotted path such as
@@ -130,23 +172,19 @@ searches unrelated nested objects for a matching key. A mixed projection keeps
 the resolved values and sets `output_fields_status=partial`. If no requested
 path resolves, the response sets `success=false`,
 `error_code=output_fields_unresolved`, and `output_fields_status=failed`; the
-CLI exits `1`. `valid_output_fields` lists paths present in the current
-response, including compact rows. It does not advertise full-only diagnostics
-such as `items.raw` after compact shaping has already removed them; retry
-those with `--detail full --output-fields`. Declared row paths remain
-resolvable through an empty collection, so a flat account can return
-`items=[]` for `trade_get_open --output-fields items.symbol` without reporting
-`items.symbol` as unresolved. Strategy-attribution fields such as
+CLI exits `1`. `valid_output_fields` lists paths available to targeted
+selection, including deep canonical `meta.*` paths and compact rows. Declared
+row paths remain resolvable through an empty collection, so a flat account can
+return `items=[]` for `trade_get_open --output-fields items.symbol` without
+reporting `items.symbol` as unresolved. Strategy-attribution fields such as
 `items.magic` and `items.comment` stay in compact `trade_get_open` rows so
 `--output-fields` can select them without a detail override.
 
 Field selection is authoritative across formats. JSON and TOON retain the same
-selected keys; TOON may still apply the requested numeric precision, but it
-does not run a per-tool shape compactor after projection. Quote and session
-payloads also keep a trust core when those keys are present in the response:
-`quote_as_of` or `time`, `data_as_of`, `data_stale`, `freshness`,
-`freshness_state`, `usable_for_live_trading`, and `source`. Projecting
-`bid,ask,spread` therefore cannot drop the evidence that a print is stale.
+selected keys; TOON may still apply the requested numeric precision. Compact
+warnings and trading safety gates are carried automatically. Projecting
+`bid,ask,spread` therefore cannot drop `usable_for_live_trading=false` or a
+stale-quote warning.
 
 `json` and `output_fields` are the shared output-shaping parameters available
 across tools. A domain-specific parameter named `fields` (currently used by
@@ -162,18 +200,18 @@ an `empty_reason` such as `market_closed_weekend`, `forming_bar_excluded`, or
 `no_ticks_in_range`. Connection, symbol, validation, and provider failures keep
 the normal error envelope and a nonzero CLI exit.
 
-For a fully bounded tick range, the latest matching ticks are returned
-whether `limit` is omitted or set to the same default of 20. Compact and full
-tick responses include `last_quote` with `quote_scope` and `time`. Historical
-ranges label `last_quote.quote_scope` as `historical_sample`; latest-N queries
-use `latest_sample`. It is the final two-sided quote in the returned sample,
-not a reconstructed live book.
+For a fully bounded tick range, the latest matching ticks are returned whether
+`limit` is omitted or set to the same default of 20. Full output keeps the
+sample's `last_quote` diagnostics under the richer contract. Compact output
+returns the tick rows and only adds a warning when freshness or quote quality
+is non-nominal.
 Bounded tick queries probe one event beyond the page. When `pagination.has_more`
 is true, pass `pagination.next_cursor` back as `--cursor` with the same symbol,
 start, and end values. The opaque cursor uses a raw-event offset, so ticks that
-share a millisecond are neither skipped nor duplicated. For simplified output,
-`pagination.returned` remains the number of rows actually present while
-`source_events_returned` records the pre-simplification page size.
+share a millisecond are neither skipped nor duplicated. In full output for
+simplified rows, `pagination.returned` remains the number of rows actually
+present while `source_events_returned` records the pre-simplification page
+size.
 
 Start-anchored candle ranges use the same continuation pattern. When
 `pagination.has_more` is true, reuse `pagination.next_cursor` with the original
@@ -181,7 +219,9 @@ symbol, timeframe, start, and end values. A provider-bounded candle page reports
 `total: null`, `more_available: null`, and an evidence-based
 `total_lower_bound`; it never presents the fetched prefix as the full range.
 
-List-style tools return a normalized pagination block so you can page deterministically:
+Full list output returns the complete normalized pagination block. Compact
+output omits pagination when the collection is complete. When more data exists,
+it returns only `has_more` plus `next_cursor` or `next_offset`.
 
 Public `limit` parameters always cap returned rows (including returned candles or
 ticks). Historical samples used only for analysis are named `lookback`,
@@ -217,7 +257,9 @@ exact universe count.
 The `pagination` object is authoritative and is the only pagination
 representation in canonical payloads. Root-level `total_count`, `offset`,
 `limit`, `page`, `pages`, `has_more`, and `more_available` aliases are not
-emitted. A root `count` may still describe the size of the returned collection.
+emitted. Generic compact collections omit a redundant root `count`; the row
+array or TOON header already carries that size. Dedicated Web UI routes may
+retain `count` in their route-specific DTO.
 Tools that accept a one-based `page` input convert it to the zero-based
 `pagination.offset` value.
 
@@ -245,13 +287,11 @@ offset, `iso_offset` means an ISO 8601 value in the named `timezone`, and
 `epoch_seconds` means Unix seconds in UTC. UTC instants use the RFC 3339 `Z`
 suffix (`2026-08-28T04:15:00Z`), not `+00:00`.
 
-Compact responses keep `timestamp_format` and `timezone`. They include
-`time_basis`, `timestamp_mode`, `public_timestamp_mode`, or
-`timestamp_timezone` only when a value is not implied by those two fields. For
-example, client-timezone display retains `time_basis: utc` because the source
-instant was normalized to UTC before display conversion. Use `detail=full` for
-the complete timestamp provenance, including `raw_timestamp_mode` when the MT5
-clock required normalization.
+Generic compact output relies on the serialized row value (`Z`, an explicit
+offset, or numeric epoch) and omits repeated root timestamp metadata. The
+dedicated `/api/history` DTO retains `timestamp_format` because the chart client
+uses it to decode rows. Use `detail=full` for `meta.time`, including the data
+anchor, retrieval time, window, timezone, and raw timestamp mode.
 
 ---
 
@@ -319,7 +359,10 @@ text.
 ## Freshness and execution readiness
 
 `usable_for_live_trading` is reserved for execution-oriented quote and session
-outputs and is accompanied by `usable_for_live_trading_basis`:
+outputs. Compact output keeps that single gate and emits a structured warning
+only when freshness, market state, spread validity, or source agreement is
+non-nominal. `detail=full` places the basis and measured ages under
+`meta.freshness`:
 
 - `quote_age_market_session_and_positive_spread` is the executable-quote
   check used by ticker, symbol status, symbol description, snapshots, and
@@ -344,20 +387,16 @@ may still use a live quote as their distance reference; check
 `current_price_source` or `reference_price_source` separately from the
 closed-bar structure policy.
 
-For an unbounded latest-data request, `patterns_detect`, `regime_detect`,
-`forecast_generate`, and `forecast_volatility_estimate` also publish the shared
-completed-bar freshness fields: `data_as_of`, `data_age_seconds`, `data_stale`,
-`stale_after_seconds`, `freshness`, and `history_policy_ok`. The age starts at
-the latest analyzed bar's close, not its open. A successful analytical result
-can still have `history_policy_ok=false`; treat that as historical context and
-refresh the market data before using it in a current-market decision.
+For an unbounded latest-data request, historical and analytical tools evaluate
+the completed-bar freshness policy. Healthy compact results omit that
+telemetry. A stale or unverified result carries one warning with its anchor and
+age. Full output retains the measured status, policy, basis, and threshold in
+`meta.freshness`. The age starts at the latest analyzed bar's close, not its
+open.
 
-Root `as_of` follows the output's scope. Current quote and position snapshots
-use their retrieval or assembly instant. In `report_generate`, it is the last
-completed base-timeframe bar-open anchor and `as_of_basis` states that rule;
-`generated_at` is the assembly instant. Multi-timeframe reports separately
-publish `oldest_section_data_as_of` so freshness checks do not mistake an older
-D1 context bar for the report's H1 anchor.
+Full `meta.time` separates retrieval time from the data anchor and labels each
+basis. Compact reports keep their primary `data_as_of` anchor; other compact
+tools omit nominal time telemetry unless a dedicated route needs it.
 
 ---
 

@@ -217,7 +217,7 @@ def test_confluence_future_quote_warning_names_freshness_blocker():
     ):
         result = fn("EURUSD", pivot_timeframe="D1", sr_timeframe="H1")
 
-    warning = " ".join(result["warnings"])
+    warning = " ".join(item["message"] for item in result["warnings"])
     assert "live quote rejected: clock_skew / future_timestamp" in warning
     assert "two_sided" not in warning
     assert "no live tick" not in warning

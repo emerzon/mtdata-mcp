@@ -135,7 +135,11 @@ library.
 
 ## Output contract
 
-JSON (`--json`) is the canonical machine payload. CLI, MCP, and Web API share that envelope (`success` / error, `detail`, `output_fields`, pagination, error codes); see [OUTPUT.md](OUTPUT.md). Default TOON is a human-oriented projection: it may omit diagnostic fields, collapse nested objects, and apply tool-specific compact allow-lists. Scripts and agents that need a stable schema must pass `--json`.
+JSON (`--json`) is the structured machine representation. It does not imply
+`detail=full`: compact JSON and compact TOON share the same semantic fields.
+CLI, MCP, and Web API share the success/error and output-shaping contract; see
+[OUTPUT.md](OUTPUT.md). Scripts and agents that need JSON types instead of TOON
+text must pass `--json`.
 
 ### TOON (Default)
 Human-readable compact TOON output:
@@ -196,12 +200,13 @@ Commands whose help does not list `--detail` have one output shape and reject
 the option. `--json`, `--output-fields`, and `--precision` are the global
 presentation options.
 
-Use `--output-fields` to project the final response without changing domain
-semantics. Quote payloads still keep freshness, source, and
-`usable_for_live_trading` when those keys exist:
+Use `--output-fields` to project the response without changing domain
+semantics. It can retrieve a targeted full-detail path without returning the
+whole full payload. Compact warnings and trading safety gates remain attached:
 ```bash
 mtdata-cli symbols_describe EURUSD --output-fields symbol,details.digits,details.point --json
 mtdata-cli market_ticker EURUSD --output-fields bid,ask,spread --json
+mtdata-cli data_fetch_candles BTCUSD --output-fields symbol,source.server --json
 ```
 
 Bare field names address top-level keys; dotted paths address nested keys.
@@ -210,15 +215,17 @@ When some requested paths resolve, the usable values are retained and
 `output_fields_status=partial` makes the incomplete projection explicit. When
 none resolve, the response has `success=false`,
 `error_code=output_fields_unresolved`, and the CLI exits `1`. Use
-`valid_output_fields` to retry with paths present in this response. Compact
-detail can omit diagnostics such as `trade_history` `items.raw`; those
-retries need `--detail full`. Compact `trade_get_open` rows keep `magic` and
-`comment`, so strategy-attribution projection does not require full detail.
+`valid_output_fields` to retry with available compact or targeted-rich paths.
+Use canonical paths such as `meta.processing.indicators.engine` when you want
+the consolidated full-detail spelling. Compact `trade_get_open` rows keep
+`magic` and `comment`, so strategy-attribution projection does not require
+full detail.
 Stable declared row paths remain valid when their collection is empty.
 
 When `--output-fields` is set, JSON and TOON retain the same selected keys.
-Without it, default TOON may still compact the payload; use `--json` for the
-full canonical object. TOON may also apply numeric display precision.
+Without it, JSON and TOON both use the requested detail level. Use `--json`
+when you need structured types, and `--detail full` when you need the complete
+metadata envelope. TOON may also apply numeric display precision.
 
 ### Exit Codes
 

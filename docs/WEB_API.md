@@ -147,7 +147,9 @@ Fetch OHLCV candles for a symbol.
 
 #### `GET /api/tick`
 Get the latest quote using the same compact schema as `market_ticker`, including
-mid/spread, ISO and epoch timestamps, freshness, and live-usability metadata.
+mid/spread, ISO and epoch timestamps, and the `usable_for_live_trading` gate.
+Healthy freshness telemetry is omitted; stale, closed, locked, or conflicting
+quotes carry structured `warnings`.
 Unavailable FX `last` and volume values are omitted rather than represented as zero.
 
 - **Query Params:**

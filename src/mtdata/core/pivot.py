@@ -21,11 +21,11 @@ from ..shared.validators import (
     unsupported_timeframe_seconds_error,
 )
 from ..utils.coercion import round_finite
-from ..utils.level_confluence import build_level_confluence_payload
 from ..utils.freshness import (
     COMPLETED_BAR_FRESHNESS_KEYS,
     completed_bar_freshness_fields,
 )
+from ..utils.level_confluence import build_level_confluence_payload
 from ..utils.market_metadata import build_tick_freshness_context
 from ..utils.mt5 import (
     MT5ConnectionError,
@@ -1273,7 +1273,7 @@ def confluence_levels(  # noqa: C901
 
 
 @mcp.tool()
-def support_resistance_levels(
+def support_resistance_levels(  # noqa: C901
     symbol: str,
     timeframe: AutoTimeframeLiteral = "H1",
     lookback: Annotated[int, Field(ge=1, le=20_000)] = 200,

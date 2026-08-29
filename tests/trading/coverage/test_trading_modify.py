@@ -509,7 +509,7 @@ class TestModifyPosition:
         mock_pend.assert_not_called()
 
     @patch.dict("sys.modules", {"MetaTrader5": MagicMock()})
-    def test_stale_tick_modify_preview_is_blocked(self):
+    def test_stale_tick_modify_preview_allows_protection_edit(self):
         mt5 = sys.modules["MetaTrader5"]
         self._setup_mt5(mt5)
         mt5.positions_get.return_value = [_position(sl=1.09, tp=1.12)]
@@ -527,10 +527,10 @@ class TestModifyPosition:
             take_profit=1.13,
             dry_run=True,
         )
-        assert result["success"] is False
-        assert result["preview_ok"] is False
-        assert result["error_code"] == "preview_blocked"
-        assert "stale" in str(result.get("error") or "").lower()
+        assert result["success"] is True
+        assert result["preview_ok"] is True
+        assert result["applied_sl"] == pytest.approx(1.08)
+        assert result["applied_tp"] == pytest.approx(1.13)
         mt5.order_send.assert_not_called()
 
 
@@ -578,17 +578,21 @@ class TestModifyPendingOrder:
         assert result["broker_adjusted"] is True
 
     @patch.dict("sys.modules", {"MetaTrader5": MagicMock()})
-    def test_rejects_untimestamped_tick_before_pending_modify(self):
+    def test_allows_untimestamped_tick_for_pending_modify(self):
         mt5 = sys.modules["MetaTrader5"]
         self._setup_mt5(mt5)
-        mt5.orders_get.return_value = [_pending_order()]
+        mt5.orders_get.side_effect = [
+            [_pending_order()],
+            [_pending_order(price_open=1.0948)],
+        ]
         mt5.symbol_info_tick.return_value = SimpleNamespace(bid=1.1, ask=1.1002)
+        mt5.order_send.return_value = _order_result()
         from mtdata.core.trading import _modify_pending_order
 
         result = _modify_pending_order(ticket=100, price=1.095)
 
-        assert result["tick_age_status"] == "unknown"
-        mt5.order_send.assert_not_called()
+        assert result["success"] is True
+        mt5.order_send.assert_called_once()
 
     @patch.dict("sys.modules", {"MetaTrader5": MagicMock()})
     def test_broker_no_changes_retcode_is_pending_modify_success(self):

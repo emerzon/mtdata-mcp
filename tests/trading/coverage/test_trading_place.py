@@ -1133,18 +1133,19 @@ class TestPlacePendingOrder:
         assert result["broker_message"] == "Request executed"
 
     @patch.dict("sys.modules", {"MetaTrader5": MagicMock()})
-    def test_rejects_stale_tick_before_pending_submission(self):
+    def test_allows_stale_tick_for_pending_staging(self):
         mt5 = sys.modules["MetaTrader5"]
         self._setup_mt5(mt5)
         mt5.symbol_info_tick.return_value = SimpleNamespace(
             bid=1.1000, ask=1.1002, time=1
         )
+        mt5.order_send.return_value = _order_result()
         from mtdata.core.trading import _place_pending_order
 
         result = _place_pending_order("EURUSD", 0.01, "BUY_LIMIT", price=1.09)
 
-        assert "stale" in result["error"]
-        mt5.order_send.assert_not_called()
+        assert result["success"] is True
+        mt5.order_send.assert_called_once()
 
     @patch.dict("sys.modules", {"MetaTrader5": MagicMock()})
     def test_sell_stop_success(self):
