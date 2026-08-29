@@ -523,7 +523,7 @@ def test_wait_event_duration_without_scope_is_timer_only(_mock_gateway) -> None:
     assert result["completion_reason"] == "duration_elapsed"
     assert result["timer_only"] is True
     assert result["timed_out"] is False
-    assert result["matched"] is False
+    assert result["matched"] is True
     assert result["watch_for_inferred"] is False
     assert result["watcher_count"] == 0
     assert result["watcher_types"] == []

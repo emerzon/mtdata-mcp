@@ -108,3 +108,14 @@ def test_volume_profile_rejects_tick_count_when_auto_selects_m1_bars(monkeypatch
 
     assert result["error_code"] == "volume_profile_tick_count_unavailable_for_m1_bars"
     assert result["source"] == "m1_bars"
+
+
+def test_volume_profile_rejects_unbounded_max_ticks() -> None:
+    result = volume_profile_module.compute_volume_profile_payload(
+        symbol="EURUSD",
+        max_ticks=1_000_000_000,
+    )
+
+    assert result["error_code"] == "volume_profile_limit_exceeded"
+    assert result["parameter"] == "max_ticks"
+    assert result["maximum"] == volume_profile_module._MAX_TICKS

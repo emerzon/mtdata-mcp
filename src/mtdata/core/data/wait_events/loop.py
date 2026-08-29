@@ -387,7 +387,37 @@ def _run_candle_boundary_only(
         gateway=gateway,
         observed_at_utc=now_utc,
     )
+    resolved_symbol = request.symbol or (request.symbols[0] if request.symbols else None)
     max_wait_seconds = request.max_wait_seconds
+    if preview.get("market_status") == "closed":
+        preview["success"] = False
+        preview["completed"] = False
+        preview["status"] = "market_closed"
+        preview["error_code"] = "market_closed"
+        preview["error"] = (
+            "Market is closed; the next candle close is after session reopen."
+        )
+        preview["not_waited"] = True
+        preview["slept"] = False
+        preview["slept_seconds"] = 0.0
+        preview["remaining_seconds"] = float(preview.get("sleep_seconds") or 0.0)
+        if max_wait_seconds is not None:
+            preview["max_wait_seconds"] = float(max_wait_seconds)
+        preview["wait_mode"] = "timeframe_boundary"
+        preview["remediation"] = (
+            "Retry after assumed_closure_end or increase max_wait_seconds "
+            "to cover the closed session. Do not treat the next clock hour "
+            "as a live bar close."
+        )
+        preview["event"] = None
+        preview["boundary_event"] = None
+        if identity_payload:
+            preview.update(identity_payload)
+        if request.symbols is not None:
+            preview["symbols"] = list(request.symbols)
+        if quote_payload:
+            preview.update(quote_payload)
+        return preview
     if max_wait_seconds is not None and float(preview["sleep_seconds"]) > float(max_wait_seconds):
         preview["success"] = False
         preview["completed"] = False
@@ -432,15 +462,28 @@ def _run_candle_boundary_only(
         buffer_seconds=boundary["buffer_seconds"],
         sleep_impl=sleep_impl,
         now_utc=now_utc,
-        symbol=request.symbol or (request.symbols[0] if request.symbols else None),
+        symbol=resolved_symbol,
     )
-    payload["event"] = "candle_close"
-    payload["boundary_event"] = _boundary_event_payload(
-        boundary=boundary,
-        request=request,
-        watch_for_payload=[],
-        gateway=gateway,
-    )
+    if resolved_symbol:
+        payload["event"] = "candle_close"
+        payload["boundary_event"] = _boundary_event_payload(
+            boundary=boundary,
+            request=request,
+            watch_for_payload=[],
+            gateway=gateway,
+        )
+        payload["completion_reason"] = "candle_boundary_reached"
+    else:
+        payload["event"] = "clock_boundary"
+        payload["timer_only"] = True
+        payload["completion_reason"] = "clock_boundary"
+        payload["boundary_event"] = {
+            "type": "clock_boundary",
+            "timeframe": boundary["timeframe"],
+            "next_candle_close_utc": payload.get("next_candle_close_utc"),
+            "next_candle_close_server": payload.get("next_candle_close_server"),
+        }
+        payload["matched"] = True
     if payload["boundary_event"].get("candle_failures"):
         payload["partial_failure"] = True
     payload["max_wait_seconds"] = (
@@ -848,7 +891,6 @@ def _build_wait_result(
     elapsed_seconds = max(0.0, (observed_at_utc - started_at_utc).total_seconds())
     matched_event = _with_wait_event_identity(matched_event)
     timed_out = status == "timeout"
-    matched = status in {"matched", "already_satisfied"}
     successful_boundary = status == "boundary_reached" and (
         not watch_for_payload
         or watch_for_inferred
@@ -858,6 +900,7 @@ def _build_wait_result(
         and request.max_wait_seconds is not None
         and (watch_for_inferred or not watch_for_payload)
     )
+    matched = status in {"matched", "already_satisfied"} or successful_duration
     result = {
         "success": matched or successful_boundary or successful_duration,
         "completed": not timed_out,

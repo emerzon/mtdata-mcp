@@ -840,7 +840,7 @@ def test_run_wait_event_omitted_duration_watchers_do_not_poll_account_state() ->
     assert result["status"] == "completed"
     assert result["completion_reason"] == "duration_elapsed"
     assert result["timer_only"] is True
-    assert result["matched"] is False
+    assert result["matched"] is True
     assert result["criteria"]["watch_for"] == []
     assert result["criteria"]["watch_for_inferred"] is False
     assert result["criteria"]["end_on_inferred"] is False
@@ -874,13 +874,85 @@ def test_symbol_less_duration_timer_completes_when_clock_expires() -> None:
     assert result["success"] is True
     assert result["completed"] is True
     assert result["timed_out"] is False
-    assert result["matched"] is False
+    assert result["matched"] is True
     assert result["completion_reason"] == "duration_elapsed"
     assert result["elapsed_seconds"] == 1.0
     assert result["criteria"]["watch_for"] == []
     assert result["criteria"]["watch_for_inferred"] is False
     assert result["timer_only"] is True
     assert "source" not in result
+
+
+def test_symbol_less_weekend_timeframe_wait_is_market_closed() -> None:
+    clock = FakeClock(datetime(2026, 8, 29, 2, 30, tzinfo=timezone.utc))
+
+    result = run_wait_event(
+        WaitEventRequest(
+            timeframe="M1",
+            max_wait_seconds=90.0,
+        ),
+        gateway=None,
+        sleep_impl=clock.sleep,
+        monotonic_impl=clock.monotonic,
+        now_utc_impl=clock.now_utc,
+    )
+
+    assert result["success"] is False
+    assert result["error_code"] == "market_closed"
+    assert result.get("event") != "candle_close"
+    assert result.get("boundary_event") is None
+    assert result["market_status"] == "closed"
+    assert result["market_status_reason"] == "weekend"
+    assert clock.monotonic_value == 0.0
+
+
+def test_symbol_less_weekday_timeframe_wait_is_clock_boundary(monkeypatch) -> None:
+    def _preview(timeframe, buffer_seconds, now_utc, **_kwargs):
+        return {
+            "timeframe": timeframe,
+            "buffer_seconds": buffer_seconds,
+            "sleep_seconds": 2.0,
+            "started_at_utc": now_utc.isoformat(),
+            "next_candle_close_utc": (now_utc + timedelta(seconds=2)).isoformat(),
+            "next_candle_close_server": "2026-03-13T10:03:00",
+            "server_timezone": "UTC",
+        }
+
+    monkeypatch.setattr(
+        "mtdata.core.data.wait_events.compile._next_candle_wait_payload",
+        _preview,
+    )
+    monkeypatch.setattr(
+        "mtdata.core.data.wait_events.loop._sleep_until_next_candle",
+        lambda timeframe, buffer_seconds=1.0, sleep_impl=None, now_utc=None, symbol=None: {
+            **_preview(timeframe, buffer_seconds, now_utc),
+            "status": "completed",
+            "slept": True,
+            "slept_seconds": 2.0,
+            "remaining_seconds": 0.0,
+        },
+    )
+    clock = FakeClock(datetime(2026, 3, 13, 10, 2, 10, tzinfo=timezone.utc))
+
+    result = run_wait_event(
+        WaitEventRequest(
+            timeframe="M1",
+            end_on=[{"type": "candle_close", "timeframe": "M1", "buffer_seconds": 0.0}],
+            max_wait_seconds=180.0,
+        ),
+        gateway=None,
+        sleep_impl=clock.sleep,
+        monotonic_impl=clock.monotonic,
+        now_utc_impl=clock.now_utc,
+    )
+
+    assert result["success"] is True
+    assert result["completed"] is True
+    assert result["event"] == "clock_boundary"
+    assert result["boundary_event"]["type"] == "clock_boundary"
+    assert result["completion_reason"] == "clock_boundary"
+    assert result["timer_only"] is True
+    assert result["matched"] is True
 
 
 def test_wait_event_timeout_includes_closed_weekend_session() -> None:
@@ -1339,9 +1411,9 @@ def test_run_wait_event_boundary_only_includes_closed_candle_stats(monkeypatch) 
     assert closed_candle["spread"] == 0.00007
     assert closed_candle["spread_points"] == 7
     assert closed_candle["units"] == {
-        "tick_volume": "broker_tick_count",
+        "tick_volume": "bid_update_count",
         "real_volume": "traded_volume",
-        "volume": "broker_tick_count",
+        "volume": "bid_update_count",
         "spread_points": "broker_points",
         "spread": "absolute_price",
     }

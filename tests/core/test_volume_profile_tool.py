@@ -355,12 +355,14 @@ def test_compute_volume_profile_payload_rejects_lookback_without_timeframe():
         bucket_size=0.0001,
     )
 
-    assert result == {
-        "error": (
-            "lookback is a bar count and requires timeframe; "
-            "use max_ticks to cap tick rows."
-        )
-    }
+    assert result["error"] == (
+        "lookback is a bar count and requires timeframe; "
+        "use max_ticks to cap tick rows."
+    )
+    assert result["error_code"] == "volume_profile_lookback_requires_timeframe"
+    assert result["parameter"] == "timeframe"
+    assert result["missing_parameter"] == "timeframe"
+    assert "timeframe" in result["remediation"]
 
 
 def test_compute_volume_profile_payload_uses_explicit_max_ticks(monkeypatch):
@@ -1403,3 +1405,37 @@ def test_m1_proxy_splits_volume_equally_across_low_close_high(monkeypatch):
     assert {round(row["mid"], 4) for row in rows} == {1.0, 1.1, 1.2}
     assert all(row["tick_volume"] == 30.0 for row in rows)
     assert 1.05 not in {row["mid"] for row in rows}
+
+
+def test_compute_volume_profile_payload_weekend_empty_is_success(monkeypatch):
+    monkeypatch.setattr(
+        vp,
+        "create_mt5_gateway",
+        lambda **_: SimpleNamespace(ensure_connection=lambda: None),
+    )
+    monkeypatch.setattr(
+        vp,
+        "_symbol_ready_guard",
+        lambda symbol: _Guard(None, SimpleNamespace(point=0.0001, digits=5)),
+    )
+    monkeypatch.setattr(
+        vp,
+        "_select_profile_rows",
+        lambda **_: {"source": "m1_bars", "rows": [], "diagnostics": {}},
+    )
+
+    result = vp.compute_volume_profile_payload(
+        symbol="EURUSD",
+        start="2026-08-22T00:00:00Z",
+        end="2026-08-22T04:00:00Z",
+        source="m1_bars",
+        bucket_size=0.0001,
+    )
+
+    assert result["success"] is True
+    assert result["empty"] is True
+    assert result["empty_reason"] == "market_closed_weekend"
+    assert result["no_data_reason"] == "market_closed_weekend"
+    assert result["market_status"] == "closed"
+    assert "error" not in result
+    assert "timeframe" in result["suggestion"]

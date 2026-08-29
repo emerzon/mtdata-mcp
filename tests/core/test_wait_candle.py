@@ -99,3 +99,17 @@ def test_next_candle_wait_payload_handles_dst_gap(monkeypatch) -> None:
     assert payload["sleep_seconds"] == 361.0
 
 
+def test_next_candle_wait_payload_without_symbol_marks_fx_weekend(
+    utc_server_clock,
+) -> None:
+    payload = _next_candle_wait_payload(
+        "M1",
+        buffer_seconds=1.0,
+        now_utc=datetime(2026, 8, 29, 2, 30, tzinfo=timezone.utc),
+    )
+
+    assert payload["market_status"] == "closed"
+    assert payload["market_status_reason"] == "weekend"
+    assert payload["assumed_closure_end"]
+
+

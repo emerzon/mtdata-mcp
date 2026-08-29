@@ -284,14 +284,14 @@ def _format_boundary_closed_candle(
 
     units: Dict[str, str] = {}
     if tick_volume is not None:
-        units["tick_volume"] = "broker_tick_count"
+        units["tick_volume"] = "bid_update_count"
     if real_volume is not None:
         units["real_volume"] = "traded_volume"
     if volume is not None:
         units["volume"] = (
             "traded_volume"
             if real_volume not in (None, 0.0)
-            else "broker_tick_count"
+            else "bid_update_count"
         )
     if spread is not None:
         units["spread_points"] = "broker_points"

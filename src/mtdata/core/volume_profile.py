@@ -43,6 +43,11 @@ VolumeProfileSourceLiteral = Literal["auto", "ticks", "m1_bars"]
 _DEFAULT_MAX_TICK_WINDOW_DAYS = 1
 _DEFAULT_MAX_TICKS = 50_000
 _DEFAULT_MAX_M1_BARS = 20_000
+_MAX_TICK_WINDOW_DAYS = 90
+_MAX_TICKS = 200_000
+_MAX_M1_BARS = 100_000
+_MAX_LOOKBACK = 20_000
+_MAX_BUCKETS = 2_000
 _DEFAULT_PROFILE_LIMIT = 200
 _MIN_TICK_PRICE_COVERAGE_RATIO = 0.5
 _TICK_WINDOW_TOLERANCE_SECONDS = 1.0
@@ -421,7 +426,7 @@ def _fetch_tick_rows(
     # start locally.
     payload = fetch_ticks(
         symbol=symbol,
-        limit=max(1, int(max_ticks)),
+        limit=max(1, min(int(max_ticks), _MAX_TICKS)),
         start=None,
         end=end,
         format="full_rows",
@@ -791,6 +796,7 @@ def _profile_detail_payload(profile: Dict[str, Any], detail: str) -> Dict[str, A
         detail_value = "compact"
     keys = [
         "success",
+        "count",
         "symbol",
         "profile_warning",
         "profile_source",
@@ -828,6 +834,10 @@ def _profile_detail_payload(profile: Dict[str, Any], detail: str) -> Dict[str, A
         "data_quality",
         "coverage_note",
         "scheduled_closures",
+        "empty",
+        "empty_reason",
+        "no_data_reason",
+        "suggestion",
         "warnings",
         "as_of",
         "data_as_of",
@@ -1022,21 +1032,47 @@ def compute_volume_profile_payload(  # noqa: C901
     start: Optional[str] = None,
     end: Optional[str] = None,
     timeframe: Optional[TimeframeLiteral] = None,
-    lookback: Annotated[Optional[int], Field(ge=1)] = None,
+    lookback: Annotated[Optional[int], Field(ge=1, le=_MAX_LOOKBACK)] = None,
     source: VolumeProfileSourceLiteral = "auto",
     price_source: VolumeProfilePriceSourceLiteral = "mid",
     volume_source: VolumeProfileVolumeSourceLiteral = "auto",
     bucket_size: Optional[float] = None,
     bucket_points: Optional[float] = None,
     bucket_count: Optional[int] = None,
-    max_buckets: Annotated[int, Field(ge=1)] = 120,
+    max_buckets: Annotated[int, Field(ge=1, le=_MAX_BUCKETS)] = 120,
     value_area_pct: float = 70.0,
     reference_price: Optional[float] = None,
-    max_tick_window_days: int = _DEFAULT_MAX_TICK_WINDOW_DAYS,
-    max_ticks: int = _DEFAULT_MAX_TICKS,
-    max_m1_bars: int = _DEFAULT_MAX_M1_BARS,
+    max_tick_window_days: Annotated[int, Field(ge=1, le=_MAX_TICK_WINDOW_DAYS)] = _DEFAULT_MAX_TICK_WINDOW_DAYS,
+    max_ticks: Annotated[int, Field(ge=1, le=_MAX_TICKS)] = _DEFAULT_MAX_TICKS,
+    max_m1_bars: Annotated[int, Field(ge=1, le=_MAX_M1_BARS)] = _DEFAULT_MAX_M1_BARS,
     detail: DetailLiteral = "compact",
 ) -> Dict[str, Any]:
+    bound_errors = []
+    for name, value, ceiling in (
+        ("max_ticks", max_ticks, _MAX_TICKS),
+        ("max_m1_bars", max_m1_bars, _MAX_M1_BARS),
+        ("max_tick_window_days", max_tick_window_days, _MAX_TICK_WINDOW_DAYS),
+        ("lookback", lookback, _MAX_LOOKBACK),
+        ("max_buckets", max_buckets, _MAX_BUCKETS),
+    ):
+        if value is None:
+            continue
+        try:
+            numeric = int(value)
+        except (TypeError, ValueError):
+            continue
+        if numeric > ceiling:
+            bound_errors.append((name, numeric, ceiling))
+    if bound_errors:
+        name, numeric, ceiling = bound_errors[0]
+        return {
+            "error": f"{name}={numeric} exceeds the maximum of {ceiling}.",
+            "error_code": "volume_profile_limit_exceeded",
+            "parameter": name,
+            "requested": numeric,
+            "maximum": ceiling,
+            "remediation": f"Pass {name} <= {ceiling}.",
+        }
     bucket_controls = [
         name
         for name, value in (
@@ -1104,7 +1140,13 @@ def compute_volume_profile_payload(  # noqa: C901
             "error": (
                 "lookback is a bar count and requires timeframe; "
                 "use max_ticks to cap tick rows."
-            )
+            ),
+            "error_code": "volume_profile_lookback_requires_timeframe",
+            "parameter": "timeframe",
+            "missing_parameter": "timeframe",
+            "remediation": (
+                "Pass --timeframe with --lookback, or use --start/--end."
+            ),
         }
     window = _resolve_profile_window(
         start=start,
@@ -1193,27 +1235,48 @@ def compute_volume_profile_payload(  # noqa: C901
                 observed_end=None,
             )
             if closure_context.get("entire_request_closed"):
-                profile.update(
-                    {
-                        "no_data_reason": "market_closed_weekend",
-                        "market_status": "closed",
-                        "market_status_reason": "weekend",
-                        "market_status_source": "standard_weekend_hours",
-                        "scheduled_closures": closure_context.get(
-                            "scheduled_closures"
+                empty_profile = {
+                    "success": True,
+                    "empty": True,
+                    "empty_reason": "market_closed_weekend",
+                    "no_data_reason": "market_closed_weekend",
+                    "symbol": symbol,
+                    "count": 0,
+                    "levels": [],
+                    "market_status": "closed",
+                    "market_status_reason": "weekend",
+                    "market_status_source": "standard_weekend_hours",
+                    "scheduled_closures": closure_context.get("scheduled_closures"),
+                    "requested_window": {
+                        "start": _format_window_timestamp(resolved_start),
+                        "end": _format_window_timestamp(
+                            resolved_end,
+                            end_bound=True,
                         ),
-                        "requested_window": {
-                            "start": _format_window_timestamp(resolved_start),
-                            "end": _format_window_timestamp(
-                                resolved_end,
-                                end_bound=True,
-                            ),
-                        },
-                        "data_quality": {
-                            "status": "not_applicable",
-                            "reason": "market_closed_weekend",
-                        },
-                    }
+                    },
+                    "data_quality": {
+                        "status": "not_applicable",
+                        "reason": "market_closed_weekend",
+                    },
+                    "note": (
+                        f"The requested range falls entirely within standard weekend "
+                        f"closure hours for {symbol}; no volume-profile bars are expected."
+                    ),
+                    "suggestion": (
+                        "Choose a range containing an open trading session, or pass "
+                        "--timeframe H1 --lookback 200 to use completed session bars."
+                    ),
+                    "diagnostics": {
+                        **(selected.get("diagnostics") or {}),
+                        **(profile.get("diagnostics") or {}),
+                    },
+                }
+                empty_profile.update(_profile_source_quality(selected.get("source")))
+                if symbol_input is not None:
+                    empty_profile["symbol_input"] = symbol_input
+                return attach_mt5_source(
+                    _profile_detail_payload(empty_profile, detail),
+                    gateway=mt5_gateway,
                 )
         return profile
     profile["symbol"] = symbol
@@ -1408,19 +1471,19 @@ def volume_profile_levels(  # noqa: PLR0913
     start: Optional[str] = None,
     end: Optional[str] = None,
     timeframe: Optional[TimeframeLiteral] = None,
-    lookback: Annotated[Optional[int], Field(ge=1)] = None,
+    lookback: Annotated[Optional[int], Field(ge=1, le=_MAX_LOOKBACK)] = None,
     source: VolumeProfileSourceLiteral = "auto",
     price_source: VolumeProfilePriceSourceLiteral = "mid",
     volume_source: VolumeProfileVolumeSourceLiteral = "auto",
     bucket_size: Optional[float] = None,
     bucket_points: Optional[float] = None,
     bucket_count: Optional[int] = None,
-    max_buckets: Annotated[int, Field(ge=1)] = 120,
+    max_buckets: Annotated[int, Field(ge=1, le=_MAX_BUCKETS)] = 120,
     value_area_pct: Annotated[float, Field(gt=0.0, le=100.0)] = 70.0,
     reference_price: Optional[float] = None,
-    max_tick_window_days: int = _DEFAULT_MAX_TICK_WINDOW_DAYS,
-    max_ticks: int = _DEFAULT_MAX_TICKS,
-    max_m1_bars: int = _DEFAULT_MAX_M1_BARS,
+    max_tick_window_days: Annotated[int, Field(ge=1, le=_MAX_TICK_WINDOW_DAYS)] = _DEFAULT_MAX_TICK_WINDOW_DAYS,
+    max_ticks: Annotated[int, Field(ge=1, le=_MAX_TICKS)] = _DEFAULT_MAX_TICKS,
+    max_m1_bars: Annotated[int, Field(ge=1, le=_MAX_M1_BARS)] = _DEFAULT_MAX_M1_BARS,
     detail: DetailLiteral = "compact",
 ) -> Dict[str, Any]:
     """Compute volume-profile POC, VAH, and VAL from ticks or M1-bar approximation.
