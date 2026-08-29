@@ -3,6 +3,8 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
+import pytest
+
 from mtdata.bootstrap import settings as cfg
 
 
@@ -21,19 +23,15 @@ def test_mt5_config_credentials_and_login_parsing(monkeypatch):
     assert conf.has_credentials() is True
 
 
-def test_mt5_config_ignores_invalid_login_and_warns(monkeypatch, caplog):
+def test_mt5_config_rejects_invalid_login(monkeypatch):
     monkeypatch.setenv("MT5_LOGIN", "not-a-number")
     monkeypatch.setenv("MT5_PASSWORD", "secret")
     monkeypatch.setenv("MT5_SERVER", "Demo-Server")
     monkeypatch.setenv("MT5_TIME_OFFSET_MINUTES", "0")
     monkeypatch.setattr(cfg, "_WARNED_SERVER_TZ", False, raising=False)
 
-    with caplog.at_level("WARNING"):
-        conf = cfg.MT5Config()
-
-    assert conf.get_login() is None
-    assert conf.has_credentials() is False
-    assert any("Invalid MT5_LOGIN" in record.message for record in caplog.records)
+    with pytest.raises(ValueError, match="Invalid MT5_LOGIN"):
+        cfg.MT5Config()
 
 
 def test_mt5_config_allows_timezone_info_to_be_missing(monkeypatch, caplog):

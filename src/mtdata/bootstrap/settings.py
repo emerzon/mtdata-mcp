@@ -425,7 +425,7 @@ class MT5Config:
 
     def reload_from_env(self, *, warn_if_timezone_missing: bool = True) -> None:
         self.login = os.getenv("MT5_LOGIN")
-        self._login_value = _env_optional_int("MT5_LOGIN")
+        self._login_value = _env_strict_optional_int("MT5_LOGIN")
         self.password = os.getenv("MT5_PASSWORD")
         self.server = os.getenv("MT5_SERVER")
         self.timeout = get_int_env("MT5_TIMEOUT", 30)
