@@ -259,7 +259,6 @@ def _evaluate_position_modify_guardrails(
         existing_pending_orders=pending_orders,
         symbol_info=symbol_info,
         symbol_info_resolver=mt5.symbol_info,
-        enforce_symbol_rules=False,
         enforce_safety_policy=False,
     )
     if guardrail_block is not None:
@@ -1064,7 +1063,6 @@ def _modify_pending_order(  # noqa: C901
                     ),
                     symbol_info=symbol_info,
                     symbol_info_resolver=mt5.symbol_info,
-                    enforce_symbol_rules=False,
                 )
                 if guardrail_block is not None:
                     guardrail_block["pending_order_ticket"] = resolved_ticket

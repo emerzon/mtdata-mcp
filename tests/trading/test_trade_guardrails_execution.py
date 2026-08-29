@@ -234,6 +234,73 @@ def test_market_order_decision_is_serialized_across_threads():
         assert entered_decision.is_set()
 
 
+def test_modify_pending_order_blocks_blocked_symbol(
+    restore_trade_guardrails,
+    patch_gateway,
+):
+    trade_guardrails_config.enabled = True
+    trade_guardrails_config.blocked_symbols = ["EURUSD"]
+
+    result = _modify_pending_order(ticket=100, price=1.1000, stop_loss=1.0940)
+
+    assert result["guardrail_blocked"] is True
+    assert result["guardrail_rule"] == "symbol_policy"
+    assert "blocked" in result["violations"][0].lower()
+
+
+def test_modify_pending_order_blocks_symbol_not_in_allowlist(
+    restore_trade_guardrails,
+    patch_gateway,
+):
+    trade_guardrails_config.enabled = True
+    trade_guardrails_config.allowed_symbols = ["GBPUSD"]
+
+    result = _modify_pending_order(ticket=100, price=1.1000, stop_loss=1.0940)
+
+    assert result["guardrail_blocked"] is True
+    assert result["error_code"] == "symbol_not_in_allowlist"
+    assert result["guardrail_rule"] == "symbol_policy"
+
+
+def test_modify_pending_order_allows_tighter_stop_on_blocked_symbol(
+    restore_trade_guardrails,
+    patch_gateway,
+):
+    trade_guardrails_config.enabled = True
+    trade_guardrails_config.blocked_symbols = ["EURUSD"]
+
+    result = _modify_pending_order(ticket=100, price=1.1000, stop_loss=1.0995)
+
+    assert result["success"] is True
+    assert result["pending_order_ticket"] == 100
+
+
+def test_modify_position_blocks_blocked_symbol(
+    restore_trade_guardrails,
+    patch_gateway,
+):
+    trade_guardrails_config.enabled = True
+    trade_guardrails_config.blocked_symbols = ["EURUSD"]
+    position = SimpleNamespace(
+        ticket=200,
+        symbol="EURUSD",
+        price_open=1.1000,
+        price_current=1.1000,
+        sl=1.0990,
+        tp=1.1200,
+        type=patch_gateway.POSITION_TYPE_BUY,
+        volume=1.0,
+        magic=123,
+    )
+    patch_gateway.positions_get = lambda *args, **kwargs: [position]
+
+    result = _modify_position(ticket=200, stop_loss=1.0900)
+
+    assert result["guardrail_blocked"] is True
+    assert result["guardrail_rule"] == "symbol_policy"
+    assert "blocked" in result["violations"][0].lower()
+
+
 def test_modify_pending_order_allows_tighter_stop_loss(
     restore_trade_guardrails,
     patch_gateway,

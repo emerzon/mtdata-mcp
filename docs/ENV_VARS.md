@@ -248,7 +248,7 @@ Notes:
   orders, and the candidate order. They fail closed when any of those records
   lacks a quantifiable stop-loss or valid broker tick metadata.
 - Leave any variable unset to disable only that rule.
-- `trade_modify` guardrails apply only to pending-order changes and position SL changes that increase risk; close/reduce flows stay allowed.
+- `trade_modify` guardrails apply only to pending-order changes and position SL changes that increase risk; close/reduce flows stay allowed. Risk-increasing modifications still apply symbol allowlist, blocklist, and per-symbol volume-map rules.
 
 ```ini
 # Example trade guardrail setup

@@ -200,7 +200,7 @@ mtdata-cli trade_get_open --json
 mtdata-cli trade_modify --ticket 123456789 --stop-loss 1.0860 --take-profit 1.0980 --dry-run true
 ```
 
-Guardrails apply to `trade_modify` only for pending-order changes and SL changes that **increase** risk; risk-reducing changes stay allowed.
+Guardrails apply to `trade_modify` only for pending-order changes and SL changes that **increase** risk; risk-reducing changes stay allowed. Risk-increasing modifications still apply symbol allowlist, blocklist, and volume-map rules.
 
 ---
 
