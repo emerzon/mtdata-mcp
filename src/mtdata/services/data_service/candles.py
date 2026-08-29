@@ -54,6 +54,7 @@ from ...utils.market_metadata import (
     TICK_VOLUME_COMPARISON_NOTE,
     TICK_VOLUME_EVENT_BASIS,
     TICK_VOLUME_TAPE_EQUIVALENT,
+    TICK_VOLUME_UNIT,
 )
 from ...utils.mt5 import (
     _mt5_copy_rates_from,
@@ -1162,7 +1163,11 @@ def _trim_calendar_bars_to_session_dates(
             parsed_end = _parse_end_datetime(end_datetime)
             if parsed_end is None:
                 return df.iloc[0:0]
-            mask &= df[epoch_column] <= _utc_epoch_seconds(parsed_end)
+            target_end = _utc_epoch_seconds(parsed_end)
+            close_epochs = df[epoch_column].map(
+                lambda value: bar_close_epoch(float(value), timeframe)
+            )
+            mask &= close_epochs <= target_end
     return df.loc[mask]
 
 
@@ -1310,12 +1315,13 @@ def _candle_volume_metadata(headers: List[str]) -> Dict[str, Any]:
     if "tick_volume" in headers:
         meta["volume_type"] = "tick_count"
         meta["volume_note"] = (
-            "MT5 tick_volume is broker tick count for the bar, not exchange traded volume."
+            "MT5 tick_volume counts bid-price updates for the bar, not every "
+            "quote update and not exchange traded volume."
         )
         meta["tick_volume_event_basis"] = TICK_VOLUME_EVENT_BASIS
         meta["tick_volume_tape_equivalent"] = TICK_VOLUME_TAPE_EQUIVALENT
         meta["tick_volume_comparison_note"] = TICK_VOLUME_COMPARISON_NOTE
-        units["tick_volume"] = "broker_tick_count"
+        units["tick_volume"] = TICK_VOLUME_UNIT
     if "real_volume" in headers:
         meta["real_volume_type"] = "traded_volume"
         units["real_volume"] = "traded_volume"

@@ -1,7 +1,9 @@
 from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 import mtdata.utils.time as time_utils
 from mtdata.utils.time import (
+    _format_datetime_explicit,
     as_utc,
     format_datetime_utc,
     format_epoch_utc,
@@ -89,3 +91,11 @@ def test_format_relative_date_uses_calendar_days_not_midnight_countdown() -> Non
 
     assert format_relative_date(date(2026, 8, 27), now=now) == "tomorrow"
     assert format_relative_date(date(2026, 8, 26), now=now) == "today"
+
+
+def test_format_datetime_explicit_keeps_named_zone_offset_at_gmt() -> None:
+    london = datetime(2026, 1, 15, 12, 0, tzinfo=ZoneInfo("Europe/London"))
+    utc = datetime(2026, 1, 15, 12, 0, tzinfo=timezone.utc)
+
+    assert _format_datetime_explicit(london, timespec="seconds") == "2026-01-15T12:00:00+00:00"
+    assert _format_datetime_explicit(utc, timespec="seconds") == "2026-01-15T12:00:00Z"

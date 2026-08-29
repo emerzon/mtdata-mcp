@@ -124,6 +124,33 @@ def test_trim_daily_date_only_range_uses_broker_session_date() -> None:
     assert out["close"].tolist() == [2.0]
 
 
+def test_calendar_timeframe_instant_end_uses_bar_close() -> None:
+    df = pd.DataFrame(
+        {
+            "__epoch": [
+                pd.Timestamp("2026-08-19 21:00", tz="UTC").timestamp(),
+                pd.Timestamp("2026-08-20 21:00", tz="UTC").timestamp(),
+            ],
+            "close": [1.0, 2.0],
+        }
+    )
+
+    with patch.object(
+        data_service.candles.mt5_config,
+        "get_server_tz",
+        return_value=ZoneInfo("Europe/Nicosia"),
+    ):
+        out = data_service.candles._trim_df_to_target(
+            df,
+            "2026-08-20",
+            "2026-08-21T00:00:00Z",
+            candles=100,
+            timeframe="D1",
+        )
+
+    assert out["close"].tolist() == [1.0]
+
+
 def test_daily_date_only_provider_range_starts_at_broker_session_open() -> None:
     broker_tz = ZoneInfo("Europe/Nicosia")
     captured: dict[str, datetime] = {}

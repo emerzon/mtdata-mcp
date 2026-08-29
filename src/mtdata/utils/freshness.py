@@ -90,16 +90,42 @@ def closed_session_context(
             age_seconds = float("inf")
         close_utc, open_utc = closure_window
         closure_seconds = (open_utc - close_utc).total_seconds()
+        rounded_age = round_age_seconds(age_seconds)
         out.update(
             {
-                "data_age_seconds": None if not math.isfinite(age_seconds) else age_seconds,
+                "data_age_seconds": rounded_age,
                 "assumed_closure_start": close_utc.isoformat().replace("+00:00", "Z"),
                 "assumed_closure_end": open_utc.isoformat().replace("+00:00", "Z"),
-                "assumed_closure_seconds": closure_seconds,
-                "freshness_policy_relaxed": age_seconds <= closure_seconds,
+                "assumed_closure_seconds": round_age_seconds(closure_seconds),
+                "freshness_policy_relaxed": (
+                    math.isfinite(age_seconds) and age_seconds <= closure_seconds
+                ),
             }
         )
     return out
+
+
+def is_derived_age_seconds_key(key: Any) -> bool:
+    """Return True for computed freshness ages, not filter or policy thresholds."""
+    name = str(key or "").strip().lower()
+    if not name.endswith("_age_seconds"):
+        return False
+    if name.startswith("max_"):
+        return False
+    if "stale_after" in name or "live_max" in name:
+        return False
+    return True
+
+
+def round_age_seconds(seconds: Any) -> Optional[int]:
+    """Round a wall-clock age to integer seconds for shared serialization."""
+    try:
+        value = float(seconds)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(value):
+        return None
+    return max(0, int(round(value)))
 
 
 def format_age_seconds(seconds: Any) -> Optional[str]:

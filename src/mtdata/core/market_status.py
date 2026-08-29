@@ -201,8 +201,8 @@ def _apply_market_timezone_display(
     return out
 
 
-def _apply_global_weekend_reason(status: Dict[str, Any], *, now_utc: datetime) -> Dict[str, Any]:
-    if now_utc.weekday() < 5:
+def _apply_global_weekend_reason(status: Dict[str, Any], *, now_local: datetime) -> Dict[str, Any]:
+    if now_local.weekday() < 5:
         return status
     if status.get("status") != "closed" or status.get("reason") not in {
         "after_hours",
@@ -1601,7 +1601,7 @@ def market_status(  # noqa: C901
                 local_now = _get_local_time(market["timezone"])
                 status = _check_market_status(market_id, local_now)
                 status["exchange_day_of_week"] = local_now.strftime("%A")
-                status = _apply_global_weekend_reason(status, now_utc=now_utc)
+                status = _apply_global_weekend_reason(status, now_local=local_now)
                 status = _apply_market_timezone_display(
                     status,
                     now_local=local_now,

@@ -209,11 +209,28 @@ def _format_datetime_second_explicit(dt: datetime) -> str:
     return _format_datetime_explicit(dt, timespec="seconds")
 
 
+def _timezone_uses_zulu_suffix(tzinfo: Any) -> bool:
+    """Keep ``Z`` for UTC; preserve named-zone offsets even at GMT."""
+    if tzinfo is None or tzinfo is timezone.utc:
+        return True
+    key = str(getattr(tzinfo, "key", "") or "").upper()
+    if key in {"UTC", "ETC/UTC"}:
+        return True
+    if key:
+        return False
+    try:
+        return tzinfo.utcoffset(None) == timedelta(0)
+    except Exception:
+        return False
+
+
 def _format_datetime_explicit(dt: datetime, *, timespec: str) -> str:
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     text = dt.isoformat(timespec=timespec)
-    return f"{text[:-6]}Z" if text.endswith("+00:00") else text
+    if text.endswith("+00:00") and _timezone_uses_zulu_suffix(dt.tzinfo):
+        return f"{text[:-6]}Z"
+    return text
 
 
 def coerce_time_epoch_seconds(values: Any) -> Any:

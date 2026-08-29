@@ -513,12 +513,11 @@ def _attach_forming_candle_update_freshness(
         payload["bar_open_age_seconds"] = round(bar_open_age_value, 3)
         data_window["latest_bar_open_age_seconds"] = round(bar_open_age_value, 3)
     payload["market_tick_age_seconds"] = round(update_age, 3)
-    payload["data_age_seconds"] = round(update_age, 3)
-    payload["data_age_metric"] = "market_tick_age_seconds"
-    payload["data_age_anchor"] = FRESHNESS_ANCHOR_WALL_CLOCK
     data_window["market_tick_age_seconds"] = round(update_age, 3)
     update_text = _format_age_seconds(update_age)
     if bar_open_age_value is not None:
+        payload["data_age_seconds"] = round(bar_open_age_value, 3)
+        payload["data_age_metric"] = "latest_forming_bar_open_age_seconds"
         payload["freshness"] = (
             f"forming bar open {_format_age_seconds(bar_open_age_value)} ago; "
             f"market tick {update_text} ago; forming-bar update time unverified"
@@ -528,7 +527,9 @@ def _attach_forming_candle_update_freshness(
             f"forming bar; market tick {update_text} ago; "
             "forming-bar update time unverified"
         )
+    payload["data_age_anchor"] = FRESHNESS_ANCHOR_WALL_CLOCK
     payload["forming_bar_update_verified"] = False
+    payload["data_stale"] = True
 
 
 def _forming_candle_present(payload: Dict[str, Any]) -> bool:
@@ -614,10 +615,16 @@ def _attach_latest_candle_quote_freshness(
     )
     if freshness_label:
         payload["freshness"] = freshness_label
-    payload["stale_warning"] = (
-        "The latest quote is stale, so the last candle must not be treated as a "
-        "live mark even though completed-bar history is within policy."
-    )
+    if payload.get("history_policy_ok") is False:
+        payload["stale_warning"] = (
+            "The latest quote is stale, so the last candle must not be treated as a "
+            "live mark. Completed-bar history is also outside the freshness policy window."
+        )
+    else:
+        payload["stale_warning"] = (
+            "The latest quote is stale, so the last candle must not be treated as a "
+            "live mark even though completed-bar history is within policy."
+        )
 
 
 def _normalize_candle_query_error(  # noqa: C901
@@ -1548,6 +1555,24 @@ def _collapse_compact_timestamp_metadata(payload: Dict[str, Any]) -> None:
         payload.pop("timestamp_timezone", None)
 
 
+def _rename_nested_raw_timestamp_mode(payload: Dict[str, Any]) -> None:
+    """Keep nested diagnostics from reusing the public timestamp_mode key."""
+    meta = payload.get("meta")
+    if not isinstance(meta, dict):
+        return
+    diagnostics = meta.get("diagnostics")
+    if not isinstance(diagnostics, dict):
+        return
+    time_norm = diagnostics.get("time_normalization")
+    if not isinstance(time_norm, dict):
+        return
+    raw = time_norm.get("timestamp_mode")
+    if raw in (None, ""):
+        return
+    time_norm["raw_timestamp_mode"] = raw
+    time_norm.pop("timestamp_mode", None)
+
+
 def _normalize_public_candle_timestamp_mode(
     payload: Dict[str, Any],
     *,
@@ -1559,6 +1584,7 @@ def _normalize_public_candle_timestamp_mode(
         payload["raw_timestamp_mode"] = raw_mode
     else:
         payload.pop("raw_timestamp_mode", None)
+    _rename_nested_raw_timestamp_mode(payload)
     _attach_candle_timestamp_metadata(payload)
     if payload.get("public_timestamp_mode") is not None:
         return

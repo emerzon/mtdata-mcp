@@ -10,14 +10,23 @@ from .freshness import (
     closed_session_context,
     format_age_seconds,
     format_freshness_label,
+    round_age_seconds,
 )
 
-TICK_VOLUME_SEMANTICS = "tick_volume_is_broker_tick_count_not_lots"
+TICK_VOLUME_UNIT = "bid_update_count"
+TICK_VOLUME_SEMANTICS = "tick_volume_is_bid_update_count_not_lots"
 TICK_VOLUME_EVENT_BASIS = "mt5_broker_bar_bid_updates"
 TICK_VOLUME_TAPE_EQUIVALENT = "bid_update_count"
 TICK_VOLUME_COMPARISON_NOTE = (
     "MT5 candle tick_volume follows Bid-chart updates. It can differ from "
     "data_fetch_ticks.tick_count when COPY_TICKS_ALL includes ask-only updates."
+)
+_TICK_VOLUME_UNIT_ALIASES = frozenset(
+    {
+        TICK_VOLUME_UNIT,
+        "broker_tick_count",
+        "mt5_tick_volume",
+    }
 )
 
 FRESHNESS_ANCHOR_QUERY_EXPECTED_END = "query_expected_end"
@@ -32,10 +41,7 @@ TICK_FUTURE_TOLERANCE_SECONDS = 10.0
 def attach_candle_volume_semantics(payload: Dict[str, Any]) -> None:
     volume_type = str(payload.get("volume_type") or "").strip().lower()
     volume_unit = str(payload.get("volume_unit") or "").strip().lower()
-    if volume_type == "tick_count" or volume_unit in {
-        "broker_tick_count",
-        "mt5_tick_volume",
-    }:
+    if volume_type == "tick_count" or volume_unit in _TICK_VOLUME_UNIT_ALIASES:
         payload["volume_semantics"] = TICK_VOLUME_SEMANTICS
         payload["tick_volume_event_basis"] = TICK_VOLUME_EVENT_BASIS
         payload["tick_volume_tape_equivalent"] = TICK_VOLUME_TAPE_EQUIVALENT
@@ -118,7 +124,7 @@ def build_tick_freshness_context(
     rounded_age = (
         age_rounder(age_seconds)
         if age_rounder is not None
-        else round(age_seconds, 3)
+        else round_age_seconds(age_seconds)
     )
     stale_after: int | float
     if float(threshold).is_integer():

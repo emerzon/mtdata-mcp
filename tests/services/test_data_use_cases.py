@@ -14,6 +14,7 @@ from mtdata.core.data.requests import (
 )
 from mtdata.core.data.use_cases import (
     _attach_forming_indicator_warning,
+    _attach_latest_candle_quote_freshness,
     _compact_tick_row,
     _disclose_in_progress_end_clamp,
     run_data_fetch_candles,
@@ -686,7 +687,7 @@ def test_run_data_fetch_candles_compact_omits_tick_volume_note():
     )
 
     assert result["volume_type"] == "tick_count"
-    assert result["volume_semantics"] == "tick_volume_is_broker_tick_count_not_lots"
+    assert result["volume_semantics"] == "tick_volume_is_bid_update_count_not_lots"
     assert "volume_note" not in result
 
 
@@ -1051,8 +1052,9 @@ def test_run_data_fetch_candles_forming_bar_labels_market_tick_freshness(monkeyp
     assert result["market_tick_age_seconds"] == 5.0
     assert result["forming_bar_update_verified"] is False
     assert "forming-bar update time unverified" in result["freshness"]
-    assert result["data_age_seconds"] == 5.0
-    assert result["data_age_metric"] == "market_tick_age_seconds"
+    assert result["data_age_seconds"] == 900.0
+    assert result["data_age_metric"] == "latest_forming_bar_open_age_seconds"
+    assert result["data_stale"] is True
 
 
 def test_bounded_provider_window_omits_available_count():
@@ -2272,6 +2274,36 @@ def test_full_server_clock_candles_disclose_raw_and_public_modes():
     assert result["timestamp_mode"] == "utc"
     assert result["public_timestamp_mode"] == "utc"
     assert result["raw_timestamp_mode"] == "server_clock"
+
+
+def test_full_server_clock_candles_rename_nested_raw_timestamp_mode():
+    request = DataFetchCandlesRequest(
+        symbol="EURUSD",
+        timeframe="H1",
+        limit=1,
+        detail="full",
+    )
+
+    result = run_data_fetch_candles(
+        request,
+        gateway=SimpleNamespace(ensure_connection=lambda: None),
+        fetch_candles_impl=lambda **_kwargs: {
+            "success": True,
+            "time_basis": "utc",
+            "timestamp_mode": "server_clock",
+            "data": [{"time": "2026-08-13T13:00:00Z", "close": 1.15}],
+            "meta": {
+                "diagnostics": {
+                    "time_normalization": {"timestamp_mode": "server_clock"},
+                }
+            },
+        },
+    )
+
+    nested = result["meta"]["diagnostics"]["time_normalization"]
+    assert result["timestamp_mode"] == "utc"
+    assert nested.get("raw_timestamp_mode") == "server_clock"
+    assert "timestamp_mode" not in nested
 
 
 def test_compact_indicator_candles_disclose_warmup_history() -> None:
@@ -3606,3 +3638,33 @@ def test_data_fetch_ticks_request_rejects_excessive_limit():
 def test_data_fetch_ticks_request_rejects_legacy_detail_values(raw_detail: str):
     with pytest.raises(ValidationError):
         DataFetchTicksRequest(symbol="EURUSD", detail=raw_detail)
+
+
+def test_stale_quote_warning_does_not_claim_history_within_policy(monkeypatch):
+    payload = {
+        "symbol": "EURUSD",
+        "history_policy_ok": False,
+        "data": [{"close": 1.17}],
+        "data_age_seconds": 20_000,
+    }
+    request = DataFetchCandlesRequest(symbol="EURUSD")
+    monkeypatch.setattr(
+        data_use_cases,
+        "resolve_quote_tick",
+        lambda *_args, **_kwargs: (SimpleNamespace(), None),
+    )
+    monkeypatch.setattr(data_use_cases, "tick_epoch", lambda _tick: 1.0)
+    monkeypatch.setattr(
+        data_use_cases,
+        "build_tick_freshness_context",
+        lambda *_args, **_kwargs: {
+            "data_age_seconds": 20_000,
+            "data_stale": True,
+            "freshness_reason": "latest_quote_stale",
+        },
+    )
+
+    _attach_latest_candle_quote_freshness(payload, request=request, gateway=object())
+
+    assert "within policy" not in payload["stale_warning"]
+    assert "outside the freshness policy window" in payload["stale_warning"]

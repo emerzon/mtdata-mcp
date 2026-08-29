@@ -273,7 +273,7 @@ def test_compact_candles_omit_operator_diagnostics() -> None:
         },
     )
 
-    assert result["volume_semantics"] == "tick_volume_is_broker_tick_count_not_lots"
+    assert result["volume_semantics"] == "tick_volume_is_bid_update_count_not_lots"
     for key in (
         "bar_spacing",
         "source_bar_spacing",

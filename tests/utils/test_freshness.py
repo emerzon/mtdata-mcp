@@ -6,6 +6,7 @@ from mtdata.utils.freshness import (
     completed_bar_freshness_fields,
     format_freshness_label,
     is_standard_weekend_closure,
+    round_age_seconds,
 )
 from mtdata.utils.market_metadata import build_tick_freshness_context
 from mtdata.utils.time import bar_close_epoch
@@ -136,6 +137,39 @@ def test_closed_session_context_does_not_relax_very_old_data():
     assert result["assumed_closure_start"] == "2026-06-05T21:00:00Z"
     assert result["assumed_closure_end"] == "2026-06-07T21:00:00Z"
     assert result["assumed_closure_seconds"] == 48 * 60 * 60
+
+
+def test_round_age_seconds_uses_integer_seconds() -> None:
+    assert round_age_seconds(18055.499814987183) == 18055
+    assert round_age_seconds(0.4) == 0
+    assert round_age_seconds(0.5) == 0
+    assert round_age_seconds(0.6) == 1
+
+
+def test_tick_freshness_rounds_age_to_integer_seconds() -> None:
+    result = build_tick_freshness_context(
+        "EURUSD",
+        tick_epoch=1_000.0,
+        now_epoch=1_000.0 + 18055.499814987183,
+    )
+
+    assert result["data_age_seconds"] == 18055
+    assert isinstance(result["data_age_seconds"], int)
+
+
+def test_closed_session_does_not_restore_unrounded_age() -> None:
+    saturday = datetime(2026, 6, 6, 12, tzinfo=timezone.utc).timestamp()
+    friday = datetime(2026, 6, 5, 20, tzinfo=timezone.utc).timestamp() + 0.499814987183
+
+    result = build_tick_freshness_context(
+        "EURUSD",
+        tick_epoch=friday,
+        now_epoch=saturday,
+        stale_after_seconds=300,
+    )
+
+    assert result["data_age_seconds"] == int(round(saturday - friday))
+    assert isinstance(result["data_age_seconds"], int)
 
 
 def test_weekend_tick_keeps_absolute_stale_flag() -> None:

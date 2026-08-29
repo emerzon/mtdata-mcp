@@ -218,9 +218,10 @@ def test_market_status_global_server_timezone_converts_market_times(monkeypatch)
         assert market["next_close"] == "2024-01-02T23:00:00+02:00"
 
 
-def test_market_status_uses_utc_weekend_for_closed_reason(monkeypatch) -> None:
+def test_market_status_uses_venue_local_weekend_for_closed_reason(monkeypatch) -> None:
     raw = _unwrap(market_status_mod.market_status)
-    fixed_utc = datetime(2026, 4, 25, 3, 18, tzinfo=timezone.utc)
+    # Saturday afternoon UTC is Saturday local for US and Europe.
+    fixed_utc = datetime(2026, 4, 25, 16, 0, tzinfo=timezone.utc)
 
     class FixedDateTime(datetime):
         @classmethod
@@ -242,9 +243,9 @@ def test_market_status_uses_utc_weekend_for_closed_reason(monkeypatch) -> None:
     assert result["success"] is True
     assert result["mode"] == "equity_exchanges"
     assert result["market_scope"] == "major_equity_exchanges"
-    assert result["data_fetched_at"] == "2026-04-25T03:18:00Z"
+    assert result["data_fetched_at"] == "2026-04-25T16:00:00Z"
     assert result["global_status"] == "weekend"
-    assert result["closed_reason_counts"] == {"weekend": 9}
+    assert result["closed_reason_counts"]["weekend"] == result["markets_closed"]
     reasons_by_symbol = {
         market["venue"]: market.get("reason") for market in result["markets"]
     }
@@ -1437,3 +1438,23 @@ def test_market_status_summary_includes_all_statuses(monkeypatch):
     assert result["markets_open"] == 0
     assert result["markets_pre_market"] == 5
     assert result["markets_closed"] == 4
+
+
+def test_weekend_reason_uses_venue_local_weekday() -> None:
+    sunday_utc = datetime(2026, 8, 30, 16, 0, tzinfo=timezone.utc)
+    monday_tokyo = datetime(2026, 8, 31, 1, 0, tzinfo=ZoneInfo("Asia/Tokyo"))
+    status = {
+        "status": "closed",
+        "reason": "before_open",
+        "exchange_day_of_week": "Monday",
+    }
+
+    relabeled = market_status_mod._apply_global_weekend_reason(
+        status, now_local=sunday_utc
+    )
+    assert relabeled["reason"] == "weekend"
+
+    kept = market_status_mod._apply_global_weekend_reason(
+        status, now_local=monday_tokyo
+    )
+    assert kept["reason"] == "before_open"
