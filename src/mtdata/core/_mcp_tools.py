@@ -32,6 +32,7 @@ from .output_contract import (
     attach_success_guidance,
     resolve_output_contract,
 )
+from .output_profiles import apply_public_output_profile
 from .request_context import ensure_request_id_scope
 
 _ORIG_TOOL_DECORATOR: Any = None
@@ -1700,6 +1701,11 @@ def shape_public_tool_output(
             public_out,
             detail=contract_state.detail,
         )
+    public_out = apply_public_output_profile(
+        public_out,
+        tool_name=normalized_tool_name,
+        detail=contract_state.detail,
+    )
     if contract_state.detail == "full":
         public_out = attach_success_guidance(
             public_out,

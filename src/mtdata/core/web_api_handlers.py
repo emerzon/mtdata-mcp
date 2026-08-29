@@ -606,11 +606,32 @@ def get_history_response(  # noqa: C901
                 payload["server_utc_offset_seconds"] = server_meta["offset_seconds"]
             if isinstance(server_meta, dict) and server_meta.get("tz"):
                 payload["server_timezone"] = server_meta["tz"]
-    return shape_public_tool_output(
+    shaped = shape_public_tool_output(
         payload,
         detail=shape_detail,
         tool_name="data_fetch_candles",
     )
+    if shape_detail != "full" and isinstance(shaped, dict):
+        # The chart endpoint has a small, stable DTO of its own.  These fields
+        # drive rendering and paging in the Web UI; they are not restored to
+        # generic MCP/CLI candle output.
+        rows = shaped.get("data")
+        if isinstance(rows, list):
+            shaped["count"] = len(rows)
+        for key in (
+            "data_as_of",
+            "data_as_of_basis",
+            "indicator_columns",
+            "indicators_spec",
+            "timestamp_format",
+        ):
+            value = payload.get(key)
+            if value not in (None, "", [], {}):
+                shaped[key] = value
+        forming_status = payload.get("forming_candle_status")
+        if forming_status not in (None, ""):
+            shaped["forming_candle_status"] = forming_status
+    return shaped
 
 
 def get_pivots_response(

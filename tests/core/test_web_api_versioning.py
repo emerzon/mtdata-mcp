@@ -92,11 +92,11 @@ def test_history_available_on_versioned_route() -> None:
     assert body["timestamp_format"] == "iso_utc"
     assert body["server_utc_offset_seconds"] == 7200
     assert body["server_timezone"] == "Europe/Nicosia"
-    assert body["source"] == {
-        "provider": "mt5",
-        "context_available": False,
-    }
-    assert body["latest_quote_stale"] is None
-    assert body["latest_quote_age_seconds"] is None
-    assert body["freshness_reason"] is None
-    assert body["freshness_basis"] is None
+    assert body["source"] == {"provider": "mt5"}
+    for redundant_key in (
+        "latest_quote_stale",
+        "latest_quote_age_seconds",
+        "freshness_reason",
+        "freshness_basis",
+    ):
+        assert redundant_key not in body
