@@ -177,6 +177,11 @@ _REPORT_FORECAST_FIELDS = (
     "forecast_step_seconds",
     "data_window",
     "freshness",
+    "data_stale",
+    "last_observation_stale",
+    "last_price_stale",
+    "market_status",
+    "market_status_reason",
     "last_price",
     "last_price_source",
     "path_flat",
@@ -334,10 +339,34 @@ def parse_table_tail(data: Any, tail: int = 1) -> List[Dict[str, Any]]:
         return []
 
 
+_PUBLIC_CANDLE_FRESHNESS_KEYS = (
+    "data_stale",
+    "last_observation_stale",
+    "last_price_stale",
+    "market_status",
+    "market_status_reason",
+    "history_policy_ok",
+    "freshness_policy_relaxed",
+    "stale_warning",
+    "usable_for_live_trading",
+)
+
+
+def _public_candle_freshness_fields(data: Any) -> Dict[str, Any]:
+    if not isinstance(data, dict):
+        return {}
+    return {
+        key: data[key]
+        for key in _PUBLIC_CANDLE_FRESHNESS_KEYS
+        if data.get(key) not in (None, "", [], {})
+    }
+
+
 def extract_candle_freshness_diagnostics(data: Any) -> Optional[Dict[str, Any]]:
     try:
         if not isinstance(data, dict):
             return None
+        extracted: Optional[Dict[str, Any]] = None
         for container_key in ('meta', 'details'):
             container = data.get(container_key)
             if not isinstance(container, dict):
@@ -347,8 +376,14 @@ def extract_candle_freshness_diagnostics(data: Any) -> Optional[Dict[str, Any]]:
                 continue
             freshness = diagnostics.get('freshness')
             if isinstance(freshness, dict) and freshness:
-                return dict(freshness)
-        return None
+                extracted = dict(freshness)
+                break
+        public = _public_candle_freshness_fields(data)
+        if extracted:
+            for key, value in public.items():
+                extracted.setdefault(key, value)
+            return extracted
+        return public or None
     except Exception:
         return None
 
@@ -357,11 +392,29 @@ def attach_candle_freshness_diagnostics(payload: Dict[str, Any], data: Any) -> D
     try:
         out = dict(payload) if isinstance(payload, dict) else {}
         freshness = out.get('freshness')
-        if isinstance(freshness, dict) and freshness:
-            return out
-        extracted = extract_candle_freshness_diagnostics(data)
+        extracted = (
+            dict(freshness)
+            if isinstance(freshness, dict) and freshness
+            else extract_candle_freshness_diagnostics(data)
+        )
+        if not extracted:
+            public = _public_candle_freshness_fields(data)
+            if public:
+                extracted = public
         if extracted:
             out['freshness'] = extracted
+            if extracted.get('data_stale') is not None:
+                out.setdefault('data_stale', extracted['data_stale'])
+            market_status = extracted.get('market_status') or extracted.get(
+                'market_session_status'
+            )
+            if market_status not in (None, "", [], {}):
+                out.setdefault('market_status', market_status)
+            if extracted.get('market_status_reason') not in (None, "", [], {}):
+                out.setdefault(
+                    'market_status_reason',
+                    extracted['market_status_reason'],
+                )
         return out
     except Exception:
         return dict(payload) if isinstance(payload, dict) else {}

@@ -118,8 +118,8 @@ def _resolve_volume_series(
 def volume_provenance(source: Optional[str]) -> Dict[str, Any]:
     if source == "tick_volume":
         return {
-            "volume_type": "broker_tick_count",
-            "volume_unit": "broker_tick_count",
+            "volume_type": "bid_update_count",
+            "volume_unit": "bid_update_count",
             "volume_event_basis": "mt5_broker_bar_bid_updates",
             "is_volume_proxy": True,
         }
@@ -171,12 +171,14 @@ def _row_confidence_weight(row: Dict[str, Any]) -> float:
     return float(max(0.0, min(1.0, confidence)))
 
 
-def _apply_confidence_delta(row: Dict[str, Any], delta: float) -> None:
+def _apply_confidence_delta(row: Dict[str, Any], delta: float) -> float:
     if not np.isfinite(delta) or abs(float(delta)) <= 1e-12:
-        return
+        return 0.0
     confidence = _row_confidence_weight(row)
     cap = 0.95 if str(row.get("status", "")).lower() == "forming" else 1.0
+    applied = float(max(0.0, min(cap, confidence + float(delta)))) - confidence
     row["confidence"] = float(max(0.0, min(cap, confidence + float(delta))))
+    return applied if abs(applied) > 1e-12 else 0.0
 
 
 def _infer_market_regime(

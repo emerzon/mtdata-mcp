@@ -3819,20 +3819,21 @@ def test_relative_strength_reports_mixed_bar_endpoints_and_alignment_windows() -
     assert alignment["latest_bar_close"]
     assert "earliest" not in alignment
     assert "latest" not in alignment
-    assert alignment["status"] == "incomparable"
-    assert alignment["comparable"] is False
-    assert alignment["lagging_symbols"] == ["GBPUSD"]
-    assert result["status"] == "incomparable"
-    assert result["rank_quality"] == "incomparable_endpoints"
-    assert result["returned_count"] == 0
-    assert result["leaders"] == []
-    assert result["laggards"] == []
-    assert result["rankings"] == []
-    assert result["breadth"]["status"] == "withheld_incomparable_endpoints"
-    assert result["data_quality"]["ranked_symbols"] == 0
-    assert result["data_quality"]["scored_symbols"] == 3
-    assert result["warnings"]
-    assert "no ranking was returned" in result["warnings"][0]
+    assert alignment["cohort_policy"] == "dominant_latest_endpoint_aligned_cohort"
+    assert alignment["comparable"] is True
+    assert alignment["excluded_symbols"] == [
+        {
+            "symbol": "GBPUSD",
+            "bar_close": alignment["excluded_symbols"][0]["bar_close"],
+            "reason": "outside dominant endpoint-aligned cohort",
+        }
+    ]
+    assert result["status"] == "ranked"
+    assert result["returned_count"] == 2
+    assert "GBPUSD" not in {
+        row["symbol"] for row in [*result["leaders"], *result["laggards"]]
+    }
+    assert result["data_quality"]["scored_symbols"] == 2
 
 
 def test_relative_strength_rejects_one_symbol_before_fetching_history() -> None:

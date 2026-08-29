@@ -353,9 +353,7 @@ def test_seasonality_detect_finds_known_period(monkeypatch):
         min_period=4,
         max_period=30,
     )
-    assert result["score_formula"].startswith(
-        "0.55*clip(acf,0,1) + 0.45*spectral_strength"
-    )
+    assert result["score_formula"].startswith("0.55*max(0, acf - 1/sqrt(n))")
 
     assert result["success"] is True
     assert result["analysis_window"]["bars_used"] == len(frame)
@@ -550,7 +548,7 @@ def test_outliers_detect_flags_price_and_volume_spike(monkeypatch):
     assert any("volume" in row["fields"] for row in result["items"])
     assert result["volume_source"] == "tick_volume"
     assert result["volume_type"] == "tick_count"
-    assert result["units"]["volume"] == "broker_tick_count"
+    assert result["units"]["volume"] == "bid_update_count"
     assert "robust MAD" in result["score_meaning"]
     assert result["units"]["score"] == "robust_mad_deviation"
     assert any(row.get("volume") == 5000.0 for row in result["items"])
@@ -611,6 +609,36 @@ def test_outliers_detect_compact_default_returns_top_ten(monkeypatch):
         (row["score"] for row in result["items"]),
         reverse=True,
     )
+
+
+def test_outliers_detect_marks_weekend_gap_bars(monkeypatch):
+    close = np.linspace(100.0, 101.0, 40)
+    close[20] = 104.0
+    frame = _bars(close)
+    friday = datetime(2026, 8, 14, 20, tzinfo=timezone.utc).timestamp()
+    sunday_open = datetime(2026, 8, 16, 21, tzinfo=timezone.utc).timestamp()
+    times = [friday + index * 3600 for index in range(20)]
+    times.extend(sunday_open + index * 3600 for index in range(20))
+    frame["time"] = np.asarray(times, dtype=float)
+    monkeypatch.setattr(diagnostics, "create_mt5_gateway", lambda **kwargs: _Gateway())
+    monkeypatch.setattr(
+        diagnostics,
+        "_fetch_diagnostic_bars",
+        lambda *args, **kwargs: (frame, None),
+    )
+
+    result = _raw(diagnostics.outliers_detect)(
+        symbol="EURUSD",
+        timeframe="H1",
+        score_fields="return",
+        threshold=3.0,
+        limit=20,
+    )
+
+    gap_rows = [row for row in result["items"] if row.get("session_gap") is True]
+    assert gap_rows
+    assert result["session_gap_outliers"] >= 1
+    assert any("session gap" in warning.lower() for warning in result["warnings"])
 
 
 def test_outliers_detect_zscore_is_not_labeled_robust(monkeypatch):
@@ -751,10 +779,36 @@ def test_volatility_term_structure_suppresses_tiny_sample_percentiles(monkeypatc
 
     item = result["items"][0]
     assert item["samples"] == 1
+    assert item["effective_samples"] == 1
     assert item["sample_sufficiency"] == "insufficient"
     assert item["percentile_rank"] is None
     assert item["cone"] is None
     assert result["low_sample_horizons"] == [29]
+
+
+def test_volatility_cone_gates_on_effective_independent_samples(monkeypatch):
+    rng = np.random.default_rng(17)
+    close = 100.0 * np.exp(np.cumsum(rng.normal(0.0, 0.01, 80)))
+    frame = _bars(close)
+    monkeypatch.setattr(diagnostics, "create_mt5_gateway", lambda **kwargs: _Gateway())
+    monkeypatch.setattr(
+        diagnostics,
+        "_fetch_diagnostic_bars",
+        lambda *args, **kwargs: (frame, None),
+    )
+
+    result = _raw(diagnostics.volatility_term_structure)(
+        symbol="TEST",
+        lookback=80,
+        horizons="60",
+    )
+
+    item = result["items"][0]
+    assert item["samples"] >= 20
+    assert item["effective_samples"] == 80 // 60
+    assert item["sample_sufficiency"] == "insufficient"
+    assert item["percentile_rank"] is None
+    assert item["cone"] is None
 
 
 def test_phillips_perron_insufficient_sample_is_excluded(monkeypatch):
@@ -830,6 +884,53 @@ def test_phillips_perron_twenty_effective_samples_can_vote(monkeypatch):
 def test_seasonality_quality_follows_composite_score():
     assert diagnostics._seasonality_signal_quality(0.08, 0.15, 0.0) == "weak"
     assert diagnostics._seasonality_signal_quality(0.12) == "moderate"
+
+
+def test_seasonality_quality_does_not_inflate_on_short_samples():
+    short_n = 31
+    bins = short_n // 2
+    raw_share = 0.29
+    score = diagnostics._seasonality_normalized_score(
+        -0.05,
+        raw_share,
+        samples=short_n,
+        positive_frequency_bins=bins,
+    )
+    assert score < 0.45 * raw_share
+    assert (
+        diagnostics._seasonality_signal_quality(
+            0.12,
+            -0.05,
+            raw_share,
+            samples=short_n,
+        )
+        == "weak"
+    )
+
+
+def test_seasonality_detect_short_lookback_stays_weak(monkeypatch):
+    rng = np.random.default_rng(3)
+    frame = _bars(100.0 + rng.normal(size=50))
+    monkeypatch.setattr(diagnostics, "create_mt5_gateway", lambda **kwargs: _Gateway())
+    monkeypatch.setattr(
+        diagnostics,
+        "_fetch_diagnostic_bars",
+        lambda *args, **kwargs: (frame, None),
+    )
+
+    result = _raw(diagnostics.seasonality_detect)(
+        symbol="TEST",
+        target="close",
+        lookback=50,
+        min_period=2,
+        min_cycles=2,
+    )
+
+    assert result["success"] is True
+    assert result["samples"] < 100
+    assert result["signal_quality"] in {"very_weak", "weak"}
+    assert result["detection_status"] == "not_detected"
+    assert result["small_sample"] is True
 
 
 def test_volatility_term_structure_rejects_empty_percentiles(monkeypatch):

@@ -91,7 +91,8 @@ def test_confluence_compact_omits_verbose_source_narration():
     assert "source_labels" not in cluster
     assert "sources" not in cluster
     assert "score_components" not in cluster
-    assert cluster["source_count"] == 3
+    assert cluster["source_count"] == 2
+    assert cluster["record_count"] == 3
     assert payload["tolerance"]["pct"] == 0.1
     assert "fraction" not in payload["tolerance"]
     assert "detail" not in payload
@@ -321,3 +322,66 @@ def test_confluence_reference_inside_nonzero_width_cluster_is_inside():
     assert cluster["distance_pct"] == 0.0
     assert cluster["centroid_distance_pct"] != 0.0
     assert payload["level_coverage"]["inside"] >= 1
+
+
+def test_confluence_source_count_is_family_count_not_record_count():
+    payload = build_level_confluence_payload(
+        symbol="EURUSD",
+        pivot_timeframe="D1",
+        sr_timeframe="H1",
+        reference_price=1.08,
+        tolerance_pct=0.2,
+        pivot_methods=[
+            {
+                "method": "classic",
+                "levels": {"R1": 1.0801, "R2": 1.0802, "R3": 1.0803},
+                "pivot": 1.08,
+            }
+        ],
+        support_resistance_payload={
+            "levels": [{"type": "support", "value": 1.08015, "score": 4, "touches": 2}]
+        },
+        min_source_families=1,
+        detail="compact",
+    )
+
+    cluster = payload["levels"][0]
+    assert cluster["source_families"] == ["pivot_formula", "touch_derived"]
+    assert cluster["source_count"] == 2
+    assert cluster["record_count"] >= 2
+    assert cluster["record_count"] != cluster["source_count"]
+
+
+def test_identical_pivot_formula_prices_are_deduped_before_scoring():
+    payload = build_level_confluence_payload(
+        symbol="EURUSD",
+        pivot_timeframe="D1",
+        sr_timeframe="H1",
+        reference_price=1.16000,
+        tolerance_pct=0.1,
+        pivot_methods=[
+            {"method": "classic", "levels": {"R2": 1.16862}},
+            {"method": "fibonacci", "levels": {"R3": 1.16862}},
+            {"method": "camarilla", "levels": {"PP": 1.16000, "R1": 1.16870}},
+        ],
+        support_resistance_payload={"levels": []},
+        min_source_families=1,
+        detail="full",
+    )
+
+    cluster = next(
+        item
+        for item in payload["levels"]
+        if item["range"]["low"] <= 1.16862 <= item["range"]["high"]
+    )
+    pivot_sources = [
+        source for source in cluster["sources"] if source.get("family") == "pivot_formula"
+    ]
+    pivot_prices = {round(float(source["price"]), 10) for source in pivot_sources}
+    assert 1.16862 in pivot_prices
+    assert len(pivot_sources) == len(pivot_prices)
+    assert not any(
+        source.get("method") == "camarilla" and source.get("label") == "Camarilla PP"
+        for source in cluster["sources"]
+    )
+    assert cluster["score_components"]["independent_pivot_prices"] == len(pivot_prices)

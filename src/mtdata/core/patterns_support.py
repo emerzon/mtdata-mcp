@@ -1658,11 +1658,12 @@ def _attach_regime_context(
         payload["status"] = "not_directional"
 
     if abs(confidence_delta) > 1e-12:
-        payload[
-            "confidence_delta" if adjust_confidence else "context_score_delta"
-        ] = _round_value(confidence_delta)
         if adjust_confidence:
-            _apply_confidence_delta(out, confidence_delta)
+            applied = _apply_confidence_delta(out, confidence_delta)
+            if abs(applied) > 1e-12:
+                payload["confidence_delta"] = _round_value(applied)
+        else:
+            payload["context_score_delta"] = _round_value(confidence_delta)
 
     details["regime_context"] = payload
     out["details"] = details
@@ -1753,8 +1754,9 @@ def _attach_classic_volume_confirmation(
         confidence_delta = 0.0
 
     if abs(confidence_delta) > 1e-12:
-        payload["confidence_delta"] = _round_value(confidence_delta)
-        _apply_confidence_delta(out, confidence_delta)
+        applied = _apply_confidence_delta(out, confidence_delta)
+        if abs(applied) > 1e-12:
+            payload["confidence_delta"] = _round_value(applied)
 
     details["volume_confirmation"] = payload
     out["details"] = details
@@ -1878,8 +1880,9 @@ def _attach_elliott_volume_confirmation(
     )
 
     if abs(confidence_delta) > 1e-12:
-        payload["confidence_delta"] = _round_value(confidence_delta)
-        _apply_confidence_delta(out, confidence_delta)
+        applied = _apply_confidence_delta(out, confidence_delta)
+        if abs(applied) > 1e-12:
+            payload["confidence_delta"] = _round_value(applied)
 
     details["volume_confirmation"] = payload
     out["details"] = details

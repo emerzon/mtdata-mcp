@@ -81,6 +81,25 @@ def test_collect_warnings_flags_zero_resistance_levels():
     assert "no_resistance_levels" in codes
 
 
+def test_support_resistance_warning_list_normalizes_mixed_types() -> None:
+    from mtdata.core.pivot import _normalize_warning_list
+
+    warnings = _normalize_warning_list(
+        [
+            {"code": "no_support_levels", "message": "No support levels qualified."},
+            "The latest quote was not usable for live trading, so distances "
+            "and nearest-level ordering use the latest completed bar close.",
+        ]
+    )
+
+    assert all(isinstance(item, dict) for item in warnings)
+    assert [item["code"] for item in warnings] == [
+        "no_support_levels",
+        "warning",
+    ]
+    assert [item["message"] for item in warnings][1].startswith("The latest quote")
+
+
 def test_collect_warnings_silent_when_both_sides_present():
     warnings = _collect_support_resistance_warnings(
         fibonacci={},
@@ -1245,3 +1264,69 @@ def test_merge_support_resistance_recomputes_fibonacci_against_merged_current_pr
     assert fibonacci["swing"]["current_price_position"] == "above_swing_high"
     assert fibonacci["nearest"]["resistance"]["value"] > merged["current_price"]
     assert any(warning.get("code") == "fibonacci_price_above_swing_high" for warning in merged["warnings"])
+
+
+def test_empty_side_remediation_names_real_parameters() -> None:
+    warnings = _collect_support_resistance_warnings(
+        fibonacci={},
+        support_count=0,
+        resistance_count=2,
+    )
+    message = next(item["message"] for item in warnings if item.get("code") == "no_support_levels")
+    assert "limit" not in message
+    assert "lookback" in message
+    assert "min_touches" in message
+    assert "start/end" in message
+
+    compact = compact_support_resistance_payload(
+        {
+            "success": True,
+            "supports": [],
+            "resistances": [{"type": "resistance", "value": 1.2}],
+        }
+    )
+    note = compact["level_scan_note"]
+    assert "limit" not in note
+    assert "lookback" in note
+    assert "min_touches" in note
+    assert "start/end" in note
+
+
+def test_capped_support_zone_keeps_window_low_and_recomputes_touches() -> None:
+    cluster = {
+        "value": 1.1587,
+        "touches": 3,
+        "episodes": 2,
+        "support_episodes": 2,
+        "resistance_episodes": 0,
+        "support_tests": 3,
+        "resistance_tests": 0,
+        "zone_low": 1.15701,
+        "zone_high": 1.1700,
+        "zone_width_atr": 20.0,
+        "score": 2.0,
+        "score_base": 2.0,
+        "retest_score": 1.0,
+        "bounce_score": 1.0,
+        "adx_score": 0.0,
+        "status": "intact",
+        "tests": [
+            {"type": "support", "value": 1.15701, "index": 0},
+            {"type": "support", "value": 1.15720, "index": 1},
+            {"type": "support", "value": 1.15870, "index": 2},
+        ],
+    }
+
+    level = _format_level(
+        cluster,
+        current_price=1.1680,
+        tolerance_fraction=0.001,
+        window_low=1.15701,
+        window_high=1.1710,
+    )
+
+    assert level["zone_width_capped"] is True
+    assert level["zone_low"] == pytest.approx(1.15701)
+    assert level["zone_low"] <= 1.15701 + 1e-12
+    assert level["touches"] == 2
+    assert cluster["touches"] == 2

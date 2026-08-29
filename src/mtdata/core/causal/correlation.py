@@ -32,10 +32,13 @@ from mtdata.core.causal.common import (
     _normalize_output_limit,
     _normalize_output_offset,
     _normalize_transform_name,
+    _pair_alignment_diagnostics,
+    _pair_alignment_warning,
     _pair_transform_guidance,
     _pairwise_analysis_context,
     _parse_symbol_request,
     _partial_symbol_fetch_error,
+    _public_alignment_diagnostics,
     _public_pair_row,
     _symbol_fetch_data_quality,
     _transform_aligned_pair,
@@ -838,6 +841,18 @@ def correlation_matrix(  # noqa: C901
                 "Correlation confidence intervals are suppressed for price-level transforms; "
                 "use log_return, pct, or diff for inferential correlation analysis."
             )
+        alignment_diagnostics = _pair_alignment_diagnostics(
+            transformed_rows,
+            pair_overlaps,
+            symbols_used,
+        )
+        pair_alignment_warning = _pair_alignment_warning(alignment_diagnostics)
+        if pair_alignment_warning:
+            warnings_out.append(pair_alignment_warning)
+        context["alignment_diagnostics"] = _public_alignment_diagnostics(
+            alignment_diagnostics,
+            detail=detail_mode,
+        )
         alignment_context, alignment_warning = _pairwise_period_alignment(
             rows,
             timeframe=timeframe,

@@ -194,8 +194,8 @@ class TestEnrichClassicPatterns:
         assert enriched[0]["confidence"] == pytest.approx(0.7)
         assert volume_confirmation["status"] == "confirmed"
         assert volume_confirmation["volume_source"] == "tick_volume"
-        assert volume_confirmation["volume_type"] == "broker_tick_count"
-        assert volume_confirmation["volume_unit"] == "broker_tick_count"
+        assert volume_confirmation["volume_type"] == "bid_update_count"
+        assert volume_confirmation["volume_unit"] == "bid_update_count"
         assert volume_confirmation["volume_event_basis"] == (
             "mt5_broker_bar_bid_updates"
         )

@@ -24,6 +24,10 @@ from ..shared.validators import (
     unsupported_timeframe_seconds_error,
 )
 from ..utils.coercion import safe_float as _safe_float
+from ..utils.freshness import (
+    COMPLETED_BAR_FRESHNESS_KEYS,
+    completed_bar_freshness_fields,
+)
 from ..utils.mt5 import (
     MT5ConnectionError,
     _mt5_copy_rates_from,
@@ -44,6 +48,7 @@ from ..utils.time import (
     _broker_calendar_timezone,
     _format_datetime_minute_explicit,
     _resolve_client_tz,
+    format_epoch_utc,
     timezone_label,
 )
 from ..utils.utils import (
@@ -380,12 +385,39 @@ def _rounded_temporal_float(value: Any, *, digits: int = 6) -> Optional[float]:
     return round(float(number), digits)
 
 
+_WEEKEND_GAP_SECONDS = 24 * 3600
+
+
+def _session_gap_mask(
+    epochs: pd.Series,
+    timeframe: str,
+    *,
+    min_gap_seconds: Optional[float] = None,
+) -> pd.Series:
+    expected = TIMEFRAME_SECONDS.get(str(timeframe or "").strip().upper())
+    if not expected:
+        return pd.Series(False, index=epochs.index)
+    delta = pd.to_numeric(epochs, errors="coerce").diff()
+    threshold = float(expected) * 1.5
+    if min_gap_seconds is not None:
+        threshold = max(threshold, float(min_gap_seconds))
+    return delta > threshold
+
+
 def _stats_for_group(df: pd.DataFrame, volume_col: Optional[str]) -> Dict[str, Any]:
     out: Dict[str, Any] = {
         "bars": int(len(df)),
     }
     ret = pd.to_numeric(df.get("__return"), errors="coerce")
-    ret = ret[pd.notna(ret)]
+    gap = (
+        df["__session_gap"].fillna(False).astype(bool)
+        if "__session_gap" in df.columns
+        else pd.Series(False, index=df.index)
+    )
+    gap_count = int((gap & ret.notna()).sum())
+    if gap_count:
+        out["session_gap_observations"] = gap_count
+    ret = ret[ret.notna() & ~gap]
     n = int(ret.shape[0])
     out["return_observations"] = n
     if n > 0:
@@ -489,6 +521,7 @@ def _compact_temporal_stats(
         "partial_period_instances",
         "partial_bucket",
         "minimum_period_instances",
+        "session_gap_observations",
     )
     if include_group and row.get("group") is not None:
         keys = ("group", *keys)
@@ -629,7 +662,8 @@ def _temporal_sample_warnings(groups: Any) -> Dict[str, Any]:
     if not rows:
         return {}
     shown = rows[:_TEMPORAL_SAMPLE_WARNING_LIMIT]
-    return {
+    omitted = max(0, len(rows) - len(shown))
+    out = {
         "sample_warnings": shown,
         "sample_warning_count": len(rows),
         "sample_notice": (
@@ -638,6 +672,9 @@ def _temporal_sample_warnings(groups: Any) -> Dict[str, Any]:
             "filtering."
         ),
     }
+    if omitted:
+        out["sample_warnings_omitted"] = omitted
+    return out
 
 
 def _temporal_group_count(groups: Any) -> int:
@@ -710,6 +747,18 @@ def _base_temporal_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
             "analysis_status",
             "message",
             "pagination",
+            "as_of",
+            "data_as_of",
+            "data_age_seconds",
+            "data_stale",
+            "stale_after_seconds",
+            "freshness",
+            "freshness_basis",
+            "market_status",
+            "market_status_reason",
+            "history_policy_ok",
+            "stale_warning",
+            "note",
         )
         if key in payload
     }
@@ -814,6 +863,7 @@ def _compact_temporal_payload(
         "excluded_groups",
         "sample_warnings",
         "sample_warning_count",
+        "sample_warnings_omitted",
         "sample_notice",
     ):
         value = payload.get(key)
@@ -851,6 +901,15 @@ def _summary_temporal_payload(
             "groups_analyzed",
             "groups_excluded",
             "min_bars_applied",
+            "as_of",
+            "data_as_of",
+            "data_age_seconds",
+            "data_stale",
+            "freshness",
+            "market_status",
+            "market_status_reason",
+            "stale_warning",
+            "note",
         )
         if key in compact
     }
@@ -886,6 +945,7 @@ def _summary_temporal_payload(
         "excluded_groups",
         "sample_warnings",
         "sample_warning_count",
+        "sample_warnings_omitted",
         "sample_notice",
     ):
         value = payload.get(key)
@@ -1473,6 +1533,15 @@ def temporal_analyze(  # noqa: C901
             else:
                 ret = ((close / denominator) - 1.0) * 100.0
             df["__return"] = ret
+            df["__session_gap"] = False
+            if return_basis_value != "bar_open":
+                df["__session_gap"] = _session_gap_mask(
+                    df["__epoch"],
+                    timeframe,
+                    min_gap_seconds=_WEEKEND_GAP_SECONDS,
+                )
+                if bool(df["__session_gap"].any()):
+                    session_gap_policy = "excluded_from_group_return_statistics"
 
             if "high" in df.columns and "low" in df.columns:
                 high = pd.to_numeric(df["high"], errors="coerce").astype(float)
@@ -1882,6 +1951,23 @@ def temporal_analyze(  # noqa: C901
                         "Sparse temporal groups below min_bars were excluded from "
                         "grouped results and overall statistics."
                     )
+            now_epoch = datetime.now(dt_timezone.utc).timestamp()
+            as_of = format_epoch_utc(now_epoch)
+            if as_of:
+                payload["as_of"] = as_of
+            freshness = completed_bar_freshness_fields(
+                resolved_symbol,
+                timeframe,
+                end_epoch,
+                now_epoch=now_epoch,
+                item="bar",
+            )
+            for key in COMPLETED_BAR_FRESHNESS_KEYS:
+                if key in freshness:
+                    payload[key] = freshness[key]
+            stale_warning = freshness.get("stale_warning")
+            if stale_warning and stale_warning not in payload_warnings:
+                payload_warnings.append(stale_warning)
             if payload_warnings:
                 payload["warnings"] = payload_warnings
             if grouped_dimensions:

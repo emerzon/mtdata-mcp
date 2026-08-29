@@ -132,3 +132,48 @@ def test_compact_temporal_payload_group_by_all_keeps_sample_warnings() -> None:
     assert result["sample_warnings"][0]["group_label"] == "08:00"
     assert result["sample_warnings"][0]["dimension"] == "hour"
     assert "sample_notice" in result
+    assert "sample_warnings_omitted" not in result
+
+
+def test_temporal_sample_warnings_report_omitted_count() -> None:
+    from mtdata.core.temporal import _temporal_sample_warnings
+
+    warnings = _temporal_sample_warnings(
+        [
+            {
+                "group": hour,
+                "group_label": f"{hour:02d}:00",
+                "bars": 4,
+            }
+            for hour in range(24)
+        ]
+    )
+
+    assert warnings["sample_warning_count"] == 24
+    assert len(warnings["sample_warnings"]) == 10
+    assert warnings["sample_warnings_omitted"] == 14
+
+
+def test_compact_temporal_payload_keeps_freshness_block() -> None:
+    result = _compact_temporal_payload(
+        {
+            "success": True,
+            "symbol": "EURUSD",
+            "timeframe": "H1",
+            "group_by": "dow",
+            "as_of": "2026-08-29T02:00:00Z",
+            "data_as_of": "2026-08-28T21:00:00Z",
+            "data_age_seconds": 18000,
+            "data_stale": True,
+            "market_status": "closed",
+            "market_status_reason": "weekend",
+            "stale_warning": "Latest completed bar is outside the freshness policy window.",
+            "groups": [],
+        }
+    )
+
+    assert result["as_of"] == "2026-08-29T02:00:00Z"
+    assert result["data_stale"] is True
+    assert result["market_status"] == "closed"
+    assert result["market_status_reason"] == "weekend"
+    assert result["stale_warning"]

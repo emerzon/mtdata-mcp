@@ -203,3 +203,24 @@ class TestApplyConfidenceDeltaFormingCap(TestCase):
         row = {"confidence": 0.90, "status": "completed"}
         _apply_confidence_delta(row, 0.20)
         assert row["confidence"] == 1.0
+
+    def test_saturated_confidence_reports_zero_applied_delta(self):
+        from mtdata.patterns.enrichment import _apply_confidence_delta
+
+        row = {"confidence": 1.0, "status": "closed"}
+        applied = _apply_confidence_delta(row, 0.08)
+        assert applied == 0.0
+        assert row["confidence"] == 1.0
+
+        forming = {"confidence": 0.95, "status": "forming"}
+        applied_forming = _apply_confidence_delta(forming, 0.10)
+        assert applied_forming == 0.0
+        assert forming["confidence"] == 0.95
+
+    def test_partial_headroom_reports_only_applied_delta(self):
+        from mtdata.patterns.enrichment import _apply_confidence_delta
+
+        row = {"confidence": 0.97, "status": "closed"}
+        applied = _apply_confidence_delta(row, 0.08)
+        assert abs(applied - 0.03) < 1e-12
+        assert row["confidence"] == 1.0

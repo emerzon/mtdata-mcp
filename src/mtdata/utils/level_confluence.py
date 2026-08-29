@@ -119,6 +119,12 @@ def _normalize_pivot_records(
             ):
                 continue
             label = str(level_name)
+            if (
+                method == "camarilla"
+                and label.upper() == "PP"
+                and abs(price - float(reference_price)) <= max(abs(float(reference_price)) * 1e-10, 1e-12)
+            ):
+                continue
             records.append(
                 {
                     "source_family": "pivot_formula",
@@ -138,7 +144,22 @@ def _normalize_pivot_records(
                     ),
                 }
             )
-    return records
+    return _dedupe_pivot_formula_records(records)
+
+
+def _dedupe_pivot_formula_records(records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    seen: set[float] = set()
+    unique: List[Dict[str, Any]] = []
+    for record in records:
+        price = _as_float(record.get("price"))
+        if price is None:
+            continue
+        key = round(float(price), 10)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(record)
+    return unique
 
 
 def _normalize_support_resistance_records(
@@ -488,7 +509,8 @@ def _format_cluster(
         "role": _role_for_zone(low, high, reference_price),
         "score": score,
         "source_families": families,
-        "source_count": len(records),
+        "source_count": len(families),
+        "record_count": len(records),
         "distance_pct": _round_metric(_zone_distance_pct(low, high, reference_price)),
         "centroid_distance_pct": _round_metric(_distance_pct(price, reference_price)),
         "centroid_role": _role_for_price(price, reference_price),

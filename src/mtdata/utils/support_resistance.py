@@ -38,6 +38,9 @@ _DEFAULT_BREAKOUT_PENALTY_ATR_MULT = 0.25
 _DEFAULT_ROLE_REVERSAL_BONUS = 0.65
 _DEFAULT_MTF_DEDUPE_FACTOR = 0.35
 _DEFAULT_MTF_CONFIRMATION_BONUS = 0.2
+_EMPTY_SIDE_REMEDIATION = (
+    "Increase lookback, widen the start/end window, or lower min_touches"
+)
 _DEFAULT_STRUCTURE_GAP_WARNING_PCT = 12.0
 _FIBONACCI_RETRACEMENTS = (0.236, 0.382, 0.5, 0.618, 0.786)
 _FIBONACCI_EXTENSIONS = (1.272, 1.618)
@@ -785,10 +788,47 @@ def _cluster_atr_avg(cluster: Dict[str, Any]) -> Optional[float]:
     return None
 
 
+def _recompute_touches_after_zone_cap(
+    cluster: Dict[str, Any],
+    *,
+    zone_low: Optional[float],
+    zone_high: Optional[float],
+) -> None:
+    if zone_low is None or zone_high is None:
+        return
+    tests = cluster.get("tests")
+    if not isinstance(tests, list) or not tests:
+        return
+    in_zone: List[Dict[str, Any]] = []
+    support_tests = 0
+    resistance_tests = 0
+    for test in tests:
+        if not isinstance(test, dict):
+            continue
+        price = _as_finite_float(test.get("value"))
+        if price is None:
+            continue
+        if float(zone_low) - 1e-12 <= price <= float(zone_high) + 1e-12:
+            in_zone.append(test)
+            if str(test.get("type") or "") == "support":
+                support_tests += 1
+            elif str(test.get("type") or "") == "resistance":
+                resistance_tests += 1
+    cluster["touches"] = len(in_zone)
+    cluster["support_tests"] = support_tests
+    cluster["resistance_tests"] = resistance_tests
+    if in_zone:
+        prices = [float(test["value"]) for test in in_zone]
+        cluster["touch_min"] = min(prices)
+        cluster["touch_max"] = max(prices)
+
+
 def _resolve_zone(
     cluster: Dict[str, Any],
     *,
     tolerance_fraction: float,
+    window_low: Optional[float] = None,
+    window_high: Optional[float] = None,
 ) -> Dict[str, Any]:
     raw_value = cluster.get("value")
     if raw_value is None:
@@ -803,15 +843,43 @@ def _resolve_zone(
         low: float,
         high: float,
         atr_avg: Optional[float],
+        *,
+        window_low: Optional[float] = None,
+        window_high: Optional[float] = None,
     ) -> Dict[str, Any]:
         capped = False
         if atr_avg is not None and atr_avg > 0.0:
             max_width = float(atr_avg) * _MAX_ZONE_WIDTH_ATR
             if high - low > max_width:
+                orig_low, orig_high = low, high
                 half_width = max_width * 0.5
                 low = value - half_width
                 high = value + half_width
                 capped = True
+                covers_window_low = (
+                    window_low is not None and orig_low <= float(window_low) + 1e-12
+                )
+                covers_window_high = (
+                    window_high is not None and orig_high >= float(window_high) - 1e-12
+                )
+                nearer_low = False
+                if covers_window_low and window_low is not None:
+                    if not covers_window_high or window_high is None:
+                        nearer_low = True
+                    else:
+                        nearer_low = abs(value - float(window_low)) <= abs(
+                            value - float(window_high)
+                        )
+                if nearer_low and window_low is not None and low > float(window_low):
+                    low = float(window_low)
+                    high = low + max_width
+                elif (
+                    covers_window_high
+                    and window_high is not None
+                    and high < float(window_high)
+                ):
+                    high = float(window_high)
+                    low = high - max_width
         width = max(0.0, high - low)
         return {
             "zone_low": low,
@@ -833,7 +901,13 @@ def _resolve_zone(
             low = float(zone_low)
             high = float(zone_high)
             if math.isfinite(low) and math.isfinite(high) and high >= low:
-                return _bounded_zone(low, high, _cluster_atr_avg(cluster))
+                return _bounded_zone(
+                    low,
+                    high,
+                    _cluster_atr_avg(cluster),
+                    window_low=window_low,
+                    window_high=window_high,
+                )
     except Exception:
         pass
 
@@ -852,7 +926,13 @@ def _resolve_zone(
     touch_max = float(cluster.get("touch_max", value))
     zone_low = min(touch_min, value - half_width)
     zone_high = max(touch_max, value + half_width)
-    return _bounded_zone(zone_low, zone_high, atr_avg)
+    return _bounded_zone(
+        zone_low,
+        zone_high,
+        atr_avg,
+        window_low=window_low,
+        window_high=window_high,
+    )
 
 
 def _analyze_cluster_state(
@@ -861,14 +941,27 @@ def _analyze_cluster_state(
     closes: np.ndarray,
     epochs: List[Optional[float]],
     tolerance_fraction: float,
+    window_low: Optional[float] = None,
+    window_high: Optional[float] = None,
 ) -> None:
     dominant_source = _dominant_source(cluster)
-    zone = _resolve_zone(cluster, tolerance_fraction=tolerance_fraction)
+    zone = _resolve_zone(
+        cluster,
+        tolerance_fraction=tolerance_fraction,
+        window_low=window_low,
+        window_high=window_high,
+    )
     cluster["zone_low"] = zone["zone_low"]
     cluster["zone_high"] = zone["zone_high"]
     cluster["zone_width"] = zone["zone_width"]
     cluster["zone_width_atr"] = zone["zone_width_atr"]
     cluster["zone_width_capped"] = bool(zone["zone_width_capped"])
+    if zone["zone_width_capped"]:
+        _recompute_touches_after_zone_cap(
+            cluster,
+            zone_low=zone["zone_low"],
+            zone_high=zone["zone_high"],
+        )
 
     cluster["decisive_break_count"] = 0
     cluster["avg_breach_atr"] = None
@@ -977,9 +1070,22 @@ def _format_level(
     *,
     current_price: Optional[float],
     tolerance_fraction: float,
+    window_low: Optional[float] = None,
+    window_high: Optional[float] = None,
 ) -> Dict[str, Any]:
     value = float(cluster["value"])
-    zone = _resolve_zone(cluster, tolerance_fraction=tolerance_fraction)
+    zone = _resolve_zone(
+        cluster,
+        tolerance_fraction=tolerance_fraction,
+        window_low=window_low,
+        window_high=window_high,
+    )
+    if zone["zone_width_capped"]:
+        _recompute_touches_after_zone_cap(
+            cluster,
+            zone_low=zone["zone_low"],
+            zone_high=zone["zone_high"],
+        )
     dominant_source = _dominant_source(cluster)
     level_type = dominant_source if dominant_source in {"support", "resistance"} else "support"
     distance = None
@@ -1701,7 +1807,7 @@ def _collect_support_resistance_warnings(
                 "message": (
                     "No support levels qualified in the lookback window; price is "
                     "likely near a recent low so most structure sits above it. "
-                    "Increase limit/lookback or max_distance_pct to surface deeper supports."
+                    f"{_EMPTY_SIDE_REMEDIATION} to surface deeper supports."
                 ),
             }
         )
@@ -1712,7 +1818,7 @@ def _collect_support_resistance_warnings(
                 "message": (
                     "No resistance levels qualified in the lookback window; price is "
                     "likely near a recent high so most structure sits below it. "
-                    "Increase limit/lookback or max_distance_pct to surface higher resistances."
+                    f"{_EMPTY_SIDE_REMEDIATION} to surface higher resistances."
                 ),
             }
         )
@@ -2682,7 +2788,7 @@ def compact_support_resistance_payload(payload: Dict[str, Any]) -> Dict[str, Any
                     "No "
                     + "/".join(missing_sides)
                     + " levels qualified inside the scan filters. "
-                    "Try a wider max_distance_pct, lower min_touches, or higher lookback."
+                    "Try a wider start/end window, lower min_touches, or higher lookback."
                 )
 
     window = payload.get("window")
@@ -2880,6 +2986,10 @@ def compute_support_resistance_levels(
     highs = _to_numeric_array(frame, "high")
     lows = _to_numeric_array(frame, "low")
     closes = _to_numeric_array(frame, "close")
+    finite_lows = lows[np.isfinite(lows)]
+    finite_highs = highs[np.isfinite(highs)]
+    window_low = float(np.min(finite_lows)) if finite_lows.size else None
+    window_high = float(np.max(finite_highs)) if finite_highs.size else None
     volume_values, volume_source, volume_baseline = _resolve_volume_series(
         frame,
         volume_weighting=volume_weighting_mode,
@@ -2927,6 +3037,8 @@ def compute_support_resistance_levels(
             closes=closes,
             epochs=epochs,
             tolerance_fraction=effective_tolerance_value,
+            window_low=window_low,
+            window_high=window_high,
         )
     usable_clusters = [cluster for cluster in clusters if int(cluster.get("episodes", cluster["touches"])) >= min_touches_value]
 
@@ -2935,6 +3047,8 @@ def compute_support_resistance_levels(
             {**cluster, "volume_source": volume_source},
             current_price=current_price,
             tolerance_fraction=effective_tolerance_value,
+            window_low=window_low,
+            window_high=window_high,
         )
         for cluster in usable_clusters
     ]

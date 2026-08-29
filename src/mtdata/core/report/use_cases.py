@@ -1710,9 +1710,11 @@ def _build_overall_report_assessment(report: Dict[str, Any]) -> Dict[str, Any]:
                 value is True
                 for value in (
                     section.get("last_observation_stale"),
+                    section.get("last_price_stale"),
                     section.get("data_stale"),
                     freshness.get("data_stale"),
                     freshness.get("last_observation_stale"),
+                    freshness.get("last_price_stale"),
                 )
             )
             market_status = str(

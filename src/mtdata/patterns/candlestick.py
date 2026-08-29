@@ -1213,8 +1213,9 @@ def _attach_candlestick_volume_confirmation(
         penalty=penalty,
     )
     if abs(confidence_delta) > 1e-12:
-        payload["confidence_delta"] = _round_value(confidence_delta)
-        _apply_confidence_delta(row, confidence_delta)
+        applied = _apply_confidence_delta(row, confidence_delta)
+        if abs(applied) > 1e-12:
+            payload["confidence_delta"] = _round_value(applied)
     row["volume_confirmation"] = payload
 
 
@@ -1253,6 +1254,7 @@ def _attach_candlestick_regime_context(
     payload["status"] = status
     payload["alignment"] = alignment
     if abs(confidence_delta) > 1e-12:
-        payload["confidence_delta"] = _round_value(confidence_delta)
-        _apply_confidence_delta(row, confidence_delta)
+        applied = _apply_confidence_delta(row, confidence_delta)
+        if abs(applied) > 1e-12:
+            payload["confidence_delta"] = _round_value(applied)
     row["regime_context"] = payload

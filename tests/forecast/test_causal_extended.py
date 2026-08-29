@@ -746,6 +746,37 @@ class TestCausalDiscoverSignals:
     @patch("statsmodels.tsa.stattools.grangercausalitytests")
     @patch("mtdata.core.causal.discover.TIMEFRAME_MAP", {"H1": 1})
     @patch("mtdata.core.causal.common._fetch_series")
+    def test_compact_warns_on_alignment_loss(self, mock_fetch, mock_granger):
+        index = pd.date_range("2024-01-01", periods=120, freq="h")
+        series_map = {
+            "EURUSD": pd.Series(np.linspace(1.0, 2.0, 120), index=index),
+            "BTCUSD": pd.Series(np.linspace(2.0, 3.0, 100), index=index[:100]),
+        }
+        mock_fetch.side_effect = lambda symbol, timeframe, count, **_kwargs: (
+            series_map[symbol],
+            None,
+        )
+        mock_granger.return_value = {
+            1: ({"ssr_ftest": (1.0, 0.4, 10, 1)}, None),
+        }
+
+        result = self._unwrapped()(
+            "EURUSD,BTCUSD",
+            max_lag=1,
+            transform="diff",
+            normalize=False,
+            window_bars=80,
+        )
+
+        assert result["success"] is True
+        diagnostics = result["context"]["alignment_diagnostics"]
+        assert diagnostics["max_alignment_loss_pct"] == 16.67
+        assert diagnostics["pairs_above_warning"] == 1
+        assert "Timestamp alignment discarded more than 5%" in result["warnings"][0]
+
+    @patch("statsmodels.tsa.stattools.grangercausalitytests")
+    @patch("mtdata.core.causal.discover.TIMEFRAME_MAP", {"H1": 1})
+    @patch("mtdata.core.causal.common._fetch_series")
     def test_level_transform_does_not_publish_significance(self, mock_fetch, mock_granger):
         idx = pd.date_range("2024-01-01", periods=80, freq="h")
         series_map = {
@@ -1158,6 +1189,35 @@ class TestCorrelationMatrix:
         assert any(
             "event=finish operation=correlation_matrix success=True" in record.message
             for record in caplog.records
+        )
+
+    @patch("mtdata.core.causal.correlation.TIMEFRAME_MAP", {"H1": 1})
+    @patch("mtdata.core.causal.common._fetch_series")
+    def test_compact_warns_on_alignment_loss(self, mock_fetch):
+        index = pd.date_range("2024-01-01", periods=120, freq="h")
+        series_map = {
+            "EURUSD": pd.Series(np.linspace(100.0, 120.0, 120), index=index),
+            "BTCUSD": pd.Series(np.linspace(50.0, 60.0, 100), index=index[:100]),
+        }
+        mock_fetch.side_effect = lambda symbol, timeframe, count, **_kwargs: (
+            series_map[symbol],
+            None,
+        )
+
+        result = self._unwrapped()(
+            "EURUSD,BTCUSD",
+            transform="log_return",
+            window_bars=60,
+            min_overlap=40,
+        )
+
+        assert result["success"] is True
+        diagnostics = result["context"]["alignment_diagnostics"]
+        assert diagnostics["max_alignment_loss_pct"] > 5
+        assert diagnostics["pairs_above_warning"] == 1
+        assert any(
+            "Timestamp alignment discarded more than 5%" in str(item)
+            for item in result["warnings"]
         )
 
     @patch("mtdata.core.causal.correlation.TIMEFRAME_MAP", {"H1": 1})

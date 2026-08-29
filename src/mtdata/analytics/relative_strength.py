@@ -484,7 +484,7 @@ def rank_relative_strength(  # noqa: C901
 
     endpoint_cohort_exclusions: List[Dict[str, Any]] = []
     endpoint_cohort_policy = "all_requested_symbols"
-    if not explicit and not request.group and len(scoring_histories) > 1:
+    if not request.group and len(scoring_histories) > 1:
         tolerance = float(TIMEFRAME_SECONDS[request.timeframe])
         endpoints = sorted(
             (
@@ -905,7 +905,7 @@ def rank_relative_strength(  # noqa: C901
                 else "withheld_small_universe"
             ),
             "temporal_rank_stability": "fraction_0_to_1",
-            "tick_volume": "broker_tick_count",
+            "tick_volume": "bid_update_count",
             "spread_pct": "percent (1.0 = 1%)",
             "breadth.positive_by_horizon": "fraction_0_to_1",
             "breadth.advance_decline_balance": "signed_fraction_-1_to_1",

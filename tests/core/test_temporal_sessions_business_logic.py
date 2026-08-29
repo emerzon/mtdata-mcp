@@ -66,6 +66,40 @@ def test_market_session_label_tracks_dst_boundaries() -> None:
     ) == "ny"
 
 
+def test_temporal_analyze_attaches_shared_freshness_block() -> None:
+    rates = _make_rates_from_epochs(
+        [
+            int(datetime(2026, 7, 15, 14, 0, tzinfo=timezone.utc).timestamp()),
+            int(datetime(2026, 7, 15, 15, 0, tzinfo=timezone.utc).timestamp()),
+            int(datetime(2026, 7, 15, 16, 0, tzinfo=timezone.utc).timestamp()),
+        ]
+    )
+
+    with patch(_P + "_fetch_rates", return_value=(rates, None)), patch(
+        _P + "_symbol_ready_guard",
+        new=_guard_stub,
+    ), patch(
+        _P + "ensure_mt5_connection_or_raise",
+        new=lambda: None,
+    ), patch(
+        _P + "get_symbol_info_cached",
+        new=_info_stub,
+    ):
+        result = _raw_temporal_analyze(
+            symbol="EURUSD",
+            timeframe="H1",
+            lookback=100,
+            group_by="hour",
+        )
+
+    assert result["success"] is True
+    assert result.get("as_of")
+    assert result.get("data_as_of")
+    assert "data_stale" in result
+    assert "data_age_seconds" in result
+    assert "market_status" in result or result["data_stale"] is True
+
+
 def test_temporal_analyze_session_groups_use_analysis_timezone_clock() -> None:
     rates = _make_rates_from_epochs(
         [
@@ -332,6 +366,42 @@ def test_return_basis_can_exclude_overnight_gap() -> None:
     assert bar_open["groups"][0]["avg_return_pct"] < 0
     assert previous_close["session_gap_policy"] == "included_in_the_destination_bar_return"
     assert bar_open["session_gap_policy"] == "excluded_from_same_bar_open_to_close_returns"
+
+
+def test_temporal_analyze_excludes_weekend_gap_from_open_hour_bucket() -> None:
+    friday = datetime(2026, 8, 14, 20, tzinfo=timezone.utc)
+    sunday = datetime(2026, 8, 16, 21, tzinfo=timezone.utc)
+    times = [int((friday - timedelta(hours=offset)).timestamp()) for offset in range(3, 0, -1)]
+    times.append(int(friday.timestamp()))
+    times.append(int(sunday.timestamp()))
+    times.extend(int((sunday + timedelta(hours=offset)).timestamp()) for offset in range(1, 8))
+    rates = _make_rates_from_epochs(times)
+    rates["close"][4] = 1.20
+
+    with patch(_P + "_fetch_rates", return_value=(rates, None)), patch(
+        _P + "_symbol_ready_guard", new=_guard_stub
+    ), patch(_P + "ensure_mt5_connection_or_raise", new=lambda: None), patch(
+        _P + "get_symbol_info_cached",
+        return_value=SimpleNamespace(path="Forex\\Majors"),
+    ):
+        result = _raw_temporal_analyze(
+            symbol="EURUSD",
+            timeframe="H1",
+            lookback=20,
+            group_by="hour",
+            timezone="UTC",
+            min_bars=0,
+            detail="full",
+        )
+
+    open_bucket = next(
+        row for row in result["groups"] if row.get("group") == 21
+    )
+    assert result["session_gap_policy"] == "excluded_from_group_return_statistics"
+    assert open_bucket["session_gap_observations"] == 1
+    assert open_bucket["return_observations"] == 0 or abs(
+        float(open_bucket.get("avg_return_pct") or 0.0)
+    ) < 5.0
 
 
 def test_temporal_analyze_compact_validation_error_omits_request_echo() -> None:

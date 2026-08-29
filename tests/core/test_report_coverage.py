@@ -3123,6 +3123,31 @@ def test_report_assessment_elevates_closed_session_freshness():
     assert "closed-session data" in assessment["summary"]
 
 
+def test_report_assessment_reads_public_forecast_stale_flags():
+    from mtdata.core.report.use_cases import _build_overall_report_assessment
+
+    assessment = _build_overall_report_assessment(
+        {
+            "sections_status": {
+                "summary": {"total": 2, "ok": 2, "partial": 0, "error": 0}
+            },
+            "sections": {
+                "context": {
+                    "data_stale": True,
+                    "market_status": "closed",
+                },
+                "forecast": {
+                    "last_price_stale": True,
+                    "freshness": "closed weekend, anchor 5h ago",
+                },
+            },
+        }
+    )
+
+    assert assessment["data_trust"]["status"] == "closed_session"
+    assert assessment["data_trust"]["affected_sections"] == ["context", "forecast"]
+
+
 @pytest.mark.parametrize("horizon", [0, -1])
 def test_report_request_rejects_nonpositive_horizon(horizon):
     from mtdata.core.report.requests import ReportGenerateRequest

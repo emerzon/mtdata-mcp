@@ -1270,7 +1270,7 @@ def _pair_alignment_warning(diagnostics: Dict[str, Any]) -> Optional[str]:
     return (
         "Timestamp alignment discarded more than 5% of at least one pair's "
         f"larger transformed input series: {examples}{suffix}. Session-calendar "
-        "or holiday gaps can bias cointegration results."
+        "or holiday gaps can bias these results."
     )
 
 

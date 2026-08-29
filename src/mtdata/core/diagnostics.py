@@ -186,18 +186,54 @@ _SEASONALITY_QUALITY_THRESHOLDS = {
     "moderate": "0.10 <= score < 0.25",
     "strong": "score >= 0.25",
 }
+_SEASONALITY_SMALL_SAMPLE = 100
 
 
-def _seasonality_signal_quality(score: float, acf: float = 0.0, spectral_strength: float = 0.0) -> str:
-    del acf, spectral_strength
+def _seasonality_normalized_score(
+    acf: float,
+    spectral_strength: float,
+    *,
+    samples: int,
+    positive_frequency_bins: int,
+) -> float:
+    """Composite seasonality score with sample-size-aware components."""
+    n = max(1, int(samples))
+    acf_se = 1.0 / math.sqrt(n)
+    acf_excess = max(0.0, float(acf) - acf_se)
+    acf_strength = min(1.0, acf_excess / max(1e-12, 1.0 - acf_se))
+    bins = max(1, int(positive_frequency_bins))
+    expected_share = 1.0 / float(bins)
+    spectral_excess = max(0.0, float(spectral_strength) - expected_share)
+    spectral_strength_adj = min(
+        1.0,
+        spectral_excess / max(1e-12, 1.0 - expected_share),
+    )
+    return 0.55 * acf_strength + 0.45 * spectral_strength_adj
+
+
+def _seasonality_signal_quality(
+    score: float,
+    acf: float = 0.0,
+    spectral_strength: float = 0.0,
+    *,
+    samples: int = 0,
+) -> str:
+    del spectral_strength
     signal = float(score)
     if signal < 0.05:
-        return "very_weak"
-    if signal < 0.10:
-        return "weak"
-    if signal < 0.25:
-        return "moderate"
-    return "strong"
+        label = "very_weak"
+    elif signal < 0.10:
+        label = "weak"
+    elif signal < 0.25:
+        label = "moderate"
+    else:
+        label = "strong"
+    n = int(samples or 0)
+    if n > 0 and n < _SEASONALITY_SMALL_SAMPLE and label in {"moderate", "strong"}:
+        acf_critical = 1.96 / math.sqrt(n)
+        if float(acf) <= acf_critical:
+            return "weak"
+    return label
 
 
 def _format_period_duration(duration_seconds: float) -> str:
@@ -617,6 +653,7 @@ def seasonality_detect(
             if int(min_period) <= period <= upper:
                 spectral_by_period[period] = max(spectral_by_period.get(period, 0.0), float(power))
         total_spectral_power = float(np.sum(powers[positive]))
+        positive_bin_count = int(np.count_nonzero(positive))
         positive_acf = np.maximum(acf_scores, 0.0)
         peak_idx, _ = find_peaks(positive_acf)
         candidates = set(int(periods[index]) for index in peak_idx)
@@ -631,8 +668,12 @@ def seasonality_detect(
                 if total_spectral_power > 0
                 else 0.0
             )
-            acf_strength = max(0.0, min(1.0, acf_value))
-            score = 0.55 * acf_strength + 0.45 * spectral_strength
+            score = _seasonality_normalized_score(
+                acf_value,
+                spectral_strength,
+                samples=n,
+                positive_frequency_bins=positive_bin_count,
+            )
             score_rounded = round(score, 6)
             acf_rounded = round(acf_value, 6)
             spectral_rounded = round(spectral_strength, 6)
@@ -647,7 +688,12 @@ def seasonality_detect(
                 "acf": acf_rounded,
                 "spectral_strength": spectral_rounded,
                 "quality_statistic": score_rounded,
-                "signal_quality": _seasonality_signal_quality(score_rounded),
+                "signal_quality": _seasonality_signal_quality(
+                    score_rounded,
+                    acf_rounded,
+                    spectral_rounded,
+                    samples=n,
+                ),
                 "cycles_observed": round(n / float(period), 2),
             }
             if spectral_rounded == 0.0:
@@ -671,9 +717,17 @@ def seasonality_detect(
             "items": rows,
             "count": len(rows),
             "dominant_period_bars": rows[0]["period_bars"] if rows else None,
-            "score_formula": "0.55*clip(acf,0,1) + 0.45*spectral_strength; range 0-1, higher = stronger seasonality",
+            "score_formula": (
+                "0.55*max(0, acf - 1/sqrt(n))/(1 - 1/sqrt(n)) + "
+                "0.45*max(0, spectral_share - 1/bins)/(1 - 1/bins); "
+                "range 0-1, higher = stronger seasonality"
+            ),
             "quality_statistic": "score",
-            "quality_formula": "0.55*clip(acf,0,1) + 0.45*spectral_strength; range 0-1, higher = stronger seasonality",
+            "quality_formula": (
+                "0.55*max(0, acf - 1/sqrt(n))/(1 - 1/sqrt(n)) + "
+                "0.45*max(0, spectral_share - 1/bins)/(1 - 1/bins); "
+                "range 0-1, higher = stronger seasonality"
+            ),
             "quality_thresholds": dict(_SEASONALITY_QUALITY_THRESHOLDS),
             **_diagnostic_history_metadata(
                 frame, include_incomplete=include_incomplete
@@ -695,18 +749,28 @@ def seasonality_detect(
                 out["spectral_strength_note"] = (
                     "All returned periods have zero rounded spectral strength; ranking is driven by autocorrelation only."
                 )
+            if n < _SEASONALITY_SMALL_SAMPLE:
+                out["small_sample"] = True
+                out["small_sample_note"] = (
+                    f"Only {n} observations; labels are capped unless "
+                    "autocorrelation exceeds the 95% sampling bound."
+                )
         else:
             out["detection_status"] = "not_detected"
         if normalize_output_verbosity_detail(detail, default="compact") == "full":
             out["method"] = {
                 "acf_weight": 0.55,
                 "periodogram_weight": 0.45,
-                "spectral_component": "candidate_power / total_positive_frequency_power",
+                "spectral_component": (
+                    "excess of candidate_power / total_positive_frequency_power "
+                    "over the equal-bin share 1/bins"
+                ),
+                "acf_component": "max(0, acf - 1/sqrt(n)) scaled to [0, 1]",
                 "minimum_cycles": int(min_cycles),
                 "signal_quality": (
-                    "Labels are assigned from the disclosed composite score using "
-                    "quality_thresholds; autocorrelation and spectral share are not "
-                    "used as hidden substitutes."
+                    "Labels use the sample-size-normalized composite score. "
+                    "Moderate/strong require a significant positive "
+                    "autocorrelation when samples < 100."
                 ),
             }
         return out
@@ -797,6 +861,11 @@ def outliers_detect(
             return fetch_error if isinstance(fetch_error, dict) else {"error": fetch_error}
         close = pd.to_numeric(frame["close"], errors="coerce")
         data: Dict[str, pd.Series] = {"return": close.pct_change(fill_method=None).abs()}
+        epochs = pd.to_numeric(frame["time"], errors="coerce") if "time" in frame.columns else None
+        expected_bar_seconds = TIMEFRAME_SECONDS.get(str(timeframe).strip().upper())
+        session_gap_mask = pd.Series(False, index=frame.index)
+        if epochs is not None and expected_bar_seconds:
+            session_gap_mask = epochs.diff() > (float(expected_bar_seconds) * 1.5)
         volume_col: Optional[str] = None
         if "volume" in requested:
             volume_col = "real_volume" if "real_volume" in frame and float(pd.to_numeric(frame["real_volume"], errors="coerce").fillna(0).sum()) > 0 else "tick_volume"
@@ -851,6 +920,8 @@ def outliers_detect(
                     if not math.isnan(score) and score >= float(threshold)
                 ],
             }
+            if bool(session_gap_mask.get(index, False)):
+                item["session_gap"] = True
             if full:
                 item.update(
                     {
@@ -911,9 +982,18 @@ def outliers_detect(
             result["units"]["volume"] = (
                 "broker_reported_real_volume"
                 if volume_col == "real_volume"
-                else "broker_tick_count"
+                else "bid_update_count"
             )
             result["units"]["field_scores.volume"] = score_units
+        gap_flagged = sum(1 for row in rows if row.get("session_gap") is True)
+        if gap_flagged:
+            result["session_gap_outliers"] = int(gap_flagged)
+            warnings_out = list(result.get("warnings") or [])
+            warnings_out.append(
+                f"{gap_flagged} flagged bar(s) span a session gap (weekend or "
+                "holiday open) and are calendar artifacts, not information events."
+            )
+            result["warnings"] = warnings_out
         return result
 
     return run_mt5_logged_operation(
@@ -1030,7 +1110,9 @@ def volatility_term_structure(
                 continue
             current = float(distribution.iloc[-1])
             samples = int(len(distribution))
-            sufficient = samples >= 20
+            bars_used = int(len(returns.dropna())) + 1
+            effective_samples = int(bars_used // int(horizon)) if int(horizon) > 0 else 0
+            sufficient = effective_samples >= 20
             if sufficient:
                 percentile_rank: Optional[float] = float(
                     (distribution <= current).mean() * 100.0
@@ -1068,6 +1150,7 @@ def volatility_term_structure(
                     ),
                     "cone": cone,
                     "samples": samples,
+                    "effective_samples": effective_samples,
                     "sample_sufficiency": (
                         "sufficient" if sufficient else "insufficient"
                     ),
@@ -1093,7 +1176,12 @@ def volatility_term_structure(
                 "cone": "decimal_return_fraction",
                 "percentile_rank": "percentile_rank (0=lowest, 100=highest)",
             },
-            "cone_methodology": "percentiles of the historical distribution of rolling realized volatility at each horizon; percentile_rank shows where current vol sits in that distribution; short horizons are sampling-noisy and this is not an options implied-volatility term structure",
+            "cone_methodology": (
+                "percentiles of overlapping rolling realized-volatility windows; "
+                "sufficiency uses effective independent samples (bars/horizon), "
+                "not the overlapping window count; overlapping windows understate "
+                "dispersion; this is not an options implied-volatility term structure"
+            ),
             "items": rows,
             **_diagnostic_history_metadata(
                 frame, include_incomplete=include_incomplete
@@ -1103,7 +1191,7 @@ def volatility_term_structure(
         if low_sample_horizons:
             out["warnings"] = [
                 "Percentile ranks and cones were suppressed for horizons with "
-                "fewer than 20 rolling observations."
+                "fewer than 20 effective independent samples (bars/horizon)."
             ]
             out["low_sample_horizons"] = low_sample_horizons
         if annualize:

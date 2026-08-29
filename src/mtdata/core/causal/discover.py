@@ -38,12 +38,15 @@ from mtdata.core.causal.common import (
     _normalize_output_limit,
     _normalize_output_offset,
     _normalize_transform_name,
+    _pair_alignment_diagnostics,
+    _pair_alignment_warning,
     _pair_overlap_counts,
     _pair_overlap_symbols,
     _pair_transform_guidance,
     _pairwise_analysis_context,
     _parse_symbol_request,
     _partial_symbol_fetch_error,
+    _public_alignment_diagnostics,
     _standardize_frame,
     _symbol_fetch_data_quality,
     _transform_aligned_pair,
@@ -426,6 +429,14 @@ def causal_discover_signals(  # noqa: C901
         )
         if alignment_detail is not None:
             meta["alignment_detail"] = alignment_detail
+        alignment_diagnostics = _pair_alignment_diagnostics(
+            symbol_rows,
+            pair_overlaps,
+            symbol_list,
+        )
+        pair_alignment_warning = _pair_alignment_warning(alignment_diagnostics)
+        if pair_alignment_warning:
+            warnings_out.append(pair_alignment_warning)
         if int(window_bars) < min_required_samples:
             details_out = []
             if alignment_detail is not None:
@@ -730,6 +741,10 @@ def causal_discover_signals(  # noqa: C901
                 "normalize": bool(normalize),
                 "max_lag": int(max_lag),
                 "significance": float(significance),
+                "alignment_diagnostics": _public_alignment_diagnostics(
+                    alignment_diagnostics,
+                    detail=detail_mode,
+                ),
                 **_bar_completion_context(
                     series_map, include_incomplete=bool(include_incomplete)
                 ),

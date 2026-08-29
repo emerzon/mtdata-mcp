@@ -1192,6 +1192,31 @@ def test_attach_candlestick_volume_confirmation_skips_partial_baseline():
     assert row["confidence"] == 0.5
 
 
+def test_attach_candlestick_volume_confirmation_omits_unused_saturated_delta():
+    row = {"start_index": 20, "end_index": 21, "confidence": 1.0, "status": "closed"}
+    volume = np.concatenate(
+        [np.full(20, 100.0, dtype=float), np.array([300.0, 300.0], dtype=float)]
+    )
+
+    candlestick_mod._attach_candlestick_volume_confirmation(
+        row,
+        volume,
+        "tick_volume",
+        {
+            "use_volume_confirmation": True,
+            "volume_confirm_min_ratio": 1.1,
+            "volume_confirm_bonus": 0.08,
+            "volume_confirm_lookback_bars": 20,
+            "volume_confirm_breakout_bars": 2,
+        },
+    )
+
+    confirmation = row["volume_confirmation"]
+    assert confirmation["status"] == "confirmed"
+    assert "confidence_delta" not in confirmation
+    assert row["confidence"] == 1.0
+
+
 def test_extract_candlestick_rows_respects_start_index():
     df = pd.DataFrame({"time": ["T0", "T1", "T2"], "close": [100.0, 101.0, 102.0]})
     temp = pd.DataFrame({"cdl_engulfing": [100.0, 100.0, 100.0]})

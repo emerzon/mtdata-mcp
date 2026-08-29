@@ -282,6 +282,34 @@ class TestCandleFreshnessDiagnostics:
             "freshness": freshness,
         }
 
+    def test_extracts_public_fetch_freshness_when_meta_is_absent(self):
+        result = extract_candle_freshness_diagnostics(
+            {
+                "data_stale": True,
+                "market_status": "closed",
+                "market_status_reason": "weekend",
+                "freshness": "closed weekend, 5h ago",
+            }
+        )
+        assert result == {
+            "data_stale": True,
+            "market_status": "closed",
+            "market_status_reason": "weekend",
+        }
+
+    def test_attach_copies_public_stale_fields_onto_section(self):
+        attached = attach_candle_freshness_diagnostics(
+            {"symbol": "EURUSD"},
+            {
+                "data_stale": True,
+                "market_status": "closed",
+                "market_status_reason": "weekend",
+            },
+        )
+        assert attached["data_stale"] is True
+        assert attached["market_status"] == "closed"
+        assert attached["freshness"]["data_stale"] is True
+
 
 # ---------------------------------------------------------------------------
 # 3. _indicator_key_variants

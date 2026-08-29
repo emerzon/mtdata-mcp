@@ -6,6 +6,7 @@ from ...shared.schema import DenoiseSpec
 from ..report.trend import _TREND_COMPACT_LEGEND, _compute_compact_trend
 from ..report.utils import (
     adapt_forecast_payload_for_report,
+    attach_candle_freshness_diagnostics,
     normalize_report_methods,
     now_utc_iso,
     parse_table_tail,
@@ -84,7 +85,10 @@ def template_minimal(
     )
 
     if "error" in ctx:
-        report["sections"]["context"] = {"error": ctx["error"]}
+        report["sections"]["context"] = attach_candle_freshness_diagnostics(
+            {"error": ctx["error"]},
+            ctx,
+        )
     else:
         context_limit = int(p.get("context_limit", 200))
         context_rows = parse_table_tail(ctx, tail=context_limit)
@@ -104,7 +108,10 @@ def template_minimal(
                 tail_rows = []
 
         if not tail_rows:
-            report["sections"]["context"] = {"error": "No candle data available for context section."}
+            report["sections"]["context"] = attach_candle_freshness_diagnostics(
+                {"error": "No candle data available for context section."},
+                ctx,
+            )
         else:
             last = tail_rows[-1] if tail_rows else {}
             compact = _compute_compact_trend(context_rows)
@@ -124,7 +131,10 @@ def template_minimal(
             if compact:
                 ctx_obj["trend_compact"] = compact
                 ctx_obj["trend_compact_legend"] = dict(_TREND_COMPACT_LEGEND)
-            report["sections"]["context"] = ctx_obj
+            report["sections"]["context"] = attach_candle_freshness_diagnostics(
+                ctx_obj,
+                ctx,
+            )
 
     from ..forecast import forecast_generate
 
