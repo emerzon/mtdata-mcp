@@ -1036,6 +1036,7 @@ def test_trade_place_auto_closes_unverified_market_fill() -> None:
         volume=0.03,
         comment="AUTO-CLOSE: TP/SL protection unresolved",
         deviation=20,
+        require_live_quote=False,
     )
     assert out.get("error") == "Order was executed, but TP/SL protection could not be verified."
     assert out.get("error_code") == "protection_not_verified"

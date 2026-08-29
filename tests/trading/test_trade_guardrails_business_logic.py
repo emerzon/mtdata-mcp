@@ -51,6 +51,17 @@ def test_trade_guardrails_config_reloads_from_env(monkeypatch, restore_trade_gua
     assert trade_guardrails_config.is_enabled() is True
 
 
+def test_trade_guardrail_env_typos_fail_closed(monkeypatch, restore_trade_guardrails):
+    monkeypatch.setenv("MTDATA_TRADE_GUARDRAILS_ENABLED", "ture")
+    with pytest.raises(ValueError, match="MTDATA_TRADE_GUARDRAILS_ENABLED"):
+        trade_guardrails_config.reload_from_env()
+
+    monkeypatch.setenv("MTDATA_TRADE_GUARDRAILS_ENABLED", "true")
+    monkeypatch.setenv("MTDATA_TRADE_MAX_RISK_PCT_OF_EQUITY", "1.5%")
+    with pytest.raises(ValueError, match="MTDATA_TRADE_MAX_RISK_PCT_OF_EQUITY"):
+        trade_guardrails_config.reload_from_env()
+
+
 def test_ignore_on_demo_does_not_activate_guardrails_by_itself(monkeypatch):
     env_names = (
         "MTDATA_TRADE_GUARDRAILS_ENABLED",

@@ -6,6 +6,7 @@ import pytest
 from mtdata.core.trading.context import (
     _build_quote_quality,
     _build_trade_ready,
+    _trade_session_tradability,
     trade_session_context,
 )
 from mtdata.core.trading.requests import TradeSessionContextRequest
@@ -748,3 +749,24 @@ def test_trade_session_context_compact_keeps_order_attribution_fields() -> None:
             "magic": 7002,
         }
     ]
+
+
+def test_trade_session_tradability_adds_session_aware_flags(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "mtdata.core.trading.context._check_symbol_market_status",
+        lambda symbol, detail="compact", timezone_display="utc": {
+            "status": "weekend_closed",
+            "reason": "weekend",
+            "is_tradable": True,
+            "can_open_new_positions": False,
+            "trade_mode_allows_opening": True,
+            "tradable_now": False,
+        },
+    )
+
+    result = _trade_session_tradability("EURUSD")
+
+    assert result["is_tradable"] is True
+    assert result["is_session_open"] is False
+    assert result["now_tradable"] is False
+    assert result["trade_mode_allows_opening"] is True

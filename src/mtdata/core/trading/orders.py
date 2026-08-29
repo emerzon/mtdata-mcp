@@ -1149,7 +1149,7 @@ def _split_pending_validation_error(
     return validation_error, None
 
 
-def build_trade_place_dry_run_preview(
+def build_trade_place_dry_run_preview(  # noqa: C901
     *,
     symbol: str,
     volume: float,
@@ -1231,14 +1231,27 @@ def build_trade_place_dry_run_preview(
         }
 
     quote_now = _stdlib_time.time()
+    raw_tick = mt5.symbol_info_tick(symbol)
     tick, quote_source = resolve_quote_tick(
         mt5,
         symbol,
-        mt5.symbol_info_tick(symbol),
+        raw_tick,
         now_epoch=quote_now,
     )
     if tick is None:
         return {"preview_error": f"Failed to get current price for {symbol}"}
+    send_path_freshness_error = (
+        validation._validate_tick_freshness(
+            raw_tick,
+            symbol=symbol,
+            max_age_seconds=_TRADE_TICK_MAX_AGE_SECONDS,
+        )
+        if raw_tick is not None
+        else {
+            "error": f"Failed to get current price for {symbol}",
+            "tick_age_status": "missing",
+        }
+    )
 
     bid = validation.coerce_finite_float(tick_value(tick, "bid"))
     ask = validation.coerce_finite_float(tick_value(tick, "ask"))
@@ -1276,6 +1289,19 @@ def build_trade_place_dry_run_preview(
         now_epoch=quote_now,
         source_metadata=quote_source,
     )
+    quote_context["send_path_tick_fresh"] = send_path_freshness_error is None
+    if send_path_freshness_error is not None:
+        quote_context["send_path_freshness_error"] = send_path_freshness_error.get(
+            "error"
+        )
+        if send_path_freshness_error.get("tick_age_status") is not None:
+            quote_context["send_path_tick_age_status"] = send_path_freshness_error[
+                "tick_age_status"
+            ]
+        if send_path_freshness_error.get("timestamp_skew_seconds") is not None:
+            quote_context["send_path_timestamp_skew_seconds"] = (
+                send_path_freshness_error["timestamp_skew_seconds"]
+            )
     out: Dict[str, Any] = {
         "bid": _round_preview_price(bid, digits=digits),
         "ask": _round_preview_price(ask, digits=digits),
@@ -1837,6 +1863,7 @@ def _place_pending_order(  # noqa: C901
                 initial_tick,
                 symbol=symbol,
                 max_age_seconds=_TRADE_TICK_MAX_AGE_SECONDS,
+                required=False,
             )
             if freshness_error is not None:
                 return freshness_error
@@ -1908,6 +1935,7 @@ def _place_pending_order(  # noqa: C901
                 live_tick,
                 symbol=symbol,
                 max_age_seconds=_TRADE_TICK_MAX_AGE_SECONDS,
+                required=False,
             )
             if freshness_error is not None:
                 return freshness_error
@@ -2009,6 +2037,7 @@ def _place_pending_order(  # noqa: C901
                 send_tick,
                 symbol=symbol,
                 max_age_seconds=_TRADE_TICK_MAX_AGE_SECONDS,
+                required=False,
             )
             if freshness_error is not None:
                 return freshness_error

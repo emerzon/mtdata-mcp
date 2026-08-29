@@ -38,6 +38,8 @@ from mtdata.core.trading.use_cases.common import (
     _invalid_order_type_payload,
     _invalid_pending_expiration_payload,
     _log_trade_correlation,
+    _market_closure_blocker,
+    _next_market_open,
     _normalize_idempotency_key,
     _record_or_release_idempotency,
     _resolve_trade_place_preview_detail,
@@ -315,27 +317,101 @@ def run_trade_place(  # noqa: C901
                 if warning not in warnings_out:
                     warnings_out.append(warning)
             quote_context = preview.get("quote_context")
-            if (
-                isinstance(quote_context, dict)
+            send_path_fresh = (
+                quote_context.get("send_path_tick_fresh")
+                if isinstance(quote_context, dict)
+                else None
+            )
+            send_path_blocks_market = (
+                not pending
+                and isinstance(quote_context, dict)
+                and send_path_fresh is False
+            )
+            resolved_quote_blocks_market = (
+                not pending
+                and isinstance(quote_context, dict)
                 and quote_context.get("usable_for_live_trading") is not True
-            ):
+            )
+            if send_path_blocks_market or resolved_quote_blocks_market:
                 validation_payload = preview.get("validation")
+                closure_blocker = (
+                    None
+                    if send_path_blocks_market
+                    else _market_closure_blocker(quote_context)
+                )
+                send_age_status = str(
+                    quote_context.get("send_path_tick_age_status") or ""
+                ).strip().lower()
+                if send_path_blocks_market:
+                    send_blocker = (
+                        "raw_quote_timestamp_ahead_of_clock"
+                        if send_age_status == "future"
+                        else "quote_not_live_ready"
+                    )
+                else:
+                    send_blocker = None
                 if isinstance(validation_payload, dict):
                     validation_payload["live_submission_eligible"] = False
                     blockers = validation_payload.setdefault("blockers", [])
-                    if "quote_not_live_ready" not in blockers:
+                    if send_blocker:
+                        if send_blocker not in blockers:
+                            blockers.append(send_blocker)
+                    elif closure_blocker:
+                        if closure_blocker not in blockers:
+                            blockers.append(closure_blocker)
+                    elif "quote_not_live_ready" not in blockers:
                         blockers.append("quote_not_live_ready")
                 preview["validation_passed"] = False
                 preview["preview_ok"] = False
-                preview["actionability"] = "blocked_by_quote_freshness"
-                preview["actionability_reason"] = (
-                    "Quote freshness is not verified as live; refresh the quote "
-                    "before using this preview for submission."
+                if send_path_blocks_market:
+                    preview["actionability"] = "blocked_by_send_path_quote"
+                    preview["actionability_reason"] = (
+                        quote_context.get("send_path_freshness_error")
+                        or "The raw symbol_info_tick used at send time is not safe "
+                        "for live trading."
+                    )
+                elif closure_blocker:
+                    preview["actionability"] = "blocked_by_market_closure"
+                    next_open = _next_market_open(quote_context)
+                    if next_open:
+                        preview["next_market_open"] = next_open
+                    if quote_context.get("market_status") is not None:
+                        preview["market_status"] = quote_context["market_status"]
+                    if quote_context.get("market_status_reason") is not None:
+                        preview["market_status_reason"] = quote_context[
+                            "market_status_reason"
+                        ]
+                    preview["actionability_reason"] = (
+                        "Market is closed; wait for the next session open instead of "
+                        "refreshing the quote."
+                    )
+                else:
+                    preview["actionability"] = "blocked_by_quote_freshness"
+                    preview["actionability_reason"] = (
+                        "Quote freshness is not verified as live; refresh the quote "
+                        "before using this preview for submission."
+                    )
+                quote_warning = str(
+                    quote_context.get("send_path_freshness_error")
+                    if send_path_blocks_market
+                    else (
+                        quote_context.get("timestamp_warning")
+                        or quote_context.get("warning")
+                        or "Quote is not usable for live trading."
+                    )
                 )
+                warnings_out = preview.setdefault("warnings", [])
+                if quote_warning not in warnings_out:
+                    warnings_out.append(quote_warning)
+            elif (
+                pending
+                and isinstance(quote_context, dict)
+                and quote_context.get("usable_for_live_trading") is not True
+            ):
                 quote_warning = str(
                     quote_context.get("timestamp_warning")
                     or quote_context.get("warning")
-                    or "Quote is not usable for live trading."
+                    or "Quote is not live; pending staging uses the last session snapshot."
                 )
                 warnings_out = preview.setdefault("warnings", [])
                 if quote_warning not in warnings_out:
@@ -416,7 +492,33 @@ def run_trade_place(  # noqa: C901
             if preview.get("preview_ok") is not True:
                 preview["success"] = False
                 preview.setdefault("error_code", "preview_blocked")
-                preview.setdefault("error", _dry_run_blocker_error(preview.get("blockers")))
+                preview.setdefault(
+                    "error",
+                    _dry_run_blocker_error(
+                        preview.get("blockers"),
+                        preview.get("quote_context"),
+                    ),
+                )
+                closure_blocker = _market_closure_blocker(preview.get("quote_context"))
+                if closure_blocker:
+                    next_open = preview.get("next_market_open") or _next_market_open(
+                        preview.get("quote_context")
+                    )
+                    if next_open:
+                        preview.setdefault(
+                            "remediation",
+                            "Wait for the next market open "
+                            f"({next_open}) and rerun the dry-run preview; "
+                            "refreshing the quote will not help while the session "
+                            "is closed.",
+                        )
+                    else:
+                        preview.setdefault(
+                            "remediation",
+                            "Wait for the next market open and rerun the dry-run "
+                            "preview; refreshing the quote will not help while the "
+                            "session is closed.",
+                        )
                 preview.setdefault(
                     "remediation",
                     "Resolve every blocker and run the dry-run preview again before submitting live.",
@@ -970,6 +1072,7 @@ def run_trade_place(  # noqa: C901
                             ),
                             comment="AUTO-CLOSE: TP/SL protection unresolved",
                             deviation=request.deviation,
+                            require_live_quote=False,
                         )
                     result["auto_close_on_sl_tp_fail"] = True
                     result["auto_close_result"] = auto_close_result

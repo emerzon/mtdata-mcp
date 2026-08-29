@@ -325,6 +325,47 @@ def test_modify_pending_order_ignores_guardrails_for_demo_account(
     assert result["pending_order_ticket"] == 100
 
 
+def test_modify_position_ignores_stop_loss_required_for_demo_account(
+    restore_trade_guardrails,
+    patch_gateway,
+):
+    trade_guardrails_config.enabled = True
+    trade_guardrails_config.ignore_on_demo = True
+    trade_guardrails_config.safety_policy.require_stop_loss = True
+    patch_gateway.account_info = lambda: SimpleNamespace(
+        equity=10000.0,
+        balance=10000.0,
+        margin_free=9000.0,
+        profit=0.0,
+        margin_level=500.0,
+        trade_mode=0,
+    )
+    position = SimpleNamespace(
+        ticket=200,
+        symbol="EURUSD",
+        price_open=1.1000,
+        price_current=1.1000,
+        sl=1.0990,
+        tp=1.1200,
+        type=patch_gateway.POSITION_TYPE_BUY,
+        volume=1.0,
+        magic=123,
+    )
+
+    result = _evaluate_position_modify_guardrails(
+        patch_gateway,
+        position=position,
+        resolved_ticket=200,
+        requested_ticket=200,
+        side="BUY",
+        symbol_info=patch_gateway.symbol_info("EURUSD"),
+        current_stop_loss=1.0990,
+        candidate_stop_loss=None,
+    )
+
+    assert result is None
+
+
 def test_modify_position_blocks_stop_loss_removal_when_required(
     restore_trade_guardrails,
     patch_gateway,

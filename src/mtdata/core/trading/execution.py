@@ -16,6 +16,7 @@ from .gateway import MT5TradingGateway, create_trading_gateway, trading_connecti
 from .positions import _resolve_open_position, _resolve_pending_order
 from .safety import (
     _build_guardrail_block,
+    _guardrails_ignored_for_demo,
     _resolve_pending_order_side,
     evaluate_trade_guardrails,
     load_guardrail_book_snapshots,
@@ -219,6 +220,12 @@ def _evaluate_position_modify_guardrails(
     )
     if not risk_increased and not (stop_loss_required and not candidate_has_stop):
         return None
+    try:
+        account_info = mt5.account_info()
+    except Exception:
+        account_info = None
+    if _guardrails_ignored_for_demo(trade_guardrails_config, account_info=account_info):
+        return None
     if stop_loss_required and not candidate_has_stop:
         block = _build_guardrail_block(
             ["Configured trading safety requires a stop-loss."],
@@ -228,11 +235,6 @@ def _evaluate_position_modify_guardrails(
         block["position_ticket"] = resolved_ticket
         block["ticket_requested"] = requested_ticket
         return block
-
-    try:
-        account_info = mt5.account_info()
-    except Exception:
-        account_info = None
     positions, pending_orders, snapshot_error = load_guardrail_book_snapshots(
         mt5,
         trade_guardrails_config,
@@ -584,6 +586,7 @@ def _modify_position(  # noqa: C901
                 tick,
                 symbol=position.symbol,
                 max_age_seconds=_CLOSE_TICK_MAX_AGE_SECONDS,
+                required=False,
             )
             if freshness_error is not None:
                 return _modify_freshness_block(
@@ -873,6 +876,7 @@ def _modify_pending_order(  # noqa: C901
                 tick,
                 symbol=order.symbol,
                 max_age_seconds=_CLOSE_TICK_MAX_AGE_SECONDS,
+                required=False,
             )
             if freshness_error is not None:
                 return _modify_freshness_block(
@@ -1161,6 +1165,7 @@ def _modify_pending_order(  # noqa: C901
                 send_tick,
                 symbol=order.symbol,
                 max_age_seconds=_CLOSE_TICK_MAX_AGE_SECONDS,
+                required=False,
             )
             if freshness_error is not None:
                 return freshness_error
@@ -1384,6 +1389,7 @@ def _execute_single_close(  # noqa: C901
     deviation: int,
     comment: Optional[str],
     fill_modes: List[Any],
+    require_live_quote: bool = True,
 ) -> Dict[str, Any]:
     """Execute a close for a single position with fill-mode retry.
 
@@ -1433,6 +1439,7 @@ def _execute_single_close(  # noqa: C901
         tick,
         symbol=position.symbol,
         max_age_seconds=_CLOSE_TICK_MAX_AGE_SECONDS,
+        required=require_live_quote,
     )
     if tick_freshness_error is not None:
         return {
@@ -1535,6 +1542,7 @@ def _execute_single_close(  # noqa: C901
                 refreshed_tick,
                 symbol=position.symbol,
                 max_age_seconds=_CLOSE_TICK_MAX_AGE_SECONDS,
+                required=require_live_quote,
             )
             if freshness_error is not None:
                 attempts.append({"error_code": "tick_stale", **freshness_error})
@@ -1928,6 +1936,7 @@ def _close_positions(  # noqa: C901
     comment: Optional[str] = None,
     deviation: int = 20,
     dry_run: bool = False,
+    require_live_quote: bool = True,
     gateway: Optional[MT5TradingGateway] = None,
 ) -> dict:
     """Internal helper to close open positions."""
@@ -2015,6 +2024,20 @@ def _close_positions(  # noqa: C901
                         snapshot="positions",
                         context=f"close positions for {symbol}",
                     )
+                if len(positions) == 0:
+                    all_positions = mt5.positions_get()
+                    if all_positions is None:
+                        return validation.snapshot_unavailable_error(
+                            mt5,
+                            snapshot="positions",
+                            context=f"close positions for {symbol}",
+                        )
+                    wanted = str(symbol).upper()
+                    positions = [
+                        position
+                        for position in all_positions
+                        if str(getattr(position, "symbol", "") or "").upper() == wanted
+                    ]
                 if len(positions) == 0:
                     return {"message": f"No open positions for {symbol}"}
             else:
@@ -2198,6 +2221,7 @@ def _close_positions(  # noqa: C901
                     deviation=deviation_validated,
                     comment=comment,
                     fill_modes=fill_modes,
+                    require_live_quote=require_live_quote,
                 )
                 if requested_ticket is not None and isinstance(close_result, dict):
                     close_result.setdefault("ticket_requested", requested_ticket)

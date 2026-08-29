@@ -272,6 +272,10 @@ def _extract_quote(session: Any) -> Dict[str, Any]:
     compact = {key: quote[key] for key in keys if key in quote}
     if session.get("is_tradable") is not None:
         compact["is_tradable"] = session.get("is_tradable")
+    if session.get("is_session_open") is not None:
+        compact["is_session_open"] = session.get("is_session_open")
+    if session.get("now_tradable") is not None:
+        compact["now_tradable"] = session.get("now_tradable")
     if session.get("execution_preconditions_allow_open") is not None:
         compact["execution_preconditions_allow_open"] = session.get(
             "execution_preconditions_allow_open"
@@ -647,8 +651,6 @@ def _compact_forecast(
             "ci_alpha",
             "ci_status",
             "ci_available",
-            "required_calibration_points",
-            "calibration_sufficient",
             "interval_usage",
         ):
             if payload.get(key) not in (None, ""):
@@ -671,6 +673,12 @@ def _compact_forecast(
             }
             if calibration:
                 compact["calibration"] = calibration
+        elif payload.get("required_calibration_points") not in (None, ""):
+            compact["required_calibration_points"] = payload[
+                "required_calibration_points"
+            ]
+            if payload.get("calibration_sufficient") not in (None, ""):
+                compact["calibration_sufficient"] = payload["calibration_sufficient"]
         for key in (
             "last_observation_time",
             "last_observation_epoch",
@@ -802,6 +810,10 @@ def _compact_sizing(payload: Any) -> Dict[str, Any]:
         "tp",
         "rr_ratio",
         "message",
+        "analysis_mode",
+        "market_status",
+        "market_status_reason",
+        "data_stale",
     ):
         if source.get(key) not in (None, ""):
             compact[key] = source[key]
@@ -809,6 +821,25 @@ def _compact_sizing(payload: Any) -> Dict[str, Any]:
         compact["candidate_valid"] = payload.get("candidate_valid")
     if payload.get("error_code") not in (None, ""):
         compact["error_code"] = payload.get("error_code")
+    for key in (
+        "analysis_mode",
+        "market_status",
+        "market_status_reason",
+        "data_stale",
+    ):
+        if payload.get(key) not in (None, "") and key not in compact:
+            compact[key] = payload[key]
+    quote = payload.get("quote_context")
+    if isinstance(quote, dict):
+        for key in (
+            "market_status",
+            "market_status_reason",
+            "data_stale",
+            "usable_for_live_trading",
+            "freshness",
+        ):
+            if quote.get(key) not in (None, "") and key not in compact:
+                compact[key] = quote[key]
     return compact
 
 

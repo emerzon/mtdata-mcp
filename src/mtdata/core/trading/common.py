@@ -85,6 +85,10 @@ def build_trade_quote_context(
         "timestamp_skew_seconds",
         "timestamp_skew_tolerance_seconds",
         "timestamp_warning",
+        "assumed_closure_start",
+        "assumed_closure_end",
+        "assumed_closure_seconds",
+        "note",
     ):
         if freshness.get(key) is not None:
             out[key] = freshness[key]

@@ -660,6 +660,10 @@ def test_run_trade_var_cvar_calculate_returns_empty_when_no_open_positions() -> 
     assert out["summary"]["lookback"] == 500
     assert out["equity"] == 1000.0
     assert out["currency"] == "USD"
+    assert out["summary"]["var"] is None
+    assert out["summary"]["cvar"] is None
+    assert out["summary"]["var_pct_of_equity"] is None
+    assert out["summary"]["cvar_pct_of_equity"] is None
     assert out["valuation_time"].endswith("Z")
     assert "symbol_exposures" not in out
     assert "worst_observations" not in out
@@ -760,7 +764,8 @@ def test_run_trade_var_cvar_calculate_full_detail_keeps_empty_shape() -> None:
     assert out["summary"]["positions"] == 0
     assert out["summary"]["horizon_bars"] == 1
     assert out["summary"]["holding_period"] == "1 H1 bar"
-    assert out["summary"]["var"] == 0.0
+    assert out["summary"]["var"] is None
+    assert out["summary"]["cvar"] is None
     assert out["symbol_exposures"] == []
     assert out["positions"] == []
     assert out["worst_observations"] == []

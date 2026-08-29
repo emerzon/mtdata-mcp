@@ -279,7 +279,17 @@ def _trade_session_tradability(symbol: str) -> Dict[str, Any]:
         return {"error": "Unable to fetch market status: invalid response."}
     if result.get("error"):
         return {"error": str(result.get("error"))}
-    return {
+    status = result.get("status")
+    is_session_open = (
+        None
+        if status in (None, "")
+        else str(status) not in {"weekend_closed", "closed", "disabled"}
+    )
+    now_tradable = result.get("tradable_now")
+    if now_tradable is None:
+        can_open = result.get("can_open_new_positions")
+        now_tradable = bool(result.get("is_tradable")) and can_open is True
+    out = {
         key: result[key]
         for key in (
             "status",
@@ -288,9 +298,13 @@ def _trade_session_tradability(symbol: str) -> Dict[str, Any]:
             "can_open_new_positions",
             "trade_mode_allows_opening",
             "tick_freshness",
+            "tradable_now",
         )
         if key in result
     }
+    out["is_session_open"] = is_session_open
+    out["now_tradable"] = bool(now_tradable)
+    return out
 
 
 def _build_quote_quality(quote: Any) -> Dict[str, Any]:
@@ -401,6 +415,8 @@ def _compact_trade_session_context_payload(payload: Dict[str, Any]) -> Dict[str,
             "market_status_reason",
             "market_status_error",
             "is_tradable",
+            "is_session_open",
+            "now_tradable",
             "execution_preconditions_allow_open",
             "trade_mode_allows_opening",
         )
@@ -726,6 +742,8 @@ def trade_session_context(request: TradeSessionContextRequest) -> Dict[str, Any]
             payload["market_status"] = tradability.get("status")
             payload["market_status_reason"] = tradability.get("reason")
             payload["is_tradable"] = tradability.get("is_tradable")
+            payload["is_session_open"] = tradability.get("is_session_open")
+            payload["now_tradable"] = tradability.get("now_tradable")
             payload["trade_mode_allows_opening"] = tradability.get(
                 "trade_mode_allows_opening",
                 tradability.get("can_open_new_positions"),

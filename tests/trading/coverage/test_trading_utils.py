@@ -184,6 +184,16 @@ class TestTickUtils:
         assert result["tick_age_status"] == "future"
         assert result["timestamp_in_future"] is True
 
+    def test_validate_tick_freshness_optional_for_risk_reducing_actions(self):
+        import time as _time_module
+
+        now_ms = _time_module.time() * 1000.0
+        stale = SimpleNamespace(time_msc=now_ms - 60_000)
+        future = SimpleNamespace(time_msc=now_ms + 50_000)
+        assert _validate_tick_freshness(stale, symbol="EURUSD", required=False) is None
+        assert _validate_tick_freshness(future, symbol="EURUSD", required=False) is None
+        assert _validate_tick_freshness(stale, symbol="EURUSD", required=True) is not None
+
 
 # ===================================================================
 #  Edge cases / integration

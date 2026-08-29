@@ -1404,6 +1404,26 @@ class TestClosePositions:
         result = _close_positions(symbol="GBPUSD")
         assert "message" in result
 
+    @patch.dict("sys.modules", {"MetaTrader5": MagicMock()})
+    def test_symbol_bulk_close_matches_case_insensitively(self):
+        mt5 = sys.modules["MetaTrader5"]
+        self._setup_mt5(mt5)
+        position = _position(ticket=42, symbol="EURUSD")
+
+        def _positions_get(*args, **kwargs):
+            symbol = kwargs.get("symbol")
+            if symbol == "eurusd":
+                return []
+            if symbol is None:
+                return [position]
+            return []
+
+        mt5.positions_get.side_effect = _positions_get
+        from mtdata.core.trading import _close_positions
+        result = _close_positions(symbol="eurusd", dry_run=True)
+        assert result.get("message") != "No open positions for eurusd"
+        assert "No open positions" not in str(result.get("message") or "")
+
     # -----------------------------------------------------------------
     # _execute_single_close tests (from consolidated test_trading_business_logic)
     # -----------------------------------------------------------------
@@ -1553,6 +1573,39 @@ class TestClosePositions:
         assert result["error_code"] == "tick_stale"
         assert result["tick_age_seconds"] > result["tick_max_age_seconds"]
         mt5.order_send.assert_not_called()
+
+    def test_execute_single_close_skips_freshness_when_live_quote_not_required(self):
+        from mtdata.core.trading.gateway import create_trading_gateway
+
+        mt5 = MagicMock()
+        mt5.ORDER_FILLING_IOC = 1
+        mt5.ORDER_TIME_GTC = 0
+        mt5.TRADE_RETCODE_DONE = 10009
+        position = SimpleNamespace(
+            ticket=42, symbol="EURUSD", volume=0.1, type=0, magic=100,
+            price_open=1.04, time=1700000000,
+        )
+        mt5.symbol_info_tick.return_value = _tick(bid=1.05, ask=1.0501, time=1)
+        mt5.order_send.return_value = _order_result()
+        gw = create_trading_gateway(
+            adapter=mt5,
+            ensure_connection_impl=lambda: None,
+        )
+
+        result = _execute_single_close(
+            gw,
+            position,
+            requested_volume=None,
+            position_volume_before=0.1,
+            remaining_volume_estimate=None,
+            deviation=20,
+            comment="AUTO-CLOSE: TP/SL protection unresolved",
+            fill_modes=[mt5.ORDER_FILLING_IOC],
+            require_live_quote=False,
+        )
+
+        assert result.get("error_code") != "tick_stale"
+        mt5.order_send.assert_called()
 
     def test_execute_single_close_rejects_invalid_full_close_volume(self):
         from mtdata.core.trading.gateway import create_trading_gateway

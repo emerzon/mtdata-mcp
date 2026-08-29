@@ -217,6 +217,9 @@ def test_trade_account_info_compact_detail_includes_account_fields_without_diagn
     assert out["account_risk_status"] == "healthy"
     assert out["trade_expert"] is True
     assert out["execution_ready"] is True
+    assert out["symbol_sessions_evaluated"] is False
+    assert out["now_tradable"] is False
+    assert out["now_tradable_means"] == "requires_symbol_session"
 
 
 def test_trade_account_info_compact_distinguishes_logins_on_same_server() -> None:

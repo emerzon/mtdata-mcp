@@ -9,6 +9,36 @@ from mtdata.core.trading.ideas import _compact_forecast, run_trade_idea_compose
 from mtdata.core.trading.ideas_requests import TradeIdeaComposeRequest
 
 
+def test_compact_forecast_keeps_one_calibration_block() -> None:
+    compact = _compact_forecast(
+        {
+            "ci_status": "available",
+            "required_calibration_points": 30,
+            "calibration_sufficient": True,
+            "interval_usage": "calibrated",
+            "conformal": {
+                "calibration_steps": 50,
+                "calibration_spacing": 20,
+                "min_calibration_points": 50,
+                "required_calibration_points": 30,
+                "calibration_sufficient": True,
+                "empirical_coverage": 0.96,
+                "coverage_target": 0.95,
+                "interval_usage": "calibrated",
+            },
+        },
+        [1.1],
+        "up",
+    )
+
+    assert "required_calibration_points" not in compact
+    assert "calibration_sufficient" not in compact
+    assert compact["interval_usage"] == "calibrated"
+    assert compact["calibration"]["required_calibration_points"] == 30
+    assert compact["calibration"]["min_calibration_points"] == 50
+    assert compact["calibration"]["calibration_sufficient"] is True
+
+
 def test_compact_forecast_exposes_forming_bar_state() -> None:
     compact = _compact_forecast(
         {

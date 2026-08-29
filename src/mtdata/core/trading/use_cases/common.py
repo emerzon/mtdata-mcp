@@ -36,7 +36,29 @@ def _invalid_order_type_payload(message: str) -> Dict[str, Any]:
     }
 
 
-def _dry_run_blocker_error(blockers: Any) -> str:
+def _market_closure_blocker(quote_context: Any) -> Optional[str]:
+    if not isinstance(quote_context, dict):
+        return None
+    reason = str(quote_context.get("market_status_reason") or "").strip().lower()
+    status = str(quote_context.get("market_status") or "").strip().lower()
+    if reason == "weekend" or "weekend" in status:
+        return "market_closed_weekend"
+    if reason == "holiday" or "holiday" in status:
+        return "market_closed_holiday"
+    return None
+
+
+def _next_market_open(quote_context: Any) -> Optional[str]:
+    if not isinstance(quote_context, dict):
+        return None
+    for key in ("assumed_closure_end", "next_market_open", "next_open"):
+        value = quote_context.get(key)
+        if value not in (None, ""):
+            return str(value)
+    return None
+
+
+def _dry_run_blocker_error(blockers: Any, quote_context: Any = None) -> str:
     blocker_list = [str(item).strip() for item in list(blockers or []) if str(item).strip()]
     blocker_set = set(blocker_list)
     if {"missing_stop_loss", "missing_take_profit"}.issubset(blocker_set):
@@ -50,6 +72,28 @@ def _dry_run_blocker_error(blockers: Any) -> str:
         return "take_profit is required when require_sl_tp=true."
     if "margin_insufficient" in blocker_set:
         return "Estimated free margin is insufficient for this order."
+    if "market_closed_weekend" in blocker_set:
+        next_open = _next_market_open(quote_context)
+        if next_open:
+            return (
+                "Market is closed for the weekend; live quotes will not be "
+                f"available until the next session open ({next_open})."
+            )
+        return (
+            "Market is closed for the weekend; live quotes will not be "
+            "available until the next session open."
+        )
+    if "market_closed_holiday" in blocker_set:
+        next_open = _next_market_open(quote_context)
+        if next_open:
+            return (
+                "Market is closed for a holiday; live quotes will not be "
+                f"available until the next session open ({next_open})."
+            )
+        return (
+            "Market is closed for a holiday; live quotes will not be "
+            "available until the next session open."
+        )
     if "quote_not_live_ready" in blocker_set:
         return "The current quote is not usable for live submission; refresh it and retry."
     if blocker_list:
@@ -178,6 +222,9 @@ _TRADE_PLACE_PREVIEW_KEYS = (
     "expiration_resolved_utc",
     "expiration_context",
     "quote_context",
+    "market_status",
+    "market_status_reason",
+    "next_market_open",
 )
 
 
@@ -311,6 +358,12 @@ def _shape_trade_place_preview(
                 "usable_for_live_trading",
                 "freshness_state",
                 "quote_time",
+                "market_status",
+                "market_status_reason",
+                "assumed_closure_end",
+                "send_path_tick_fresh",
+                "send_path_freshness_error",
+                "send_path_tick_age_status",
             )
             if key in quote
         }

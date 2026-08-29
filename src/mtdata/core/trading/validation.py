@@ -1317,8 +1317,17 @@ def _validate_tick_freshness(
     *,
     symbol: str,
     max_age_seconds: Optional[float] = None,
+    required: bool = True,
 ) -> Optional[Dict[str, Any]]:
-    """Return an error dict if *tick* is stale, future-dated, or has unknown age."""
+    """Return an error dict if *tick* is stale, future-dated, or has unknown age.
+
+    When ``required`` is false the check is skipped. Use that for risk-reducing
+    actions (pending cancel/amend, protection edits, weekend pending staging,
+    auto-close after a protection failure) that still need a reference tick but
+    must not be blocked the same way as a new market fill.
+    """
+    if not required:
+        return None
     from ...utils.market_metadata import TICK_FUTURE_TOLERANCE_SECONDS
 
     threshold = (

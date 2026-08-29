@@ -714,6 +714,134 @@ def test_run_trade_place_dry_run_blocks_untrusted_quote_preview():
     assert result["quote_context"]["usable_for_live_trading"] is False
 
 
+def test_run_trade_place_dry_run_names_weekend_closure_instead_of_refresh():
+    request = TradePlaceRequest(
+        symbol="EURUSD",
+        volume=0.01,
+        order_type="BUY",
+        stop_loss=1.08,
+        take_profit=1.12,
+        dry_run=True,
+        detail="standard",
+    )
+    result = run_trade_place(
+        request,
+        normalize_order_type_input=lambda value: ("BUY", None),
+        normalize_pending_expiration=lambda value: (value, False),
+        prevalidate_trade_place_market_input=lambda symbol, volume: None,
+        place_market_order=MagicMock(),
+        place_pending_order=MagicMock(),
+        close_positions=MagicMock(),
+        safe_int_ticket=lambda value: value,
+        build_dry_run_preview=lambda **_kwargs: {
+            "bid": 1.0999,
+            "ask": 1.1001,
+            "estimated_fill_price": 1.1001,
+            "sl_tp_valid": True,
+            "quote_context": {
+                "freshness_state": "closed_weekend_snapshot",
+                "freshness_reason": "market_closed",
+                "usable_for_live_trading": False,
+                "market_status": "closed",
+                "market_status_reason": "weekend",
+                "assumed_closure_end": "2026-08-31T21:00:00Z",
+            },
+        },
+    )
+
+    assert result["success"] is False
+    assert result["blockers"] == ["market_closed_weekend"]
+    assert result["market_status"] == "closed"
+    assert result["market_status_reason"] == "weekend"
+    assert result["next_market_open"] == "2026-08-31T21:00:00Z"
+    assert "weekend" in result["error"].lower()
+    assert "2026-08-31T21:00:00Z" in result["error"]
+    assert "refresh it and retry" not in result["error"].lower()
+    assert "refresh it and retry" not in result["remediation"].lower()
+    assert "next market open" in result["remediation"]
+
+
+def test_run_trade_place_preview_blocks_market_when_raw_send_tick_is_skewed():
+    request = TradePlaceRequest(
+        symbol="BTCUSD",
+        volume=0.01,
+        order_type="BUY",
+        stop_loss=70000,
+        take_profit=85000,
+        dry_run=True,
+        detail="standard",
+    )
+    result = run_trade_place(
+        request,
+        normalize_order_type_input=lambda value: ("BUY", None),
+        normalize_pending_expiration=lambda value: (value, False),
+        prevalidate_trade_place_market_input=lambda symbol, volume: None,
+        place_market_order=MagicMock(),
+        place_pending_order=MagicMock(),
+        close_positions=MagicMock(),
+        safe_int_ticket=lambda value: value,
+        build_dry_run_preview=lambda **_kwargs: {
+            "bid": 80000.0,
+            "ask": 80010.0,
+            "estimated_fill_price": 80010.0,
+            "sl_tp_valid": True,
+            "quote_context": {
+                "usable_for_live_trading": True,
+                "freshness_state": "live",
+                "send_path_tick_fresh": False,
+                "send_path_tick_age_status": "future",
+                "send_path_freshness_error": (
+                    "Tick for BTCUSD is 26.3s ahead of the wall clock "
+                    "and is not safe for live trading."
+                ),
+            },
+        },
+    )
+
+    assert result["preview_ok"] is False
+    assert result["validation"]["live_submission_eligible"] is False
+    assert result["blockers"] == ["raw_quote_timestamp_ahead_of_clock"]
+
+
+def test_run_trade_place_pending_preview_allows_stale_session_snapshot():
+    request = TradePlaceRequest(
+        symbol="EURUSD",
+        volume=0.01,
+        order_type="BUY_LIMIT",
+        price=1.14,
+        stop_loss=1.13,
+        take_profit=1.16,
+        dry_run=True,
+        detail="standard",
+    )
+    result = run_trade_place(
+        request,
+        normalize_order_type_input=lambda value: ("BUY_LIMIT", None),
+        normalize_pending_expiration=lambda value: (value, False),
+        prevalidate_trade_place_market_input=lambda symbol, volume: None,
+        place_market_order=MagicMock(),
+        place_pending_order=MagicMock(),
+        close_positions=MagicMock(),
+        safe_int_ticket=lambda value: value,
+        build_dry_run_preview=lambda **_kwargs: {
+            "bid": 1.15809,
+            "ask": 1.15825,
+            "estimated_fill_price": 1.14,
+            "sl_tp_valid": True,
+            "quote_context": {
+                "usable_for_live_trading": False,
+                "freshness_state": "stale",
+                "send_path_tick_fresh": False,
+                "send_path_tick_age_status": "stale",
+            },
+        },
+    )
+
+    assert result["preview_ok"] is True
+    assert result["validation"]["live_submission_eligible"] is True
+    assert "quote_not_live_ready" not in result["blockers"]
+
+
 def test_build_trade_place_dry_run_preview_uses_live_quote_and_margin():
     adapter = SimpleNamespace(
         ORDER_TYPE_BUY=0,
@@ -776,10 +904,59 @@ def test_build_trade_place_dry_run_preview_uses_live_quote_and_margin():
     assert result["margin_estimate_basis"] == "market_fill_side_at_estimated_price"
     assert result["quote_context"]["usable_for_live_trading"] is True
     assert result["quote_context"]["freshness_state"] == "live"
+    assert result["quote_context"]["send_path_tick_fresh"] is True
     assert result["quote_context"]["quote_timezone"] == "UTC"
     assert result["units"]["sl_distance_points"] == "broker_points"
     assert result["units"]["sl_distance_pips"] == "pips"
     adapter.order_calc_margin.assert_called_once_with(0, "EURUSD", 0.1, 1.1001)
+
+
+def test_build_trade_place_dry_run_preview_marks_raw_tick_clock_skew():
+    adapter = SimpleNamespace(
+        ORDER_TYPE_BUY=0,
+        order_calc_margin=MagicMock(return_value=123.45),
+    )
+    gateway = MagicMock()
+    gateway.adapter = adapter
+    gateway.ORDER_TYPE_BUY = 0
+    gateway.symbol_info.return_value = SimpleNamespace(
+        visible=True,
+        volume_min=0.01,
+        volume_max=100.0,
+        volume_step=0.01,
+        point=0.00001,
+        digits=5,
+        trade_stops_level=10,
+        trade_freeze_level=0,
+    )
+    fixed_now = datetime(2026, 7, 15, 12, 0, tzinfo=timezone.utc)
+    gateway.symbol_info_tick.return_value = SimpleNamespace(
+        bid=1.0999,
+        ask=1.1001,
+        time=fixed_now.timestamp() + 26.3,
+        time_msc=(fixed_now.timestamp() + 26.3) * 1000.0,
+    )
+    gateway.account_info.return_value = SimpleNamespace(margin_free=1000.0)
+
+    with patch("mtdata.core.trading.common.datetime", wraps=datetime) as mock_datetime, patch(
+        "mtdata.core.trading.orders._stdlib_time.time",
+        return_value=fixed_now.timestamp(),
+    ):
+        mock_datetime.now.return_value = fixed_now
+        result = build_trade_place_dry_run_preview(
+            symbol="BTCUSD",
+            volume=0.01,
+            order_type="BUY",
+            pending=False,
+            price=None,
+            stop_limit_price=None,
+            stop_loss=70000,
+            take_profit=85000,
+            gateway=gateway,
+        )
+
+    assert result["quote_context"]["send_path_tick_fresh"] is False
+    assert result["quote_context"]["send_path_tick_age_status"] == "future"
 
 
 @pytest.mark.parametrize(

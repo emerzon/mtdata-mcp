@@ -762,6 +762,37 @@ def test_trade_risk_analyze_blocks_sizing_from_stale_reference_quote() -> None:
     assert "position_sizing" not in out
 
 
+def test_trade_risk_analyze_explicit_entry_keeps_quote_trust_as_research() -> None:
+    mt5 = MagicMock()
+    mt5.account_info.return_value = SimpleNamespace(equity=1000.0, currency="USD")
+    mt5.positions_get.return_value = []
+    mt5.symbol_info.return_value = _make_symbol_info()
+    mt5.symbol_info_tick.return_value = SimpleNamespace(
+        bid=99.8,
+        ask=100.2,
+        time=1.0,
+    )
+
+    with _patched_mt5_module(mt5):
+        out = trade_risk_analyze(
+            symbol="EURUSD",
+            direction="long",
+            sizing=_fixed_sizing(1.0),
+            entry=100.0,
+            stop_loss=95.0,
+            take_profit=110.0,
+        )
+
+    assert out["success"] is True
+    assert out["analysis_mode"] == "research_geometry"
+    assert out["quote_context"]["entry_source"] == "caller_supplied"
+    assert out["quote_context"]["usable_for_live_trading"] is False
+    assert out["market_status"] == out["quote_context"]["market_status"]
+    assert any("research-only" in str(item).lower() for item in out["warnings"])
+    assert out["sizing_eligible"] is True
+    assert out.get("error_code") is None
+
+
 def test_trade_risk_analyze_blocks_sizing_from_locked_quote() -> None:
     mt5 = MagicMock()
     mt5.account_info.return_value = SimpleNamespace(equity=1000.0, currency="USD")
@@ -1903,7 +1934,44 @@ def test_trade_risk_analyze_clamps_to_configured_volume_guardrail() -> None:
     assert sizing["guardrail_capped_volume"] == 0.05
     assert sizing["guardrail_max_volume"] == 0.05
     assert sizing["guardrail_rule"] == "symbol_policy"
+    assert sizing["risk_compliance"] == "capped_below_requested_risk"
     assert guardrail_block is None
+
+
+def test_trade_risk_analyze_compact_surfaces_guardrail_cap() -> None:
+    mt5 = MagicMock()
+    mt5.account_info.return_value = SimpleNamespace(equity=1000.0, currency="USD")
+    mt5.positions_get.return_value = []
+    mt5.orders_get.return_value = []
+    mt5.symbol_info.return_value = _make_symbol_info(
+        volume_min=0.01,
+        volume_step=0.01,
+        volume_max=10.0,
+    )
+
+    with _guardrail_snapshot():
+        trade_guardrails_config.enabled = True
+        trade_guardrails_config.ignore_on_demo = False
+        trade_guardrails_config.max_volume_by_symbol = {"EURUSD": 0.05}
+        with _patched_mt5_module(mt5):
+            out = trade_risk_analyze(
+                symbol="EURUSD",
+                direction="long",
+                entry=100.0,
+                stop_loss=90.0,
+                sizing=_fixed_sizing(10.0),
+            )
+        sizing = out["position_sizing"]
+
+    assert out["success"] is True
+    assert sizing["suggested_volume"] == 0.05
+    assert sizing["unconstrained_volume"] == 10.0
+    assert sizing["guardrail_capped_volume"] == 0.05
+    assert sizing["guardrail_max_volume"] == 0.05
+    assert sizing["guardrail_rule"] == "symbol_policy"
+    assert sizing["volume_rounding"] == "clamped_to_guardrail_max_volume"
+    assert sizing["risk_compliance"] == "capped_below_requested_risk"
+    assert sizing["risk_shortfall_pct"] > 0
 
 
 def test_trade_risk_analyze_blocks_when_no_guardrail_compliant_volume() -> None:

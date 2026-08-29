@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from ..utils.coercion import UNPARSED_BOOL, parse_bool_like
 from .env import get_bool_env, get_csv_env, get_float_env, get_int_env
 
 try:
@@ -150,12 +151,38 @@ def _env_optional_float(name: str) -> Optional[float]:
     try:
         value = float(text)
     except (TypeError, ValueError):
-        _LOGGER.warning("Invalid %s=%r; ignoring configured float.", name, raw)
-        return None
+        raise ValueError(
+            f"Invalid {name}={raw!r}; expected a number, not a silent fallback."
+        ) from None
     if not value == value:
-        _LOGGER.warning("Invalid %s=%r; ignoring NaN float.", name, raw)
-        return None
+        raise ValueError(f"Invalid {name}={raw!r}; NaN is not allowed.")
     return value
+
+
+def _env_strict_optional_int(name: str) -> Optional[int]:
+    raw = os.getenv(name)
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    try:
+        return int(text)
+    except (TypeError, ValueError):
+        raise ValueError(f"Invalid {name}={raw!r}; expected an integer.") from None
+
+
+def _env_strict_bool(name: str, *, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return bool(default)
+    parsed = parse_bool_like(raw)
+    if parsed is not UNPARSED_BOOL:
+        return bool(parsed)
+    raise ValueError(
+        f"Invalid boolean {name}={raw!r}. "
+        "Accepted values are: 0, 1, false, n, no, off, on, true, y, yes."
+    )
 
 
 def _env_symbol_float_map(name: str) -> dict[str, float]:
@@ -169,25 +196,23 @@ def _env_symbol_float_map(name: str) -> dict[str, float]:
             continue
         separator = ":" if ":" in token else "=" if "=" in token else None
         if separator is None:
-            _LOGGER.warning(
-                "Invalid %s entry %r; expected SYMBOL:VALUE or SYMBOL=VALUE.",
-                name,
-                token,
+            raise ValueError(
+                f"Invalid {name} entry {token!r}; expected SYMBOL:VALUE or SYMBOL=VALUE."
             )
-            continue
         symbol_part, value_part = token.split(separator, 1)
         symbol = symbol_part.strip().upper()
         if not symbol:
-            _LOGGER.warning("Invalid %s entry %r; symbol is blank.", name, token)
-            continue
+            raise ValueError(f"Invalid {name} entry {token!r}; symbol is blank.")
         try:
             value = float(value_part.strip())
         except (TypeError, ValueError):
-            _LOGGER.warning("Invalid %s entry %r; volume cap must be numeric.", name, token)
-            continue
+            raise ValueError(
+                f"Invalid {name} entry {token!r}; volume cap must be numeric."
+            ) from None
         if value <= 0:
-            _LOGGER.warning("Invalid %s entry %r; volume cap must be positive.", name, token)
-            continue
+            raise ValueError(
+                f"Invalid {name} entry {token!r}; volume cap must be positive."
+            )
         mapping[symbol] = float(value)
     return mapping
 
@@ -274,12 +299,16 @@ class TradeGuardrailsRuntimeConfig(_GuardrailSection):
         # Atomic field swap under lock so concurrent evaluations never observe
         # a partially-updated multi-field policy.
         with self._reload_lock:
-            self.enabled = get_bool_env("MTDATA_TRADE_GUARDRAILS_ENABLED", default=False)
-            self.ignore_on_demo = get_bool_env(
+            self.enabled = _env_strict_bool(
+                "MTDATA_TRADE_GUARDRAILS_ENABLED", default=False
+            )
+            self.ignore_on_demo = _env_strict_bool(
                 "MTDATA_TRADE_GUARDRAILS_IGNORE_ON_DEMO",
                 default=False,
             )
-            self.trading_enabled = get_bool_env("MTDATA_TRADING_ENABLED", default=True)
+            self.trading_enabled = _env_strict_bool(
+                "MTDATA_TRADING_ENABLED", default=True
+            )
             self.allowed_symbols = [
                 symbol.upper() for symbol in get_csv_env("MTDATA_TRADE_ALLOWED_SYMBOLS")
             ]
@@ -294,14 +323,14 @@ class TradeGuardrailsRuntimeConfig(_GuardrailSection):
             self.safety_policy.max_volume = _env_optional_float(
                 "MTDATA_TRADE_SAFETY_MAX_VOLUME"
             )
-            self.safety_policy.require_stop_loss = get_bool_env(
+            self.safety_policy.require_stop_loss = _env_strict_bool(
                 "MTDATA_TRADE_SAFETY_REQUIRE_STOP_LOSS",
                 default=False,
             )
-            self.safety_policy.max_deviation = _env_optional_int(
+            self.safety_policy.max_deviation = _env_strict_optional_int(
                 "MTDATA_TRADE_SAFETY_MAX_DEVIATION"
             )
-            self.safety_policy.reduce_only = get_bool_env(
+            self.safety_policy.reduce_only = _env_strict_bool(
                 "MTDATA_TRADE_SAFETY_REDUCE_ONLY",
                 default=False,
             )

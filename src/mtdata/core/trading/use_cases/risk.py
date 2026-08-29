@@ -184,6 +184,44 @@ def _resolve_live_trade_risk_entry(
     return None, None, quote_context
 
 
+def _attach_trade_risk_quote_trust(
+    result: Dict[str, Any],
+    quote_context: Dict[str, Any],
+    *,
+    analysis_mode: str,
+    entry_source: str | None = None,
+) -> None:
+    context = dict(quote_context)
+    if analysis_mode == "research_geometry":
+        context.pop("sizing_reference_only", None)
+        context.pop("sizing_warning", None)
+        if entry_source:
+            context["entry_source"] = entry_source
+    result["quote_context"] = context
+    result["analysis_mode"] = analysis_mode
+    for key in ("market_status", "market_status_reason", "data_stale"):
+        if context.get(key) is not None:
+            result[key] = context[key]
+    if (
+        analysis_mode == "research_geometry"
+        and context.get("usable_for_live_trading") is not True
+    ):
+        reason = str(
+            context.get("market_status_reason")
+            or context.get("freshness_reason")
+            or "stale_or_closed_session"
+        )
+        warning = (
+            "Caller-supplied entry is research-only geometry; the current quote "
+            f"is not live ({reason}). Monday's open can gap through this entry "
+            "and stop, so do not treat the size as a live recommendation."
+        )
+        warnings = list(result.get("warnings") or [])
+        if warning not in warnings:
+            warnings.append(warning)
+        result["warnings"] = warnings
+
+
 def _validate_trade_risk_levels(
     *,
     direction: str,
@@ -616,7 +654,8 @@ def _apply_trade_candidate_outcome(result: Dict[str, Any]) -> Dict[str, Any]:
     if candidate_status == "valid":
         quote_context = result.get("quote_context")
         if (
-            isinstance(quote_context, dict)
+            result.get("analysis_mode") != "research_geometry"
+            and isinstance(quote_context, dict)
             and quote_context.get("sizing_reference_only") is True
             and quote_context.get("usable_for_live_trading") is not True
         ):
@@ -1761,11 +1800,7 @@ def run_trade_risk_analyze(  # noqa: C901
 
             entry_source = None
             live_quote_context: Dict[str, Any] = {}
-            if (
-                request.entry is None
-                and request.symbol
-                and request.stop_loss is not None
-            ):
+            if request.symbol:
                 (
                     live_entry,
                     live_entry_source,
@@ -1775,29 +1810,44 @@ def run_trade_risk_analyze(  # noqa: C901
                     symbol=request.symbol,
                     direction=request.direction,
                 )
-                if live_quote_context:
-                    result["quote_context"] = live_quote_context
-                if live_quote_context.get("quote_side_missing"):
-                    required_side = str(
-                        live_quote_context.get("required_quote_side") or "quote"
-                    )
-                    result["position_sizing_error"] = _build_position_sizing_error(
-                        code="required_quote_side_missing",
-                        field="entry",
-                        reason=(
-                            "Live risk sizing needs the "
-                            f"{required_side} price; the quote is one-sided."
-                        ),
-                        remediation=(
-                            "Refresh the quote and retry when both bid and ask "
-                            "are available."
-                        ),
-                        details={"required_quote_side": required_side},
-                    )
-                    return result
-                if live_entry is not None:
-                    request.entry = float(live_entry)
-                    entry_source = live_entry_source or "live_tick"
+                if request.entry is None and request.stop_loss is not None:
+                    if live_quote_context:
+                        _attach_trade_risk_quote_trust(
+                            result,
+                            live_quote_context,
+                            analysis_mode="live_quote_sizing",
+                        )
+                    if live_quote_context.get("quote_side_missing"):
+                        required_side = str(
+                            live_quote_context.get("required_quote_side") or "quote"
+                        )
+                        result["position_sizing_error"] = _build_position_sizing_error(
+                            code="required_quote_side_missing",
+                            field="entry",
+                            reason=(
+                                "Live risk sizing needs the "
+                                f"{required_side} price; the quote is one-sided."
+                            ),
+                            remediation=(
+                                "Refresh the quote and retry when both bid and ask "
+                                "are available."
+                            ),
+                            details={"required_quote_side": required_side},
+                        )
+                        return result
+                    if live_entry is not None:
+                        request.entry = float(live_entry)
+                        entry_source = live_entry_source or "live_tick"
+                elif request.entry is not None:
+                    if live_quote_context:
+                        _attach_trade_risk_quote_trust(
+                            result,
+                            live_quote_context,
+                            analysis_mode="research_geometry",
+                            entry_source="caller_supplied",
+                        )
+                    else:
+                        result["analysis_mode"] = "research_geometry"
 
             candidate_symbol_info = None
             if (
@@ -2569,9 +2619,13 @@ def run_trade_risk_analyze(  # noqa: C901
                         "blocked_min_volume_exceeds_requested_risk"
                         if strict_risk_blocked
                         else (
-                            "exceeds_requested_risk"
-                            if risk_over_target
-                            else "within_requested_risk"
+                            "capped_below_requested_risk"
+                            if guardrail_capped_volume is not None
+                            else (
+                                "exceeds_requested_risk"
+                                if risk_over_target
+                                else "within_requested_risk"
+                            )
                         )
                     )
                     shortfall_pct = max(
@@ -3265,13 +3319,13 @@ def run_trade_var_cvar_calculate(  # noqa: C901
             "symbols": 0,
             "gross_notional": 0.0,
             "net_exposure": 0.0,
-            "var": 0.0,
-            "cvar": 0.0,
+            "var": None,
+            "cvar": None,
         }
         if equity is not None and equity > 0.0:
             summary["equity"] = round(float(equity), 2)
-            summary["var_pct_of_equity"] = 0.0
-            summary["cvar_pct_of_equity"] = 0.0
+            summary["var_pct_of_equity"] = None
+            summary["cvar_pct_of_equity"] = None
         if currency:
             summary["currency"] = currency
         if request.detail == "full":
