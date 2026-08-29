@@ -3,6 +3,7 @@ from unittest.mock import patch
 import pytest
 
 from mtdata.core.output_contract import (
+    _coerce_json_flag,
     _coerce_optional_verbose_flag,
     apply_output_verbosity,
     attach_collection_contract,
@@ -81,6 +82,18 @@ def test_normalize_output_extras_accepts_bool_like_full_shortcut() -> None:
     assert normalize_output_extras("true") == full_extras
     assert normalize_output_extras(np.bool_(False)) == ()
     assert _coerce_optional_verbose_flag(np.bool_(True)) is True
+
+
+def test_verbose_and_json_flags_reject_unrecognized_strings() -> None:
+    assert _coerce_optional_verbose_flag("hello") is None
+    assert _coerce_optional_verbose_flag("auto") is None
+    assert _coerce_optional_verbose_flag("2") is None
+    assert _coerce_json_flag("foo") is False
+    assert _coerce_json_flag("auto") is False
+    assert _coerce_json_flag("true") is True
+    assert _coerce_json_flag("false") is False
+    assert _coerce_optional_verbose_flag("false") is False
+    assert _coerce_optional_verbose_flag("true") is True
 
 
 def test_normalize_output_extras_rejects_legacy_detail_assignments() -> None:

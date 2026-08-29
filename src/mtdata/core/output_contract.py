@@ -150,12 +150,21 @@ def _read_verbosity_field(source: Any, field: str) -> Any:
     return getattr(source, field, _MISSING)
 
 
+def _bool_from_unparsed_flag(value: Any, *, default: Optional[bool]) -> Optional[bool]:
+    if isinstance(value, (str, bytes, bytearray, dict, list, tuple, set)):
+        return default
+    try:
+        return bool(value)
+    except Exception:
+        return default
+
+
 def _coerce_optional_verbose_flag(value: Any) -> Optional[bool]:
     if value is _MISSING or value is None:
         return None
     parsed = parse_bool_like(value, allow_none=True)
     if parsed is UNPARSED_BOOL:
-        return bool(value)
+        return _bool_from_unparsed_flag(value, default=None)
     if parsed is None:
         return None
     return bool(parsed)
@@ -164,7 +173,7 @@ def _coerce_optional_verbose_flag(value: Any) -> Optional[bool]:
 def _coerce_json_flag(value: Any) -> bool:
     parsed = parse_bool_like(value, allow_none=True)
     if parsed is UNPARSED_BOOL:
-        return bool(value)
+        return bool(_bool_from_unparsed_flag(value, default=False))
     return bool(parsed)
 
 
