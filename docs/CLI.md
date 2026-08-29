@@ -377,7 +377,7 @@ response is intentional. Omit `--start` for latest-N retrieval.
 | `market_scan` | Filter MT5 symbols by spread, price change, volume, RSI, and SMA |
 | `market_radar` | Compact watchlist scan (quote, spread, change, freshness; max 20 names) |
 | `data_fetch_candles` | Fetch OHLCV candles with optional indicators |
-| `data_fetch_ticks` | Fetch tick data |
+| `data_fetch_ticks` | Fetch tick data (historical window capped at 30 days before `--end`) |
 | `market_depth_fetch` | Get order book (DOM) — requires `MTDATA_ENABLE_MARKET_DEPTH_FETCH=1` |
 | `market_ticker` | Get current bid/ask/spread snapshot |
 | `market_snapshot` | Unified pre-trade snapshot (quote, levels, patterns; optional regime/forecast sections) |

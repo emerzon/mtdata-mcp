@@ -499,8 +499,21 @@ class DataFetchTicksRequest(_DetailNormalizedRequest):
             "that another page exists."
         ),
     )
-    start: Optional[str] = None
-    end: Optional[str] = None
+    start: Optional[str] = Field(
+        None,
+        description=(
+            "Historical start. Tick retrieval is limited to the 30 days ending "
+            "at end (or now). Truncated responses set history_window_truncated, "
+            "history_window_limit_days, and effective_start."
+        ),
+    )
+    end: Optional[str] = Field(
+        None,
+        description=(
+            "Historical end (UTC). The lookback floor is 30 days before this "
+            "instant, or 30 days before now when end is omitted."
+        ),
+    )
     selection: Optional[Literal["first_n", "last_n"]] = Field(
         None,
         description=(
