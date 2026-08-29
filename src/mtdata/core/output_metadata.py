@@ -246,7 +246,7 @@ class FreshnessObservation:
             status = "market_closed"
         elif stale is True or history_ok is False:
             status = "stale"
-        elif state in {"live", "fresh", "recent", "delayed", "unknown"}:
+        elif state in {"live", "fresh", "recent", "delayed", "stale", "unknown"}:
             status = state
         elif stale is False:
             status = "fresh"

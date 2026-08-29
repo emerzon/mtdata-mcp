@@ -1887,6 +1887,16 @@ def _recording_tool_decorator(*dargs, **dkwargs):  # type: ignore[override]  # n
                     if _fmt_methods and isinstance(methods_list, list):
                         s = _fmt_methods(cast(List[Dict[str, Any]], methods_list))
                         if s:
+                            unavailable = public_out.get("unavailable")
+                            if isinstance(unavailable, list) and unavailable:
+                                unavailable_text = _fmt_min(
+                                    {"unavailable": unavailable},
+                                    verbose=False,
+                                    precision=precision,
+                                    tool_name="",
+                                )
+                                if unavailable_text:
+                                    s = f"{s}\n{unavailable_text}"
                             return s
                 return _fmt_min(
                     public_out,

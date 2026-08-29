@@ -818,11 +818,18 @@ def get_tick_response(
             operation="get_tick",
         )
     _raise_tool_error(result, operation="get_tick", default_code="tick_data_missing")
-    return shape_public_tool_output(
+    shaped = shape_public_tool_output(
         result,
         detail=detail,
         tool_name="market_ticker",
     )
+    if detail != "full" and isinstance(shaped, dict):
+        # The tick endpoint feeds chart cursors, so retain its single display
+        # timestamp without restoring generic quote telemetry.
+        for key in ("time", "time_epoch"):
+            if result.get(key) not in (None, ""):
+                shaped[key] = result[key]
+    return shaped
 
 
 def _post_use_case_response(

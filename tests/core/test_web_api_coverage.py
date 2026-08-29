@@ -1189,7 +1189,7 @@ class TestGetPivots:
             resp = _client.get("/api/pivots", params={"symbol": "EURUSD", "detail": "full"})
 
         assert resp.status_code == 200
-        assert resp.json()["diagnostics"] == {"source": "test"}
+        assert resp.json()["meta"]["diagnostics"] == {"source": "test"}
         raw_tool.assert_called_once_with(
             symbol="EURUSD", timeframe="H1", method="classic", detail="full"
         )
@@ -1305,8 +1305,9 @@ class TestGetTick:
         assert res["symbol"] == "EURUSD"
         assert res["time"] == "1970-01-01T00:01:40Z"
         assert res["time_epoch"] == 100.0
-        assert res["freshness_state"] == "stale"
+        assert "freshness_state" not in res
         assert res["usable_for_live_trading"] is False
+        assert res["warnings"][0]["code"] == "data_stale"
 
     def test_detail_is_forwarded_and_shared_compaction_applies(self):
         tool = MagicMock(return_value={"success": True, "symbol": "EURUSD", "diagnostics": {"x": 1}})

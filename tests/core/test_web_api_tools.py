@@ -179,7 +179,8 @@ class TestListAndInvoke:
         assert result["tool"] == "tools_list"
         inner = result["result"]
         assert isinstance(inner, dict)
-        assert inner.get("count") == 2
+        assert len(inner["tools"]) == 2
+        assert "count" not in inner
 
     def test_invoke_applies_public_output_contract_to_request_model(self):
         def report_generate(request: ReportGenerateRequest):
@@ -583,7 +584,8 @@ class TestWebApiRoutes:
         assert res.status_code == 200
         body = res.json()
         assert body["success"] is True
-        assert body["result"]["count"] == 1
+        assert len(body["result"]["tools"]) == 1
+        assert "count" not in body["result"]
 
     def test_invoke_trade_live_without_confirm_blocked(self):
         res = self.client.post(

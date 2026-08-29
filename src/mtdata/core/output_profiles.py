@@ -31,6 +31,116 @@ _MARKET_TOOLS = frozenset(
         "trade_session_context",
     }
 )
+_CATALOG_TOOLS = frozenset(
+    {
+        "denoise_list_methods",
+        "forecast_list_library_models",
+        "forecast_list_methods",
+        "forecast_models_list",
+        "indicators_list",
+        "options_expirations",
+        "symbols_list",
+        "tools_list",
+    }
+)
+_TASK_TOOLS = frozenset(
+    {
+        "forecast_task_cancel",
+        "forecast_task_cancel_all",
+        "forecast_task_list",
+        "forecast_task_status",
+        "forecast_task_wait",
+        "forecast_train",
+        "wait_event",
+    }
+)
+_ANALYSIS_INFO_TOOLS = frozenset(
+    {
+        "asset_performance",
+        "calendar",
+        "causal_discover_signals",
+        "cointegration_test",
+        "confluence_levels",
+        "correlation_matrix",
+        "cross_correlation",
+        "denoise_describe",
+        "denoise_list_methods",
+        "equity_profile",
+        "forecast_backtest_run",
+        "forecast_barrier_optimize",
+        "forecast_barrier_prob",
+        "forecast_conformal_intervals",
+        "forecast_generate",
+        "forecast_list_library_models",
+        "forecast_list_methods",
+        "forecast_models_cleanup",
+        "forecast_models_delete",
+        "forecast_models_list",
+        "forecast_optimize_hints",
+        "forecast_task_cancel",
+        "forecast_task_cancel_all",
+        "forecast_task_list",
+        "forecast_task_status",
+        "forecast_task_wait",
+        "forecast_train",
+        "forecast_tune_genetic",
+        "forecast_tune_optuna",
+        "forecast_volatility_estimate",
+        "indicators_describe",
+        "indicators_list",
+        "labels_triple_barrier",
+        "market_microstructure_analyze",
+        "market_radar",
+        "market_relative_strength",
+        "market_scan",
+        "news",
+        "options_barrier_price",
+        "options_chain",
+        "options_expirations",
+        "options_heston_calibrate",
+        "options_provider_status",
+        "outliers_detect",
+        "patterns_detect",
+        "pivot_compute_points",
+        "portfolio_risk_decompose",
+        "regime_detect",
+        "screener",
+        "seasonality_detect",
+        "stationarity_test",
+        "strategy_backtest",
+        "strategy_validate",
+        "support_resistance_levels",
+        "symbols_describe",
+        "symbols_list",
+        "symbols_top_markets",
+        "temporal_analyze",
+        "tools_list",
+        "volatility_term_structure",
+        "volume_profile_levels",
+        "wait_event",
+    }
+)
+_PHASE_SIX_TOOLS = frozenset({"report_generate"})
+_GENERIC_COMPACT_TIME_OMIT = LEGACY_TIME_FIELDS - {"data_window"}
+_GENERIC_VERBOSE_ROOT_FIELDS = frozenset(
+    {
+        "backend_versions",
+        "catalog_cached",
+        "catalog_fetched_at",
+        "catalog_freshness",
+        "catalog_source",
+        "debug",
+        "diagnostics",
+        "engine_versions",
+        "indicator_engine",
+        "processing_pipeline",
+        "provenance",
+        "query_applied",
+        "query_latency_ms",
+        "request",
+        "runtime",
+    }
+)
 
 _MARKET_COMPACT_OMIT = frozenset(
     {
@@ -155,7 +265,216 @@ def apply_public_output_profile(
         return _shape_ticks(result, detail=detail)
     if normalized in _MARKET_TOOLS:
         return _shape_market(result, detail=detail, tool_name=normalized)
+    if normalized in _PHASE_SIX_TOOLS or normalized.startswith("trade_"):
+        return result
+    if normalized in _ANALYSIS_INFO_TOOLS:
+        return _shape_analysis_info(result, detail=detail, tool_name=normalized)
     return result
+
+
+def _shape_analysis_info(
+    payload: Mapping[str, Any],
+    *,
+    detail: str,
+    tool_name: str,
+) -> Dict[str, Any]:
+    if detail == "full":
+        return _full_generic_payload(payload, scope=tool_name)
+
+    out = dict(payload)
+    source = SourceContext.from_payload(payload)
+    freshness = FreshnessObservation.from_payload(payload, scope=tool_name)
+    for key in (
+        LEGACY_FRESHNESS_FIELDS
+        | _GENERIC_COMPACT_TIME_OMIT
+        | _GENERIC_VERBOSE_ROOT_FIELDS
+        | {"meta", "related_tools", "source"}
+    ):
+        out.pop(key, None)
+    if source:
+        out["source"] = source.compact()
+    for key in ("limit_satisfied", "partial", "truncated"):
+        if out.get(key) in {False, True}:
+            nominal = key == "limit_satisfied" and out[key] is True
+            nominal = nominal or key in {"partial", "truncated"} and out[key] is False
+            if nominal:
+                out.pop(key, None)
+
+    if tool_name in _CATALOG_TOOLS:
+        _compact_catalog_payload(out)
+    if tool_name in _TASK_TOOLS:
+        _compact_task_payload(out)
+    _normalize_warnings(out)
+    if freshness and (warning := freshness.to_warning()):
+        append_output_warning(out, warning)
+    _drop_empty_warnings(out)
+    return out
+
+
+def _full_generic_payload(
+    payload: Mapping[str, Any],
+    *,
+    scope: str,
+) -> Dict[str, Any]:
+    out = dict(payload)
+    source = SourceContext.from_payload(payload)
+    time = TimeContext.from_payload(payload)
+    freshness = FreshnessObservation.from_payload(payload, scope=scope)
+    existing_meta = payload.get("meta")
+    meta = dict(existing_meta) if isinstance(existing_meta, Mapping) else {}
+    diagnostics = payload.get("diagnostics")
+    if isinstance(diagnostics, Mapping) and diagnostics:
+        existing_diagnostics = meta.get("diagnostics")
+        meta["diagnostics"] = {
+            **(
+                dict(existing_diagnostics)
+                if isinstance(existing_diagnostics, Mapping)
+                else {}
+            ),
+            **dict(diagnostics),
+        }
+    processing = {
+        key: payload[key]
+        for key in (
+            "backend_versions",
+            "engine_versions",
+            "indicator_engine",
+            "processing_pipeline",
+            "provenance",
+            "query_latency_ms",
+            "runtime",
+        )
+        if payload.get(key) not in (None, "", [], {})
+    }
+    canonical = OutputMetadata(
+        source=source,
+        time=time,
+        freshness=(freshness,) if freshness else (),
+        processing=processing,
+    ).to_dict()
+    meta.update(canonical)
+    request = {
+        key: payload[key]
+        for key in ("query_applied", "request")
+        if payload.get(key) not in (None, "", [], {})
+    }
+    if request:
+        meta["request"] = request
+    catalog = {
+        key: payload[key]
+        for key in (
+            "catalog_cached",
+            "catalog_fetched_at",
+            "catalog_freshness",
+            "catalog_source",
+        )
+        if payload.get(key) not in (None, "", [], {})
+    }
+    if catalog:
+        meta["catalog"] = catalog
+    units = payload.get("units")
+    if isinstance(units, Mapping) and units:
+        meta["units"] = dict(units)
+    for key in (
+        LEGACY_FRESHNESS_FIELDS
+        | LEGACY_TIME_FIELDS
+        | _GENERIC_VERBOSE_ROOT_FIELDS
+        | {"source", "units"}
+    ):
+        out.pop(key, None)
+    out["meta"] = meta
+    _normalize_warnings(out)
+    _drop_empty_warnings(out)
+    return out
+
+
+def _compact_catalog_payload(payload: MutableMapping[str, Any]) -> None:
+    payload.pop("count", None)
+    payload.pop("detail", None)
+    payload.pop("row_key", None)
+    payload.pop("search_hint", None)
+    _compact_pagination(payload)
+
+    methods = payload.get("methods")
+    if not isinstance(methods, list):
+        return
+    unavailable: list[Dict[str, Any]] = []
+    compact_methods: list[Any] = []
+    for row in methods:
+        if not isinstance(row, Mapping):
+            compact_methods.append(row)
+            continue
+        item = {
+            key: value
+            for key, value in row.items()
+            if value not in (None, "", [], {}) and key != "unavailable_reason"
+        }
+        available = item.pop("available", row.get("available"))
+        if available is False:
+            unavailable.append(
+                _without_empty(
+                    {
+                        "method": row.get("method", row.get("name")),
+                        "reason": row.get("unavailable_reason"),
+                    }
+                )
+            )
+        compact_methods.append(item)
+    payload["methods"] = compact_methods
+    if unavailable:
+        payload["unavailable"] = unavailable
+
+
+def _compact_task_payload(payload: MutableMapping[str, Any]) -> None:
+    payload.pop("count", None)
+    payload.pop("detail", None)
+    payload.pop("row_key", None)
+    payload.pop("runtime", None)
+    _compact_pagination(payload)
+    tasks = payload.get("tasks")
+    if not isinstance(tasks, list):
+        return
+    compact_tasks: list[Any] = []
+    for task in tasks:
+        if not isinstance(task, Mapping):
+            compact_tasks.append(task)
+            continue
+        row = {
+            key: value
+            for key, value in task.items()
+            if key
+            in {
+                "data_scope",
+                "error",
+                "method",
+                "model_id",
+                "model_store_status",
+                "progress_fraction",
+                "status",
+                "task_id",
+            }
+            and value not in (None, "", [], {})
+        }
+        compact_tasks.append(row)
+    payload["tasks"] = compact_tasks
+
+
+def _compact_pagination(payload: MutableMapping[str, Any]) -> None:
+    pagination = payload.get("pagination")
+    if not isinstance(pagination, Mapping):
+        return
+    if pagination.get("has_more") is not True:
+        payload.pop("pagination", None)
+        return
+    compact: Dict[str, Any] = {"has_more": True}
+    if pagination.get("next_cursor") not in (None, ""):
+        compact["next_cursor"] = pagination["next_cursor"]
+    else:
+        offset = pagination.get("offset")
+        returned = pagination.get("returned")
+        if isinstance(offset, int) and isinstance(returned, int):
+            compact["next_offset"] = offset + returned
+    payload["pagination"] = compact
 
 
 def _shape_market(
