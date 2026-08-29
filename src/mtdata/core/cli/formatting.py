@@ -9,7 +9,7 @@ from ...utils.minimal_output import (
 from ...utils.minimal_output import (
     format_result_minimal as _shared_minimal,
 )
-from ..output_contract import apply_output_verbosity
+from .._mcp_tools import shape_public_tool_output
 from ..output_serialization import dumps_json as _dumps_json
 from .catalog import current_cli_program_name
 from .output_format import (
@@ -646,10 +646,11 @@ def _prepare_cli_payload(
     return prepared
 
 
-def _attach_cli_meta(result: Any, *, cmd_name: str, verbose: bool) -> Any:
+def _attach_cli_meta(result: Any, *, cmd_name: Optional[str], verbose: bool) -> Any:
+    """Compatibility wrapper around the canonical public-result shaper."""
     detail = "full" if verbose else "compact"
-    if cmd_name == "news" and isinstance(result, dict):
-        from ..news import normalize_news_output
-
-        result = normalize_news_output(result, detail=detail)
-    return apply_output_verbosity(result, tool_name=cmd_name, detail=detail)
+    return shape_public_tool_output(
+        result,
+        tool_name=cmd_name,
+        detail=detail,
+    )

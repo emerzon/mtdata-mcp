@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from .output_contract import apply_output_verbosity
+from ._mcp_tools import shape_public_tool_output
 from .radar import (
     RADAR_MAX_SYMBOLS,
     MarketRadarRequest,
@@ -55,7 +55,11 @@ def get_radar_response(
             default_code="radar_empty",
             default_status=404,
         )
-    return apply_output_verbosity(result, detail="compact", tool_name="market_radar")
+    return shape_public_tool_output(
+        result,
+        detail="compact",
+        tool_name="market_radar",
+    )
 
 
 def _compact_news_headlines(payload: Any, *, limit: int = 5) -> List[Dict[str, Any]]:
@@ -190,4 +194,8 @@ def get_session_strip_response(
         exposure=exposure,
         market_status=status,
     )
-    return apply_output_verbosity(payload, detail="compact", tool_name="trade_account_info")
+    return shape_public_tool_output(
+        payload,
+        detail="compact",
+        tool_name="trade_account_info",
+    )

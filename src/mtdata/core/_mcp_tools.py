@@ -1678,18 +1678,22 @@ def _normalize_public_symbol_inputs(kwargs: Dict[str, Any]) -> None:
         )
 
 
-def _shape_public_tool_output(
+def shape_public_tool_output(
     result: Any,
     *,
-    tool_name: str,
-    contract_state: OutputContractState,
+    tool_name: Optional[str],
+    contract_state: Optional[OutputContractState] = None,
+    detail: Any = None,
     output_fields: Any = None,
 ) -> Any:
-    """Apply shared structured-output shaping used by public transports."""
+    """Apply the canonical structured-output shaping for every public transport."""
     if not isinstance(result, dict):
         return result
+    if contract_state is None:
+        contract_state = resolve_output_contract({}, detail=detail)
+    normalized_tool_name = str(tool_name or "").strip()
     public_out = result
-    if tool_name.strip().lower() == "news":
+    if normalized_tool_name.lower() == "news":
         from .news import normalize_news_output
 
         public_out = normalize_news_output(
@@ -1697,17 +1701,25 @@ def _shape_public_tool_output(
             detail=contract_state.detail,
         )
     if contract_state.detail == "full":
-        public_out = attach_success_guidance(public_out, tool_name=tool_name)
+        public_out = attach_success_guidance(
+            public_out,
+            tool_name=normalized_tool_name,
+        )
     public_out = apply_output_verbosity(
         public_out,
-        tool_name=tool_name,
+        tool_name=normalized_tool_name,
         detail=contract_state.shape_detail,
     )
     return _select_output_fields(
         public_out,
         output_fields,
-        tool_name=tool_name,
+        tool_name=normalized_tool_name,
     )
+
+
+# Compatibility alias for internal callers that imported the original private
+# helper before public transports were consolidated on one shaping entry point.
+_shape_public_tool_output = shape_public_tool_output
 
 
 def _recording_tool_decorator(*dargs, **dkwargs):  # type: ignore[override]  # noqa: C901
@@ -1849,7 +1861,7 @@ def _recording_tool_decorator(*dargs, **dkwargs):  # type: ignore[override]  # n
                 return out
 
             fname = getattr(func, "__name__", "")
-            public_out = _shape_public_tool_output(
+            public_out = shape_public_tool_output(
                 out,
                 tool_name=fname,
                 contract_state=contract_state,

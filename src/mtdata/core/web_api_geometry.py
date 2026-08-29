@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from ..utils.coercion import coerce_finite_float as _as_float
-from .output_contract import apply_output_verbosity
+from ._mcp_tools import shape_public_tool_output
 from .tool_calling import call_tool_sync_structured
 from .web_api_handlers import _http_error, _raise_tool_error
 
@@ -154,7 +154,11 @@ def get_confluence_response(
             code="confluence_levels_missing",
             operation="get_confluence",
         )
-    return apply_output_verbosity(payload, detail="compact", tool_name="confluence_levels")
+    return shape_public_tool_output(
+        payload,
+        detail="compact",
+        tool_name="confluence_levels",
+    )
 
 
 def get_volume_profile_response(
@@ -214,7 +218,11 @@ def get_volume_profile_response(
             code="volume_profile_levels_missing",
             operation="get_volume_profile",
         )
-    return apply_output_verbosity(payload, detail="compact", tool_name="volume_profile_levels")
+    return shape_public_tool_output(
+        payload,
+        detail="compact",
+        tool_name="volume_profile_levels",
+    )
 
 
 def get_exposure_response(
@@ -238,4 +246,8 @@ def get_exposure_response(
     if isinstance(pending, dict) and pending.get("error"):
         _raise_tool_error(pending, operation="get_exposure", default_code="exposure_failed")
     payload = compact_exposure_payload(symbol=symbol, positions=positions, pending=pending)
-    return apply_output_verbosity(payload, detail="compact", tool_name="trade_get_open")
+    return shape_public_tool_output(
+        payload,
+        detail="compact",
+        tool_name="trade_get_open",
+    )

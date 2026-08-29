@@ -40,7 +40,7 @@ from .._mcp_instance import mcp
 from .._mcp_tools import (
     _get_pydantic_model_fields,
     _normalize_output_fields,
-    _select_output_fields,
+    shape_public_tool_output,
 )
 from .._mcp_tools import get_tool_registry as get_registered_tools
 from ..error_envelope import build_error_payload, normalize_error_payload
@@ -55,7 +55,6 @@ from .catalog import (
     known_command_names,
 )
 from .formatting import (
-    _attach_cli_meta,
     _format_result_for_cli,
     _resolve_cli_formatter,
 )
@@ -688,14 +687,15 @@ def _write_cli_text(text: str, *, stream: Any = None) -> None:
 
 
 def _render_cli_result(result: Any, *, args: Any, cmd_name: str) -> Any:
-    verbose = resolve_output_contract(args).verbose
-    result = _attach_cli_meta(result, cmd_name=cmd_name, verbose=verbose)
+    contract = resolve_output_contract(args)
+    verbose = contract.verbose
     output_fields = getattr(args, "output_fields", None)
     projection_requested = bool(_normalize_output_fields(output_fields))
-    result = _select_output_fields(
+    result = shape_public_tool_output(
         result,
-        output_fields,
         tool_name=cmd_name,
+        contract_state=contract,
+        output_fields=output_fields,
     )
     output = _format_result_for_cli(
         result,

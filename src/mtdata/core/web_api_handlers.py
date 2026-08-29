@@ -15,12 +15,12 @@ from ..utils.coercion import UNPARSED_BOOL, parse_bool_like
 from ..utils.denoise import DenoiseCausalityError
 from ..utils.mt5 import MT5ConnectionError
 from ..utils.utils import parse_kv_or_json
+from ._mcp_tools import shape_public_tool_output
 from .data.requests import DATA_FETCH_CANDLES_DEFAULT_LIMIT, DataFetchCandlesRequest
 from .data.use_cases import run_data_fetch_candles
 from .error_envelope import build_error_payload, normalize_error_payload
 from .mt5_gateway import create_mt5_gateway
 from .output_contract import (
-    apply_output_verbosity,
     ensure_common_meta,
 )
 from .tool_calling import resolve_sync_tool_result
@@ -606,11 +606,10 @@ def get_history_response(  # noqa: C901
                 payload["server_utc_offset_seconds"] = server_meta["offset_seconds"]
             if isinstance(server_meta, dict) and server_meta.get("tz"):
                 payload["server_timezone"] = server_meta["tz"]
-    return apply_output_verbosity(
+    return shape_public_tool_output(
         payload,
         detail=shape_detail,
         tool_name="data_fetch_candles",
-        mt5_config=mt5_config,
     )
 
 
@@ -706,7 +705,11 @@ def get_pivots_response(
         "timeframe": result.get("timeframe", timeframe),
         "method": method_key,
     })
-    return apply_output_verbosity(payload, detail=detail, tool_name="pivot_compute_points")
+    return shape_public_tool_output(
+        payload,
+        detail=detail,
+        tool_name="pivot_compute_points",
+    )
 
 
 def get_support_resistance_response(
@@ -794,7 +797,11 @@ def get_tick_response(
             operation="get_tick",
         )
     _raise_tool_error(result, operation="get_tick", default_code="tick_data_missing")
-    return apply_output_verbosity(result, detail=detail, tool_name="market_ticker")
+    return shape_public_tool_output(
+        result,
+        detail=detail,
+        tool_name="market_ticker",
+    )
 
 
 def _post_use_case_response(
