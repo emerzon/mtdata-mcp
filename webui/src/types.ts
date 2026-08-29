@@ -513,12 +513,12 @@ export type RadarRow = {
   ask?: number
   mid?: number
   last?: number
-  close?: number
+  bar_close?: number
   spread?: number
   spread_pips?: number
   spread_pct?: number
   spread_quality?: string
-  usable_for_live_trading?: boolean
+  quote_usable_for_live_trading?: boolean
   quote_not_live_ready?: boolean
   data_stale?: boolean
   price_change_pct?: number

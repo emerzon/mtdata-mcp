@@ -12,6 +12,7 @@ import {
   normalizeWatchlist,
   removeWatchlistSymbol,
 } from '../lib/watchlist'
+import { radarDisplayPrice, radarQuoteUnusable } from '../lib/radarDisplay'
 import type { RadarRow } from '../types'
 
 type Props = {
@@ -162,7 +163,7 @@ export function RadarPanel({
             {watchlist.map((name, index) => {
               const row = rowsBySymbol.get(name)
               const change = row?.live_price_change_pct ?? row?.price_change_pct
-              const unusable = row?.quote_not_live_ready === true || row?.usable_for_live_trading === false
+              const unusable = radarQuoteUnusable(row)
               const active = name === symbol
               return (
                 <li key={name} className={`px-4 py-2 ${active ? 'bg-slate-800/70' : ''}`}>
@@ -174,7 +175,7 @@ export function RadarPanel({
                     >
                       <div className="text-sm text-slate-100">{name}</div>
                       <div className="text-[11px] text-slate-500">
-                        {formatPrice(row?.mid ?? row?.last ?? row?.close)}
+                        {formatPrice(radarDisplayPrice(row))}
                         {row?.spread_pips != null && <span className="ml-2">spr {row.spread_pips}</span>}
                         <span className={`ml-2 ${typeof change === 'number' && change < 0 ? 'text-rose-300' : 'text-emerald-300'}`}>
                           {formatChange(change)}
