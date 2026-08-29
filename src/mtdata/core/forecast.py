@@ -149,20 +149,15 @@ def _forecast_compute_cost(operation: str, payload: Optional[Dict[str, Any]]) ->
         ),
     )
     generations = _positive_int(data.get("generations"), 5 if operation == "forecast_optimize_hints" else 10)
-    evaluations = (
-        population + generations * max(0, population - 2)
+    sampled = (
+        "method/timeframe sampled once per candidate"
         if operation == "forecast_optimize_hints"
-        else population * generations
+        else "method sampled once per candidate"
     )
     return {
         "unit": "rolling_backtests",
-        "estimated": evaluations * steps,
-        "drivers": (
-            "(population+generations*(population-2))*steps "
-            "(method/timeframe sampled once per candidate)"
-            if operation == "forecast_optimize_hints"
-            else "population*generations*steps (method sampled once per candidate)"
-        ),
+        "estimated": population * generations * steps,
+        "drivers": f"population*generations*steps ({sampled})",
     }
 
 

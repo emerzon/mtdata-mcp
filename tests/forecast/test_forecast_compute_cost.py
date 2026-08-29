@@ -12,9 +12,23 @@ def test_conformal_compute_cost_counts_calibration_anchors() -> None:
 def test_optimize_hints_compute_cost_uses_request_defaults() -> None:
     assert _forecast_compute_cost("forecast_optimize_hints", {}) == {
         "unit": "rolling_backtests",
-        "estimated": 190,
+        "estimated": 200,
         "drivers": (
-            "(population+generations*(population-2))*steps "
+            "population*generations*steps "
+            "(method/timeframe sampled once per candidate)"
+        ),
+    }
+
+
+def test_optimize_hints_compute_cost_matches_population_times_generations() -> None:
+    assert _forecast_compute_cost(
+        "forecast_optimize_hints",
+        {"population": 30, "generations": 10, "steps": 5},
+    ) == {
+        "unit": "rolling_backtests",
+        "estimated": 1500,
+        "drivers": (
+            "population*generations*steps "
             "(method/timeframe sampled once per candidate)"
         ),
     }
