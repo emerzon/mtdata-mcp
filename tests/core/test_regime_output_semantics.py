@@ -291,7 +291,7 @@ def test_regime_detect_all_reports_runtime_diagnostics_for_partial_results(monke
     assert result["runtime"]["ensemble_voters"]["excluded_voters"] == ["ms_ar"]
 
 
-def test_regime_detect_all_promotes_excluded_successful_voter(monkeypatch) -> None:
+def test_regime_detect_all_pads_short_ms_ar_voter(monkeypatch) -> None:
     real = _unwrap(regime_api.regime_detect)
     monkeypatch.setattr(
         regime_api,
@@ -334,17 +334,56 @@ def test_regime_detect_all_promotes_excluded_successful_voter(monkeypatch) -> No
     assert result["runtime"]["failed_methods"] == []
     assert "ms_ar" in result["runtime"]["completed_methods"]
     assert result["runtime"]["method_execution_status"] == "complete"
-    assert result["runtime"]["ensemble_status"] == "degraded"
-    assert (
-        result["runtime"]["request_completion_status"]
-        == "complete_with_degraded_ensemble"
-    )
+    assert result["runtime"]["ensemble_status"] == "complete"
+    assert result["runtime"]["request_completion_status"] == "complete"
     assert "partial_results" not in result["runtime"]
-    assert result["runtime"]["ensemble_degraded"] is True
+    assert result["runtime"]["ensemble_degraded"] is False
+    health = result["ensemble_health"]
+    assert "ms_ar" in health["used_voters"]
+    assert "ms_ar" not in health["excluded_voters"]
+    assert result["summary"]["methods_failed"] == 0
+
+
+def test_regime_detect_all_excludes_wildly_short_ms_ar_voter(monkeypatch) -> None:
+    real = _unwrap(regime_api.regime_detect)
+    monkeypatch.setattr(
+        regime_api,
+        "_fetch_history",
+        lambda *args, **kwargs: _downtrend_df(120),
+    )
+    monkeypatch.setattr(regime_api, "mt5_connection_error", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        regime_detect_mod,
+        "_build_all_method_comparison",
+        lambda results: {"methods_run": sorted(results.keys())},
+    )
+
+    def fake_recursive(*args, **kwargs):
+        method_name = str(kwargs.get("method") or "")
+        result = {
+            "success": True,
+            "symbol": kwargs.get("symbol"),
+            "timeframe": kwargs.get("timeframe"),
+            "method": method_name,
+            "target": kwargs.get("target"),
+            "current_regime": {"label": "neutral"},
+        }
+        if method_name in regime_api._ENSEMBLE_STATE_METHODS:
+            length = 50 if method_name == "ms_ar" else 119
+            result["series"] = {
+                "state": [0] * length,
+                "state_probabilities": [[1.0, 0.0]] * length,
+            }
+        return result
+
+    monkeypatch.setattr(regime_detect_mod, "_run_regime_method", fake_recursive)
+
+    result = real("EURUSD", method="all", detail="compact")
+
     health = result["ensemble_health"]
     assert health["excluded_voters"] == ["ms_ar"]
     assert "state series did not match" in health["voter_errors"]["ms_ar"]
-    assert result["summary"]["methods_failed"] == 0
+    assert result["runtime"]["ensemble_status"] == "degraded"
 
 
 def test_ensemble_labels_require_significant_mean_return() -> None:

@@ -18,6 +18,7 @@ from .summarize import (
     _summary_window_size,
 )
 
+_ENSEMBLE_LEADING_PAD_MAX = 24
 _ENSEMBLE_STATE_METHODS = frozenset(
     {"hmm", "gmm", "ms_ar", "clustering", "wavelet"}
 )
@@ -197,11 +198,39 @@ def _aggregate_precomputed_ensemble(  # noqa: C901
         raw_probs = series.get(
             "state_probabilities", sr.get("state_probabilities", [])
         )
-        if raw_state is None or len(raw_state) != ref_len:
+        if raw_state is None:
             sub_errors.append(
                 f"{sm_name}: state series did not match the ensemble window"
             )
             continue
+        try:
+            state_len = len(raw_state)
+        except TypeError:
+            sub_errors.append(
+                f"{sm_name}: state series did not match the ensemble window"
+            )
+            continue
+        if state_len != ref_len:
+            pad = ref_len - state_len
+            if 0 < state_len < ref_len and pad <= _ENSEMBLE_LEADING_PAD_MAX:
+                raw_state = [-1] * pad + list(raw_state)
+                if raw_probs is not None:
+                    try:
+                        probs_len = len(raw_probs)
+                    except TypeError:
+                        probs_len = -1
+                    if probs_len == state_len:
+                        try:
+                            width = len(raw_probs[0]) if raw_probs else 0
+                        except TypeError:
+                            width = 0
+                        zero = [0.0] * width
+                        raw_probs = [zero] * pad + list(raw_probs)
+            else:
+                sub_errors.append(
+                    f"{sm_name}: state series did not match the ensemble window"
+                )
+                continue
 
         st = np.asarray(raw_state, dtype=int)
         if raw_probs is not None and len(raw_probs) == ref_len:
