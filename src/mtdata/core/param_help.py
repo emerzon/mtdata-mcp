@@ -140,8 +140,9 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
     ),
     ("trade_var_cvar_calculate", "method"): (
         "Tail-risk method: historical (empirical observed P&L quantile), "
-        "parametric, cornish_fisher, or ewma. Not the bootstrap scenarios used "
-        "by portfolio_risk_decompose method=bootstrap_historical."
+        "parametric (Gaussian VaR/CVaR), cornish_fisher (skew/kurtosis-adjusted "
+        "parametric VaR and expected shortfall), or ewma. Not the bootstrap "
+        "scenarios used by portfolio_risk_decompose method=bootstrap_historical."
     ),
     ("trade_var_cvar_calculate", "confidence"): (
         "VaR/CVaR tail confidence as a fraction such as 0.95 or 0.99. "
@@ -650,7 +651,8 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "Comma-separated candle features to score: return, volume, and/or range."
     ),
     ("outliers_detect", "threshold"): (
-        "Positive robust-deviation cutoff; 3.5 is a common MAD threshold."
+        "Positive robust-z cutoff applied after MAD, IQR, or mean/std scaling; "
+        "3.5 is the default for all methods."
     ),
     ("labels_triple_barrier", "detail"): (
         "Detail level: compact (small outcome sample), standard (recent lookback rows), "

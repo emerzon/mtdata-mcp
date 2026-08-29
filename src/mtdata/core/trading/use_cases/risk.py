@@ -915,7 +915,8 @@ def _cornish_fisher_var_cvar_tail(
         var_value = max(0.0, -threshold)
         return var_value, var_value, threshold
 
-    z_score = float(norm.ppf(1.0 - confidence))
+    alpha = 1.0 - confidence
+    z_score = float(norm.ppf(alpha))
     standardized = centered / std_pnl
     skewness = float(np.mean(standardized ** 3))
     excess_kurtosis = float(np.mean(standardized ** 4) - 3.0)
@@ -925,12 +926,12 @@ def _cornish_fisher_var_cvar_tail(
         + ((z_score**3 - (3.0 * z_score)) * excess_kurtosis / 24.0)
         - (((2.0 * (z_score**3)) - (5.0 * z_score)) * (skewness**2) / 36.0)
     )
+    if not math.isfinite(z_cf):
+        return _gaussian_var_cvar_tail(pnl_values, confidence)
     threshold = mean_pnl + (std_pnl * z_cf)
-
-    tail_values = ordered[ordered <= threshold]
-    tail_mean = float(np.mean(tail_values)) if tail_values.size else float(threshold)
+    tail_mean = mean_pnl - (std_pnl * float(norm.pdf(z_cf)) / alpha)
     var_value = max(0.0, -float(threshold))
-    cvar_value = max(0.0, -tail_mean)
+    cvar_value = max(var_value, max(0.0, -tail_mean))
     return var_value, cvar_value, float(threshold)
 
 

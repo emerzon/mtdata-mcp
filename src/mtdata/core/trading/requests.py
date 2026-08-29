@@ -678,8 +678,9 @@ class TradeVarCvarRequest(BaseModel):
         default="historical",
         description=(
             "Tail-risk method: historical (empirical observed P&L quantile), "
-            "parametric, cornish_fisher, or ewma. Not the same estimator as "
-            "portfolio_risk_decompose method=bootstrap_historical."
+            "parametric (Gaussian VaR/CVaR), cornish_fisher (skew/kurtosis-adjusted "
+            "parametric VaR and expected shortfall), or ewma. Not the same estimator "
+            "as portfolio_risk_decompose method=bootstrap_historical."
         ),
     )
     transform: Literal["log_return", "pct"] = Field(

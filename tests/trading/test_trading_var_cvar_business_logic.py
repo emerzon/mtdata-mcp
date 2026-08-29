@@ -9,6 +9,7 @@ from mtdata.core.trading.requests import TradeVarCvarRequest
 from mtdata.core.trading.use_cases import run_trade_var_cvar_calculate
 from mtdata.core.trading.use_cases.risk import (
     _calculate_var_cvar_from_pnl,
+    _cornish_fisher_var_cvar_tail,
     _position_mark_freshness,
 )
 
@@ -97,6 +98,44 @@ def test_calculate_var_cvar_from_pnl_cornish_fisher_cvar_exceeds_var() -> None:
     assert threshold < 0.0
     assert var_value > 0.0
     assert cvar_value >= var_value
+
+
+def test_calculate_var_cvar_from_pnl_cornish_fisher_uses_parametric_es() -> None:
+    import math
+
+    import numpy as np
+    from scipy.stats import norm
+
+    pnl = [18.0, -25.0, 7.0, -11.0, 9.0, -4.0, 3.0, -30.0, 16.0]
+    confidence = 0.95
+    var_value, cvar_value, threshold = _cornish_fisher_var_cvar_tail(pnl, confidence)
+
+    ordered = np.asarray(pnl, dtype=float)
+    mean_pnl = float(np.mean(ordered))
+    std_pnl = float(np.std(ordered, ddof=1))
+    alpha = 1.0 - confidence
+    z_score = float(norm.ppf(alpha))
+    standardized = (ordered - mean_pnl) / std_pnl
+    skewness = float(np.mean(standardized ** 3))
+    excess_kurtosis = float(np.mean(standardized ** 4) - 3.0)
+    z_cf = (
+        z_score
+        + ((z_score**2 - 1.0) * skewness / 6.0)
+        + ((z_score**3 - (3.0 * z_score)) * excess_kurtosis / 24.0)
+        - (((2.0 * (z_score**3)) - (5.0 * z_score)) * (skewness**2) / 36.0)
+    )
+    expected_threshold = mean_pnl + (std_pnl * z_cf)
+    expected_tail_mean = mean_pnl - (std_pnl * float(norm.pdf(z_cf)) / alpha)
+    expected_var = max(0.0, -expected_threshold)
+    expected_cvar = max(expected_var, max(0.0, -expected_tail_mean))
+
+    assert threshold == pytest.approx(expected_threshold)
+    assert var_value == pytest.approx(expected_var)
+    assert cvar_value == pytest.approx(expected_cvar)
+    empirical_tail = ordered[ordered <= expected_threshold]
+    if empirical_tail.size:
+        empirical_cvar = max(0.0, -float(np.mean(empirical_tail)))
+        assert not math.isclose(cvar_value, empirical_cvar, rel_tol=1e-9, abs_tol=1e-9)
 
 
 def test_calculate_var_cvar_from_pnl_ewma_emphasizes_recent_losses() -> None:
