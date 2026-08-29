@@ -1467,8 +1467,8 @@ def test_range_with_only_excluded_forming_bar_is_not_complete():
     request = DataFetchCandlesRequest(
         symbol="EURUSD",
         timeframe="D1",
-        start="today",
-        end="today",
+        start="2026-08-26",
+        end="2026-08-26",
     )
 
     result = run_data_fetch_candles(

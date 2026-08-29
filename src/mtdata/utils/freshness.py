@@ -117,14 +117,21 @@ def is_derived_age_seconds_key(key: Any) -> bool:
     return True
 
 
-def round_age_seconds(seconds: Any) -> Optional[int]:
-    """Round a wall-clock age to integer seconds for shared serialization."""
+def round_age_seconds(seconds: Any) -> Optional[float]:
+    """Round a wall-clock age without IEEE-754 noise.
+
+    Sub-second ages stay at millisecond resolution so live-tick gates can
+    still distinguish a 250ms quote from a missing one. Older ages use
+    integer seconds.
+    """
     try:
         value = float(seconds)
     except (TypeError, ValueError):
         return None
     if not math.isfinite(value):
         return None
+    if abs(value) < 1.0:
+        return round(value, 3)
     return max(0, int(round(value)))
 
 

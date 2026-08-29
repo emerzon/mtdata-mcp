@@ -141,9 +141,9 @@ def test_closed_session_context_does_not_relax_very_old_data():
 
 def test_round_age_seconds_uses_integer_seconds() -> None:
     assert round_age_seconds(18055.499814987183) == 18055
-    assert round_age_seconds(0.4) == 0
-    assert round_age_seconds(0.5) == 0
-    assert round_age_seconds(0.6) == 1
+    assert round_age_seconds(0.25) == 0.25
+    assert round_age_seconds(0.4) == 0.4
+    assert round_age_seconds(1.4) == 1
 
 
 def test_tick_freshness_rounds_age_to_integer_seconds() -> None:
