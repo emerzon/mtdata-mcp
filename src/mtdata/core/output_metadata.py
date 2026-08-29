@@ -52,6 +52,7 @@ LEGACY_TIME_FIELDS = frozenset(
         "data_as_of_basis",
         "data_window",
         "public_timestamp_mode",
+        "quote_as_of",
         "raw_time_basis",
         "raw_timestamp_mode",
         "retrieved_at",
@@ -174,7 +175,7 @@ class TimeContext:
         window = payload.get("data_window")
         return cls(
             retrieved_at=payload.get("as_of", payload.get("retrieved_at")),
-            data_as_of=payload.get("data_as_of"),
+            data_as_of=payload.get("data_as_of", payload.get("quote_as_of")),
             retrieval_basis=_clean_text(payload.get("as_of_basis")),
             data_basis=_clean_text(payload.get("data_as_of_basis")),
             timezone=_clean_text(payload.get("timezone")),
@@ -398,4 +399,3 @@ def strip_legacy_fields(
 ) -> Dict[str, Any]:
     """Return a shallow copy without a migrated legacy root-field family."""
     return {key: value for key, value in payload.items() if key not in fields}
-

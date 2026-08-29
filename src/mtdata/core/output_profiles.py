@@ -22,6 +22,45 @@ from .output_metadata import (
 )
 
 _DATA_TOOLS = frozenset({"data_fetch_candles", "data_fetch_ticks"})
+_MARKET_TOOLS = frozenset(
+    {
+        "market_depth_fetch",
+        "market_snapshot",
+        "market_status",
+        "market_ticker",
+        "trade_session_context",
+    }
+)
+
+_MARKET_COMPACT_OMIT = frozenset(
+    {
+        "bid_ask_precision",
+        "contract_size",
+        "data_age",
+        "last_unavailable",
+        "live_max_age_seconds",
+        "lot_definition",
+        "mid_precision",
+        "point",
+        "price_precision",
+        "pricing_basis",
+        "pricing_basis_units",
+        "query_latency_ms",
+        "quote_conflict_pips",
+        "quote_refresh_attempted",
+        "quote_source",
+        "quote_source_conflict",
+        "quote_source_state",
+        "stale_after_seconds",
+        "time",
+        "time_epoch",
+        "time_normalization",
+        "type",
+        "units",
+        "alternate_ask",
+        "alternate_bid",
+    }
+)
 
 _CANDLE_COMPACT_OMIT = frozenset(
     {
@@ -108,11 +147,187 @@ def apply_public_output_profile(
     if not isinstance(result, dict):
         return result
     normalized = str(tool_name or "").strip().lower()
-    if normalized not in _DATA_TOOLS or result.get("error"):
+    if result.get("error"):
         return result
     if normalized == "data_fetch_candles":
         return _shape_candles(result, detail=detail)
-    return _shape_ticks(result, detail=detail)
+    if normalized == "data_fetch_ticks":
+        return _shape_ticks(result, detail=detail)
+    if normalized in _MARKET_TOOLS:
+        return _shape_market(result, detail=detail, tool_name=normalized)
+    return result
+
+
+def _shape_market(
+    payload: Mapping[str, Any],
+    *,
+    detail: str,
+    tool_name: str,
+) -> Dict[str, Any]:
+    if detail == "full":
+        return _full_observable_payload(payload, scope=tool_name)
+    return _compact_market_mapping(payload, scope=tool_name, root=True)
+
+
+def _compact_market_mapping(
+    payload: Mapping[str, Any],
+    *,
+    scope: str,
+    root: bool = False,
+) -> Dict[str, Any]:
+    """Recursively remove nominal quote telemetry while preserving safety gates."""
+    out: Dict[str, Any] = {}
+    source = SourceContext.from_payload(payload)
+    freshness = FreshnessObservation.from_payload(payload, scope=scope)
+    quote_like = any(
+        key in payload
+        for key in (
+            "ask",
+            "bid",
+            "data_age_seconds",
+            "freshness_state",
+            "quote_as_of",
+            "usable_for_live_trading",
+        )
+    )
+    for key, value in payload.items():
+        if quote_like and key in LEGACY_TIME_FIELDS:
+            continue
+        if freshness and key in LEGACY_FRESHNESS_FIELDS and key not in {
+            "usable_for_live_trading",
+        }:
+            continue
+        if (quote_like and key in _MARKET_COMPACT_OMIT) or key == "meta":
+            continue
+        if key == "source":
+            continue
+        if key == "warning":
+            continue
+        if key == "spread_valid" and value is True:
+            continue
+        if key == "spread_quality" and str(value).lower() in {
+            "ok",
+            "two_sided",
+            "valid",
+        }:
+            continue
+        if key == "market_status" and str(value).lower() in {
+            "live",
+            "open",
+            "probably_open",
+        }:
+            continue
+        if key == "quote_usable_for_live_trading" and (
+            value == payload.get("usable_for_live_trading")
+        ):
+            continue
+        if isinstance(value, Mapping):
+            out[key] = _compact_market_mapping(
+                value,
+                scope=f"{scope}.{key}",
+            )
+        elif isinstance(value, list):
+            out[key] = [
+                _compact_market_mapping(item, scope=f"{scope}.{key}")
+                if isinstance(item, Mapping)
+                else item
+                for item in value
+            ]
+        else:
+            out[key] = value
+
+    if root and source:
+        out["source"] = source.compact()
+    _normalize_warnings(out)
+    warning_text = str(payload.get("warning") or "").strip()
+    freshness_warning = freshness.to_warning() if freshness else None
+    if warning_text and freshness_warning is None:
+        append_output_warning(
+            out,
+            OutputWarning(
+                code="market_warning",
+                scope=scope,
+                message=warning_text,
+            ),
+        )
+    if freshness_warning:
+        if warning_text:
+            freshness_warning = OutputWarning(
+                code=freshness_warning.code,
+                scope=freshness_warning.scope,
+                message=warning_text,
+                context=freshness_warning.context,
+            )
+        append_output_warning(out, freshness_warning)
+    conflict = payload.get("quote_source_conflict")
+    conflict_pips = payload.get("quote_conflict_pips")
+    if isinstance(conflict, Mapping) or conflict_pips not in (None, ""):
+        conflict = conflict if isinstance(conflict, Mapping) else {}
+        append_output_warning(
+            out,
+            OutputWarning(
+                code="quote_source_conflict",
+                scope=scope,
+                message="Available quote sources disagree beyond the accepted tolerance.",
+                context={
+                    "max_disagreement_points": conflict.get(
+                        "max_disagreement_points"
+                    ),
+                    "max_disagreement_pips": conflict.get(
+                        "max_disagreement_pips", conflict_pips
+                    ),
+                },
+            ),
+        )
+    if payload.get("spread_valid") is False:
+        append_output_warning(
+            out,
+            OutputWarning(
+                code="invalid_spread",
+                scope=scope,
+                message="The quote does not contain a valid two-sided spread.",
+            ),
+        )
+    _drop_empty_warnings(out)
+    return out
+
+
+def _full_observable_payload(
+    payload: Mapping[str, Any],
+    *,
+    scope: str,
+) -> Dict[str, Any]:
+    out = dict(payload)
+    source = SourceContext.from_payload(payload)
+    time = TimeContext.from_payload(payload)
+    freshness = FreshnessObservation.from_payload(payload, scope=scope)
+    existing_meta = payload.get("meta")
+    meta = dict(existing_meta) if isinstance(existing_meta, Mapping) else {}
+    canonical = OutputMetadata(
+        source=source,
+        time=time,
+        freshness=(freshness,) if freshness else (),
+    ).to_dict()
+    meta.update(canonical)
+    units = payload.get("units")
+    if isinstance(units, Mapping) and units:
+        meta["units"] = dict(units)
+    for key in LEGACY_FRESHNESS_FIELDS | LEGACY_TIME_FIELDS | {"source", "units"}:
+        out.pop(key, None)
+    out["meta"] = meta
+    _normalize_warnings(out)
+    warning_text = str(out.pop("warning", "") or "").strip()
+    if warning_text:
+        append_output_warning(
+            out,
+            OutputWarning(
+                code="market_warning",
+                scope=scope,
+                message=warning_text,
+            ),
+        )
+    _drop_empty_warnings(out)
+    return out
 
 
 def _shape_candles(payload: Mapping[str, Any], *, detail: str) -> Dict[str, Any]:
