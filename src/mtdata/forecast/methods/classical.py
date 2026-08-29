@@ -115,7 +115,9 @@ class ThetaMethod(ClassicalMethod):
 
     @property
     def supports_features(self) -> Dict[str, bool]:
-        return {"price": True, "return": True, "volatility": True, "ci": True}
+        # ThetaModel.forecast() emits a point path only; use
+        # forecast_conformal_intervals for residual-quantile bands.
+        return {"price": True, "return": True, "volatility": True, "ci": False}
 
     def forecast(
         self, 

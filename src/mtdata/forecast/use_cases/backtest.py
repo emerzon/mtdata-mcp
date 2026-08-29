@@ -33,6 +33,32 @@ _BACKTEST_METRICS_REASON_NOTES = {
     ),
 }
 
+_COMPACT_TRADING_PNL_KEYS = frozenset(
+    {
+        "win_rate",
+        "win_rate_pct",
+        "cumulative_return",
+        "cumulative_return_pct",
+        "max_drawdown",
+        "max_drawdown_pct",
+        "avg_return",
+        "avg_return_pct",
+        "avg_return_per_trade",
+        "avg_return_per_trade_pct",
+        "avg_win_return",
+        "avg_win_return_pct",
+        "avg_loss_return",
+        "avg_loss_return_pct",
+        "avg_loss_magnitude",
+        "avg_loss_magnitude_pct",
+        "avg_win_loss_ratio",
+        "kelly_fraction",
+        "half_kelly_fraction",
+        "annual_return_pct",
+        "profit_factor",
+    }
+)
+
 
 def _compact_feature_usage(value: Any) -> Optional[Dict[str, Any]]:
     """Keep bounded feature evidence while omitting names and data arrays."""
@@ -90,6 +116,17 @@ def _compact_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:  # noqa:
         result.get("history_policy_reason")
         or "history_preprocessing_not_deployable"
     )
+    existing_costs = result.get("cost_assumptions")
+    if isinstance(existing_costs, dict) and existing_costs:
+        cost_assumptions = dict(existing_costs)
+    else:
+        cost_assumptions = forecast_cost_assumptions(
+            slippage_bps=float(result.get("slippage_bps") or 0.0),
+            spread_bps=result.get("spread_bps"),
+            commission_bps_per_side=result.get("commission_bps_per_side"),
+            trade_threshold=result.get("trade_threshold"),
+        )
+    costs_complete = cost_assumptions.get("complete") is True
 
     metric_digits = {
         "avg_rmse": 6,
@@ -281,11 +318,24 @@ def _compact_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:  # noqa:
                     "kelly_fraction",
                     "half_kelly_fraction",
                     "annual_return_pct",
+                    "profit_factor",
                     "trades_observed",
                     "metrics_reliability",
                     "metrics_reliability_reason",
                 )
             )
+            if not costs_complete:
+                had_trading_pnl = any(
+                    key in metrics for key in _COMPACT_TRADING_PNL_KEYS
+                )
+                metric_keys = tuple(
+                    key for key in metric_keys if key not in _COMPACT_TRADING_PNL_KEYS
+                )
+                if had_trading_pnl:
+                    method_out["trading_metrics_available"] = False
+                    method_out["trading_metrics_reason"] = (
+                        "spread_and_commission_not_modeled"
+                    )
             if low_sample_metrics:
                 method_out.setdefault("metrics_reliability", "low")
                 method_out.setdefault("metrics_reliability_reason", "low_sample")
@@ -327,16 +377,7 @@ def _compact_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:  # noqa:
             "stop_loss": "none",
         },
     )
-    existing_costs = compact_out.get("cost_assumptions")
-    if isinstance(existing_costs, dict) and existing_costs:
-        compact_out["cost_assumptions"] = dict(existing_costs)
-    else:
-        compact_out["cost_assumptions"] = forecast_cost_assumptions(
-            slippage_bps=slippage_bps,
-            spread_bps=compact_out.get("spread_bps"),
-            commission_bps_per_side=compact_out.get("commission_bps_per_side"),
-            trade_threshold=compact_out.get("trade_threshold"),
-        )
+    compact_out["cost_assumptions"] = cost_assumptions
     if compact_out.get("spread_bps") is None:
         compact_out.pop("spread_bps", None)
     if compact_out.get("commission_bps_per_side") is None:

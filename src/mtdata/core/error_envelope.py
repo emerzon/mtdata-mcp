@@ -113,10 +113,21 @@ _ERROR_GUIDANCE: Dict[str, Dict[str, Any]] = {
         ),
         "related_tools": ["volume_profile_levels"],
     },
+    "volume_profile_lookback_requires_timeframe": {
+        "remediation": "Pass --timeframe with --lookback, or use --start/--end.",
+        "related_tools": ["volume_profile_levels", "data_fetch_candles"],
+    },
     "dependency_missing": {
         "remediation": (
             "Install the optional dependency group required by this method, then retry."
         ),
+    },
+    "method_dependency_missing": {
+        "remediation": (
+            "Install the missing forecast dependency, then retry. Use "
+            "forecast_list_methods --show-unavailable to see required packages."
+        ),
+        "related_tools": ["forecast_list_methods"],
     },
     "insufficient_data": {
         "remediation": (
@@ -315,6 +326,13 @@ def _default_error_guidance(
             "documentation": canonical_documentation_url("docs/CLI.md"),
         }
     if code_text == "tool_error":
+        if operation_text == "options_barrier_price":
+            return {
+                "remediation": (
+                    "Use options_barrier_price --help and provide positive "
+                    "numeric inputs for this local QuantLib calculator."
+                ),
+            }
         if operation_text.startswith("options_"):
             return {
                 "remediation": (

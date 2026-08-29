@@ -160,6 +160,13 @@ def canonicalize_forecast_methods(
                     "valid_methods_tool": "forecast_list_methods",
                 }
             resolved = method.lower()
+        else:
+            availability_error = forecast_method_resolution_error(resolved)
+            if (
+                availability_error is not None
+                and availability_error.get("error_code") == "method_dependency_missing"
+            ):
+                return None, availability_error
         key = resolved.lower()
         if key in seen:
             return None, {
@@ -219,3 +226,108 @@ def format_invalid_method_error(method: Any, valid_methods: List[str]) -> str:
         message += f" Did you mean: {'; '.join(suggestion_text)}?"
     message += " Run forecast_list_methods for the full catalog."
     return message
+
+
+_METHOD_DEPENDENCY_INSTALL_HINTS = (
+    (("neuralforecast",), 'pip install "neuralforecast>=1.0.0"'),
+    (("chronos", "chronos-forecasting"), 'pip install "mtdata[forecast-foundation]"'),
+    (("timesfm",), 'pip install "mtdata[forecast-timesfm]"'),
+    (
+        ("statsforecast", "sktime", "mlforecast", "lightgbm"),
+        'pip install "mtdata[forecast-classical]"',
+    ),
+)
+
+
+def _catalog_method_rows() -> List[Dict[str, Any]]:
+    snapshot = get_forecast_methods_snapshot()
+    methods = snapshot.get("methods", [])
+    if not isinstance(methods, list):
+        return []
+    return [
+        row
+        for row in methods
+        if isinstance(row, dict) and str(row.get("method") or "").strip()
+    ]
+
+
+def find_forecast_method_row(method: Any) -> Optional[Dict[str, Any]]:
+    needle = _normalize_method_text(method)
+    if not needle:
+        return None
+    for row in _catalog_method_rows():
+        if _normalize_method_text(row.get("method")) == needle:
+            return row
+    return None
+
+
+def unavailable_reason_from_row(row: Dict[str, Any]) -> str:
+    reason = str(row.get("unavailable_reason") or "").strip()
+    if reason:
+        return reason
+    requires = row.get("requires")
+    if isinstance(requires, list):
+        req_text = ", ".join(str(req) for req in requires if str(req).strip())
+        if req_text:
+            return "Requires: " + req_text
+    return "Unavailable in the current environment."
+
+
+def _install_hint_from_requires(requires: Any) -> Optional[str]:
+    tokens: List[str] = []
+    if isinstance(requires, list):
+        tokens = [str(req).strip().lower() for req in requires if str(req).strip()]
+    blob = " ".join(tokens)
+    for needles, hint in _METHOD_DEPENDENCY_INSTALL_HINTS:
+        if any(needle in blob for needle in needles):
+            return hint
+    return None
+
+
+def format_unavailable_method_error(method: Any, row: Dict[str, Any]) -> str:
+    name = str(row.get("method") or method)
+    reason = unavailable_reason_from_row(row)
+    message = f"Method {name!r} is unavailable: {reason}."
+    hint = _install_hint_from_requires(row.get("requires"))
+    if hint:
+        message += f" Install with: {hint}"
+    else:
+        message += " Run forecast_list_methods --show-unavailable for install details."
+    return message
+
+
+def forecast_method_resolution_error(
+    method: Any,
+    *,
+    unknown_code: str = "invalid_method",
+) -> Optional[Dict[str, Any]]:
+    """Return an error payload for an unknown or dependency-missing method."""
+    rows = _catalog_method_rows()
+    names = [str(row.get("method")) for row in rows if row.get("method")]
+    row = find_forecast_method_row(method)
+    if row is None:
+        return {
+            "success": False,
+            "error": format_invalid_method_error(method, names),
+            "error_code": unknown_code,
+            "method": str(method or "").strip(),
+            "related_tools": ["forecast_list_methods"],
+            "valid_methods_tool": "forecast_list_methods",
+        }
+    if row.get("available") is False:
+        requires = (
+            [str(req) for req in (row.get("requires") or []) if str(req).strip()]
+            if isinstance(row.get("requires"), list)
+            else []
+        )
+        return {
+            "success": False,
+            "error": format_unavailable_method_error(method, row),
+            "error_code": "method_dependency_missing",
+            "method": str(row.get("method")),
+            "unavailable_reason": unavailable_reason_from_row(row),
+            "required_packages": requires,
+            "related_tools": ["forecast_list_methods"],
+            "valid_methods_tool": "forecast_list_methods",
+        }
+    return None

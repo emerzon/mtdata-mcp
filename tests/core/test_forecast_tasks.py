@@ -1113,6 +1113,10 @@ class TestForecastTrain:
         with (
             patch(_PATCH_TM, return_value=mock_tm),
             patch("mtdata.utils.mt5.ensure_mt5_connection_or_raise"),
+            patch(
+                "mtdata.forecast.forecast_validation.forecast_method_resolution_error",
+                return_value=None,
+            ),
         ):
             result = _unwrap(forecast_train)(
                 ForecastTrainRequest(

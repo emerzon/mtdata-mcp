@@ -306,6 +306,23 @@ def test_price_barrier_option_quantlib_with_fake_backend(monkeypatch):
     assert out["valuation_date_source"] == "default_calendar_local_date"
 
 
+def test_price_barrier_option_quantlib_rejects_non_positive_inputs():
+    cases = (
+        ("spot", {"spot": -150.0, "strike": 100.0, "barrier": 120.0, "volatility": 0.2}),
+        ("strike", {"spot": 100.0, "strike": 0.0, "barrier": 120.0, "volatility": 0.2}),
+        ("barrier", {"spot": 100.0, "strike": 100.0, "barrier": -1.0, "volatility": 0.2}),
+        ("volatility", {"spot": 100.0, "strike": 100.0, "barrier": 120.0, "volatility": -0.5}),
+    )
+    for parameter, kwargs in cases:
+        out = qtools.price_barrier_option_quantlib(
+            maturity_days=30,
+            **kwargs,
+        )
+        assert out["error_code"] == "invalid_parameter"
+        assert out["details"]["parameter"] == parameter
+        assert "options_provider_status" not in str(out)
+
+
 def test_price_barrier_option_quantlib_rejects_negative_rebate():
     out = qtools.price_barrier_option_quantlib(
         spot=100.0,

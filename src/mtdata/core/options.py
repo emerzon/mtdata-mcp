@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import re
 from datetime import date
 from typing import Annotated, Any, Dict, Literal, Optional
@@ -1330,6 +1331,20 @@ def options_barrier_price(
         )
     from ..forecast.quantlib_tools import price_barrier_option_quantlib as _impl
 
+    def _positive_input_error(parameter: str, received: Any) -> Dict[str, Any]:
+        return build_error_payload(
+            f"{parameter} must be a positive number.",
+            code="invalid_parameter",
+            operation="options_barrier_price",
+            details={
+                "parameter": parameter,
+                "received": received,
+                "required_minimum": 0,
+            },
+            remediation=f"Set {parameter} to a value greater than 0.",
+            valid_values={parameter: "number > 0"},
+        )
+
     def _run() -> Dict[str, Any]:
         if int(maturity_days) <= 0:
             return build_error_payload(
@@ -1345,6 +1360,25 @@ def options_barrier_price(
                 valid_values={"maturity_days": "integer >= 1"},
                 example="--maturity-days 30",
             )
+        model_name = str(model).strip().lower()
+        for parameter, raw_value in (
+            ("spot", spot),
+            ("strike", strike),
+            ("barrier", barrier),
+        ):
+            try:
+                parsed = float(raw_value)
+            except (TypeError, ValueError):
+                return _positive_input_error(parameter, raw_value)
+            if not math.isfinite(parsed) or parsed <= 0:
+                return _positive_input_error(parameter, parsed)
+        if model_name != "heston":
+            try:
+                parsed_vol = float(volatility)
+            except (TypeError, ValueError):
+                return _positive_input_error("volatility", volatility)
+            if not math.isfinite(parsed_vol) or parsed_vol <= 0:
+                return _positive_input_error("volatility", parsed_vol)
         rate_value = float(risk_free_rate)
         vol_value = float(volatility)
         payload = _impl(

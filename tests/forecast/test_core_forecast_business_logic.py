@@ -1747,6 +1747,8 @@ def test_run_forecast_backtest_compact_keeps_kelly_metrics():
     def fake_backtest_impl(**kwargs):
         return {
             "success": True,
+            "spread_bps": 1.5,
+            "commission_bps_per_side": 0.0,
             "results": {
                 "theta": {
                     "success": True,
@@ -1778,6 +1780,54 @@ def test_run_forecast_backtest_compact_keeps_kelly_metrics():
     assert row["avg_win_loss_ratio"] == 2.0
     assert row["kelly_fraction"] == 0.25
     assert row["half_kelly_fraction"] == 0.125
+    assert result["cost_assumptions"]["complete"] is True
+
+
+def test_run_forecast_backtest_compact_omits_trading_metrics_when_costs_incomplete():
+    def fake_backtest_impl(**kwargs):
+        return {
+            "success": True,
+            "results": {
+                "theta": {
+                    "success": True,
+                    "avg_rmse": 0.0012,
+                    "avg_mae": 1.0,
+                    "avg_directional_accuracy": 0.6,
+                    "metrics": {
+                        "win_rate": 0.8,
+                        "profit_factor": 10.27,
+                        "cumulative_return": 0.00135,
+                        "avg_return_per_trade": 0.00027,
+                        "kelly_fraction": 0.25,
+                        "trades_observed": 5,
+                    },
+                    "details": [{"anchor": "2026-01-01 00:00", "success": True}],
+                }
+            },
+        }
+
+    result = forecast_use_cases.run_forecast_backtest(
+        ForecastBacktestRequest(symbol="EURUSD", detail="compact"),
+        backtest_impl=fake_backtest_impl,
+    )
+
+    row = result["results"]["theta"]
+    assert row["avg_rmse"] == 0.0012
+    assert row["avg_mae"] == 1.0
+    assert row["avg_directional_accuracy"] == 0.6
+    assert row["trades_observed"] == 5
+    assert row["trading_metrics_available"] is False
+    assert row["trading_metrics_reason"] == "spread_and_commission_not_modeled"
+    assert "win_rate" not in row
+    assert "profit_factor" not in row
+    assert "cumulative_return" not in row
+    assert "avg_return_per_trade" not in row
+    assert "kelly_fraction" not in row
+    assert result["cost_assumptions"]["complete"] is False
+    assert result["ranked_methods"][0]["trading_metrics_available"] is False
+    assert result["ranked_methods"][0]["trading_metrics_reason"] == (
+        "spread_and_commission_not_modeled"
+    )
 
 
 def test_run_forecast_backtest_compact_suppresses_low_sample_kelly_metrics():
@@ -2636,6 +2686,7 @@ def test_forecast_list_library_models_and_list_methods(monkeypatch):
                     "description": "Theta model.",
                     "params": [{"name": "window"}],
                     "requires": [],
+                    "supports": {"ci": True},
                     "supports_training": False,
                 },
                 {
@@ -3309,12 +3360,12 @@ def test_forecast_list_methods_theta_supports_ci_from_interval_resolver(monkeypa
     by_compact = {row["method"]: row for row in compact["methods"]}
     by_full = {row["method"]: row for row in full["methods"]}
 
-    assert cf._forecast_ci_method({"method": "theta"}) == "native_theta_interval"
-    assert by_compact["theta"]["supports_ci"] is True
+    assert cf._forecast_ci_method({"method": "theta"}) is None
+    assert by_compact["theta"]["supports_ci"] is False
     assert "ci_method" not in by_compact["theta"]
     assert by_compact["drift"]["supports_ci"] is False
-    assert by_full["theta"]["supports_ci"] is True
-    assert by_full["theta"]["ci_method"] == "native_theta_interval"
+    assert by_full["theta"]["supports_ci"] is False
+    assert "ci_method" not in by_full["theta"]
     assert by_full["drift"]["supports_ci"] is False
 
 
@@ -5273,6 +5324,28 @@ def test_options_and_quantlib_tool_routing(monkeypatch):
     assert rejected["error_code"] == "invalid_parameter"
     assert rejected["details"]["required_minimum"] == 1
     assert rejected["valid_values"] == {"maturity_days": "integer >= 1"}
+
+    rejected_vol = raw_price(
+        spot=150.0,
+        strike=155.0,
+        barrier=140.0,
+        maturity_days=30,
+        volatility=-0.5,
+    )
+    assert rejected_vol["error_code"] == "invalid_parameter"
+    assert rejected_vol["details"]["parameter"] == "volatility"
+    assert rejected_vol["details"]["received"] == -0.5
+    assert "options_provider_status" not in str(rejected_vol)
+
+    rejected_strike = raw_price(
+        spot=150.0,
+        strike=0.0,
+        barrier=140.0,
+        maturity_days=30,
+    )
+    assert rejected_strike["error_code"] == "invalid_parameter"
+    assert rejected_strike["details"]["parameter"] == "strike"
+    assert "options_provider_status" not in str(rejected_strike)
 
     out = raw_cal(
         symbol="AAPL",

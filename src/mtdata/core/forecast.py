@@ -1850,8 +1850,6 @@ def _forecast_ci_method(item: Dict[str, Any]) -> Optional[str]:
     category = str(item.get("category") or item.get("namespace") or "").strip().lower()
     if method_name in {"arima", "sarima"}:
         return "statsmodels_prediction_interval"
-    if method_name == "theta":
-        return "native_theta_interval"
     if category == "barrier":
         if bool(item.get("supports_ci")):
             return str(item.get("ci_method") or "simulation_sampling_interval")
@@ -1877,10 +1875,24 @@ def _declared_supports_ci(item: Dict[str, Any]) -> Optional[bool]:
 
 
 def _catalog_supports_ci(item: Dict[str, Any]) -> Optional[bool]:
-    """Catalog CI flag derived from declared support or the interval resolver."""
+    """Catalog CI flag: declared generate support wins over interval heuristics."""
+    declared = _declared_supports_ci(item)
+    if declared is False:
+        return False
     if _forecast_ci_method(item) is not None:
         return True
-    return _declared_supports_ci(item)
+    return declared
+
+
+def _catalog_unavailable_reason(item: Dict[str, Any]) -> Optional[str]:
+    if bool(item.get("available")):
+        return None
+    requires = item.get("requires")
+    if isinstance(requires, list) and requires:
+        req_text = ", ".join(str(req) for req in requires if str(req).strip())
+        if req_text:
+            return "Requires: " + req_text
+    return "Unavailable in the current environment."
 
 
 def _forecast_list_full_row(
@@ -1937,6 +1949,9 @@ def _forecast_list_full_row(
     requires = item.get("requires")
     if isinstance(requires, list) and requires:
         row["requires"] = [str(req) for req in requires if str(req).strip()]
+    unavailable_reason = _catalog_unavailable_reason(item)
+    if unavailable_reason:
+        row["unavailable_reason"] = unavailable_reason
     aliases = item.get("aliases")
     if isinstance(aliases, list) and aliases:
         row["aliases"] = [str(alias) for alias in aliases if str(alias).strip()]
@@ -2362,13 +2377,9 @@ def _forecast_list_methods_impl(  # noqa: C901
                 sample_gates = item.get("sample_gates")
                 if isinstance(sample_gates, dict) and sample_gates:
                     row["sample_gates"] = sample_gates
-            requires = item.get("requires")
-            if not available and isinstance(requires, list) and requires:
-                req_text = ", ".join(str(req) for req in requires if str(req).strip())
-                if req_text:
-                    row["unavailable_reason"] = "Requires: " + req_text
-            if not available and "unavailable_reason" not in row:
-                row["unavailable_reason"] = "Unavailable in the current environment."
+            unavailable_reason = _catalog_unavailable_reason(item)
+            if unavailable_reason:
+                row["unavailable_reason"] = unavailable_reason
             compact_methods.append(row)
             by_category.setdefault(str(row["category"]), []).append(row)
 

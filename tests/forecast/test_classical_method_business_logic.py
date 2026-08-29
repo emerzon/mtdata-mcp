@@ -17,7 +17,7 @@ def test_classical_base_metadata_via_naive_method():
         "volatility": True,
         "ci": False,
     }
-    assert cl.ThetaMethod().supports_features["ci"] is True
+    assert cl.ThetaMethod().supports_features["ci"] is False
 
 
 def test_naive_and_drift_forecasts_return_expected_values():
@@ -122,6 +122,7 @@ def test_theta_forecast_uses_native_statsmodels_backend():
     )
 
     assert np.all(np.isfinite(out.forecast))
+    assert out.ci_values is None
     assert out.params_used["model_name"] == "ThetaModel"
     assert out.params_used["backend"] == "statsmodels"
 

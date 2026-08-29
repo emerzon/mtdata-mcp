@@ -65,6 +65,7 @@ from .common import (
 from .exceptions import ModelCompatibilityError, UnknownFeatureColumnError
 from .forecast_validation import (
     attach_denoise_causality_disclosure,
+    forecast_method_resolution_error,
     format_invalid_method_error,
 )
 from .interface import ArtifactCompatibilityError, ForecastCallContext
@@ -613,6 +614,9 @@ def build_training_context(
         raise ValueError(unsupported_timeframe_seconds_error(timeframe))
     available_methods = _get_available_methods()
     if method_l not in available_methods:
+        resolution_error = forecast_method_resolution_error(method)
+        if resolution_error is not None:
+            raise ValueError(resolution_error["error"])
         raise ValueError(format_invalid_method_error(method, list(available_methods)))
     if quantity_l == "volatility" or method_l.startswith("vol_"):
         raise ValueError("Use forecast_volatility for volatility models")
@@ -1934,6 +1938,9 @@ def forecast_engine(  # noqa: C901
         # Refresh available methods
         available_methods = _get_available_methods()
         if method_l not in available_methods:
+            resolution_error = forecast_method_resolution_error(method)
+            if resolution_error is not None:
+                return resolution_error
             return {"error": format_invalid_method_error(method, list(available_methods))}
 
         # Volatility models have a dedicated endpoint

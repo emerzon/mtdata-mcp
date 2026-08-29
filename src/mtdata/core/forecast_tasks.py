@@ -881,7 +881,23 @@ def forecast_train(request: ForecastTrainRequest) -> Dict[str, Any]:
     """Start training, optionally waiting for the stored model artifact."""
     def _execute() -> Dict[str, Any]:
         from ..forecast.capabilities import resolve_capability_request
+        from ..forecast.forecast_validation import forecast_method_resolution_error
         from ..utils.mt5 import ensure_mt5_connection_or_raise
+
+        method_error = forecast_method_resolution_error(request.method)
+        if method_error is not None:
+            details = {"method": request.method}
+            if method_error.get("unavailable_reason") not in (None, ""):
+                details["unavailable_reason"] = method_error["unavailable_reason"]
+            if method_error.get("required_packages"):
+                details["required_packages"] = list(method_error["required_packages"])
+            return build_error_payload(
+                method_error["error"],
+                code=str(method_error.get("error_code") or "invalid_method"),
+                operation="forecast_train",
+                details=details,
+                related_tools=["forecast_list_methods"],
+            )
 
         ensure_mt5_connection_or_raise()
 

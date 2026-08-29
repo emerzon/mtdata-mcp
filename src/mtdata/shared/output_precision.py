@@ -15,7 +15,7 @@ _COMPACT_ALIASES = {"compact", "display", "min", "minimal", "simplified"}
 _FULL_ALIASES = {"full", "raw", "none", "off", "exact"}
 _AUTO_ALIASES = {"auto", "default", ""}
 
-_FULL_BY_DEFAULT_PREFIXES = ("trade_",)
+_FULL_BY_DEFAULT_PREFIXES = ("trade_", "forecast_")
 
 _FULL_BY_DEFAULT_TOOLS = {
     "asset_performance",
@@ -30,6 +30,8 @@ _FULL_BY_DEFAULT_TOOLS = {
     "options_chain",
     "options_expirations",
     "report_generate",
+    "strategy_backtest",
+    "strategy_validate",
     "support_resistance_levels",
 }
 

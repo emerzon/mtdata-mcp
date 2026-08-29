@@ -18,12 +18,9 @@ from mtdata.forecast.backtest import (
 from mtdata.forecast.capabilities import resolve_capability_request
 from mtdata.forecast.exceptions import ForecastError, raise_if_error_result
 from mtdata.forecast.forecast import execute_forecast as _forecast_impl
-from mtdata.forecast.forecast_methods import (
-    get_forecast_method_names,
-    get_method_param_names,
-)
+from mtdata.forecast.forecast_methods import get_method_param_names
 from mtdata.forecast.forecast_registry import ForecastRegistry
-from mtdata.forecast.forecast_validation import format_invalid_method_error
+from mtdata.forecast.forecast_validation import forecast_method_resolution_error
 from mtdata.forecast.requests import (
     ForecastConformalIntervalsRequest,
     ForecastGenerateRequest,
@@ -58,6 +55,28 @@ logger = logging.getLogger("mtdata.forecast.use_cases")
 _VOLATILITY_PROXY_METHODS = {"arima", "sarima", "ets", "theta"}
 _PRETRAINED_FORECAST_METHODS = ("chronos2", "chronos_bolt", "timesfm")
 _DEFAULT_VOLATILITY_PROXY = "squared_return"
+
+
+def _forecast_method_dependency_or_unknown_error(
+    method: str,
+    *,
+    operation: str,
+) -> Optional[Dict[str, Any]]:
+    resolution_error = forecast_method_resolution_error(method)
+    if resolution_error is None:
+        return None
+    details: Dict[str, Any] = {"method": method}
+    if resolution_error.get("unavailable_reason") not in (None, ""):
+        details["unavailable_reason"] = resolution_error["unavailable_reason"]
+    if resolution_error.get("required_packages"):
+        details["required_packages"] = list(resolution_error["required_packages"])
+    return build_error_payload(
+        resolution_error["error"],
+        code=str(resolution_error.get("error_code") or "invalid_method"),
+        operation=operation,
+        details=details,
+        related_tools=["forecast_list_methods"],
+    )
 
 
 def _conformal_alpha_warning(ci_alpha: Any) -> Optional[str]:
@@ -595,17 +614,12 @@ def run_forecast_conformal_intervals(
     those residuals—not a guaranteed finite-sample coverage bound.
     """
     requested_method = str(request.method or "").strip()
-    valid_methods = list(get_forecast_method_names())
-    if requested_method.lower() not in {
-        str(method).lower() for method in valid_methods
-    }:
-        return build_error_payload(
-            format_invalid_method_error(requested_method, valid_methods),
-            code="invalid_method",
-            operation="forecast_conformal_intervals",
-            details={"method": requested_method},
-            related_tools=["forecast_list_methods"],
-        )
+    method_error = _forecast_method_dependency_or_unknown_error(
+        requested_method,
+        operation="forecast_conformal_intervals",
+    )
+    if method_error is not None:
+        return method_error
     started_at = time.perf_counter()
     detail_value = _normalize_trader_detail(getattr(request, "detail", "compact"))
     log_operation_start(

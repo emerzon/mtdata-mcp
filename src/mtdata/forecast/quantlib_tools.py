@@ -333,21 +333,46 @@ def price_barrier_option_quantlib(  # noqa: C901
         vol = float(volatility) if heston_params is None else 0.0
         rebate_val = float(rebate)
     except Exception:
-        return {"error": "Invalid numeric input for barrier pricing"}
+        return {
+            "error": "Invalid numeric input for barrier pricing",
+            "error_code": "invalid_parameter",
+        }
 
-    positive_ok = (
-        spot_val > 0
-        and strike_val > 0
-        and barrier_val > 0
-        and maturity_val > 0
-        and (heston_params is not None or vol > 0)
-    )
-    if not positive_ok:
-        if heston_params is None:
+    for parameter, value in (
+        ("spot", spot_val),
+        ("strike", strike_val),
+        ("barrier", barrier_val),
+    ):
+        if not math.isfinite(value) or value <= 0:
             return {
-                "error": "spot/strike/barrier/maturity_days/volatility must be positive"
+                "error": f"{parameter} must be a positive number.",
+                "error_code": "invalid_parameter",
+                "details": {
+                    "parameter": parameter,
+                    "received": value,
+                    "required_minimum": 0,
+                },
             }
-        return {"error": "spot/strike/barrier/maturity_days must be positive"}
+    if maturity_val <= 0:
+        return {
+            "error": "maturity_days must be a positive integer.",
+            "error_code": "invalid_parameter",
+            "details": {
+                "parameter": "maturity_days",
+                "received": maturity_val,
+                "required_minimum": 1,
+            },
+        }
+    if heston_params is None and (not math.isfinite(vol) or vol <= 0):
+        return {
+            "error": "volatility must be a positive number.",
+            "error_code": "invalid_parameter",
+            "details": {
+                "parameter": "volatility",
+                "received": vol,
+                "required_minimum": 0,
+            },
+        }
     if not math.isfinite(rebate_val) or rebate_val < 0:
         return {
             "error": "rebate must be finite and nonnegative",

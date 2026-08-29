@@ -55,6 +55,12 @@ def test_auto_precision_compacts_large_tables_but_not_trading_tools():
     options_chain = resolve_output_precision(None, tool_name="options_chain")
     options_expirations = resolve_output_precision(None, tool_name="options_expirations")
     options_barrier = resolve_output_precision(None, tool_name="options_barrier_price")
+    forecast_backtest = resolve_output_precision(None, tool_name="forecast_backtest_run")
+    forecast_conformal = resolve_output_precision(
+        None,
+        tool_name="forecast_conformal_intervals",
+    )
+    strategy_backtest = resolve_output_precision(None, tool_name="strategy_backtest")
 
     assert compact.simplify_numbers is True
     assert trading.simplify_numbers is False
@@ -65,6 +71,9 @@ def test_auto_precision_compacts_large_tables_but_not_trading_tools():
     assert options_chain.simplify_numbers is False
     assert options_expirations.simplify_numbers is False
     assert options_barrier.simplify_numbers is False
+    assert forecast_backtest.simplify_numbers is False
+    assert forecast_conformal.simplify_numbers is False
+    assert strategy_backtest.simplify_numbers is False
 
 
 def test_full_precision_rendering_does_not_display_round_price_fields():
@@ -76,6 +85,25 @@ def test_full_precision_rendering_does_not_display_round_price_fields():
     )
 
     assert "1.234567891234" in result
+
+
+def test_forecast_backtest_auto_precision_keeps_eurusd_paths_distinguishable():
+    result = format_result_minimal(
+        {
+            "details": [
+                {
+                    "forecast": [1.165011516244775, 1.1651470911227504, 1.1651479233536666],
+                    "actual": [1.16534, 1.16536, 1.16531],
+                }
+            ]
+        },
+        verbose=False,
+        tool_name="forecast_backtest_run",
+    )
+
+    assert "1.165011516244775" in result
+    assert "1.16534" in result
+    assert "1.165|1.165|1.165" not in result
 
 
 def test_finviz_forex_auto_precision_preserves_fx_prices():
