@@ -636,6 +636,8 @@ def regime_detect(  # noqa: C901
                 return _finish({"error": efficiency_error})
             if not np.isfinite(float(efficiency_threshold)) or float(efficiency_threshold) <= 0.0:
                 return _finish({"error": "params.efficiency_threshold must be > 0."})
+            if float(efficiency_threshold) > 1.0:
+                return _finish({"error": "params.efficiency_threshold must be <= 1."})
 
             trend_strength_threshold, trend_strength_error = _coerce_param(
                 p,

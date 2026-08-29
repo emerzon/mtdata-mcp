@@ -122,9 +122,10 @@ def _coerce_param(
     try:
         return cast(raw), None
     except Exception:
+        message = error if error is not None else f"Invalid value for '{key}': {raw!r}"
         if error is not None:
-            return None, error
-        return default, None
+            return None, message
+        raise ValueError(message) from None
 
 
 def _garch_tier_thresholds(

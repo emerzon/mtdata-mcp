@@ -703,6 +703,7 @@ def test_rule_based_rejects_lookback_below_minimum_window() -> None:
             "params.efficiency_threshold must be a positive number.",
         ),
         ({"efficiency_threshold": 0}, "params.efficiency_threshold must be > 0."),
+        ({"efficiency_threshold": 2}, "params.efficiency_threshold must be <= 1."),
         (
             {"trend_strength_threshold": "bad"},
             "params.trend_strength_threshold must be a positive number.",
