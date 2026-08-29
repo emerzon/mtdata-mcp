@@ -641,6 +641,25 @@ def test_outliers_detect_marks_weekend_gap_bars(monkeypatch):
     assert any("session gap" in warning.lower() for warning in result["warnings"])
 
 
+def test_robust_scores_iqr_uses_gaussian_consistent_scale():
+    values = pd.Series([0.0, 1.0, 2.0, 3.0, 4.0, 10.0])
+    scores = diagnostics._robust_scores(values, "iqr")
+    q1, q3 = values.quantile([0.25, 0.75])
+    scale = float(q3 - q1) / 1.3489795003921634
+    expected = (values - values.median()).abs() / scale
+    pd.testing.assert_series_equal(scores, expected)
+
+
+def test_robust_scores_flag_moderate_outlier_at_default_threshold():
+    rng = np.random.default_rng(0)
+    sample = rng.normal(0.0, 1.0, 2000)
+    sample[-1] = 4.2
+    values = pd.Series(sample)
+    for method in ("mad", "iqr", "zscore"):
+        scores = diagnostics._robust_scores(values, method)
+        assert float(scores.iloc[-1]) >= 3.5, method
+
+
 def test_outliers_detect_zscore_is_not_labeled_robust(monkeypatch):
     close = np.linspace(100.0, 101.0, 120)
     close[80] = 130.0

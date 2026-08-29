@@ -800,8 +800,9 @@ def _robust_scores(values: pd.Series, method: str) -> pd.Series:
         return (numeric - center).abs() / scale if scale > 0 else _zero_scale_scores(center)
     if method_value == "iqr":
         q1, q3 = numeric.quantile([0.25, 0.75])
-        scale = float(q3 - q1)
+        iqr = float(q3 - q1)
         center = float(numeric.median())
+        scale = iqr / 1.3489795003921634
         return (numeric - center).abs() / scale if scale > 0 else _zero_scale_scores(center)
     if method_value != "mad":
         raise ValueError("method must be one of: mad, iqr, zscore.")
@@ -944,10 +945,10 @@ def outliers_detect(
             score_units = "mean_std_zscore"
         elif method_value == "iqr":
             score_meaning = (
-                f"robust IQR deviation magnitude per bar; score >= threshold "
-                f"({float(threshold)}) flags an outlier"
+                f"IQR robust-z magnitude per bar (Gaussian-consistent IQR scale); "
+                f"score >= threshold ({float(threshold)}) flags an outlier"
             )
-            score_units = "robust_iqr_deviation"
+            score_units = "robust_iqr_zscore"
         else:
             score_meaning = (
                 f"robust MAD deviation magnitude per bar; score >= threshold "
