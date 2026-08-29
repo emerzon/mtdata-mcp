@@ -310,8 +310,9 @@ Generate price forecasts.
 - Use `as_of` for a point-in-time cutoff or `start` / `end` for a bounded
   training range; do not combine those window styles.
 - `async_mode=true` submits trainable methods to the Web API's persistent task
-  runtime. A pending submission returns HTTP 202 with a `task_id` instead of
-  waiting for the fit.
+  runtime. A pending or already-running submission returns HTTP 202 with a
+  `task_id` instead of waiting for the fit. A duplicate in-flight identity
+  is `202` with `status=running`.
 - `model_id` reuses a compatible stored artifact instead of training a new
   one. Use `detail=full` when you need model and runtime diagnostics.
 

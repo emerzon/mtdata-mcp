@@ -1416,6 +1416,24 @@ class TestPostForecastPrice:
         assert resp.json() == result
         assert forecast_impl.call_args.args[0].async_mode is True
 
+    def test_duplicate_async_training_submission_returns_accepted(self):
+        result = {"success": True, "status": "running", "task_id": "task-123"}
+        with patch(
+            "mtdata.core.web_api._run_forecast_generate_impl",
+            return_value=result,
+        ):
+            resp = _client.post(
+                "/api/v1/forecast/price",
+                json={
+                    "symbol": "EURUSD",
+                    "method": "nhits",
+                    "async_mode": True,
+                },
+            )
+
+        assert resp.status_code == 202
+        assert resp.json() == result
+
     def test_removed_target_is_rejected(self):
         with patch("mtdata.core.web_api._run_forecast_generate_impl", return_value={}) as mock_fc:
             resp = _client.post("/api/forecast/price", json={"symbol": "EURUSD", "target": "return"})

@@ -577,8 +577,8 @@ def post_forecast_price(body: ForecastGenerateRequest) -> Dict[str, Any] | SafeJ
     if (
         body.async_mode
         and isinstance(result, dict)
-        and result.get("status") == "pending"
         and result.get("task_id")
+        and result.get("status") in {"pending", "running"}
     ):
         return SafeJSONResponse(status_code=202, content=result)
     return result
