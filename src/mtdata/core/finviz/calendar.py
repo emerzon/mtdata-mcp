@@ -133,6 +133,7 @@ _FINVIZ_CALENDAR_TRADER_COMPACT_FIELDS = (
     "symbol",
     "country",
     "country_code",
+    "country_attribution",
     "event",
     "scheduled_at",
     "local_time",
@@ -383,6 +384,7 @@ def _stamp_calendar_requested_bounds(
     if not isinstance(payload, dict) or payload.get("success") is False:
         return payload
     out = dict(payload)
+    date_only_bounds = False
     if start_bound is not None:
         instant = start_bound.get("instant_utc")
         if instant is not None:
@@ -391,6 +393,7 @@ def _stamp_calendar_requested_bounds(
         else:
             out["start"] = start_bound["date_ny"]
             out["start_precision"] = "date"
+            date_only_bounds = True
     if end_bound is not None:
         instant = end_bound.get("instant_utc")
         if instant is not None:
@@ -399,6 +402,9 @@ def _stamp_calendar_requested_bounds(
         else:
             out["end"] = end_bound["date_ny"]
             out["end_precision"] = "date"
+            date_only_bounds = True
+    if date_only_bounds:
+        out["timezone"] = _FINVIZ_CALENDAR_LOCAL_TIMEZONE
     return out
 
 
@@ -686,9 +692,20 @@ def _compact_finviz_earnings_items(items: Any) -> List[Any]:
         if not isinstance(item, dict):
             compact_rows.append(item)
             continue
+        compact_fields = _FINVIZ_EARNINGS_COMPACT_FIELDS
+        if (
+            item.get("eps_surprise_direction_conflict") is True
+            and _finviz_signed_direction(item.get("eps_reported_surprise")) == 0
+            and _finviz_signed_direction(item.get("eps_surprise")) not in (None, 0)
+        ):
+            compact_fields = tuple(
+                field
+                for field in _FINVIZ_EARNINGS_COMPACT_FIELDS
+                if field != "eps_reported_surprise"
+            )
         row = {
             field: item[field]
-            for field in _FINVIZ_EARNINGS_COMPACT_FIELDS
+            for field in compact_fields
             if field in item
         }
         if "market_cap" in row:
@@ -703,6 +720,7 @@ _FINVIZ_CALENDAR_COUNTRY_PREFIXES = (
     ("UNITEDSTA", "United States", "US"),
     ("USA", "United States", "US"),
     ("USD", "United States", "US"),
+    ("US", "United States", "US"),
     ("CANADA", "Canada", "CA"),
     ("CAD", "Canada", "CA"),
     ("GERMANY", "Germany", "DE"),
@@ -728,6 +746,7 @@ _FINVIZ_CALENDAR_EVENT_COUNTRY_KEYWORDS = (
     ("FOMC", "United States", "US"),
     ("FED ", "United States", "US"),
     ("INITIAL JOBLESS CLAIMS", "United States", "US"),
+    ("UNEMPLOYMENT RATE", "United States", "US"),
     ("NON FARM", "United States", "US"),
     ("NONFARM", "United States", "US"),
     ("ISM MANUFACTURING", "United States", "US"),
@@ -743,6 +762,7 @@ _FINVIZ_CALENDAR_EVENT_COUNTRY_KEYWORDS = (
 _FINVIZ_CALENDAR_SOURCE_ID_COUNTRIES = {
     # Finviz uses indicator identifiers rather than ISO/currency prefixes for
     # several US releases. Keep these exact mappings auditable and conservative.
+    "USURTOT": ("United States", "US"),
     "CPIYOY": ("United States", "US"),
     "RSTAMOM": ("United States", "US"),
     "CONCCONF": ("United States", "US"),
@@ -859,10 +879,17 @@ def _compact_finviz_calendar_item(
     ):
         normalized = dict(normalized)
         normalized.pop("category", None)
+    omit_reported_zero = (
+        normalized.get("eps_surprise_direction_conflict") is True
+        and _finviz_signed_direction(normalized.get("eps_reported_surprise")) == 0
+        and _finviz_signed_direction(normalized.get("eps_surprise")) not in (None, 0)
+    )
     out = {
         field: normalized[field]
         for field in fields
-        if field in normalized and normalized[field] not in (None, "")
+        if field in normalized
+        and normalized[field] not in (None, "")
+        and not (omit_reported_zero and field == "eps_reported_surprise")
     }
     if (
         trader_compact
@@ -1032,8 +1059,8 @@ def _annotate_finviz_earnings_eps_bases(item: Any) -> Any:
         normalized.get("eps_reported_surprise")
     )
     if (
-        primary_direction not in (None, 0)
-        and reported_direction not in (None, 0)
+        primary_direction is not None
+        and reported_direction is not None
         and primary_direction != reported_direction
     ):
         normalized["eps_surprise_direction_conflict"] = True
@@ -1329,26 +1356,52 @@ def _normalize_finviz_calendar_payload(
             unclassified_items = [
                 item
                 for item in normalized_items
-                if not str(item.get("country_code") or "").strip()
+                if isinstance(item, dict)
+                and not str(item.get("country_code") or "").strip()
             ]
-            unclassified_count = len(unclassified_items)
-            normalized_items = [
+            high_impact_unclassified = [
+                item
+                for item in unclassified_items
+                if str(item.get("impact") or "").strip().lower() == "high"
+            ]
+            excluded_unclassified = [
+                item
+                for item in unclassified_items
+                if item not in high_impact_unclassified
+            ]
+            matched_items = [
                 item
                 for item in normalized_items
-                if str(item.get("country_code") or "").upper()
+                if isinstance(item, dict)
+                and str(item.get("country_code") or "").upper()
                 == str(country_code_filter).upper()
             ]
-            if unclassified_count:
-                out["unclassified_events_count"] = int(unclassified_count)
+            retained_high_impact = []
+            for item in high_impact_unclassified:
+                retained = dict(item)
+                retained.setdefault("country_attribution", "unknown")
+                retained_high_impact.append(retained)
+            normalized_items = matched_items + retained_high_impact
+            if excluded_unclassified:
+                out["unclassified_events_count"] = int(len(excluded_unclassified))
                 out["excluded_events"] = [
                     _finviz_calendar_excluded_event(item)
-                    for item in unclassified_items
+                    for item in excluded_unclassified
                 ]
                 warnings_out = list(out.get("warnings") or [])
                 warnings_out.append(
-                    f"{unclassified_count} event(s) had unknown country attribution "
-                    "and were excluded by the country/currency filter; see "
-                    "excluded_events for names and times."
+                    f"{len(excluded_unclassified)} event(s) had unknown country "
+                    "attribution and were excluded by the country/currency filter; "
+                    "see excluded_events for names and times."
+                )
+                out["warnings"] = warnings_out
+            if retained_high_impact:
+                out["high_impact_unattributed_count"] = int(len(retained_high_impact))
+                warnings_out = list(out.get("warnings") or [])
+                warnings_out.append(
+                    f"{len(retained_high_impact)} high-impact event(s) had unknown "
+                    "country attribution and were retained; see "
+                    "high_impact_unattributed_count."
                 )
                 out["warnings"] = warnings_out
         filtered_released_count = 0

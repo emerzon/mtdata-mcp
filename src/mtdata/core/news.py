@@ -273,6 +273,13 @@ def _strip_news_compact_item_fields(  # noqa: C901
     kind_value = value.get("kind")
     if kind_value not in (None, ""):
         out["kind"] = kind_value
+    impact = value.get("impact")
+    if impact in (None, ""):
+        metadata = value.get("metadata")
+        if isinstance(metadata, dict):
+            impact = metadata.get("impact")
+    if impact not in (None, ""):
+        out["impact"] = impact
     published_at = value.get("published_at")
     if not economic_event and published_at not in (None, ""):
         out["published_at"] = _news_iso_utc(published_at)
@@ -314,6 +321,7 @@ def _strip_news_compact_item_fields(  # noqa: C901
             "source",
             "provider",
             "kind",
+            "impact",
             "published_at",
             "scheduled_at",
             "relative_time",
@@ -605,7 +613,6 @@ def _apply_news_global_page(
 
     total_candidates = len(logical_rows)
     returned = len(selected)
-    out["total_candidates"] = total_candidates
     out["returned"] = returned
     out["limit_scope"] = "global"
     pagination = build_pagination_meta(
@@ -622,6 +629,7 @@ def _apply_news_global_page(
     out["bucket_truncation"] = {
         key: len(selected_buckets.get(key, [])) < len(rows)
         for key, rows in original_buckets.items()
+        if key in selected_buckets
     }
     return out
 
@@ -762,7 +770,6 @@ def _apply_news_limit(  # noqa: C901
         bucket_truncation["recent_events"] = bool(
             len(out["recent_events"]) < original_recent_count
         )
-    out["total_candidates"] = total_candidates
     out["returned"] = returned
     out["limit_scope"] = limit_scope
     if limit is None and offset == 0:
@@ -776,7 +783,11 @@ def _apply_news_limit(  # noqa: C901
     pagination["scope"] = limit_scope
     out["pagination"] = pagination
     if bucket_truncation:
-        out["bucket_truncation"] = bucket_truncation
+        out["bucket_truncation"] = {
+            key: truncated_flag
+            for key, truncated_flag in bucket_truncation.items()
+            if isinstance(out.get(key), list)
+        }
     return out
 
 

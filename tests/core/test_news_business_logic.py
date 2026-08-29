@@ -117,7 +117,7 @@ def test_news_tool_limits_globally(monkeypatch) -> None:
     assert "general_news" not in limited
     assert "impact_news" not in limited
     assert "recent_events" not in limited
-    assert limited["total_candidates"] == 10
+    assert "total_candidates" not in limited
     assert limited["limit_scope"] == "global"
     assert limited["returned"] == 3
     assert limited["pagination"] == {
@@ -167,7 +167,8 @@ def test_compact_broad_news_has_a_global_default_page(monkeypatch) -> None:
     assert compact["upcoming_events"] == [{"title": "u0"}]
     assert compact["bucket_truncation"]["general_news"] is True
     assert compact["bucket_truncation"]["upcoming_events"] is True
-    assert compact["bucket_truncation"]["recent_events"] is True
+    assert "recent_events" not in compact
+    assert "recent_events" not in compact["bucket_truncation"]
     assert sum(len(full[key]) for key in payload if key.endswith(("news", "events"))) == 45
     assert explicit_global["pagination"]["returned"] == 15
     assert sum(
@@ -199,10 +200,11 @@ def test_news_tool_symbol_limit_is_a_global_row_cap(monkeypatch) -> None:
     assert "general_news" not in limited
     assert "impact_news" not in limited
     assert "recent_events" not in limited
-    assert limited["total_candidates"] == 8
+    assert "total_candidates" not in limited
     assert limited["limit_scope"] == "global"
     assert limited["bucket_truncation"]["related_news"] is True
     assert limited["bucket_truncation"]["upcoming_events"] is False
+    assert "recent_events" not in limited["bucket_truncation"]
     assert limited["pagination"]["returned"] == 2
     assert limited["pagination"]["has_more"] is True
     assert limited["pagination"]["more_available"] == 6
@@ -428,7 +430,7 @@ def test_news_tool_fx_symbol_limit_keeps_useful_general_buckets(monkeypatch) -> 
     assert "impact_news" not in limited
     assert "recent_events" not in limited
     assert "market_context" not in limited
-    assert limited["total_candidates"] == 6
+    assert "total_candidates" not in limited
     assert limited["limit_scope"] == "global"
     assert "macro_fallback" not in limited
     assert limited["pagination"]["returned"] == 3
@@ -453,7 +455,7 @@ def test_news_tool_supports_global_offset(monkeypatch) -> None:
     assert page["row_key"] == "general_news"
     assert "related_news" not in page
     assert "impact_news" not in page
-    assert page["total_candidates"] == 6
+    assert "total_candidates" not in page
     assert page["pagination"] == {
         "total": 6,
         "returned": 2,
@@ -511,7 +513,7 @@ def test_news_tool_keeps_per_bucket_limit_mode(monkeypatch) -> None:
     assert limited["impact_news"] == [{"title": "i1"}]
     assert limited["upcoming_events"] == [{"title": "u1"}]
     assert limited["recent_events"] == [{"title": "e1"}]
-    assert limited["total_candidates"] == 10
+    assert "total_candidates" not in limited
     assert limited["returned"] == 5
     assert limited["limit_scope"] == "per_bucket"
     assert limited["truncated"] is True
@@ -929,6 +931,7 @@ def test_news_output_compacts_upcoming_events_bucket() -> None:
     assert item["event"] == "US CPI (USD)"
     assert item["source"] == "Finviz Economic Calendar"
     assert item["kind"] == "economic_event"
+    assert item["impact"] == "high"
     assert item["scheduled_at"] == published_at.isoformat().replace("+00:00", "Z")
     assert "published_at" not in item
     assert item["relative_time"].startswith("in ")
@@ -972,6 +975,7 @@ def test_news_output_compacts_recent_events_bucket() -> None:
             "event": "US CPI (USD)",
             "source": "Finviz Economic Calendar",
             "kind": "economic_event",
+            "impact": "high",
             "scheduled_at": published_at.isoformat().replace("+00:00", "Z"),
             "relative_time": "2 hours ago",
             "summary": "Actual: 3.2% | Expected: 3.1% | Prior: 3.0%",

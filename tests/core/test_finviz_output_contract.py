@@ -580,7 +580,7 @@ class TestFinvizCalendarOutputContract:
 
         assert result["start"] == "2026-01-05"
         assert result["end"] == "2026-01-12"
-        assert result["timezone"] == "UTC"
+        assert result["timezone"] == "America/New_York"
         assert result["pagination"] == {
             "total": 3,
             "returned": 1,
@@ -599,6 +599,7 @@ class TestFinvizCalendarOutputContract:
                 "impact": "high",
                 "country": "United States",
                 "country_code": "US",
+                "country_attribution": "inferred",
             }
         ]
 
@@ -688,6 +689,35 @@ class TestFinvizCalendarOutputContract:
         assert row["eps_basis"] == "provider_unspecified"
         assert row["eps_reported_basis"] == "provider_unspecified"
         assert row["eps_surprise_direction_conflict"] is True
+        assert any("conflicting EPS" in warning for warning in result["warnings"])
+
+    def test_calendar_earnings_zero_reported_surprise_conflicts_with_computed(self):
+        from mtdata.core.finviz.calendar import _normalize_finviz_calendar_payload
+
+        result = _normalize_finviz_calendar_payload(
+            {
+                "success": True,
+                "items": [
+                    {
+                        "symbol": "ATHE",
+                        "epsestimate": -0.1218,
+                        "epsactual": -0.0575,
+                        "epssurprise": 52.79,
+                        "epsreportedsurprise": 0.0,
+                    }
+                ],
+            },
+            calendar_type="earnings",
+            source_is_unpaged=True,
+            limit=20,
+            page=1,
+            detail="compact",
+        )
+
+        row = result["items"][0]
+        assert row["eps_surprise"] == 52.79
+        assert row["eps_surprise_direction_conflict"] is True
+        assert "eps_reported_surprise" not in row
         assert any("conflicting EPS" in warning for warning in result["warnings"])
 
     @pytest.mark.parametrize(
@@ -872,6 +902,7 @@ class TestFinvizCalendarOutputContract:
                 "calendar_id": 419986,
                 "country": "United States",
                 "country_code": "US",
+                "country_attribution": "inferred",
                 "event": "Fed Cook Speech",
                 "category": "Interest Rate",
                 "scheduled_at": "2026-05-08T09:45:00Z",
@@ -915,6 +946,7 @@ class TestFinvizCalendarOutputContract:
                 "impact": "high",
                 "country": "United States",
                 "country_code": "US",
+                "country_attribution": "inferred",
             }
         ]
 

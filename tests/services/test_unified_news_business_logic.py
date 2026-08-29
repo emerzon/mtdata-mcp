@@ -2200,3 +2200,34 @@ def test_compact_news_diversifies_near_duplicate_event_headlines() -> None:
         "Apple supplier warns about component costs",
     ]
     assert result["related_news"][0]["duplicate_coverage_count"] == 2
+
+
+def test_event_buckets_rank_high_impact_ahead_of_sooner_low_impact() -> None:
+    now = datetime.now(timezone.utc)
+    soon_low = svc.NewsItem(
+        title="6-Month Bill Auction (USD)",
+        provider="finviz",
+        source="Finviz Economic Calendar",
+        kind="economic_event",
+        scheduled_at=now + timedelta(hours=2),
+        metadata={"impact": "low"},
+    )
+    later_high = svc.NewsItem(
+        title="Non Farm Payrolls (USD)",
+        provider="finviz",
+        source="Finviz Economic Calendar",
+        kind="economic_event",
+        scheduled_at=now + timedelta(days=3),
+        metadata={"impact": "high"},
+    )
+
+    ranked = svc._sort_events_by_impact_then_time(
+        [soon_low, later_high],
+        upcoming=True,
+    )
+
+    assert [item.title for item in ranked] == [
+        "Non Farm Payrolls (USD)",
+        "6-Month Bill Auction (USD)",
+    ]
+    assert later_high.to_dict()["impact"] == "high"

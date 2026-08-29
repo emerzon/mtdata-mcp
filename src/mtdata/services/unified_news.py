@@ -464,6 +464,9 @@ class NewsItem:
             payload["reference_date"] = reference_date.strip()
         if self.metadata:
             payload["metadata"] = self.metadata
+            impact = self.metadata.get("impact")
+            if self.kind == "economic_event" and impact not in (None, ""):
+                payload["impact"] = impact
         return payload
 
 
@@ -1230,6 +1233,14 @@ def _general_news_recency_boost(published_at: Optional[datetime]) -> float:
     return -0.85
 
 
+_EVENT_IMPACT_RANK = {"high": 0, "medium": 1, "low": 2}
+
+
+def _event_impact_rank(item: NewsItem) -> int:
+    impact = str((item.metadata or {}).get("impact") or "").strip().lower()
+    return _EVENT_IMPACT_RANK.get(impact, 3)
+
+
 def _sort_news_for_display(items: List[NewsItem]) -> List[NewsItem]:
     return sorted(
         items,
@@ -1237,6 +1248,23 @@ def _sort_news_for_display(items: List[NewsItem]) -> List[NewsItem]:
         or datetime.min.replace(tzinfo=timezone.utc),
         reverse=True,
     )
+
+
+def _sort_events_by_impact_then_time(
+    items: List[NewsItem],
+    *,
+    upcoming: bool,
+) -> List[NewsItem]:
+    def _key(item: NewsItem) -> tuple[int, float]:
+        rank = _event_impact_rank(item)
+        instant = item.event_time()
+        if upcoming:
+            when = instant or datetime.max.replace(tzinfo=timezone.utc)
+            return (rank, when.timestamp())
+        when = instant or datetime.min.replace(tzinfo=timezone.utc)
+        return (rank, -when.timestamp())
+
+    return sorted(items, key=_key)
 
 
 def _score_relevance(item: NewsItem, context: InstrumentContext) -> tuple[float, List[str]]:
@@ -2302,24 +2330,15 @@ class NewsAggregator:
                 threshold = 0.55 if item.kind != "direct_symbol" else 0.2
                 if item.relevance_score >= threshold:
                     filtered_related.append(item)
-            upcoming_candidates.sort(
-                key=lambda item: (
-                    item.event_time() or datetime.max.replace(tzinfo=timezone.utc),
-                    -float(item.priority),
-                    -item.relevance_score,
-                    -item.importance_score,
-                ),
+            upcoming_candidates = _sort_events_by_impact_then_time(
+                upcoming_candidates,
+                upcoming=True,
             )
             upcoming_events = upcoming_candidates[:_DEFAULT_UPCOMING_BUCKET_SIZE]
             upcoming_keys = {item.dedupe_key() for item in upcoming_candidates}
-            recent_candidates.sort(
-                key=lambda item: (
-                    "actual:" in _safe_text(item.summary).lower(),
-                    item.event_time() or datetime.min.replace(tzinfo=timezone.utc),
-                    item.relevance_score,
-                    item.importance_score,
-                ),
-                reverse=True,
+            recent_candidates = _sort_events_by_impact_then_time(
+                recent_candidates,
+                upcoming=False,
             )
             recent_events = recent_candidates[:_DEFAULT_RECENT_EVENTS_SIZE]
             filtered_related.sort(
@@ -2408,39 +2427,33 @@ class NewsAggregator:
         else:
             global_calendar = _score_then_dedupe_items(calendar_candidates)
             current_time = datetime.now(timezone.utc)
-            upcoming_events = sorted(
-                (
+            upcoming_events = _sort_events_by_impact_then_time(
+                [
                     item for item in global_calendar
                     if item.kind == "economic_event"
                     and item.event_time() is not None
                     and item.event_time() > current_time
-                ),
-                key=lambda item: (
-                    item.event_time(),
-                    -float(item.priority),
-                    -item.importance_score,
-                ),
+                ],
+                upcoming=True,
             )[:_DEFAULT_UPCOMING_BUCKET_SIZE]
-            recent_events = sorted(
-                (
+            recent_events = _sort_events_by_impact_then_time(
+                [
                     item for item in global_calendar
                     if item.kind == "economic_event"
                     and item.event_time() is not None
                     and item.event_time() <= current_time
-                ),
-                key=lambda item: (
-                    "actual:" in _safe_text(item.summary).lower(),
-                    item.event_time(),
-                    item.importance_score,
-                ),
-                reverse=True,
+                ],
+                upcoming=False,
             )[:_DEFAULT_RECENT_EVENTS_SIZE]
 
         general_news = _sort_news_for_display(general_pool[:general_bucket_size])
         related_news = _sort_news_for_display(related_news)
         market_context = _sort_news_for_display(market_context)
         impact_news = _sort_news_for_display(impact_news)
-        recent_events = _sort_news_for_display(recent_events)
+        recent_events = _sort_events_by_impact_then_time(
+            recent_events,
+            upcoming=False,
+        )
         selected_general_counts = Counter(item.provider for item in general_news)
         selected_related_counts = Counter(item.provider for item in related_news)
         selected_context_counts = Counter(item.provider for item in market_context)

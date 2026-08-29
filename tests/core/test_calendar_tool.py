@@ -328,13 +328,65 @@ def test_economic_calendar_maps_major_us_provider_ids() -> None:
         "GDP CQOQ": _infer_finviz_calendar_country({"source_id": "GDP CQOQ"}),
         "NFP TCH": _infer_finviz_calendar_country({"source_id": "NFP TCH"}),
         "NAPMPMI": _infer_finviz_calendar_country({"source_id": "NAPMPMI"}),
+        "USURTOT": _infer_finviz_calendar_country({"source_id": "USURTOT"}),
+        "Unemployment Rate": _infer_finviz_calendar_country(
+            {"event": "Unemployment Rate"}
+        ),
     }
 
     assert mapped == {
         "GDP CQOQ": ("United States", "US"),
         "NFP TCH": ("United States", "US"),
         "NAPMPMI": ("United States", "US"),
+        "USURTOT": ("United States", "US"),
+        "Unemployment Rate": ("United States", "US"),
     }
+
+
+def test_country_filter_keeps_usurtot_and_high_impact_unknown() -> None:
+    from mtdata.core.finviz.calendar import _normalize_finviz_calendar_payload
+
+    result = _normalize_finviz_calendar_payload(
+        {
+            "success": True,
+            "items": [
+                {
+                    "event": "Unemployment Rate",
+                    "date": "2026-09-04T12:30:00Z",
+                    "source_id": "USURTOT",
+                    "importance": 3,
+                },
+                {
+                    "event": "Mystery High Impact",
+                    "date": "2026-09-04T14:00:00Z",
+                    "source_id": "ZZZUNKNOWN",
+                    "importance": 3,
+                },
+                {
+                    "event": "Mystery Medium",
+                    "date": "2026-09-04T15:00:00Z",
+                    "source_id": "ZZZMED",
+                    "importance": 2,
+                },
+            ],
+            "total": 3,
+        },
+        calendar_type="economic",
+        upcoming_only=False,
+        source_is_unpaged=True,
+        limit=20,
+        page=1,
+        country_code_filter="US",
+    )
+
+    events = [item["event"] for item in result["items"]]
+    assert "Unemployment Rate" in events
+    assert result["items"][events.index("Unemployment Rate")]["country_code"] == "US"
+    assert "Mystery High Impact" in events
+    assert result["high_impact_unattributed_count"] == 1
+    assert result["unclassified_events_count"] == 1
+    assert result["excluded_events"][0]["event"] == "Mystery Medium"
+    assert result["excluded_events"][0]["reason"] == "unknown_country_attribution"
 
 
 def test_economic_calendar_units_follow_row_unit_not_percent() -> None:
@@ -483,7 +535,7 @@ def test_economic_calendar_compact_drops_duplicate_category_and_ok_parse() -> No
     assert row["forecast_value"] == 3.8
     assert "scale" not in row
     assert "value_parse_status" not in row
-    assert "country_attribution" not in row
+    assert row["country_attribution"] == "provider"
     assert "actual" not in result["units"]
 
 
