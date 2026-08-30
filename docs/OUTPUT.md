@@ -114,6 +114,14 @@ contain just the reusable `model_id`; an incompatible row retains its status
 and reason. Empty task or trading collections return the collection without a
 second prose explanation.
 
+Repeated row constants may be lifted to the response root. For example,
+`symbols_top_markets` reports a shared timeframe and data source once, while
+each row keeps its symbol, measurements, observation times, and stale flags.
+Compact risk, confluence, outlier, and microstructure results likewise keep the
+computed result and non-nominal quality state while omitting derivable windows,
+healthy-status legends, and duplicate aggregate values. Use `detail=full` when
+auditing those calculation and quality diagnostics.
+
 ### Anomaly-first warnings
 
 Healthy compact output does not repeat `freshness`, `data_stale=false`, age,

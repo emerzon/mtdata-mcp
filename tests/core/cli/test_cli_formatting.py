@@ -1093,9 +1093,9 @@ class TestFormatResultForCli:
                 "profit": 4.2,
             }
         ]
-        assert payload["open_positions_count"] == 1
+        assert "open_positions_count" not in payload
         assert payload["pending_orders"] == []
-        assert payload["pending_orders_count"] == 0
+        assert "pending_orders_count" not in payload
 
     def test_trade_session_context_toon_preserves_nested_quote_precision(self):
         result = _format_result_for_cli(

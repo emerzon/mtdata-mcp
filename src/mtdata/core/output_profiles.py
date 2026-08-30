@@ -368,9 +368,7 @@ def _shape_trading(
                     ),
                     context={
                         "stale_quotes": stale_quotes,
-                        "positions_checked": quote_summary.get(
-                            "positions_enriched"
-                        ),
+                        "positions_checked": quote_summary.get("positions_enriched"),
                     },
                 ),
             )
@@ -448,7 +446,7 @@ def _sections_status_is_nominal(value: Any) -> bool:
         try:
             if int(section.get("partial", 0)) or int(section.get("error", 0)):
                 return False
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return False
     return True
 
@@ -759,9 +757,7 @@ def _compact_model_inventory(payload: MutableMapping[str, Any]) -> None:
                     row[key] = model[key]
         store_status = str(model.get("store_compatibility_status") or "").lower()
         if store_status and store_status not in {"ok", "ready"}:
-            row["store_compatibility_status"] = model.get(
-                "store_compatibility_status"
-            )
+            row["store_compatibility_status"] = model.get("store_compatibility_status")
         compact_models.append(
             {key: value for key, value in row.items() if value not in (None, "")}
         )
@@ -973,7 +969,10 @@ def _compact_symbol_description(payload: MutableMapping[str, Any]) -> None:
     if not isinstance(details, Mapping):
         return
     warning_text = str(details.get("warning") or "").strip()
-    if details.get("data_stale") is True or details.get("usable_for_live_trading") is False:
+    if (
+        details.get("data_stale") is True
+        or details.get("usable_for_live_trading") is False
+    ):
         warning = {
             "code": "data_stale",
             "scope": "symbols_describe",
@@ -1021,6 +1020,510 @@ def _compact_symbol_description(payload: MutableMapping[str, Any]) -> None:
     }
 
 
+def _compact_symbols_top_markets(payload: MutableMapping[str, Any]) -> None:
+    warnings = payload.get("warnings")
+    warning_messages = {
+        " ".join(str(item.get("message") or "").lower().split())
+        for item in (warnings if isinstance(warnings, list) else [])
+        if isinstance(item, Mapping)
+    }
+    comparison_warning = " ".join(
+        str(payload.get("comparison_warning") or "").lower().split()
+    )
+    if comparison_warning and comparison_warning in warning_messages:
+        payload.pop("comparison_warning", None)
+    _drop_keys(
+        payload,
+        {
+            "bar_as_of_range",
+            "bar_time_alignment",
+            "broker_symbol_count",
+            "candidate_progress",
+            "count",
+            "data_as_of_range",
+            "live_price_change_basis",
+            "price_change_basis",
+            "quote_as_of_range",
+            "quote_time_alignment",
+            "requested_limit",
+            "row_key",
+            "sampling_window",
+            "tradable_symbol_count",
+            "units",
+            "volume_semantics",
+            "volume_type",
+        },
+    )
+    rows = payload.get("data")
+    if not isinstance(rows, list):
+        return
+    mappings = [row for row in rows if isinstance(row, Mapping)]
+    if payload.get("available_count") == payload.get("universe_size"):
+        payload.pop("available_count", None)
+    if payload.get("visible_count") == payload.get("universe_size"):
+        payload.pop("visible_count", None)
+    if payload.get("ranking_complete") is True:
+        payload.pop("ranking_complete", None)
+        payload.pop("note", None)
+    if payload.get("ranking_scope") == "global":
+        payload.pop("ranking_scope", None)
+    timeframes = {
+        row.get("timeframe")
+        for row in mappings
+        if row.get("timeframe") not in (None, "")
+    }
+    data_sources = {
+        row.get("data_source")
+        for row in mappings
+        if row.get("data_source") not in (None, "")
+    }
+    if len(timeframes) == 1:
+        payload["timeframe"] = next(iter(timeframes))
+    if len(data_sources) == 1:
+        payload["data_source"] = next(iter(data_sources))
+    period = payload.get("price_change_period")
+    if isinstance(period, Mapping):
+        compact_period = dict(period)
+        if compact_period.get("timeframe") == payload.get("timeframe"):
+            compact_period.pop("timeframe", None)
+        if compact_period.get("bar_state") in {"closed", "completed"}:
+            compact_period.pop("bar_state", None)
+        if compact_period:
+            payload["price_change_period"] = compact_period
+        else:
+            payload.pop("price_change_period", None)
+    inferred_counts = {
+        "stale_rows": sum(row.get("data_stale") is True for row in mappings),
+        "stale_bar_rows": sum(row.get("bar_stale") is True for row in mappings),
+        "unsafe_quote_rows": sum(
+            row.get("usable_for_live_trading") is False for row in mappings
+        ),
+    }
+    for key, inferred in inferred_counts.items():
+        if payload.get(key) == inferred:
+            payload.pop(key, None)
+    compact_rows: list[Any] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            compact_rows.append(row)
+            continue
+        item = dict(row)
+        if len(timeframes) == 1:
+            item.pop("timeframe", None)
+        if len(data_sources) == 1:
+            item.pop("data_source", None)
+        if item.get("data_stale") in {True, False} and item.get("quote_as_of"):
+            item.pop("freshness", None)
+        if item.get("bar_stale") in {True, False} and item.get("time"):
+            item.pop("bar_freshness", None)
+        if item.get("spread_valid") is True:
+            item.pop("spread_valid", None)
+        if str(item.get("spread_quality") or "").lower() in {
+            "ok",
+            "two_sided",
+            "valid",
+        }:
+            item.pop("spread_quality", None)
+        try:
+            expected_mid = (float(item["bid"]) + float(item["ask"])) / 2.0
+            if abs(float(item.get("mid")) - expected_mid) <= 1e-12:
+                item.pop("mid", None)
+        except KeyError, TypeError, ValueError:
+            pass
+        compact_rows.append(item)
+    payload["data"] = compact_rows
+
+
+def _compact_symbols_list(payload: MutableMapping[str, Any]) -> None:
+    anomalies = payload.get("currency_metadata_anomalies")
+    anomaly_rows = anomalies if isinstance(anomalies, list) else []
+    if (
+        anomaly_rows
+        and payload.get("currency_metadata_anomalies_truncated") is not True
+    ):
+        payload.pop("currency_metadata_anomaly_count", None)
+    anomalies_complete = (
+        bool(anomaly_rows)
+        and payload.get("currency_metadata_anomalies_truncated") is not True
+    )
+    if anomaly_rows:
+        warnings = payload.get("warnings")
+        if isinstance(warnings, list):
+            payload["warnings"] = [
+                warning
+                for warning in warnings
+                if "broker currency metadata"
+                not in str(
+                    warning.get("message") if isinstance(warning, Mapping) else warning
+                ).lower()
+            ]
+    rows = payload.get("data")
+    if not isinstance(rows, list):
+        return
+    floating_values = {
+        row.get("spread_is_floating")
+        for row in rows
+        if isinstance(row, Mapping) and "spread_is_floating" in row
+    }
+    if payload.get("visible_count") == len(rows):
+        payload.pop("visible_count", None)
+    _drop_keys(payload, {"broker_symbol_count", "note", "sort", "trust"})
+    compact_rows: list[Any] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            compact_rows.append(row)
+            continue
+        item = dict(row)
+        if floating_values == {True}:
+            item.pop("spread_is_floating", None)
+        if anomalies_complete:
+            _drop_keys(
+                item,
+                {
+                    "currency_base_inference_source",
+                    "currency_base_reported",
+                    "currency_base_source",
+                    "currency_base_warning",
+                },
+            )
+        compact_rows.append(item)
+    payload["data"] = compact_rows
+
+
+def _compact_outliers(payload: MutableMapping[str, Any]) -> None:
+    _drop_keys(
+        payload,
+        {
+            "analysis_window",
+            "count",
+            "history_policy",
+            "price_precision",
+            "score_meaning",
+        },
+    )
+    if payload.get("truncated") is False:
+        payload.pop("truncated", None)
+    if str(payload.get("forming_candle_status") or "").lower() in {
+        "excluded",
+        "none",
+        "none_detected",
+        "skipped",
+    }:
+        payload.pop("forming_candle_status", None)
+    units = payload.get("units")
+    if (
+        payload.get("volume_source") == "tick_volume"
+        and payload.get("volume_type") == "tick_count"
+    ):
+        payload.pop("volume_type", None)
+        if isinstance(units, Mapping) and units.get("volume") == "bid_update_count":
+            payload.pop("units", None)
+    elif isinstance(units, Mapping) and units.get("volume"):
+        payload["units"] = {"volume": units["volume"]}
+    else:
+        payload.pop("units", None)
+
+
+def _compact_microstructure(payload: MutableMapping[str, Any]) -> None:
+    market_closed_context = bool(payload.get("assumed_closure_seconds")) or (
+        "market is closed" in str(payload.get("note") or "").lower()
+    )
+    _drop_keys(
+        payload,
+        {
+            "assumed_closure_end",
+            "assumed_closure_seconds",
+            "assumed_closure_start",
+            "units",
+            "window",
+        },
+    )
+    if payload.get("warnings") and market_closed_context:
+        payload.pop("note", None)
+    quality = payload.get("data_quality")
+    if isinstance(quality, Mapping):
+        compact_quality = dict(quality)
+        _drop_keys(
+            compact_quality,
+            {
+                "observed_duration_seconds",
+                "requested_duration_seconds",
+                "requested_end",
+                "requested_start",
+                "retained",
+            },
+        )
+        for key in (
+            "invalid_partial_quote_ticks",
+            "locked_quote_ticks",
+            "spread_ticks_excluded",
+        ):
+            if compact_quality.get(key) == 0:
+                compact_quality.pop(key, None)
+        if compact_quality.get("truncated") is False:
+            compact_quality.pop("truncated", None)
+        payload["data_quality"] = compact_quality
+    summary = payload.get("summary")
+    if isinstance(summary, Mapping):
+        compact_summary = dict(summary)
+        _drop_keys(compact_summary, {"duration_seconds", "tick_rate_basis"})
+        spread = compact_summary.get("spread")
+        if isinstance(spread, Mapping):
+            compact_spread = dict(spread)
+            _drop_keys(
+                compact_spread,
+                {
+                    "basis",
+                    "latest_to_window_median_ratio",
+                    "raw_update_as_of",
+                    "raw_update_quality",
+                },
+            )
+            if compact_spread.get("spread_valid") is True:
+                compact_spread.pop("spread_valid", None)
+            if str(compact_spread.get("spread_quality") or "").lower() in {
+                "ok",
+                "two_sided",
+                "valid",
+            }:
+                compact_spread.pop("spread_quality", None)
+            compact_summary["spread"] = compact_spread
+        payload["summary"] = compact_summary
+    warnings = payload.get("warnings")
+    if isinstance(warnings, list) and market_closed_context:
+        payload["warnings"] = [
+            warning
+            for warning in warnings
+            if "market is closed; metrics use"
+            not in str(
+                warning.get("message") if isinstance(warning, Mapping) else warning
+            ).lower()
+        ]
+
+
+def _compact_confluence(payload: MutableMapping[str, Any]) -> None:
+    _drop_keys(
+        payload,
+        {
+            "count",
+            "enabled_source_families",
+            "forming_candle_status",
+            "input_bar_policy",
+            "latest_bar_complete",
+            "max_enabled_source_families",
+            "min_source_families",
+            "pivot_timeframe",
+            "price_precision",
+            "quote_source",
+            "quote_source_state",
+            "score_basis",
+            "sr_timeframe",
+            "tolerance",
+            "units",
+        },
+    )
+    if payload.get("reference_quote_usable_for_live_trading") is False:
+        payload.pop("reference_quote_freshness_state", None)
+    if payload.get("reference_quote_usable_for_live_trading") is True:
+        _drop_keys(
+            payload,
+            {
+                "reference_quote_freshness_reason",
+                "reference_quote_freshness_state",
+            },
+        )
+    if str(payload.get("spread_quality") or "").lower() in {
+        "ok",
+        "two_sided",
+        "valid",
+    }:
+        payload.pop("spread_quality", None)
+    volume_status = payload.get("volume_profile_status")
+    if isinstance(volume_status, Mapping):
+        status = volume_status.get("status")
+        if status in {"available", "disabled", "off"}:
+            payload.pop("volume_profile_status", None)
+        elif status not in (None, ""):
+            payload["volume_profile_status"] = {"status": status}
+    levels = payload.get("levels")
+    if isinstance(levels, list):
+        compact_levels: list[Any] = []
+        role_counts: Dict[str, int] = {}
+        for level in levels:
+            if not isinstance(level, Mapping):
+                compact_levels.append(level)
+                continue
+            item = dict(level)
+            role = str(item.get("role") or "")
+            if role:
+                role_counts[role] = role_counts.get(role, 0) + 1
+            if item.get("centroid_role") == item.get("role"):
+                item.pop("centroid_role", None)
+            compact_levels.append(item)
+        payload["levels"] = compact_levels
+        coverage = payload.get("level_coverage")
+        if isinstance(coverage, Mapping) and all(
+            coverage.get(role, 0) == role_counts.get(role, 0)
+            for role in set(coverage) | set(role_counts)
+        ):
+            payload.pop("level_coverage", None)
+
+
+def _compact_portfolio_context(payload: MutableMapping[str, Any]) -> None:
+    context = payload.get("model_context")
+    if not isinstance(context, Mapping):
+        return
+    keep = {
+        "aligned_returns",
+        "data_end",
+        "data_start",
+        "marks_evaluated",
+        "unusable_marks",
+        "valuation_basis",
+        "valuation_time",
+        "warmup_returns_discarded",
+    }
+    compact_context = {
+        key: value
+        for key, value in context.items()
+        if key in keep and value not in (None, "", [], {})
+    }
+    if context.get("data_stale") is True:
+        compact_context["data_stale"] = True
+    if context.get("usable_for_live_trading") is False:
+        compact_context["usable_for_live_trading"] = False
+    if compact_context:
+        payload["model_context"] = compact_context
+    else:
+        payload.pop("model_context", None)
+
+
+def _compact_portfolio_rows(payload: MutableMapping[str, Any]) -> None:
+    rows = payload.get("risk")
+    if not isinstance(rows, list) or not rows:
+        return
+    calibration_values = {
+        row.get("calibration_observations")
+        for row in rows
+        if isinstance(row, Mapping) and "calibration_observations" in row
+    }
+    if len(calibration_values) == 1:
+        payload["calibration_observations"] = next(iter(calibration_values))
+    horizon_windows: Dict[str, Any] = {}
+    windows_consistent = True
+    for row in rows:
+        if not isinstance(row, Mapping):
+            windows_consistent = False
+            break
+        horizon = row.get("horizon_bars")
+        available = row.get("horizon_windows_available")
+        if horizon is None or available is None:
+            windows_consistent = False
+            break
+        key = str(horizon)
+        if key in horizon_windows and horizon_windows[key] != available:
+            windows_consistent = False
+            break
+        horizon_windows[key] = available
+    compact_rows: list[Any] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            compact_rows.append(row)
+            continue
+        item = dict(row)
+        if len(calibration_values) == 1:
+            item.pop("calibration_observations", None)
+        item.pop("holding_period", None)
+        if windows_consistent:
+            item.pop("horizon_windows_available", None)
+        compact_rows.append(item)
+    payload["risk"] = compact_rows
+    if windows_consistent and horizon_windows:
+        payload["horizon_windows_available"] = horizon_windows
+    payload.pop("holding_periods", None)
+
+
+def _compact_portfolio_stresses(payload: MutableMapping[str, Any]) -> None:
+    stresses = payload.get("stresses")
+    if not isinstance(stresses, Mapping):
+        return
+    compact_stresses = dict(stresses)
+    compact_stresses.pop(
+        "two_times_worst_simulated_loss_worst_across_horizons",
+        None,
+    )
+    doubled_worst = compact_stresses.get("two_times_worst_simulated_loss")
+    if isinstance(doubled_worst, list):
+        compact_stresses["two_times_worst_simulated_loss"] = [
+            {
+                key: value
+                for key, value in row.items()
+                if key not in {"basis", "holding_period"}
+            }
+            if isinstance(row, Mapping)
+            else row
+            for row in doubled_worst
+        ]
+    payload["stresses"] = compact_stresses
+
+
+def _compact_portfolio_summary(payload: MutableMapping[str, Any]) -> None:
+    summary = payload.get("summary")
+    if isinstance(summary, Mapping):
+        compact_summary = dict(summary)
+        if compact_summary.get("aligned_rows") == payload.get(
+            "calibration_observations"
+        ):
+            compact_summary.pop("aligned_rows", None)
+        if (
+            compact_summary.get("positions_after_proposed")
+            == compact_summary.get("positions")
+            and "proposed_trade" not in payload
+        ):
+            compact_summary.pop("positions_after_proposed", None)
+        if compact_summary.get("symbols_requested") == compact_summary.get("symbols"):
+            compact_summary.pop("symbols_requested", None)
+        payload["summary"] = compact_summary
+    compact_context = payload.get("model_context")
+    if isinstance(compact_context, MutableMapping) and compact_context.get(
+        "aligned_returns"
+    ) == payload.get("calibration_observations"):
+        compact_context.pop("aligned_returns", None)
+
+
+def _compact_portfolio_quality(payload: MutableMapping[str, Any]) -> None:
+    quality = payload.get("data_quality")
+    if not isinstance(quality, Mapping):
+        return
+    compact_quality = dict(quality)
+    for key in (
+        "history_failures",
+        "mark_omissions",
+        "pricing_failures",
+        "symbols_omitted",
+    ):
+        if not compact_quality.get(key):
+            compact_quality.pop(key, None)
+    if compact_quality.get("symbols_requested") == compact_quality.get(
+        "symbols_modeled"
+    ):
+        _drop_keys(compact_quality, {"symbols_modeled", "symbols_requested"})
+    if compact_quality.get("allow_partial") is False:
+        compact_quality.pop("allow_partial", None)
+    payload["data_quality"] = compact_quality
+
+
+def _compact_portfolio_risk(payload: MutableMapping[str, Any]) -> None:
+    payload.pop("units", None)
+    if payload.get("proposed_trade") is None:
+        payload.pop("proposed_trade", None)
+    _compact_portfolio_context(payload)
+    _compact_portfolio_rows(payload)
+    _compact_portfolio_stresses(payload)
+    _compact_portfolio_summary(payload)
+    _compact_portfolio_quality(payload)
+
+
 def _compact_analysis_token_payload(
     payload: MutableMapping[str, Any],
     *,
@@ -1042,6 +1545,18 @@ def _compact_analysis_token_payload(
         _compact_temporal_payload(payload)
     elif tool_name == "symbols_describe":
         _compact_symbol_description(payload)
+    elif tool_name == "symbols_top_markets":
+        _compact_symbols_top_markets(payload)
+    elif tool_name == "symbols_list":
+        _compact_symbols_list(payload)
+    elif tool_name == "outliers_detect":
+        _compact_outliers(payload)
+    elif tool_name == "market_microstructure_analyze":
+        _compact_microstructure(payload)
+    elif tool_name == "confluence_levels":
+        _compact_confluence(payload)
+    elif tool_name == "portfolio_risk_decompose":
+        _compact_portfolio_risk(payload)
 
 
 def _compact_trade_account(payload: MutableMapping[str, Any]) -> None:
@@ -1133,6 +1648,196 @@ def _compact_trade_history(payload: MutableMapping[str, Any]) -> None:
         payload.pop("units", None)
 
 
+def _compact_execution_quality(payload: MutableMapping[str, Any]) -> None:
+    _drop_keys(
+        payload,
+        {
+            "omitted_metrics",
+            "price_quality_definition",
+            "summary_scope",
+            "units",
+        },
+    )
+    if not payload.get("filters_applied"):
+        payload.pop("filters_applied", None)
+    for key in ("window", "effective_analysis_window"):
+        window = payload.get(key)
+        if isinstance(window, Mapping):
+            compact_window = {
+                field: window[field]
+                for field in ("start", "end", "scope")
+                if window.get(field) not in (None, "")
+            }
+            if compact_window:
+                payload[key] = compact_window
+            else:
+                payload.pop(key, None)
+    summary = payload.get("summary")
+    fills = summary.get("fills") if isinstance(summary, Mapping) else None
+    if isinstance(summary, Mapping):
+        compact_summary = dict(summary)
+        if compact_summary.get("orders") == fills:
+            compact_summary.pop("orders", None)
+        if (
+            compact_summary.get("market_order_fills") == fills
+            and compact_summary.get("non_market_order_fills") == 0
+        ):
+            _drop_keys(
+                compact_summary,
+                {"market_order_fills", "non_market_order_fills"},
+            )
+        payload["summary"] = compact_summary
+    sample = payload.get("sample")
+    if isinstance(sample, Mapping):
+        total = sample.get("total_eligible")
+        matched = sample.get("matched_fills")
+        truncated = sample.get("truncated") is True
+        if not truncated and total == matched == fills:
+            payload.pop("sample", None)
+        else:
+            compact_sample = {
+                field: sample[field]
+                for field in ("total_eligible", "matched_fills", "limit", "truncated")
+                if sample.get(field) not in (None, "", False)
+            }
+            if (
+                not truncated
+                and isinstance(sample.get("limit"), int)
+                and isinstance(total, int)
+                and total < sample["limit"]
+            ):
+                compact_sample.pop("limit", None)
+            payload["sample"] = compact_sample
+    sample_quality = payload.get("fill_sample_quality")
+    if isinstance(sample_quality, Mapping):
+        if str(sample_quality.get("status") or "").lower() == "ok":
+            payload.pop("fill_sample_quality", None)
+        else:
+            compact_sample_quality = {
+                field: sample_quality[field]
+                for field in ("status", "minimum", "observed")
+                if sample_quality.get(field) not in (None, "")
+            }
+            observed = sample_quality.get("observed")
+            if observed == fills or (
+                isinstance(sample, Mapping) and observed == sample.get("matched_fills")
+            ):
+                compact_sample_quality.pop("observed", None)
+            payload["fill_sample_quality"] = compact_sample_quality
+    quality = payload.get("data_quality")
+    if isinstance(quality, Mapping):
+        compact_quality = dict(quality)
+        skipped = compact_quality.get("skipped")
+        if isinstance(skipped, Mapping):
+            nonzero_skipped = {
+                key: value
+                for key, value in skipped.items()
+                if value not in (None, 0, False)
+            }
+            if nonzero_skipped:
+                compact_quality["skipped"] = nonzero_skipped
+            else:
+                compact_quality.pop("skipped", None)
+        benchmark = compact_quality.get("benchmark")
+        if isinstance(benchmark, Mapping):
+            fallback_count = benchmark.get("fallback_count")
+            coverage = benchmark.get("arrival_quote_coverage")
+            if not fallback_count and coverage in (None, 1, 1.0):
+                compact_quality.pop("benchmark", None)
+            else:
+                compact_quality["benchmark"] = {
+                    key: value
+                    for key, value in benchmark.items()
+                    if value not in (None, "", 0, False)
+                }
+        if isinstance(sample, Mapping):
+            if compact_quality.get("eligible_trade_deals") == sample.get(
+                "total_eligible"
+            ):
+                compact_quality.pop("eligible_trade_deals", None)
+            if compact_quality.get("processed_candidates") == sample.get(
+                "total_eligible"
+            ):
+                compact_quality.pop("processed_candidates", None)
+            if compact_quality.get("matched_fills") == sample.get("matched_fills"):
+                compact_quality.pop("matched_fills", None)
+        if compact_quality.get("eligible_symbol_count") == compact_quality.get(
+            "analyzed_symbol_count"
+        ):
+            _drop_keys(
+                compact_quality,
+                {"analyzed_symbol_count", "eligible_symbol_count"},
+            )
+        if compact_quality:
+            payload["data_quality"] = compact_quality
+        else:
+            payload.pop("data_quality", None)
+
+
+def _compact_trade_journal(payload: MutableMapping[str, Any]) -> None:
+    _drop_keys(
+        payload,
+        {
+            "breakdowns_available",
+            "breakdowns_hint",
+            "minutes_back_effective",
+            "note",
+            "period_source",
+            "period_timezone",
+            "units",
+        },
+    )
+    summary = payload.get("summary")
+    if isinstance(summary, Mapping):
+        compact_summary = dict(summary)
+        compact_summary.pop("sample_notice", None)
+        if compact_summary.get("closed_deals") == payload.get("sample_size"):
+            compact_summary.pop("closed_deals", None)
+        win_rate = compact_summary.get("win_rate")
+        win_rate_pct = compact_summary.get("win_rate_pct")
+        try:
+            if abs(float(win_rate) * 100.0 - float(win_rate_pct)) <= 1e-9:
+                compact_summary.pop("win_rate", None)
+        except TypeError, ValueError:
+            pass
+        payload["summary"] = compact_summary
+    sample_quality = payload.get("sample_quality")
+    minimum = None
+    if isinstance(sample_quality, Mapping):
+        minimum = sample_quality.get("minimum_recommended")
+        compact_quality = {
+            key: sample_quality[key]
+            for key in ("status", "confidence", "minimum_recommended")
+            if sample_quality.get(key) not in (None, "")
+        }
+        if compact_quality:
+            payload["sample_quality"] = compact_quality
+        else:
+            payload.pop("sample_quality", None)
+    sample_warning = payload.pop("sample_warning", None)
+    if sample_warning not in (None, ""):
+        sample_size = payload.get("sample_size")
+        message = f"Only {sample_size} realized exits were analyzed"
+        if minimum not in (None, ""):
+            message += f"; {minimum}+ is recommended"
+        message += "."
+        warnings = payload.get("warnings")
+        if not isinstance(warnings, list):
+            warnings = [warnings] if warnings not in (None, "") else []
+            payload["warnings"] = warnings
+        if not any(
+            isinstance(warning, Mapping) and warning.get("code") == "low_sample"
+            for warning in warnings
+        ):
+            warnings.append(
+                {
+                    "code": "low_sample",
+                    "scope": "trade_journal_analyze",
+                    "message": message,
+                }
+            )
+
+
 def _compact_trading_token_payload(
     payload: MutableMapping[str, Any],
     *,
@@ -1142,15 +1847,19 @@ def _compact_trading_token_payload(
         _compact_trade_account(payload)
     elif tool_name == "trade_history":
         _compact_trade_history(payload)
+    elif tool_name == "trade_execution_quality":
+        _compact_execution_quality(payload)
+    elif tool_name == "trade_journal_analyze":
+        _compact_trade_journal(payload)
     elif tool_name in {"trade_get_open", "trade_get_pending"}:
         items = payload.get("items")
         if items == []:
-            _drop_keys(payload, {"empty", "hint", "kind", "message", "no_action", "scope"})
+            _drop_keys(
+                payload, {"empty", "hint", "kind", "message", "no_action", "scope"}
+            )
         protection = payload.get("protection_summary")
         if isinstance(protection, Mapping) and all(
-            not value
-            for key, value in protection.items()
-            if key != "positions"
+            not value for key, value in protection.items() if key != "positions"
         ):
             payload.pop("protection_summary", None)
 
@@ -1186,10 +1895,100 @@ def _shape_market(
         _compact_market_status_payload(out)
     elif tool_name == "market_snapshot":
         _compact_market_snapshot_payload(out)
+    elif tool_name == "trade_session_context":
+        _compact_trade_session_context(out)
     _normalize_warnings(out)
     _drop_redundant_note(out)
     _drop_empty_warnings(out)
     return out
+
+
+def _compact_trade_session_context(payload: MutableMapping[str, Any]) -> None:
+    if payload.get("assembled_at") == payload.get("as_of"):
+        payload.pop("assembled_at", None)
+    if payload.get("timezone") == "UTC":
+        payload.pop("timezone", None)
+    if payload.get("state_scope") == "symbol":
+        payload.pop("state_scope", None)
+    trade_ready = payload.get("trade_ready")
+    if isinstance(trade_ready, Mapping):
+        compact_ready = dict(trade_ready)
+        if compact_ready.get("execution_preconditions_met") == compact_ready.get(
+            "execution_preconditions_allow_open"
+        ):
+            compact_ready.pop("execution_preconditions_met", None)
+        blockers = compact_ready.get("blockers")
+        if isinstance(blockers, list) and compact_ready.get("any_blockers") == bool(
+            blockers
+        ):
+            compact_ready.pop("any_blockers", None)
+        if compact_ready.get("readiness_scope") == (
+            "connectivity_account_quote_and_symbol_not_portfolio_risk_approval"
+        ):
+            compact_ready.pop("readiness_scope", None)
+        account = payload.get("account")
+        if isinstance(account, Mapping):
+            if compact_ready.get("margin_level") == account.get("margin_level"):
+                compact_ready.pop("margin_level", None)
+            try:
+                if (
+                    compact_ready.get("margin_available_positive") is True
+                    and float(account.get("margin_free")) > 0
+                ):
+                    compact_ready.pop("margin_available_positive", None)
+            except TypeError, ValueError:
+                pass
+        payload["trade_ready"] = compact_ready
+        for key in (
+            "execution_preconditions_allow_open",
+            "trade_mode_allows_opening",
+        ):
+            if payload.get(key) == trade_ready.get(key):
+                payload.pop(key, None)
+    is_tradable = payload.get("is_tradable")
+    if payload.get("now_tradable") == bool(
+        payload.get("is_session_open") and is_tradable
+    ):
+        payload.pop("now_tradable", None)
+    if is_tradable == (
+        trade_ready.get("trade_mode_allows_opening")
+        if isinstance(trade_ready, Mapping)
+        else None
+    ):
+        payload.pop("is_tradable", None)
+    for collection_key, count_key in (
+        ("open_positions", "open_positions_count"),
+        ("pending_orders", "pending_orders_count"),
+    ):
+        collection = payload.get(collection_key)
+        if isinstance(collection, list) and payload.get(count_key) == len(collection):
+            payload.pop(count_key, None)
+    account = payload.get("account")
+    if isinstance(account, Mapping) and account.get("account_type") not in (None, ""):
+        compact_account = dict(account)
+        _drop_keys(compact_account, {"is_demo", "is_live"})
+        payload["account"] = compact_account
+    portfolio_count = payload.get("portfolio_positions_count")
+    other_count = payload.get("other_positions_count")
+    positions = payload.get("open_positions")
+    if (
+        isinstance(portfolio_count, int)
+        and isinstance(other_count, int)
+        and isinstance(positions, list)
+        and other_count == portfolio_count - len(positions)
+    ):
+        payload.pop("other_positions_count", None)
+    quote = payload.get("quote")
+    quote_quality = payload.get("quote_quality")
+    if isinstance(quote_quality, Mapping):
+        compact_quote_quality = dict(quote_quality)
+        if compact_quote_quality.get("status") in {"live", "stale", "unverified"}:
+            compact_quote_quality.pop("is_live", None)
+        if isinstance(quote, Mapping) and compact_quote_quality.get(
+            "usable_for_live_trading"
+        ) == quote.get("usable_for_live_trading"):
+            compact_quote_quality.pop("usable_for_live_trading", None)
+        payload["quote_quality"] = compact_quote_quality
 
 
 def _compact_market_status_payload(payload: MutableMapping[str, Any]) -> None:
@@ -1338,7 +2137,9 @@ def _compact_market_snapshot_payload(payload: MutableMapping[str, Any]) -> None:
         if execution.get("reason") in (None, ""):
             execution.pop("reason", None)
 
-    _drop_keys(snapshot, {"latest_match_score_scale", "pattern_scan_note", "score_basis"})
+    _drop_keys(
+        snapshot, {"latest_match_score_scale", "pattern_scan_note", "score_basis"}
+    )
     if snapshot.get("pattern_usage") == "information_only":
         snapshot.pop("pattern_usage", None)
     if snapshot.get("range_count") and snapshot.get("containing_range"):
@@ -1385,9 +2186,14 @@ def _compact_market_mapping(
     for key, value in payload.items():
         if quote_like and key in LEGACY_TIME_FIELDS:
             continue
-        if freshness and key in LEGACY_FRESHNESS_FIELDS and key not in {
-            "usable_for_live_trading",
-        }:
+        if (
+            freshness
+            and key in LEGACY_FRESHNESS_FIELDS
+            and key
+            not in {
+                "usable_for_live_trading",
+            }
+        ):
             continue
         if (quote_like and key in _MARKET_COMPACT_OMIT) or key == "meta":
             continue
@@ -1462,9 +2268,7 @@ def _compact_market_mapping(
                 scope=scope,
                 message="Available quote sources disagree beyond the accepted tolerance.",
                 context={
-                    "max_disagreement_points": conflict.get(
-                        "max_disagreement_points"
-                    ),
+                    "max_disagreement_points": conflict.get("max_disagreement_points"),
                     "max_disagreement_pips": conflict.get(
                         "max_disagreement_pips", conflict_pips
                     ),
@@ -1776,9 +2580,7 @@ def _normalize_warnings(payload: MutableMapping[str, Any]) -> None:
     for warning in warnings:
         if isinstance(warning, Mapping):
             rendered: Any = dict(warning)
-            rendered_message = " ".join(
-                str(rendered.get("message") or "").split()
-            )
+            rendered_message = " ".join(str(rendered.get("message") or "").split())
             if rendered_message:
                 rendered["message"] = rendered_message
             message = rendered_message.lower()

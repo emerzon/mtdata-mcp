@@ -33,6 +33,19 @@ from mtdata.utils.utils import _utc_epoch_seconds, validate_historical_range
 
 _DEFAULT_TRADE_HISTORY_LOOKBACK_DAYS = 7
 _TRADE_HISTORY_CURSOR_MAX_AGE_SECONDS = 3_600
+_TRADE_HISTORY_CURSOR_SCOPE_KEYS = {
+    "history_kind": "h",
+    "start": "a",
+    "end": "e",
+    "minutes_back": "b",
+    "symbol": "y",
+    "magic": "g",
+    "side": "d",
+    "position_ticket": "pt",
+    "deal_ticket": "dt",
+    "order_ticket": "ot",
+    "order": "o",
+}
 
 
 _TRADE_HISTORY_RANGE_HINT = (
@@ -140,15 +153,20 @@ def _encode_trade_history_cursor(
     position: int,
     issued_at: Optional[int] = None,
 ) -> str:
+    scope = {
+        _TRADE_HISTORY_CURSOR_SCOPE_KEYS[key]: value
+        for key, value in _trade_history_cursor_scope(request).items()
+        if value is not None
+    }
     payload = {
-        "v": 1,
-        "scope": _trade_history_cursor_scope(request),
-        "from": from_dt.isoformat(timespec="microseconds"),
-        "to": to_dt.isoformat(timespec="microseconds"),
-        "last_milliseconds": repr(float(last_milliseconds)),
-        "last_ticket": str(int(last_ticket)),
-        "position": int(position),
-        "issued_at": int(time.time() if issued_at is None else issued_at),
+        "v": 2,
+        "s": scope,
+        "f": from_dt.isoformat(timespec="microseconds"),
+        "t": to_dt.isoformat(timespec="microseconds"),
+        "m": repr(float(last_milliseconds)),
+        "k": str(int(last_ticket)),
+        "p": int(position),
+        "i": int(time.time() if issued_at is None else issued_at),
     }
     return encode_continuation_cursor(payload)
 
@@ -161,21 +179,50 @@ def _decode_trade_history_cursor(
         cursor,
         invalid_message="cursor is not a valid trade-history continuation token",
         unsupported_version_message="cursor uses an unsupported trade-history continuation version",
-        expected_versions=1,
+        expected_versions={1, 2},
     )
-    if payload.get("scope") != _trade_history_cursor_scope(request):
+    version = payload.get("v")
+    if version == 1:
+        cursor_scope = payload.get("scope")
+        state_keys = {
+            "issued_at": "issued_at",
+            "from": "from",
+            "to": "to",
+            "last_milliseconds": "last_milliseconds",
+            "last_ticket": "last_ticket",
+            "position": "position",
+        }
+    else:
+        compact_scope = payload.get("s")
+        if not isinstance(compact_scope, dict):
+            raise ValueError("cursor contains invalid trade-history continuation state")
+        cursor_scope = {
+            key: compact_scope.get(short_key)
+            for key, short_key in _TRADE_HISTORY_CURSOR_SCOPE_KEYS.items()
+        }
+        state_keys = {
+            "issued_at": "i",
+            "from": "f",
+            "to": "t",
+            "last_milliseconds": "m",
+            "last_ticket": "k",
+            "position": "p",
+        }
+    if cursor_scope != _trade_history_cursor_scope(request):
         raise ValueError(
             "cursor does not match the requested history kind, filters, time controls, or order"
         )
     try:
-        issued_at = int(payload["issued_at"])
-        from_dt = datetime.fromisoformat(str(payload["from"]))
-        to_dt = datetime.fromisoformat(str(payload["to"]))
-        last_milliseconds = float(payload["last_milliseconds"])
-        last_ticket = int(payload["last_ticket"])
-        position = int(payload["position"])
+        issued_at = int(payload[state_keys["issued_at"]])
+        from_dt = datetime.fromisoformat(str(payload[state_keys["from"]]))
+        to_dt = datetime.fromisoformat(str(payload[state_keys["to"]]))
+        last_milliseconds = float(payload[state_keys["last_milliseconds"]])
+        last_ticket = int(payload[state_keys["last_ticket"]])
+        position = int(payload[state_keys["position"]])
     except (KeyError, TypeError, ValueError) as exc:
-        raise ValueError("cursor contains invalid trade-history continuation state") from exc
+        raise ValueError(
+            "cursor contains invalid trade-history continuation state"
+        ) from exc
     if position < 1 or not math.isfinite(last_milliseconds):
         raise ValueError("cursor contains invalid trade-history keyset state")
     check_cursor_issued_at(

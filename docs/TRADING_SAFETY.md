@@ -332,7 +332,11 @@ adding risk. Full detail retains the component aliases and basis diagnostics.
 symbol/session checks on top of that account gate. Its
 `execution_preconditions_allow_open` flag is that scoped execution gate; it
 does not imply portfolio-risk approval (`trade_ready.portfolio_risk_assessed`
-stays false until a risk tool is run).
+stays false until a risk tool is run). Compact output reports duplicated gates
+inside `trade_ready` only; full detail retains their root aliases and account
+type booleans. Compact execution-quality and journal results keep metrics,
+coverage gaps, low-sample warnings, and other exceptions, but omit static unit
+legends and repeated sample prose.
 
 ```bash
 mtdata-cli trade_account_info --json

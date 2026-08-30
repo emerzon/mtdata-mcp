@@ -397,7 +397,6 @@ def _normalize_trade_session_context_cli_payload(  # noqa: C901
             row for row in open_positions_in if isinstance(row, dict) and row
         ]
         compact_out["open_positions"] = compact_rows
-        compact_out["open_positions_count"] = len(compact_rows)
         if compact_rows:
             volume_units["volume"] = "lots"
     if isinstance(open_positions_in, dict):
@@ -431,10 +430,10 @@ def _normalize_trade_session_context_cli_payload(  # noqa: C901
                 ),
             )
             compact_out["open_positions"] = compact_rows or []
-            compact_out["open_positions_count"] = int(
-                open_positions_in.get("count") or 0
-            )
-            if compact_out["open_positions_count"] > 0:
+            reported_count = int(open_positions_in.get("count") or 0)
+            if reported_count != len(compact_rows or []):
+                compact_out["open_positions_count"] = reported_count
+            if reported_count > 0:
                 volume_units["volume"] = "lots"
 
     pending_orders_in = out.get("pending_orders")
@@ -443,7 +442,6 @@ def _normalize_trade_session_context_cli_payload(  # noqa: C901
             row for row in pending_orders_in if isinstance(row, dict) and row
         ]
         compact_out["pending_orders"] = compact_rows
-        compact_out["pending_orders_count"] = len(compact_rows)
         if compact_rows:
             volume_units["volume"] = "lots"
     if isinstance(pending_orders_in, dict):
@@ -476,10 +474,10 @@ def _normalize_trade_session_context_cli_payload(  # noqa: C901
                 ),
             )
             compact_out["pending_orders"] = compact_rows or []
-            compact_out["pending_orders_count"] = int(
-                pending_orders_in.get("count") or 0
-            )
-            if compact_out["pending_orders_count"] > 0:
+            reported_count = int(pending_orders_in.get("count") or 0)
+            if reported_count != len(compact_rows or []):
+                compact_out["pending_orders_count"] = reported_count
+            if reported_count > 0:
                 volume_units["volume"] = "lots"
 
     if volume_units:
