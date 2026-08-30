@@ -28,6 +28,10 @@ _ENV_LOAD_LOCK = threading.Lock()
 _LOGGER = logging.getLogger(__name__)
 
 
+class InvalidTimezoneConfiguration(ValueError):
+    """Raised when an explicitly configured IANA timezone is invalid."""
+
+
 def _zoneinfo_from_name(name: Optional[str]):
     if not name:
         return None
@@ -35,6 +39,20 @@ def _zoneinfo_from_name(name: Optional[str]):
         return ZoneInfo(str(name))
     except (ZoneInfoNotFoundError, Exception):
         return None
+
+
+def _validated_timezone_name(name: str, raw: Optional[str]) -> Optional[str]:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    try:
+        ZoneInfo(text)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise InvalidTimezoneConfiguration(
+            f"Invalid {name}={raw!r}; expected an installed IANA timezone "
+            "such as 'America/Chicago' or 'Europe/Athens'."
+        ) from exc
+    return text
 
 
 def _detect_local_client_tz():
@@ -444,6 +462,8 @@ def load_environment(*, force: bool = False) -> bool:
                 config_obj.reload_from_env(warn_if_timezone_missing=True)
             except Exception as exc:
                 _LOGGER.warning("Failed to reload MT5 configuration from environment: %s", exc)
+                if isinstance(exc, InvalidTimezoneConfiguration):
+                    raise
         embeddings_obj = globals().get("news_embeddings_config")
         if embeddings_obj is not None:
             try:
@@ -485,6 +505,19 @@ class MT5Config:
         self.reload_from_env(warn_if_timezone_missing=warn_if_timezone_missing)
 
     def reload_from_env(self, *, warn_if_timezone_missing: bool = True) -> None:
+        server_tz_name = _validated_timezone_name(
+            "MT5_SERVER_TZ",
+            os.getenv("MT5_SERVER_TZ"),
+        )
+        client_env_name = (
+            "CLIENT_TZ"
+            if str(os.getenv("CLIENT_TZ") or "").strip()
+            else "MT5_CLIENT_TZ"
+        )
+        client_tz_name = _validated_timezone_name(
+            client_env_name,
+            os.getenv(client_env_name),
+        )
         self.login = os.getenv("MT5_LOGIN")
         self._login_value = _env_strict_optional_int("MT5_LOGIN")
         self.password = os.getenv("MT5_PASSWORD")
@@ -498,8 +531,8 @@ class MT5Config:
             )
             timeout = 30
         self.timeout = timeout
-        self.server_tz_name = os.getenv("MT5_SERVER_TZ")  # e.g., "Europe/Lisbon"
-        self.client_tz_name = os.getenv("CLIENT_TZ") or os.getenv("MT5_CLIENT_TZ")  # e.g., "America/New_York"
+        self.server_tz_name = server_tz_name
+        self.client_tz_name = client_tz_name
         self.time_offset_minutes = get_int_env("MT5_TIME_OFFSET_MINUTES", 0)
         self.broker_time_check_enabled = get_bool_env("MTDATA_BROKER_TIME_CHECK", default=False)
         ttl_raw = os.getenv("MTDATA_BROKER_TIME_CHECK_TTL_SECONDS")

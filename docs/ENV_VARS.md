@@ -48,6 +48,10 @@ bounds and results. Public payload timestamps remain UTC after normalization.
 | `MT5_TIME_OFFSET_MINUTES` | `0` | Fixed broker offset from UTC in minutes. A non-zero value overrides `MT5_SERVER_TZ`. |
 | `MT5_CLIENT_TZ` / `CLIENT_TZ` | auto-detect | IANA timezone of the local machine. `CLIENT_TZ` takes precedence if both are set. |
 
+Explicit timezone names are validated during startup. An unknown IANA name is
+rejected with the variable name and value instead of silently changing trading
+expirations or timestamp presentation to another clock.
+
 Configure these when broker-local boundaries matter or when the terminal uses
 broker server-clock epochs. Detection verifies a configured offset; without
 one, mtdata follows MT5's native-UTC contract rather than inferring a clock

@@ -76,7 +76,7 @@ def test_mt5_config_allows_timezone_info_to_be_missing(monkeypatch, caplog):
 
 def test_get_time_offset_seconds_prefers_explicit_minutes(monkeypatch):
     monkeypatch.setenv("MT5_TIME_OFFSET_MINUTES", "90")
-    monkeypatch.setenv("MT5_SERVER_TZ", "any/tz")
+    monkeypatch.setenv("MT5_SERVER_TZ", "Europe/Athens")
     monkeypatch.setattr(cfg, "_WARNED_SERVER_TZ", False, raising=False)
     monkeypatch.setattr(cfg, "_WARNED_STATIC_OFFSET_OVERRIDE", False)
 
@@ -134,10 +134,11 @@ def test_get_time_offset_seconds_uses_historical_offset_for_requested_instant(mo
     assert conf.get_time_offset_seconds(at_time=naive_summer) == 10800
 
 
-def test_mt5_config_handles_invalid_offset_and_bad_timezone(monkeypatch):
+def test_mt5_config_handles_invalid_offset(monkeypatch):
     monkeypatch.setenv("MT5_TIME_OFFSET_MINUTES", "not-a-number")
-    monkeypatch.setenv("MT5_SERVER_TZ", "bad/tz")
-    monkeypatch.setenv("CLIENT_TZ", "bad/tz")
+    monkeypatch.delenv("MT5_SERVER_TZ", raising=False)
+    monkeypatch.delenv("CLIENT_TZ", raising=False)
+    monkeypatch.delenv("MT5_CLIENT_TZ", raising=False)
     monkeypatch.setattr(cfg, "_WARNED_SERVER_TZ", False, raising=False)
 
     conf = cfg.MT5Config()
@@ -145,7 +146,17 @@ def test_mt5_config_handles_invalid_offset_and_bad_timezone(monkeypatch):
     assert conf.time_offset_minutes == 0
     assert conf.get_time_offset_seconds() == 0
     assert conf.get_server_tz() is None
-    assert conf.get_client_tz() is None
+
+
+@pytest.mark.parametrize("name", ["MT5_SERVER_TZ", "CLIENT_TZ", "MT5_CLIENT_TZ"])
+def test_mt5_config_rejects_invalid_explicit_timezone(monkeypatch, name):
+    monkeypatch.delenv("MT5_SERVER_TZ", raising=False)
+    monkeypatch.delenv("CLIENT_TZ", raising=False)
+    monkeypatch.delenv("MT5_CLIENT_TZ", raising=False)
+    monkeypatch.setenv(name, "America/Chciago")
+
+    with pytest.raises(ValueError, match=rf"Invalid {name}=.*America/Chciago"):
+        cfg.MT5Config()
 
 
 def test_mt5_config_autodetects_client_timezone_when_env_unset(monkeypatch):
@@ -255,6 +266,32 @@ def test_load_environment_logs_reload_failures(monkeypatch, caplog):
 
     assert any(
         "Failed to reload MT5 configuration from environment: reload exploded" in record.message
+        for record in caplog.records
+    )
+
+
+def test_load_environment_rejects_invalid_timezone_configuration(monkeypatch, caplog):
+    monkeypatch.setattr(cfg, "_ENV_LOADED", False)
+    monkeypatch.setattr(
+        cfg,
+        "mt5_config",
+        SimpleNamespace(
+            reload_from_env=lambda **kwargs: (_ for _ in ()).throw(
+                cfg.InvalidTimezoneConfiguration(
+                    "Invalid CLIENT_TZ='America/Chciago'"
+                )
+            )
+        ),
+    )
+
+    with caplog.at_level("WARNING"), pytest.raises(
+        cfg.InvalidTimezoneConfiguration,
+        match="CLIENT_TZ",
+    ):
+        cfg.load_environment(force=True)
+
+    assert any(
+        "Failed to reload MT5 configuration" in record.message
         for record in caplog.records
     )
 

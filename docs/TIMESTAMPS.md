@@ -46,6 +46,7 @@ UTC request instant ──▶ MT5 adapter ──▶ terminal clock axis ──�
 - Callers must not apply another broker offset to normalized payloads.
 - `CLIENT_TZ` / `MT5_CLIENT_TZ` controls presentation. If neither is set,
   mtdata uses the local machine timezone when it can detect it, otherwise UTC.
+  Explicit but invalid IANA timezone names are rejected at startup.
 
 Every timestamped payload includes a `timezone` field for displayed values.
 Internal filtering and range comparisons stay on the UTC epoch axis.
