@@ -60,7 +60,12 @@ def _wavelet_packet_denoise(
     level_val = int(level) if level is not None else max(1, min(3, max_level))
     if level_val < 1:
         return x
-    wp = _pywt.WaveletPacket(data=x, wavelet=wavelet, mode="periodization", maxlevel=level_val)
+    wp = _pywt.WaveletPacket(
+        data=x,
+        wavelet=wavelet,
+        mode="symmetric",
+        maxlevel=level_val,
+    )
     nodes = wp.get_level(level_val, order="freq")
     if not nodes:
         return x
@@ -126,12 +131,12 @@ def _denoise_wavelet_series(
     wavelet = str(params.get('wavelet', 'db4'))
     level = params.get('level')
     mode = str(params.get('mode', 'soft'))
-    coeffs = _pywt.wavedec(x, wavelet, mode='periodization', level=level)
+    coeffs = _pywt.wavedec(x, wavelet, mode='symmetric', level=level)
     sigma = np.median(np.abs(coeffs[-1])) / 0.6745 if len(coeffs) > 1 else np.std(x)
     thr = params.get('threshold', 'auto')
     thr_val = float(sigma * np.sqrt(2 * np.log(len(x)))) if thr == 'auto' else float(thr)
     new_coeffs = [coeffs[0]]
     for c in coeffs[1:]:
         new_coeffs.append(_pywt.threshold(c, thr_val, mode=mode))
-    y = _pywt.waverec(new_coeffs, wavelet, mode='periodization')[: len(x)]
+    y = _pywt.waverec(new_coeffs, wavelet, mode='symmetric')[: len(x)]
     return _series_like(s, y)

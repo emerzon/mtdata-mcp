@@ -601,6 +601,22 @@ class TestDenoiseSeriesDispatch:
         )
         _check_basic(result.values, N)
 
+    def test_wavelet_does_not_wrap_window_start_into_latest_bars(self):
+        pytest.importorskip("pywt")
+        rng = np.random.default_rng(7)
+        trend = np.linspace(1.0, 1.1, 512)
+        noisy = trend + rng.normal(0.0, 0.0004, trend.size)
+
+        result = denoise_series(
+            pd.Series(noisy),
+            method="wavelet",
+            params={"wavelet": "db4", "level": 3},
+            causality="zero_phase",
+        )
+
+        latest_error = np.mean(np.abs(result.iloc[-8:].to_numpy() - trend[-8:]))
+        assert latest_error < 0.001
+
     def test_wavelet_packet(self):
         pytest.importorskip("pywt")
         s = _make_series(NOISY_SIGNAL)
