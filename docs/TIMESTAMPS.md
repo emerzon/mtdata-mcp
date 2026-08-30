@@ -136,6 +136,12 @@ Trade-history payloads expose the same `raw_time_basis`, `time_basis`,
 `raw_timestamp_mode`, and `time_normalization` fields, including when no symbol
 filter was supplied.
 
+A server-clock epoch does not contain the daylight-saving `fold` bit. If such a
+terminal returns a repeated fall-back wall time or a nonexistent spring-forward
+wall time, mtdata fails the normalization instead of guessing or shifting the
+event. Native-UTC terminal timestamps and explicitly fixed offsets are not
+ambiguous in this way.
+
 MT5 stamps candles at bar open. Daily, weekly, and monthly candle rows also
 include `broker_session_date`; D1 rows include `broker_trading_day`. These
 labels use the configured broker timezone and disambiguate sessions whose UTC

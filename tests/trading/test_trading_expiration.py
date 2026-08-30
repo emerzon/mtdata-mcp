@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -156,6 +157,50 @@ def test_normalize_pending_expiration_rejects_past_with_resolved_utc() -> None:
         "2020-01-01T00:00:00Z"
     )
     assert "validation_observed_utc" in exc_info.value.context
+
+
+@pytest.mark.parametrize(
+    ("expiration", "reason"),
+    [
+        ("2030-11-03 01:30:00", "ambiguous_local_time"),
+        ("2030-03-10 02:30:00", "nonexistent_local_time"),
+    ],
+)
+def test_normalize_pending_expiration_rejects_dst_wall_time(
+    monkeypatch,
+    expiration,
+    reason,
+) -> None:
+    monkeypatch.setattr(
+        mt5_config,
+        "get_client_tz",
+        lambda: ZoneInfo("America/New_York"),
+    )
+    monkeypatch.setattr(mt5_config, "get_server_tz", lambda: timezone.utc)
+    monkeypatch.setattr(mt5_config, "get_time_offset_seconds", lambda: 0)
+
+    with pytest.raises(PendingExpirationValidationError) as exc_info:
+        _normalize_pending_expiration(expiration)
+
+    assert exc_info.value.context["reason"] == reason
+    assert "explicit numeric UTC offset" in str(exc_info.value)
+
+
+def test_normalize_pending_expiration_accepts_both_explicit_dst_offsets(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        mt5_config,
+        "get_client_tz",
+        lambda: ZoneInfo("America/New_York"),
+    )
+    monkeypatch.setattr(mt5_config, "get_server_tz", lambda: timezone.utc)
+    monkeypatch.setattr(mt5_config, "get_time_offset_seconds", lambda: 0)
+
+    daylight, _ = _normalize_pending_expiration("2030-11-03T01:30:00-04:00")
+    standard, _ = _normalize_pending_expiration("2030-11-03T01:30:00-05:00")
+
+    assert standard - daylight == 3600
 
 
 @pytest.mark.parametrize(

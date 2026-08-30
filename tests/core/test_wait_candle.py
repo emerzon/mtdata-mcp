@@ -78,7 +78,27 @@ def test_sleep_until_next_candle_returns_expected_wait(utc_server_clock) -> None
     assert payload["next_candle_close_utc"] == "2026-03-13T10:05:00Z"
 
 
-def test_next_candle_wait_payload_handles_dst_gap(monkeypatch) -> None:
+@pytest.mark.parametrize(
+    ("now_utc", "expected_utc", "expected_server"),
+    [
+        (
+            datetime(2026, 3, 29, 0, 54, tzinfo=timezone.utc),
+            "2026-03-29T01:00:00Z",
+            "2026-03-29T04:00:00+03:00",
+        ),
+        (
+            datetime(2026, 10, 25, 0, 54, tzinfo=timezone.utc),
+            "2026-10-25T01:00:00Z",
+            "2026-10-25T03:00:00+02:00",
+        ),
+    ],
+)
+def test_next_candle_wait_payload_handles_dst_transitions(
+    monkeypatch,
+    now_utc,
+    expected_utc,
+    expected_server,
+) -> None:
     from zoneinfo import ZoneInfo
 
     monkeypatch.setattr(time.mt5_config, "get_server_tz", lambda: ZoneInfo("Europe/Nicosia"))
@@ -88,14 +108,15 @@ def test_next_candle_wait_payload_handles_dst_gap(monkeypatch) -> None:
     payload = _next_candle_wait_payload(
         "M15",
         buffer_seconds=1.0,
-        now_utc=datetime(2026, 3, 29, 0, 54, 0, tzinfo=timezone.utc),
+        now_utc=now_utc,
+        symbol="BTCUSD",
     )
 
-    assert payload["next_candle_close_server"] == "2026-03-29T03:00:00+02:00"
+    assert payload["next_candle_close_server"] == expected_server
     assert datetime.fromisoformat(payload["next_candle_close_server"]).astimezone(
         timezone.utc
     ) == datetime.fromisoformat(payload["next_candle_close_utc"])
-    assert payload["next_candle_close_utc"] == "2026-03-29T01:00:00Z"
+    assert payload["next_candle_close_utc"] == expected_utc
     assert payload["sleep_seconds"] == 361.0
 
 

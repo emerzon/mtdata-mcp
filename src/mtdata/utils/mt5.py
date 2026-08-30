@@ -858,12 +858,23 @@ def _server_epoch_to_utc(epoch_seconds: float) -> float:
         )
 
     local_naive = datetime(1970, 1, 1) + timedelta(seconds=float(epoch_seconds))
-    try:
-        local_aware = local_naive.replace(tzinfo=server_tz, fold=1)
-        return local_aware.astimezone(timezone.utc).timestamp()
-    except Exception:
-        offset_seconds = _configured_server_offset_seconds(float(epoch_seconds))
-        return float(epoch_seconds) - float(offset_seconds)
+    candidates: set[datetime] = set()
+    for fold in (0, 1):
+        local_aware = local_naive.replace(tzinfo=server_tz, fold=fold)
+        utc_value = local_aware.astimezone(timezone.utc)
+        if utc_value.astimezone(server_tz).replace(tzinfo=None) == local_naive:
+            candidates.add(utc_value)
+    if not candidates:
+        raise ValueError(
+            "Server-clock timestamp resolves to a nonexistent local wall time "
+            f"in {server_tz}; raw timestamp cannot be normalized safely."
+        )
+    if len(candidates) > 1:
+        raise ValueError(
+            "Server-clock timestamp resolves to an ambiguous repeated local wall "
+            f"time in {server_tz}; the source did not provide a DST fold."
+        )
+    return candidates.pop().timestamp()
 
 
 def _mt5_epoch_to_utc(
@@ -1037,8 +1048,8 @@ def _normalize_times_in_struct(
                 )
                 utc_times = local_times.tz_localize(
                     server_tz,
-                    ambiguous=False,
-                    nonexistent="shift_forward",
+                    ambiguous="raise",
+                    nonexistent="raise",
                 ).tz_convert(timezone.utc)
                 normalized[valid] = (
                     utc_times.asi8.astype(float) / 1_000_000_000.0

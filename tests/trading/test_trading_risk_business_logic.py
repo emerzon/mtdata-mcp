@@ -5,6 +5,7 @@ import logging
 import sys
 import time
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -762,7 +763,17 @@ def test_trade_risk_analyze_blocks_sizing_from_stale_reference_quote() -> None:
     assert "position_sizing" not in out
 
 
-def test_trade_risk_analyze_explicit_entry_keeps_quote_trust_as_research() -> None:
+@pytest.mark.parametrize(
+    ("observed_at", "expected_market_status"),
+    [
+        (datetime(2026, 8, 31, 12, tzinfo=timezone.utc), None),
+        (datetime(2026, 8, 29, 12, tzinfo=timezone.utc), "closed"),
+    ],
+)
+def test_trade_risk_analyze_explicit_entry_keeps_quote_trust_as_research(
+    observed_at,
+    expected_market_status,
+) -> None:
     mt5 = MagicMock()
     mt5.account_info.return_value = SimpleNamespace(equity=1000.0, currency="USD")
     mt5.positions_get.return_value = []
@@ -773,7 +784,12 @@ def test_trade_risk_analyze_explicit_entry_keeps_quote_trust_as_research() -> No
         time=1.0,
     )
 
-    with _patched_mt5_module(mt5):
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return observed_at if tz is None else observed_at.astimezone(tz)
+
+    with patch("mtdata.core.trading.common.datetime", FixedDateTime), _patched_mt5_module(mt5):
         out = trade_risk_analyze(
             symbol="EURUSD",
             direction="long",
@@ -787,7 +803,11 @@ def test_trade_risk_analyze_explicit_entry_keeps_quote_trust_as_research() -> No
     assert out["analysis_mode"] == "research_geometry"
     assert out["quote_context"]["entry_source"] == "caller_supplied"
     assert out["quote_context"]["usable_for_live_trading"] is False
-    assert out["market_status"] == out["quote_context"]["market_status"]
+    assert out.get("market_status") == expected_market_status
+    assert out["quote_context"].get("market_status") == expected_market_status
+    if expected_market_status is None:
+        assert "market_status" not in out
+        assert "market_status" not in out["quote_context"]
     assert any("research-only" in str(item).lower() for item in out["warnings"])
     assert out["sizing_eligible"] is True
     assert out.get("error_code") is None

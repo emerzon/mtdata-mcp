@@ -101,6 +101,54 @@ def test_server_clock_object_normalization_fails_closed(monkeypatch) -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("zone_name", "local_time", "message"),
+    [
+        ("Europe/Athens", datetime(2026, 10, 25, 3, 30), "ambiguous"),
+        ("Europe/Athens", datetime(2026, 3, 29, 3, 30), "nonexistent"),
+        ("America/New_York", datetime(2026, 11, 1, 1, 30), "ambiguous"),
+        ("America/New_York", datetime(2026, 3, 8, 2, 30), "nonexistent"),
+    ],
+)
+def test_server_clock_scalar_rejects_dst_wall_time(
+    monkeypatch,
+    zone_name,
+    local_time,
+    message,
+) -> None:
+    raw_epoch = (local_time - datetime(1970, 1, 1)).total_seconds()
+    monkeypatch.setattr(mt5_mod.mt5_config, "time_offset_minutes", 0)
+    monkeypatch.setattr(
+        mt5_mod.mt5_config,
+        "get_server_tz",
+        lambda: ZoneInfo(zone_name),
+    )
+
+    with pytest.raises(ValueError, match=message):
+        mt5_mod._server_epoch_to_utc(raw_epoch)
+
+
+@pytest.mark.parametrize(
+    "local_time",
+    [datetime(2026, 10, 25, 3, 30), datetime(2026, 3, 29, 3, 30)],
+)
+def test_server_clock_struct_rejects_dst_wall_time(monkeypatch, local_time) -> None:
+    raw_epoch = (local_time - datetime(1970, 1, 1)).total_seconds()
+    rows = np.array([(raw_epoch,)], dtype=[("time", float)])
+    monkeypatch.setattr(mt5_mod.mt5_config, "time_offset_minutes", 0)
+    monkeypatch.setattr(
+        mt5_mod.mt5_config,
+        "get_server_tz",
+        lambda: ZoneInfo("Europe/Athens"),
+    )
+
+    with pytest.raises(RuntimeError, match="cannot be returned safely"):
+        mt5_mod._normalize_times_in_struct(
+            rows,
+            mode=mt5_mod._MT5_TIMESTAMP_MODE_SERVER,
+        )
+
+
 def test_adapter_aligns_server_clock_tick_history_to_utc(monkeypatch) -> None:
     now = datetime(2026, 7, 14, 14, 45, tzinfo=timezone.utc)
     now_epoch = now.timestamp()
