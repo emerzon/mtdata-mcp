@@ -28,7 +28,10 @@ from mtdata.analytics.portfolio_risk import (
     _filtered_historical_returns,
     _portfolio_mark_context,
 )
-from mtdata.analytics.relative_strength import _relative_strength_quote_status
+from mtdata.analytics.relative_strength import (
+    _relative_strength_quote_status,
+    _robust_z,
+)
 from mtdata.analytics.strategy_validate import (
     _barrier_returns,
     _builtin_signal,
@@ -616,6 +619,25 @@ def test_microstructure_tick_rule_uses_immediately_preceding_trade() -> None:
     sides = _classify_trade_sides(trades, prevailing_mid)
 
     assert list(sides) == [0.0, 1.0, -1.0]
+
+
+def test_microstructure_trade_sign_uses_preceding_quote() -> None:
+    trades = pd.DataFrame({"last": [100.0, 101.0]}, index=[0, 1])
+    contemporaneous_mid = pd.Series([100.0, 101.5], index=[0, 1])
+    prevailing_mid = contemporaneous_mid.ffill().shift(1)
+
+    sides = _classify_trade_sides(trades, prevailing_mid)
+
+    assert list(sides) == [0.0, 1.0]
+
+
+def test_relative_strength_robust_z_preserves_tail_order() -> None:
+    values = pd.Series(range(100), dtype=float)
+
+    scores = _robust_z(values)
+
+    assert scores.iloc[-1] > scores.iloc[-2] > scores.iloc[-3]
+    assert scores.iloc[0] < scores.iloc[1] < scores.iloc[2]
 
 
 def test_microstructure_keeps_single_sided_quote_updates() -> None:

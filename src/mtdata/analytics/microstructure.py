@@ -48,8 +48,8 @@ def _classify_trade_sides(
         .ffill()
         .fillna(0.0)
     )
-    zero = sides == 0
-    sides.loc[zero] = tick_sides.loc[zero]
+    unresolved = (sides == 0) | sides.isna()
+    sides.loc[unresolved] = tick_sides.loc[unresolved]
     return sides
 
 
@@ -337,7 +337,7 @@ def analyze_microstructure(  # noqa: C901
     }
     if trade_count:
         trades = df.loc[trade_mask].copy()
-        prevailing_mid = df["mid"].ffill()
+        prevailing_mid = df["mid"].ffill().shift(1)
         trades["side"] = _classify_trade_sides(trades, prevailing_mid)
         summary["trade_count"] = trade_count
         summary["trade_count_imbalance"] = float(trades["side"].sum() / max(1, trade_count))

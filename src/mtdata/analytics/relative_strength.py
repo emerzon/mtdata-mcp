@@ -42,8 +42,8 @@ def _robust_z(values: pd.Series) -> pd.Series:
     mad = float(np.median(np.abs(clipped - median)))
     if mad <= 1e-12:
         std = float(clipped.std())
-        return (clipped - median) / std if std > 0 else clipped * 0.0
-    return (clipped - median) / (1.4826 * mad)
+        return (values - median) / std if std > 0 else values * 0.0
+    return (values - median) / (1.4826 * mad)
 
 
 
