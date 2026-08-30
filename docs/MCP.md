@@ -21,11 +21,8 @@ The assistant sees the **full** tool list, including `trade_place`,
 is logged in right now.
 
 - Use a **demo** account until you trust the setup.
-- Trading tools default to **preview** (dry-run). MCP also has a fail-closed
-  policy: `MTDATA_MCP_TRADING_MODE` defaults to `preview_only`, so
-  `dry_run=false` is rejected until you set `live`. `disabled` hides those
-  mutation tools from use entirely. `tools_list` and `/ready` report the
-  active policy.
+- Trading tools default to **preview** (dry-run). A request reaches MT5 only
+  when you explicitly pass `dry_run=false`.
 - Optional account caps (allowed symbols, max size, max risk %) are in
   [ENV_VARS.md](ENV_VARS.md#trade-guardrails).
 

@@ -1657,11 +1657,7 @@ class TestMcpHttpProbes:
         assert payload["status"] == "ok"
         assert payload["ready"] is True
         assert payload["components"] == {"mt5_connection": {"status": "ok"}}
-        assert payload["mcp_trading"]["mcp_trading_mode"] in {
-            "disabled",
-            "preview_only",
-            "live",
-        }
+        assert "mcp_trading" not in payload
 
     def test_readiness_payload_reports_mt5_outage_without_error_details(self):
         from mtdata.core import server

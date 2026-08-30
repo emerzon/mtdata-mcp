@@ -118,18 +118,6 @@ def test_tool_count_matches_snapshot():
     assert len(registered) == len(expected)
 
 
-def test_mcp_disabled_mode_hides_live_mutation_tools(monkeypatch):
-    bootstrap_tools()
-    monkeypatch.setenv("MTDATA_MCP_TRADING_MODE", "disabled")
-
-    advertised = {tool.name for tool in mcp._tool_manager.list_tools()}
-    protocol_advertised = {tool.name for tool in asyncio.run(mcp.list_tools())}
-
-    assert not {"trade_place", "trade_modify", "trade_close"} & advertised
-    assert not {"trade_place", "trade_modify", "trade_close"} & protocol_advertised
-    assert "trade_get_open" in advertised
-
-
 def _finish_request_id(caplog):
     finish = next(
         record.message
@@ -690,7 +678,6 @@ def test_tools_list_compact_prioritizes_rows_and_pagination():
     assert len(out["tools"]) == 1
     assert "pagination" in out
     assert "parameter_schema" not in out
-    assert "mcp_trading" not in out
     assert "gated_tools" not in out
 
 

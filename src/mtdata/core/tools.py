@@ -141,7 +141,6 @@ def tools_list(
                 "categories",
                 "output_extras",
                 "parameter_schema",
-                "mcp_trading",
                 "schema_version",
                 "detail",
             ):

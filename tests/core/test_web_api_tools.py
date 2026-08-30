@@ -515,18 +515,12 @@ class TestWebApiRoutes:
         full_size = len(json.dumps(full.json(), sort_keys=True))
         assert compact_size < full_size
 
-    def test_mcp_policy_does_not_disable_web_trade_catalog(self, monkeypatch):
-        monkeypatch.setenv("MTDATA_MCP_TRADING_MODE", "disabled")
-
+    def test_trade_place_catalog_is_available(self):
         res = self.client.get("/api/v1/tools/trade_place")
 
         assert res.status_code == 200
         tool = res.json()["tool"]
         assert tool["name"] == "trade_place"
-        assert "enabled" not in tool
-        assert "status" not in tool
-        assert "why_disabled" not in tool
-        assert "mcp_trading_mode" not in tool
         assert tool["safety"]["requires_confirmation"] is True
 
     @pytest.mark.parametrize(

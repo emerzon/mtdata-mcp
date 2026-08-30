@@ -38,9 +38,6 @@ from .request_context import ensure_request_id_scope
 _ORIG_TOOL_DECORATOR: Any = None
 _REGISTRY_UNSET = object()
 _MARKET_DEPTH_FETCH_ENV = "MTDATA_ENABLE_MARKET_DEPTH_FETCH"
-_MCP_MUTATING_TRADING_TOOLS = frozenset(
-    {"trade_place", "trade_modify", "trade_close"}
-)
 _TOOL_CATALOG_SCHEMA_VERSION = "1.0"
 logger = logging.getLogger(__name__)
 
@@ -669,29 +666,6 @@ def _catalog_detail_mode(detail: str, *, default: str = "compact") -> str:
     return requested if requested in {"compact", "standard", "full"} else default
 
 
-def _attach_mcp_trading_catalog_fields(row: Dict[str, Any], name: str) -> None:
-    if name not in {"trade_place", "trade_modify", "trade_close"}:
-        return
-    from .mcp_trading_policy import mcp_trading_mode
-
-    mode = mcp_trading_mode()
-    row["mcp_trading_mode"] = mode
-    if mode == "disabled":
-        row.update(
-            {
-                "enabled": False,
-                "enable_env": "MTDATA_MCP_TRADING_MODE",
-                "status": "disabled",
-                "why_disabled": (
-                    "MCP trading is disabled. Set "
-                    "MTDATA_MCP_TRADING_MODE=preview_only or live."
-                ),
-            }
-        )
-        return
-    row["live_submission_allowed"] = mode == "live"
-
-
 def _build_registered_catalog_row(name: str, func: Any, *, detail_mode: str) -> Dict[str, Any]:
     from .output_contract import related_tools_for
 
@@ -706,7 +680,6 @@ def _build_registered_catalog_row(name: str, func: Any, *, detail_mode: str) -> 
         row["related_tools"] = related
     if name == "market_depth_fetch":
         row.update(_market_depth_fetch_catalog_state())
-    _attach_mcp_trading_catalog_fields(row, name)
     if detail_mode == "standard":
         row["parameters"] = _tool_catalog_parameters(func)
     if detail_mode == "full":
@@ -759,7 +732,6 @@ def registered_tool_catalog(*, detail: str = "compact") -> Dict[str, Any]:
         row = _market_depth_fetch_catalog_row(detail_mode=detail_mode)
         tools.append(row)
         categories.setdefault("market", []).append("market_depth_fetch")
-    from .mcp_trading_policy import mcp_trading_policy_payload
 
     return {
         "success": True,
@@ -769,7 +741,6 @@ def registered_tool_catalog(*, detail: str = "compact") -> Dict[str, Any]:
             "format": "JSON Schema Draft 2020-12 with CLI bindings",
         },
         "detail": detail_mode,
-        "mcp_trading": mcp_trading_policy_payload(),
         "count": len(tools),
         "categories": categories,
         "output_extras": {
@@ -1852,19 +1823,7 @@ def _recording_tool_decorator(*dargs, **dkwargs):  # type: ignore[override]  # n
 
                     kw["denoise"] = _norm_dn(kw.get("denoise"))
 
-                if not raw_output:
-                    from .mcp_trading_policy import enforce_mcp_trading_policy
-
-                    policy_error = enforce_mcp_trading_policy(
-                        getattr(func, "__name__", "tool"),
-                        kw,
-                    )
-                    if policy_error is not None:
-                        out = policy_error
-                    else:
-                        out = func(*a, **kw)
-                else:
-                    out = func(*a, **kw)
+                out = func(*a, **kw)
             except Exception as exc:
                 is_denoise_error = (
                     exc.__class__.__name__
@@ -2006,13 +1965,7 @@ def _recording_tool_decorator(*dargs, **dkwargs):  # type: ignore[override]  # n
         # imply that broker or analysis work had stopped.
         @_wraps(func)
         async def _async_wrapped(*a, **kw):
-            from .mcp_trading_policy import mcp_invocation_scope
-
-            def _run_mcp_tool():
-                with mcp_invocation_scope():
-                    return _wrapped(*a, **kw)
-
-            worker = asyncio.create_task(asyncio.to_thread(_run_mcp_tool))
+            worker = asyncio.create_task(asyncio.to_thread(_wrapped, *a, **kw))
             try:
                 return await asyncio.shield(worker)
             except asyncio.CancelledError:
@@ -2058,29 +2011,6 @@ def install_tool_registry(mcp_obj: Any) -> None:
         except Exception:
             _ORIG_TOOL_DECORATOR = None
     try:
-        manager = getattr(mcp_obj, "_tool_manager", None)
-        if manager is not None and not hasattr(
-            manager, "_mtdata_unfiltered_list_tools"
-        ):
-            original_list_tools = manager.list_tools
-            manager._mtdata_unfiltered_list_tools = original_list_tools
-
-            def _list_tools_for_mcp_policy(_manager: Any) -> List[Any]:
-                tools = list(original_list_tools())
-                from .mcp_trading_policy import mcp_trading_mode
-
-                if mcp_trading_mode() != "disabled":
-                    return tools
-                return [
-                    tool
-                    for tool in tools
-                    if str(getattr(tool, "name", ""))
-                    not in _MCP_MUTATING_TRADING_TOOLS
-                ]
-
-            manager.list_tools = types.MethodType(
-                _list_tools_for_mcp_policy, manager
-            )
         mcp_obj.tool = _recording_tool_decorator
         mcp_obj.tools = _TOOL_REGISTRY
         mcp_obj.registry = _TOOL_REGISTRY
