@@ -31,7 +31,7 @@ The composer **reuses existing tools**. It does not invent new forecast or barri
 | Step | Tool | Quick | Standard |
 |------|------|-------|----------|
 | Session + quote | `trade_session_context` | live only | live only |
-| Structure | `confluence_levels` | no | yes (and may snap TP/SL toward nearby zones) |
+| Structure | `confluence_levels` | no | yes (and may snap TP/SL toward nearby zones before probability analysis) |
 | Price path | `forecast_conformal_intervals` (Theta) for auto; `forecast_generate` for an explicit side | yes | yes |
 | Typical movement | `forecast_volatility_estimate` (EWMA) | yes | yes |
 | One TP/SL pair | `forecast_barrier_prob` (0.40% / 0.60%) | yes | yes |
@@ -45,8 +45,10 @@ result's `forecast` section identifies the method, interval method, alpha,
 calibration sample, and exact interval gate basis. A neutral direction,
 insufficient calibration, an interval containing the anchor, or unavailable
 uncertainty stands down; the composer does not infer a side from the slope
-between forecast steps. It also stands down when the barrier sketch says the
-stop is more likely to hit first.
+between forecast steps. It also stands down when the TP-first and SL-first
+probabilities, weighted by the final reward and risk distances, do not produce
+positive expected value. Raw TP-first probability is not compared with
+SL-first probability as though unequal exits had equal payoffs.
 
 Auto mode is therefore materially slower than `--direction long` or
 `--direction short`: it fits 50 rolling backtest forecasts before the current

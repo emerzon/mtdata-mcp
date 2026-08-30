@@ -422,6 +422,29 @@ def _barrier_prices(payload: Any, *, entry: Optional[float], direction: str) -> 
     return tp if tp is not None else computed_tp, sl if sl is not None else computed_sl
 
 
+def _barrier_expected_value_pct(
+    *,
+    entry: Optional[float],
+    take_profit: Optional[float],
+    stop_loss: Optional[float],
+    prob_tp_first: Optional[float],
+    prob_sl_first: Optional[float],
+) -> Optional[float]:
+    """Return first-hit expected value using the idea's final exit geometry."""
+    if (
+        entry is None
+        or entry <= 0.0
+        or take_profit is None
+        or stop_loss is None
+        or prob_tp_first is None
+        or prob_sl_first is None
+    ):
+        return None
+    reward_pct = abs(take_profit - entry) / entry * 100.0
+    risk_pct = abs(entry - stop_loss) / entry * 100.0
+    return float(prob_tp_first * reward_pct - prob_sl_first * risk_pct)
+
+
 def _snap_exit(
     *,
     entry: float,
@@ -779,6 +802,8 @@ def _compact_barriers(payload: Any, *, take_profit: Optional[float], stop_loss: 
             "prob_no_hit",
             "probability_edge",
             "expected_value",
+            "expected_value_pct",
+            "expected_value_basis",
             "tp_pct",
             "sl_pct",
             "barrier_source",
@@ -972,14 +997,17 @@ def _default_call_section(name: str, kwargs: Dict[str, Any]) -> Any:
     if name == "barriers":
         from ..forecast import forecast_barrier_prob
 
-        payload = {
-            "symbol": kwargs["symbol"],
-            "timeframe": kwargs["timeframe"],
-            "horizon": kwargs["horizon"],
-            "direction": kwargs["direction"],
-            "method": "mc_gbm_bb",
-            "detail": "compact",
-            "barrier": {
+        take_profit = _as_float(kwargs.get("take_profit"))
+        stop_loss = _as_float(kwargs.get("stop_loss"))
+        barrier = (
+            {
+                "kind": "tp_sl",
+                "unit": "price",
+                "take_profit": take_profit,
+                "stop_loss": stop_loss,
+            }
+            if take_profit is not None and stop_loss is not None
+            else {
                 "kind": "tp_sl",
                 "unit": "pct",
                 "take_profit": float(
@@ -988,7 +1016,16 @@ def _default_call_section(name: str, kwargs: Dict[str, Any]) -> Any:
                 "stop_loss": float(
                     kwargs.get("stop_loss_pct", DEFAULT_STOP_LOSS_PCT)
                 ),
-            },
+            }
+        )
+        payload = {
+            "symbol": kwargs["symbol"],
+            "timeframe": kwargs["timeframe"],
+            "horizon": kwargs["horizon"],
+            "direction": kwargs["direction"],
+            "method": "mc_gbm_bb",
+            "detail": "compact",
+            "barrier": barrier,
             "params": {"n_sims": 500},
         }
         if kwargs.get("as_of"):
@@ -1229,6 +1266,7 @@ def run_trade_idea_compose(  # noqa: C901
     evaluated_direction = direction if direction in {"long", "short"} else None
 
     barriers_payload: Any = None
+    entry_for_barriers: Optional[float] = None
     take_profit: Optional[float] = None
     stop_loss: Optional[float] = None
     snaps: List[Dict[str, Any]] = []
@@ -1236,6 +1274,37 @@ def run_trade_idea_compose(  # noqa: C901
         sections.get("volatility")
     )
     if direction in {"long", "short"} and "barriers" in planned:
+        entry_for_barriers = _reference_price(quote, direction)
+        if entry_for_barriers is None and isinstance(forecast_payload, dict):
+            entry_for_barriers = _as_float(forecast_payload.get("last_price"))
+        if entry_for_barriers is not None:
+            take_profit, stop_loss = _prices_from_percent(
+                entry=entry_for_barriers,
+                direction=direction,
+                take_profit_pct=take_profit_pct,
+                stop_loss_pct=stop_loss_pct,
+            )
+        if entry_for_barriers is not None and structure:
+            if take_profit is not None:
+                take_profit, snap = _snap_exit(
+                    entry=entry_for_barriers,
+                    level=take_profit,
+                    direction=direction,
+                    kind="tp",
+                    structure=structure,
+                )
+                if snap:
+                    snaps.append({"kind": "take_profit", **snap})
+            if stop_loss is not None:
+                stop_loss, snap = _snap_exit(
+                    entry=entry_for_barriers,
+                    level=stop_loss,
+                    direction=direction,
+                    kind="sl",
+                    structure=structure,
+                )
+                if snap:
+                    snaps.append({"kind": "stop_loss", **snap})
         barriers_payload = _run_section(
             "barriers",
             {
@@ -1243,59 +1312,51 @@ def run_trade_idea_compose(  # noqa: C901
                 "direction": direction,
                 "take_profit_pct": take_profit_pct,
                 "stop_loss_pct": stop_loss_pct,
+                "take_profit": take_profit,
+                "stop_loss": stop_loss,
             },
         )
         if _section_failed(barriers_payload):
             gates["barriers"] = _gate("fail", "barrier probabilities unavailable")
         else:
-            entry_for_barriers = _as_float(
-                barriers_payload.get("reference_price") if isinstance(barriers_payload, dict) else None
-            ) or _reference_price(quote, direction)
-            take_profit, stop_loss = _barrier_prices(
-                barriers_payload,
-                entry=entry_for_barriers,
-                direction=direction,
-            )
+            if entry_for_barriers is None:
+                entry_for_barriers = _as_float(
+                    barriers_payload.get("reference_price")
+                    if isinstance(barriers_payload, dict)
+                    else None
+                )
             if take_profit is None or stop_loss is None:
-                take_profit, stop_loss = _prices_from_percent(
-                    entry=entry_for_barriers or 0.0,
+                payload_tp, payload_sl = _barrier_prices(
+                    barriers_payload,
+                    entry=entry_for_barriers,
                     direction=direction,
-                    take_profit_pct=take_profit_pct,
-                    stop_loss_pct=stop_loss_pct,
-                ) if entry_for_barriers else (None, None)
-            if entry_for_barriers is not None and structure:
-                if take_profit is not None:
-                    take_profit, snap = _snap_exit(
-                        entry=entry_for_barriers,
-                        level=take_profit,
-                        direction=direction,
-                        kind="tp",
-                        structure=structure,
-                    )
-                    if snap:
-                        snaps.append({"kind": "take_profit", **snap})
-                if stop_loss is not None:
-                    stop_loss, snap = _snap_exit(
-                        entry=entry_for_barriers,
-                        level=stop_loss,
-                        direction=direction,
-                        kind="sl",
-                        structure=structure,
-                    )
-                    if snap:
-                        snaps.append({"kind": "stop_loss", **snap})
+                )
+                take_profit = take_profit if take_profit is not None else payload_tp
+                stop_loss = stop_loss if stop_loss is not None else payload_sl
             tp_prob = _as_float(barriers_payload.get("prob_tp_first")) if isinstance(barriers_payload, dict) else None
             sl_prob = _as_float(barriers_payload.get("prob_sl_first")) if isinstance(barriers_payload, dict) else None
-            if tp_prob is not None and sl_prob is not None and sl_prob > tp_prob:
-                gates["barriers"] = _gate("fail", "stop is more likely to hit first")
+            expected_value_pct = _barrier_expected_value_pct(
+                entry=entry_for_barriers,
+                take_profit=take_profit,
+                stop_loss=stop_loss,
+                prob_tp_first=tp_prob,
+                prob_sl_first=sl_prob,
+            )
+            if isinstance(barriers_payload, dict) and expected_value_pct is not None:
+                barriers_payload["expected_value_pct"] = expected_value_pct
+                barriers_payload["expected_value_basis"] = "final_exit_geometry"
+            if expected_value_pct is None:
+                gates["barriers"] = _gate("fail", "barrier expected value unavailable")
+            elif expected_value_pct <= 0.0:
+                gates["barriers"] = _gate("fail", "barrier expected value is not positive")
                 stand_down_reasons.append("barriers disagree with the forecast path")
                 if requested_direction == "auto":
                     gates["alignment"] = _gate("fail", "forecast and barriers disagree")
             else:
                 gates["barriers"] = _gate("pass")
 
-    entry = None
-    if isinstance(barriers_payload, dict):
+    entry = entry_for_barriers if direction in {"long", "short"} else None
+    if entry is None and isinstance(barriers_payload, dict):
         entry = _as_float(barriers_payload.get("reference_price"))
     if entry is None:
         entry = _reference_price(quote, direction if direction in {"long", "short"} else None)
@@ -1430,8 +1491,14 @@ def run_trade_idea_compose(  # noqa: C901
         stop_loss=stop_loss,
     )
     barriers_compact["barrier_source"] = barrier_source
-    barriers_compact.setdefault("tp_pct", take_profit_pct)
-    barriers_compact.setdefault("sl_pct", stop_loss_pct)
+    if entry is not None and entry > 0.0 and take_profit is not None:
+        barriers_compact["tp_pct"] = abs(take_profit - entry) / entry * 100.0
+    else:
+        barriers_compact.setdefault("tp_pct", take_profit_pct)
+    if entry is not None and entry > 0.0 and stop_loss is not None:
+        barriers_compact["sl_pct"] = abs(entry - stop_loss) / entry * 100.0
+    else:
+        barriers_compact.setdefault("sl_pct", stop_loss_pct)
     if snaps:
         barriers_compact["snapped_to_structure"] = snaps
     lineage = {

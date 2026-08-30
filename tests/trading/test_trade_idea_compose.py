@@ -133,7 +133,7 @@ def _volatility() -> Dict[str, Any]:
     }
 
 
-def _barriers(*, tp_first: float = 0.42, sl_first: float = 0.31) -> Dict[str, Any]:
+def _barriers(*, tp_first: float = 0.55, sl_first: float = 0.25) -> Dict[str, Any]:
     return {
         "success": True,
         "method": "mc_gbm_bb",
@@ -251,8 +251,8 @@ def test_trade_idea_compose_quick_preview_path() -> None:
     assert idea["preview"]["preview_ok"] is True
     assert idea["preview"]["would_send_order"] is False
     assert idea["sizing"]["suggested_volume"] == 0.12
-    assert idea["geometry"]["take_profit"] == pytest.approx(1.104602)
-    assert idea["geometry"]["stop_loss"] == pytest.approx(1.0935988)
+    assert idea["geometry"]["take_profit"] == pytest.approx(1.10482084)
+    assert idea["geometry"]["stop_loss"] == pytest.approx(1.09326874)
     assert idea["gates"]["preview"]["status"] == "pass"
     assert idea["idea_eligible"] is True
     assert idea["overall_gate_status"] == "pass"
@@ -471,6 +471,29 @@ def test_trade_idea_compose_auto_stands_down_when_barriers_disagree() -> None:
     assert idea["sizing"]["suggested_volume"] == 0.0
 
 
+def test_trade_idea_compose_barrier_gate_uses_payoff_weighted_value() -> None:
+    idea = run_trade_idea_compose(
+        TradeIdeaComposeRequest(symbol="EURUSD", direction="long"),
+        call_section=_caller(
+            {
+                "session": _session(),
+                "forecast": _forecast(),
+                "volatility": _volatility(),
+                # TP remains more likely than SL, but the wider loss makes the
+                # final geometry's expected value negative.
+                "barriers": _barriers(tp_first=0.44, sl_first=0.30),
+                "sizing": _sizing(),
+                "preview": _preview(),
+            }
+        ),
+    )
+
+    assert idea["direction"] == "stand_down"
+    assert idea["gates"]["barriers"]["status"] == "fail"
+    assert "expected value" in idea["gates"]["barriers"]["reason"]
+    assert idea["barriers"]["expected_value_pct"] < 0.0
+
+
 @pytest.mark.parametrize(("direction", "trend"), [("long", "up"), ("short", "down")])
 def test_trade_idea_compose_explicit_direction_fails_closed_when_barriers_are_weak(
     direction: str,
@@ -631,19 +654,24 @@ def test_trade_idea_compose_stands_down_on_unconfirmed_direction() -> None:
 
 
 def test_trade_idea_compose_standard_snaps_to_confluence() -> None:
+    barrier_request: Dict[str, Any] = {}
+
+    def call(name: str, kwargs: Dict[str, Any]) -> Any:
+        if name == "barriers":
+            barrier_request.update(kwargs)
+        return {
+            "session": _session(),
+            "confluence": _confluence(),
+            "forecast": _forecast(),
+            "volatility": _volatility(),
+            "barriers": _barriers(),
+            "sizing": _sizing(),
+            "preview": _preview(),
+        }[name]
+
     idea = run_trade_idea_compose(
         TradeIdeaComposeRequest(symbol="EURUSD", template="standard", direction="long"),
-        call_section=_caller(
-            {
-                "session": _session(),
-                "confluence": _confluence(),
-                "forecast": _forecast(),
-                "volatility": _volatility(),
-                "barriers": _barriers(),
-                "sizing": _sizing(),
-                "preview": _preview(),
-            }
-        ),
+        call_section=call,
     )
 
     assert idea["structure"]["levels"]
@@ -652,6 +680,12 @@ def test_trade_idea_compose_standard_snaps_to_confluence() -> None:
     assert kinds == {"take_profit", "stop_loss"}
     assert idea["geometry"]["take_profit"] == pytest.approx(1.1044)
     assert idea["geometry"]["stop_loss"] == pytest.approx(1.0938)
+    assert barrier_request["take_profit"] == pytest.approx(1.1044)
+    assert barrier_request["stop_loss"] == pytest.approx(1.0938)
+    assert idea["barriers"]["expected_value_basis"] == "final_exit_geometry"
+    assert idea["barriers"]["tp_pct"] == pytest.approx(
+        abs(1.1044 - 1.1002) / 1.1002 * 100.0
+    )
 
 
 def test_trade_idea_compose_never_accepts_live_preview() -> None:
@@ -882,6 +916,8 @@ def test_trade_idea_barrier_widths_scale_from_horizon_volatility() -> None:
 
     assert captured["barriers"]["take_profit_pct"] == pytest.approx(0.42)
     assert captured["barriers"]["stop_loss_pct"] == pytest.approx(0.63)
+    assert captured["barriers"]["take_profit"] == pytest.approx(1.10482084)
+    assert captured["barriers"]["stop_loss"] == pytest.approx(1.09326874)
     assert idea["barriers"]["barrier_source"] == "volatility_scaled"
     assert idea["barriers"]["tp_pct"] == pytest.approx(0.42)
     assert idea["barriers"]["sl_pct"] == pytest.approx(0.63)
