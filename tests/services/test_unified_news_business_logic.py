@@ -109,6 +109,30 @@ def test_dedupe_collapses_alternate_urls_with_typographic_title_variants() -> No
     assert newer.metadata["alternate_urls"] == [older.url]
 
 
+def test_dedupe_collapses_identical_titles_across_providers() -> None:
+    published = datetime(2026, 8, 19, 13, 30, tzinfo=timezone.utc)
+    finviz = svc.NewsItem(
+        title="Fed cuts rates by 25 bps",
+        provider="finviz",
+        source="Reuters",
+        url="https://example.test/finviz",
+        published_at=published,
+    )
+    cnbc = svc.NewsItem(
+        title="Fed cuts rates by 25 bps",
+        provider="ycnbc",
+        source="CNBC",
+        url="https://example.test/cnbc",
+        published_at=published,
+    )
+
+    result = svc._dedupe_items([finviz, cnbc])
+
+    assert len(result) == 1
+    assert result[0].metadata["alternate_urls"] == [cnbc.url]
+    assert len(result[0].metadata["also_reported_by"]) == 2
+
+
 def test_news_item_resolves_known_provider_relative_url() -> None:
     item = svc.NewsItem(
         title="Magnificent Seven earnings remain robust",
@@ -658,6 +682,23 @@ def test_equity_common_name_does_not_match_person_surname() -> None:
         metadata={"direct_symbol": "AAPL"},
     )
     assert svc._passes_related_gate(genuine, context) is True
+
+
+@pytest.mark.parametrize(
+    ("symbol", "title"),
+    [
+        ("META", "Precious metals rally as gold hits record"),
+        ("US500", "Treasury yields versus 500 basis points debate"),
+    ],
+)
+def test_symbol_aliases_do_not_match_inside_or_across_words(
+    monkeypatch, symbol: str, title: str
+) -> None:
+    monkeypatch.setattr(svc, "get_symbol_info_cached", lambda _symbol: None)
+    context = svc._classify_instrument(symbol)
+    item = svc.NewsItem(title=title, provider="finviz", source="Reuters")
+
+    assert svc._has_asset_specific_evidence(item, context) is False
 
 
 def test_fetch_unified_news_treats_whitespace_symbol_as_general_news(monkeypatch) -> None:

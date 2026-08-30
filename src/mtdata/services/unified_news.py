@@ -626,7 +626,6 @@ def _alias_matches_text(alias: str, text: str, compact_text: str, tokens: Collec
     if not alias_text:
         return False
 
-    alias_compact = _compact_token(alias)
     if alias_text == text or alias_text in tokens:
         return True
 
@@ -634,11 +633,14 @@ def _alias_matches_text(alias: str, text: str, compact_text: str, tokens: Collec
         if alias_text in text:
             return True
         alias_tokens = _tokenize(alias_text)
-        if alias_tokens and all(token in tokens for token in alias_tokens):
-            return True
-        return bool(alias_compact) and len(alias_compact) >= 5 and alias_compact in compact_text
+        text_tokens = _tokenize(text)
+        width = len(alias_tokens)
+        return bool(alias_tokens) and any(
+            text_tokens[index : index + width] == alias_tokens
+            for index in range(max(0, len(text_tokens) - width + 1))
+        )
 
-    return bool(alias_compact) and len(alias_compact) >= 4 and alias_compact in compact_text
+    return False
 
 
 def _unique_preserve_order(items: Iterable[str]) -> List[str]:
@@ -1404,16 +1406,12 @@ def _apply_embedding_rerank(items: List[NewsItem], context: InstrumentContext) -
 def _dedupe_items(items: Iterable[NewsItem]) -> List[NewsItem]:
     deduped: List[NewsItem] = []
 
-    def _title_fingerprint(item: NewsItem) -> tuple[str, str, str]:
+    def _title_fingerprint(item: NewsItem) -> str:
         title = str(item.title or "").casefold().translate(
             str.maketrans({"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d": '"'})
         )
         title = re.sub(r"[^a-z0-9]+", " ", title).strip()
-        return (
-            str(item.provider or "").strip().casefold(),
-            str(item.source or "").strip().casefold(),
-            title,
-        )
+        return title
 
     def _same_story(left: NewsItem, right: NewsItem) -> bool:
         if left.dedupe_key() == right.dedupe_key():
@@ -1451,6 +1449,16 @@ def _dedupe_items(items: Iterable[NewsItem]) -> List[NewsItem]:
             alternate_urls.discard(preferred.url)
         if alternate_urls:
             preferred.metadata["alternate_urls"] = sorted(alternate_urls)
+        reporters = {
+            (str(candidate.provider or "").strip(), str(candidate.source or "").strip())
+            for candidate in (existing, item)
+            if str(candidate.provider or "").strip() or str(candidate.source or "").strip()
+        }
+        if len(reporters) > 1:
+            preferred.metadata["also_reported_by"] = [
+                {"provider": provider, "source": source}
+                for provider, source in sorted(reporters)
+            ]
         deduped[duplicate_index] = preferred
     return deduped
 
