@@ -88,6 +88,40 @@ def test_market_depth_tick_fallback_includes_price_display() -> None:
     assert isinstance(out.get("query_latency_ms"), float)
 
 
+def test_market_depth_resolves_public_slash_alias() -> None:
+    tick = SimpleNamespace(
+        bid=1.1,
+        ask=1.1001,
+        last=1.1,
+        volume=12,
+        time=1_700_000_000,
+    )
+    with patch("mtdata.core.market_depth.mt5") as mt5, patch(
+        "mtdata.core.market_depth._use_client_tz",
+        return_value=False,
+    ):
+        mt5.symbols_get.return_value = [SimpleNamespace(name="EURUSD")]
+        mt5.symbol_select.return_value = True
+        mt5.symbol_info.return_value = SimpleNamespace(
+            digits=5,
+            point=0.00001,
+            currency_profit="USD",
+        )
+        mt5.market_book_add.return_value = False
+        mt5.market_book_get.return_value = []
+        mt5.symbol_info_tick.return_value = tick
+        mt5.copy_ticks_range.return_value = []
+
+        out = _raw_market_depth_fetch("EUR/USD")
+
+    assert out["success"] is True
+    assert out["symbol"] == "EURUSD"
+    assert out["symbol_input"] == "EUR/USD"
+    mt5.symbol_select.assert_called_once_with("EURUSD", True)
+    mt5.symbol_info.assert_called_with("EURUSD")
+    mt5.symbol_info_tick.assert_called_with("EURUSD")
+
+
 def test_market_depth_tick_fallback_hides_zero_last_display() -> None:
     tick = SimpleNamespace(
         bid=65601.0,

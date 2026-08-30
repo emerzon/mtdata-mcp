@@ -31,6 +31,7 @@ from ..utils.mt5 import (
     ensure_mt5_connection_or_raise,
     mt5,
     resolve_broker_symbol_name,
+    resolve_public_symbol,
     symbol_price_currency,
     symbol_price_digits,
     symbol_price_point,
@@ -364,8 +365,11 @@ def _market_depth_fetch_impl(symbol: str, spread: bool = False, require_dom: boo
     """
     def _run() -> Dict[str, Any]:  # noqa: C901
         mt5_gateway: Any = None
+        symbol_input: Optional[str] = None
 
         def _finalize(payload: Dict[str, Any]) -> Dict[str, Any]:
+            if symbol_input is not None:
+                payload.setdefault("symbol_input", symbol_input)
             return ensure_common_meta(
                 attach_mt5_source(payload, gateway=mt5_gateway),
                 tool_name="market_depth_fetch",
@@ -377,13 +381,22 @@ def _market_depth_fetch_impl(symbol: str, spread: bool = False, require_dom: boo
                 ensure_connection_impl=ensure_mt5_connection_or_raise,
             )
             mt5_gateway.ensure_connection()
+            broker_symbol, symbol_input = resolve_public_symbol(
+                symbol,
+                gateway=mt5_gateway,
+            )
             started = time.perf_counter()
-            if not mt5_gateway.symbol_select(symbol, True):
-                return {"error": _describe_symbol_select_error(symbol, mt5_gateway.last_error())}
+            if not mt5_gateway.symbol_select(broker_symbol, True):
+                return {
+                    "error": _describe_symbol_select_error(
+                        broker_symbol,
+                        mt5_gateway.last_error(),
+                    )
+                }
 
-            symbol_info = mt5_gateway.symbol_info(symbol)
+            symbol_info = mt5_gateway.symbol_info(broker_symbol)
             if symbol_info is None:
-                return {"error": f"Symbol {symbol} not found"}
+                return {"error": f"Symbol {broker_symbol} not found"}
 
             digits = symbol_price_digits(symbol_info)
             point = symbol_price_point(symbol_info) or 0.0
@@ -439,7 +452,7 @@ def _market_depth_fetch_impl(symbol: str, spread: bool = False, require_dom: boo
                 if quote_metadata:
                     payload.update(quote_metadata)
                 context = build_tick_freshness_context(
-                    symbol,
+                    broker_symbol,
                     tick_epoch=epoch,
                     now_epoch=quote_now,
                     item="depth reference tick",
@@ -485,7 +498,9 @@ def _market_depth_fetch_impl(symbol: str, spread: bool = False, require_dom: boo
 
             book_subscription_active = False
             try:
-                book_subscription_active = bool(mt5_gateway.market_book_add(symbol))
+                book_subscription_active = bool(
+                    mt5_gateway.market_book_add(broker_symbol)
+                )
             except Exception:
                 book_subscription_active = False
             try:
@@ -496,7 +511,7 @@ def _market_depth_fetch_impl(symbol: str, spread: bool = False, require_dom: boo
                     else 1
                 )
                 for attempt in range(attempts):
-                    depth = mt5_gateway.market_book_get(symbol)
+                    depth = mt5_gateway.market_book_get(broker_symbol)
                     if depth is not None and len(depth) > 0:
                         break
                     if attempt + 1 < attempts:
@@ -504,10 +519,17 @@ def _market_depth_fetch_impl(symbol: str, spread: bool = False, require_dom: boo
             finally:
                 if book_subscription_active:
                     try:
-                        if not mt5_gateway.market_book_release(symbol):
-                            logger.warning("market_book_release failed for %s", symbol)
+                        if not mt5_gateway.market_book_release(broker_symbol):
+                            logger.warning(
+                                "market_book_release failed for %s",
+                                broker_symbol,
+                            )
                     except Exception as exc:
-                        logger.warning("market_book_release failed for %s: %s", symbol, exc)
+                        logger.warning(
+                            "market_book_release failed for %s: %s",
+                            broker_symbol,
+                            exc,
+                        )
 
             if depth is not None and len(depth) > 0:
                 buy_orders = []
@@ -546,7 +568,7 @@ def _market_depth_fetch_impl(symbol: str, spread: bool = False, require_dom: boo
 
                 out = {
                     "success": True,
-                    "symbol": symbol,
+                    "symbol": broker_symbol,
                     "type": "full_depth",
                     "price_precision": digits,
                     "price_currency": price_currency,
@@ -603,11 +625,11 @@ def _market_depth_fetch_impl(symbol: str, spread: bool = False, require_dom: boo
                             out["data"].update(spread_metrics)
                             out["capabilities"]["spread_overlay_applied"] = True
                             out["units"].update(_MARKET_DEPTH_SPREAD_UNITS)
-                depth_tick = mt5_gateway.symbol_info_tick(symbol)
+                depth_tick = mt5_gateway.symbol_info_tick(broker_symbol)
                 depth_now = time.time()
                 depth_tick, quote_metadata = resolve_quote_tick(
                     mt5_gateway,
-                    symbol,
+                    broker_symbol,
                     depth_tick,
                     now_epoch=depth_now,
                     stale_after_seconds=_MARKET_TICKER_STALE_SECONDS,
@@ -617,14 +639,14 @@ def _market_depth_fetch_impl(symbol: str, spread: bool = False, require_dom: boo
                 out["query_latency_ms"] = round((time.perf_counter() - started) * 1000.0, 3)
                 return _finalize(out)
 
-            tick = mt5_gateway.symbol_info_tick(symbol)
+            tick = mt5_gateway.symbol_info_tick(broker_symbol)
             if tick is None:
-                return {"error": f"Failed to get tick data for {symbol}"}
+                return {"error": f"Failed to get tick data for {broker_symbol}"}
             if require_dom:
                 return {
-                    "error": f"DOM not available for {symbol}. Use market_ticker for bid/ask snapshot instead.",
+                    "error": f"DOM not available for {broker_symbol}. Use market_ticker for bid/ask snapshot instead.",
                     "error_code": "dom_unavailable",
-                    "symbol": symbol,
+                    "symbol": broker_symbol,
                     "depth_status": "unavailable",
                     "capabilities": {
                         "dom_available": False,
@@ -636,7 +658,7 @@ def _market_depth_fetch_impl(symbol: str, spread: bool = False, require_dom: boo
             quote_now = time.time()
             tick, quote_metadata = resolve_quote_tick(
                 mt5_gateway,
-                symbol,
+                broker_symbol,
                 tick,
                 now_epoch=quote_now,
                 stale_after_seconds=_MARKET_TICKER_STALE_SECONDS,
@@ -644,7 +666,7 @@ def _market_depth_fetch_impl(symbol: str, spread: bool = False, require_dom: boo
 
             out = {
                 "success": True,
-                "symbol": symbol,
+                "symbol": broker_symbol,
                 "type": "quote_fallback",
                 "depth_status": "unavailable",
                 "price_precision": digits,
