@@ -211,6 +211,30 @@ def test_compact_error_drops_empty_success_shape_and_duplicate_symbol() -> None:
     }
 
 
+def test_error_warnings_use_the_same_structured_schema_as_success() -> None:
+    payload = {
+        "success": False,
+        "error": "Preview blocked.",
+        "error_code": "preview_blocked",
+        "warnings": ["No order was sent."],
+    }
+
+    compact = shape_public_tool_output(
+        payload,
+        tool_name="trade_place",
+        detail="compact",
+    )
+    full = shape_public_tool_output(
+        payload,
+        tool_name="trade_place",
+        detail="full",
+    )
+
+    expected = [{"code": "data_warning", "message": "No order was sent."}]
+    assert compact["warnings"] == expected
+    assert full["warnings"] == expected
+
+
 def test_wait_event_budget_error_keeps_only_actionable_compact_state() -> None:
     payload = {
         "success": False,

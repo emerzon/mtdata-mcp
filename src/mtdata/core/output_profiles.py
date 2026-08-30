@@ -276,11 +276,13 @@ def apply_public_output_profile(
         return result
     normalized = str(tool_name or "").strip().lower()
     if result.get("error"):
+        error_result = dict(result)
+        _normalize_warnings(error_result)
         if detail == "full":
-            return dict(result)
+            return error_result
         if normalized == "wait_event":
-            return _compact_wait_event_error_payload(result)
-        return _compact_error_payload(result)
+            return _compact_wait_event_error_payload(error_result)
+        return _compact_error_payload(error_result)
     if normalized == "data_fetch_candles":
         return _shape_candles(result, detail=detail)
     if normalized == "data_fetch_ticks":
