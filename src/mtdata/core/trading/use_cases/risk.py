@@ -852,17 +852,53 @@ def _historical_tail_observations(n: int, confidence: float) -> int:
 def _historical_var_cvar_tail(
     pnl_values: List[float], confidence: float
 ) -> tuple[float, float, float]:
-    ordered = sorted(float(value) for value in pnl_values)
-    if not ordered:
+    import numpy as np
+
+    ordered = np.asarray([float(value) for value in pnl_values], dtype=float)
+    if ordered.size == 0:
         return 0.0, 0.0, 0.0
-    alpha = 1.0 - confidence
-    index = max(0, min(len(ordered) - 1, int(math.floor(alpha * (len(ordered) - 1)))))
-    threshold = float(ordered[index])
-    tail_values = [float(value) for value in ordered[: index + 1]]
-    tail_mean = float(sum(tail_values) / len(tail_values)) if tail_values else threshold
-    var_value = max(0.0, -threshold)
-    cvar_value = max(0.0, -tail_mean)
-    return var_value, cvar_value, threshold
+    weights = np.full(ordered.size, 1.0 / float(ordered.size), dtype=float)
+    return _weighted_empirical_var_cvar_tail(ordered, weights, confidence)
+
+
+def _weighted_empirical_var_cvar_tail(
+    pnl_values: Any,
+    weights: Any,
+    confidence: float,
+) -> tuple[float, float, float]:
+    """Return VaR and exact lower-tail quantile-average Expected Shortfall."""
+    import numpy as np
+
+    values = np.asarray(pnl_values, dtype=float)
+    probabilities = np.asarray(weights, dtype=float)
+    if values.size == 0:
+        return 0.0, 0.0, 0.0
+    sort_idx = np.argsort(values, kind="stable")
+    sorted_pnl = values[sort_idx]
+    sorted_weights = probabilities[sort_idx]
+    total_weight = float(np.sum(sorted_weights))
+    if not math.isfinite(total_weight) or total_weight <= 0.0:
+        raise ValueError("Expected Shortfall weights must have positive finite mass.")
+    sorted_weights = sorted_weights / total_weight
+
+    alpha = 1.0 - float(confidence)
+    cumulative = np.cumsum(sorted_weights)
+    threshold_idx = int(np.searchsorted(cumulative, alpha, side="left"))
+    threshold_idx = max(0, min(threshold_idx, sorted_pnl.size - 1))
+    threshold = float(sorted_pnl[threshold_idx])
+
+    remaining = alpha
+    weighted_tail = 0.0
+    consumed = 0.0
+    for value, weight in zip(sorted_pnl, sorted_weights):
+        if remaining <= 0.0:
+            break
+        take = min(float(weight), remaining)
+        weighted_tail += float(value) * take
+        consumed += take
+        remaining -= take
+    tail_mean = weighted_tail / consumed if consumed > 0.0 else threshold
+    return max(0.0, -threshold), max(0.0, -tail_mean), threshold
 
 
 def _gaussian_var_cvar_tail(
@@ -929,9 +965,20 @@ def _cornish_fisher_var_cvar_tail(
     if not math.isfinite(z_cf):
         return _gaussian_var_cvar_tail(pnl_values, confidence)
     threshold = mean_pnl + (std_pnl * z_cf)
-    tail_mean = mean_pnl - (std_pnl * float(norm.pdf(z_cf)) / alpha)
+    density = float(norm.pdf(z_score))
+    standardized_tail_integral = (
+        -density
+        + (skewness * (-z_score * density) / 6.0)
+        + (excess_kurtosis * ((1.0 - z_score**2) * density) / 24.0)
+        - (
+            (skewness**2)
+            * ((1.0 - (2.0 * z_score**2)) * density)
+            / 36.0
+        )
+    )
+    tail_mean = mean_pnl + (std_pnl * standardized_tail_integral / alpha)
     var_value = max(0.0, -float(threshold))
-    cvar_value = max(var_value, max(0.0, -tail_mean))
+    cvar_value = max(0.0, -tail_mean)
     return var_value, cvar_value, float(threshold)
 
 
@@ -956,24 +1003,7 @@ def _ewma_var_cvar_tail(
         return _historical_var_cvar_tail(pnl_values, confidence)
     weights = weights / total_weight
 
-    sort_idx = np.argsort(ordered)
-    sorted_pnl = ordered[sort_idx]
-    sorted_weights = weights[sort_idx]
-    alpha = 1.0 - confidence
-    cumulative = np.cumsum(sorted_weights)
-    threshold_idx = int(np.searchsorted(cumulative, alpha, side="left"))
-    threshold_idx = max(0, min(threshold_idx, sorted_pnl.size - 1))
-    threshold = float(sorted_pnl[threshold_idx])
-    tail_mask = sorted_pnl <= threshold
-    tail_weights = sorted_weights[tail_mask]
-    tail_total = float(np.sum(tail_weights))
-    if tail_total <= 0.0:
-        tail_mean = threshold
-    else:
-        tail_mean = float(np.dot(sorted_pnl[tail_mask], tail_weights) / tail_total)
-    var_value = max(0.0, -threshold)
-    cvar_value = max(0.0, -tail_mean)
-    return var_value, cvar_value, threshold
+    return _weighted_empirical_var_cvar_tail(ordered, weights, confidence)
 
 
 def _calculate_var_cvar_from_pnl(
@@ -3642,11 +3672,22 @@ def run_trade_var_cvar_calculate(  # noqa: C901
         }
     )
     pnl_returns = aligned_returns[exposure_vector.index]
-    if transform_value == "log_return":
+    if horizon_bars > 1:
+        if transform_value == "log_return":
+            pnl_returns = np.expm1(
+                pnl_returns.rolling(window=horizon_bars).sum()
+            ).dropna()
+        else:
+            pnl_returns = (
+                (1.0 + pnl_returns)
+                .rolling(window=horizon_bars)
+                .apply(np.prod, raw=True)
+                .dropna()
+                - 1.0
+            )
+    elif transform_value == "log_return":
         pnl_returns = np.expm1(pnl_returns)
     portfolio_pnl = pnl_returns.mul(exposure_vector, axis=1).sum(axis=1)
-    if horizon_bars > 1:
-        portfolio_pnl = portfolio_pnl.rolling(window=horizon_bars).sum().dropna()
     pnl_values = [
         float(value) for value in portfolio_pnl.tolist() if math.isfinite(float(value))
     ]
@@ -3760,7 +3801,7 @@ def run_trade_var_cvar_calculate(  # noqa: C901
         scenario_generation = {
             "parametric": "gaussian_parametric",
             "gaussian": "gaussian_parametric",
-            "cornish_fisher": "cornish_fisher_parametric",
+            "cornish_fisher": "cornish_fisher_quantile_expansion",
             "ewma": "ewma_weighted_empirical",
         }.get(method_value, method_value)
     sample_quality: Dict[str, Any] = {

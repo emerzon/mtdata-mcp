@@ -100,10 +100,9 @@ def test_calculate_var_cvar_from_pnl_cornish_fisher_cvar_exceeds_var() -> None:
     assert cvar_value >= var_value
 
 
-def test_calculate_var_cvar_from_pnl_cornish_fisher_uses_parametric_es() -> None:
-    import math
-
+def test_calculate_var_cvar_from_pnl_cornish_fisher_integrates_quantiles() -> None:
     import numpy as np
+    from scipy.integrate import quad
     from scipy.stats import norm
 
     pnl = [18.0, -25.0, 7.0, -11.0, 9.0, -4.0, 3.0, -30.0, 16.0]
@@ -125,17 +124,25 @@ def test_calculate_var_cvar_from_pnl_cornish_fisher_uses_parametric_es() -> None
         - (((2.0 * (z_score**3)) - (5.0 * z_score)) * (skewness**2) / 36.0)
     )
     expected_threshold = mean_pnl + (std_pnl * z_cf)
-    expected_tail_mean = mean_pnl - (std_pnl * float(norm.pdf(z_cf)) / alpha)
+    expected_tail_mean = quad(
+        lambda probability: mean_pnl
+        + std_pnl
+        * (
+            (z := float(norm.ppf(probability)))
+            + ((z**2 - 1.0) * skewness / 6.0)
+            + ((z**3 - (3.0 * z)) * excess_kurtosis / 24.0)
+            - (((2.0 * (z**3)) - (5.0 * z)) * (skewness**2) / 36.0)
+        ),
+        0.0,
+        alpha,
+    )[0] / alpha
     expected_var = max(0.0, -expected_threshold)
-    expected_cvar = max(expected_var, max(0.0, -expected_tail_mean))
+    expected_cvar = max(0.0, -expected_tail_mean)
 
     assert threshold == pytest.approx(expected_threshold)
     assert var_value == pytest.approx(expected_var)
     assert cvar_value == pytest.approx(expected_cvar)
-    empirical_tail = ordered[ordered <= expected_threshold]
-    if empirical_tail.size:
-        empirical_cvar = max(0.0, -float(np.mean(empirical_tail)))
-        assert not math.isclose(cvar_value, empirical_cvar, rel_tol=1e-9, abs_tol=1e-9)
+    assert cvar_value > var_value
 
 
 def test_calculate_var_cvar_from_pnl_ewma_emphasizes_recent_losses() -> None:
@@ -157,6 +164,23 @@ def test_calculate_var_cvar_from_pnl_ewma_emphasizes_recent_losses() -> None:
     assert ewma_threshold == -10.0
     assert ewma_var == 10.0
     assert ewma_cvar == 10.0
+
+
+def test_calculate_var_cvar_from_pnl_ewma_uses_exact_tail_probability() -> None:
+    pnl_values = [0.0] * 100
+    pnl_values[68] = -100.0
+    pnl_values[-1] = -10.0
+
+    var_value, cvar_value, threshold = _calculate_var_cvar_from_pnl(
+        pnl_values,
+        confidence=0.99,
+        method="ewma",
+        ewma_decay=0.94,
+    )
+
+    assert threshold == -10.0
+    assert var_value == 10.0
+    assert cvar_value == pytest.approx(89.478664, rel=1e-6)
 
 
 def test_trade_var_cvar_ewma_reports_effective_sample_and_decay() -> None:
@@ -330,6 +354,60 @@ def test_run_trade_var_cvar_calculate_supports_multi_bar_horizon() -> None:
     assert out["valuation_time"] == "1970-01-01T00:00:01Z"
     assert out["history_policy"] == "completed_bars_only"
     assert out["forming_candle_status"] == "none_detected"
+
+
+@pytest.mark.parametrize("transform", ["pct", "log_return"])
+def test_run_trade_var_cvar_compounds_multi_bar_returns(transform: str) -> None:
+    position = SimpleNamespace(
+        ticket=11,
+        symbol="EURUSD",
+        type=0,
+        volume=1.0,
+        price_current=100.0,
+        price_open=100.0,
+        profit=0.0,
+    )
+    gateway = SimpleNamespace(
+        ensure_connection=lambda: None,
+        account_info=lambda: SimpleNamespace(equity=1000.0, currency="USD"),
+        positions_get=lambda symbol=None: [position],
+        symbol_info=lambda symbol: _symbol_info(),
+        symbol_info_tick=lambda symbol: SimpleNamespace(
+            bid=99.99,
+            ask=100.01,
+            time=1_700_000_000,
+        ),
+        copy_rates_from_pos=lambda *args: [
+            {"time": 1_700_000_000 + index * 3600, "close": close}
+            for index, close in enumerate([100.0, 200.0, 50.0, 200.0])
+        ],
+        POSITION_TYPE_BUY=0,
+        POSITION_TYPE_SELL=1,
+        ORDER_TYPE_BUY=0,
+        ORDER_TYPE_SELL=1,
+    )
+
+    out = run_trade_var_cvar_calculate(
+        TradeVarCvarRequest(
+            timeframe="H1",
+            lookback=4,
+            horizon_bars=2,
+            confidence=0.75,
+            method="historical",
+            transform=transform,
+            min_observations=2,
+            detail="full",
+            include_incomplete=True,
+        ),
+        gateway=gateway,
+    )
+
+    assert out["summary"]["var"] == 50.0
+    assert out["summary"]["cvar"] == 50.0
+    assert [row["simulated_pnl"] for row in out["worst_observations"]] == [
+        -50.0,
+        0.0,
+    ]
 
 
 def test_run_trade_var_cvar_excludes_forming_return_by_default(monkeypatch) -> None:
