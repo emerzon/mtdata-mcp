@@ -625,7 +625,7 @@ class ForecastMethod(ABC):
         parameters that affect the trained artifact.
         """
         _PREDICTION_ONLY_KEYS = frozenset({
-            "ci_alpha", "as_of",
+            "ci_alpha", "as_of", "seasonality",
         })
         filtered_params = {
             k: v for k, v in sorted((params or {}).items())

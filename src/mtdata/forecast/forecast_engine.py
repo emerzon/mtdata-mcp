@@ -1577,6 +1577,16 @@ def _forecast_session_projection_metadata(
     }
 
 
+def _attach_reconstructed_price_interval(
+    result: Dict[str, Any],
+    reconstructed_price_ci: Optional[Tuple[np.ndarray, np.ndarray]],
+) -> None:
+    if reconstructed_price_ci is None:
+        return
+    result["lower_price"] = [float(v) for v in reconstructed_price_ci[0]]
+    result["upper_price"] = [float(v) for v in reconstructed_price_ci[1]]
+
+
 def _format_forecast_output(
     forecast_values: np.ndarray,
     last_epoch: float,
@@ -1597,6 +1607,7 @@ def _format_forecast_output(
     symbol: Optional[str] = None,
     timeframe: Optional[str] = None,
     target_info: Optional[Dict[str, Any]] = None,
+    last_target_value: Optional[float] = None,
     now_epoch: Optional[float] = None,
 ) -> Dict[str, Any]:
     """Format forecast output with proper structure."""
@@ -1768,11 +1779,8 @@ def _format_forecast_output(
             "transform": (target_info or {}).get("transform"),
             "mode": "custom",
         }
-        target_numeric = pd.to_numeric(df[base_col], errors="coerce")
-        target_numeric = target_numeric[np.isfinite(target_numeric)]
-        result["last_target"] = (
-            float(target_numeric.iloc[-1]) if len(target_numeric) else None
-        )
+        result["last_target"] = last_target_value
+        result["forecast_value_semantics"] = "target_bar_custom_transformed_value"
     elif quantity == 'return':
         if forecast_return_values is None:
             forecast_return_values = forecast_values
@@ -1814,6 +1822,7 @@ def _format_forecast_output(
                 # Keep generic keys for lightweight renderers expecting non-price intervals.
                 result["lower"] = lower_vals
                 result["upper"] = upper_vals
+                _attach_reconstructed_price_interval(result, reconstructed_price_ci)
             else:
                 if reconstructed_price_ci is not None:
                     result["lower_price"] = [
@@ -2245,6 +2254,9 @@ def forecast_engine(  # noqa: C901
             symbol=symbol,
             timeframe=timeframe,
             target_info=target_info,
+            last_target_value=(
+                float(target_series.iloc[-1]) if len(target_series) else None
+            ),
             now_epoch=_forecast_bar_state_reference_epoch(
                 as_of,
                 timeframe=timeframe,

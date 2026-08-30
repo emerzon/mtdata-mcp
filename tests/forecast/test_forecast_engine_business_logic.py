@@ -281,6 +281,10 @@ def test_preprocessing_helpers_and_output_format():
     forecast_values = np.array([0.01, 0.02, -0.01], dtype=float)
     reconstructed = np.array([101.0, 103.0, 102.0], dtype=float)
     ci = np.array([[0.0, 0.01, -0.02], [0.02, 0.03, 0.00]], dtype=float)
+    reconstructed_ci = (
+        np.array([100.0, 101.0, 99.0], dtype=float),
+        np.array([102.0, 105.0, 104.0], dtype=float),
+    )
     with patch("mtdata.forecast.forecast_engine._use_client_tz", return_value=False):
         res = fe._format_forecast_output(
             forecast_values=forecast_values,
@@ -298,6 +302,7 @@ def test_preprocessing_helpers_and_output_format():
             digits=5,
             forecast_return_values=forecast_values,
             reconstructed_prices=reconstructed,
+            reconstructed_price_ci=reconstructed_ci,
         )
     assert res["success"] is True
     assert res["data_as_of"] == res["last_observation_time"]
@@ -323,8 +328,8 @@ def test_preprocessing_helpers_and_output_format():
 
 
     assert res["upper_return"] == [0.02, 0.03, 0.0]
-    assert "lower_price" not in res
-    assert "upper_price" not in res
+    assert res["lower_price"] == [100.0, 101.0, 99.0]
+    assert res["upper_price"] == [102.0, 105.0, 104.0]
     assert res["digits"] == 5
     assert res["meta"] == 1
     assert res["last_price"] == float(df["close"].iloc[-1])
@@ -1953,6 +1958,10 @@ def test_forecast_engine_reconstructs_custom_simple_return_targets(monkeypatch):
     assert out["success"] is True
     assert out["forecast_target"] == [0.1, 0.1]
     assert out["target"]["mode"] == "custom"
+    assert out["last_target"] == pytest.approx(
+        float(df["close"].iloc[-1] / df["close"].iloc[-2] - 1.0)
+    )
+    assert out["forecast_value_semantics"] == "target_bar_custom_transformed_value"
     assert "forecast_price" not in out
 
 
