@@ -997,7 +997,7 @@ class TestFormatResultForCli:
         assert payload["group"] == "Forex\\Majors"
         assert payload["query_latency_ms"] == 289.0
 
-    def test_trade_session_context_json_compacts_nested_sections(self):
+    def test_trade_session_context_json_keeps_canonical_nested_sections(self):
         payload = json.loads(
             _format_result_for_cli(
                 {
@@ -1063,9 +1063,12 @@ class TestFormatResultForCli:
         )
 
         assert payload["account"] == {
+            "success": True,
             "balance": 10000.0,
             "equity": 10010.0,
             "margin_level": 250.0,
+            "terminal_connected": True,
+            "execution_ready": True,
         }
         assert payload["as_of"] == "2026-08-18T17:30:00Z"
         assert payload["assembled_at"] == payload["as_of"]
@@ -1075,26 +1078,15 @@ class TestFormatResultForCli:
             "broker_company": "Raw Trading Ltd",
             "server": "ICMarketsSC-Demo",
         }
-        assert payload["quote"]["time"] == "2023-11-14 22:13"
+        assert payload["quote"]["time"] == 1700000000
+        assert payload["quote"]["time_display"] == "2023-11-14 22:13"
         assert payload["quote"]["spread"] == 0.0002
         assert payload["quote"]["spread_points"] == 20.0
-        assert "time_display" not in payload["quote"]
         assert "time_epoch" not in payload["quote"]
-        assert payload["open_positions"] == [
-            {
-                "ticket": 123456,
-                "time": "2023-11-14 22:13",
-                "type": "BUY",
-                "volume": 0.1,
-                "price_open": 1.1,
-                "price_current": 1.1004,
-                "sl": 1.095,
-                "tp": 1.11,
-                "profit": 4.2,
-            }
-        ]
+        assert payload["open_positions"]["count"] == 1
+        assert payload["open_positions"]["items"][0]["Ticket"] == 123456
         assert "open_positions_count" not in payload
-        assert payload["pending_orders"] == []
+        assert payload["pending_orders"]["count"] == 0
         assert "pending_orders_count" not in payload
 
     def test_trade_session_context_toon_preserves_nested_quote_precision(self):
@@ -1195,8 +1187,7 @@ class TestFormatResultForCli:
             def __bool__(self):
                 return False
 
-        payload = json.loads(
-            _format_result_for_cli(
+        payload = _format_result_for_cli(
                 {
                     "success": True,
                     "symbol": "EURUSD",
@@ -1205,13 +1196,12 @@ class TestFormatResultForCli:
                         "execution_ready": FalseLike(),
                     },
                 },
-                fmt="json",
+                fmt="toon",
                 verbose=False,
                 cmd_name="trade_session_context",
             )
-        )
 
-        assert payload["account"]["execution_ready"] is False
+        assert "execution_ready: false" in payload
 
     def test_trade_session_context_verbose_toon_keeps_full_sections_and_quote_epoch(
         self,
@@ -1299,7 +1289,8 @@ class TestFormatResultForCli:
                 "volume": 0.1,
             }
         ]
-        assert payload["quote"]["time"] == "2023-11-14 22:13"
+        assert payload["quote"]["time"] == 1700000000
+        assert payload["quote"]["time_display"] == "2023-11-14 22:13"
 
     def test_symbols_describe_compact_view_hides_time_epoch(self):
         result = _format_result_for_cli(

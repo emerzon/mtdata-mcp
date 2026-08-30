@@ -623,7 +623,10 @@ def _prepare_cli_payload(
             verbose=verbose,
             compact_numbers=compact_numbers,
         )
-    elif adapter is _normalize_trade_session_context_cli_payload:
+    elif (
+        adapter is _normalize_trade_session_context_cli_payload
+        and fmt == CLI_FORMAT_TOON
+    ):
         prepared = adapter(
             prepared,
             verbose=verbose,
