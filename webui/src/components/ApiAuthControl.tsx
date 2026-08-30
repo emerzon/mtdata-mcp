@@ -1,27 +1,30 @@
-import { FormEvent, useState } from 'react'
+import { FormEvent, useState, useSyncExternalStore } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
-import { setApiToken } from '../api/client'
+import { getApiTokenConfigured, subscribeApiToken } from '../api/client'
+import { replaceApiToken } from '../lib/authSession'
 
 export function ApiAuthControl() {
   const queryClient = useQueryClient()
   const [open, setOpen] = useState(false)
   const [token, setToken] = useState('')
-  const [configured, setConfigured] = useState(false)
+  const configured = useSyncExternalStore(
+    subscribeApiToken,
+    getApiTokenConfigured,
+    getApiTokenConfigured
+  )
 
-  const apply = (event: FormEvent) => {
+  const apply = async (event: FormEvent) => {
     event.preventDefault()
-    setApiToken(token)
-    queryClient.clear()
-    setConfigured(Boolean(token.trim()))
+    const nextToken = token
+    setToken('')
     setOpen(false)
+    await replaceApiToken(queryClient, nextToken)
   }
 
-  const clear = () => {
+  const clear = async () => {
     setToken('')
-    setApiToken('')
-    queryClient.clear()
-    setConfigured(false)
     setOpen(false)
+    await replaceApiToken(queryClient, '')
   }
 
   if (!open) {

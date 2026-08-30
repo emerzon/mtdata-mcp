@@ -37,6 +37,22 @@ export const api = axios.create({
   baseURL: `${apiOrigin}/api/v1`,
 })
 
+type ApiTokenListener = () => void
+
+let activeApiToken = ''
+const apiTokenListeners = new Set<ApiTokenListener>()
+
+/** Return whether this tab currently sends an API bearer token. */
+export function getApiTokenConfigured(): boolean {
+  return Boolean(activeApiToken)
+}
+
+/** Subscribe React controls to the in-memory API credential state. */
+export function subscribeApiToken(listener: ApiTokenListener): () => void {
+  apiTokenListeners.add(listener)
+  return () => apiTokenListeners.delete(listener)
+}
+
 export function setApiToken(token: string): void {
   const value = token.trim()
   if (value) {
@@ -44,6 +60,9 @@ export function setApiToken(token: string): void {
   } else {
     delete api.defaults.headers.common.Authorization
   }
+  if (value === activeApiToken) return
+  activeApiToken = value
+  apiTokenListeners.forEach((listener) => listener())
 }
 
 /**

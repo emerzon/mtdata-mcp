@@ -1,4 +1,5 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { QueryClient, QueryObserver } from '@tanstack/react-query'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 /**
  * Auth token must stay in process memory only — never browser storage.
@@ -7,6 +8,10 @@ import { describe, expect, it, vi, beforeEach } from 'vitest'
 describe('API auth token memory-only contract', () => {
   beforeEach(() => {
     vi.resetModules()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
   })
 
   it('setApiToken does not write to localStorage or sessionStorage', async () => {
@@ -43,17 +48,39 @@ describe('API auth token memory-only contract', () => {
     expect(authSrc).not.toMatch(/localStorage|sessionStorage/)
   })
 
-  it('clears the query cache after setApiToken instead of a reload callback', async () => {
-    const fs = await import('node:fs')
-    const path = await import('node:path')
-    const authSrc = fs.readFileSync(path.join(__dirname, '../components/ApiAuthControl.tsx'), 'utf8')
-    const toolbarSrc = fs.readFileSync(path.join(__dirname, '../components/ChartToolbar.tsx'), 'utf8')
-    const appSrc = fs.readFileSync(path.join(__dirname, '../App.tsx'), 'utf8')
-    expect(authSrc).toMatch(/useQueryClient\(\)/)
-    expect(authSrc).toMatch(/setApiToken\(token\)[\s\S]*?queryClient\.clear\(\)/)
-    expect(authSrc).toMatch(/setApiToken\(''\)[\s\S]*?queryClient\.clear\(\)/)
-    expect(authSrc).not.toMatch(/onChange:\s*\(\)\s*=>/)
-    expect(toolbarSrc).not.toMatch(/onAuthChange/)
-    expect(appSrc).not.toMatch(/onAuthChange/)
+  it('retries an active failed query after a token is applied', async () => {
+    const { getApiTokenConfigured, setApiToken } = await import('../api/client')
+    const { replaceApiToken } = await import('./authSession')
+    setApiToken('')
+
+    let calls = 0
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    })
+    const observer = new QueryObserver(queryClient, {
+      queryKey: ['protected-workflow'],
+      queryFn: async () => {
+        calls += 1
+        if (!getApiTokenConfigured()) throw new Error('unauthorized')
+        return 'authenticated'
+      },
+    })
+    let resolveInitialError: (() => void) | undefined
+    const initialError = new Promise<void>((resolve) => {
+      resolveInitialError = resolve
+    })
+    const unsubscribe = observer.subscribe((result) => {
+      if (result.isError) resolveInitialError?.()
+    })
+
+    await initialError
+    expect(calls).toBe(1)
+    await replaceApiToken(queryClient, 'secret-token-value')
+
+    expect(calls).toBe(2)
+    expect(observer.getCurrentResult().data).toBe('authenticated')
+    unsubscribe()
+    queryClient.clear()
+    setApiToken('')
   })
 })

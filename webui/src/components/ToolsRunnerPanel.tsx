@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getErrorMessage, getTool, invokeTool, listTools } from '../api/client'
 import {
@@ -15,6 +15,7 @@ import {
   type ToolParamValues,
 } from '../lib/toolCatalog'
 import type { LayoutBreakpoint } from '../lib/layout'
+import { createToolRunGate } from '../lib/toolRunState'
 import { WorkspacePanelShell } from './WorkspacePanelShell'
 
 type Props = {
@@ -24,6 +25,20 @@ type Props = {
   /** Prefill symbol into forms that expose a symbol field */
   symbol?: string
   timeframe?: string
+}
+
+export function ToolOmissionNotice({ tool }: { tool: ToolCatalogEntry }) {
+  const rationale = tool.safety?.omit_rationale?.trim()
+  if (!rationale) return null
+  return (
+    <div
+      className="text-xs text-amber-100 bg-amber-950/40 border border-amber-800 rounded-lg px-3 py-2"
+      role="note"
+    >
+      <span className="font-medium">Not available in the synchronous Tools runner.</span>{' '}
+      {rationale}
+    </div>
+  )
 }
 
 export function ToolsRunnerPanel({
@@ -41,6 +56,18 @@ export function ToolsRunnerPanel({
   const [isRunning, setIsRunning] = useState(false)
   const [runError, setRunError] = useState<string | null>(null)
   const [resultText, setResultText] = useState<string | null>(null)
+  const selectedNameRef = useRef<string | null>(selectedName)
+  selectedNameRef.current = selectedName
+  const runGateRef = useRef(createToolRunGate())
+  const abandonRun = useCallback(() => {
+    runGateRef.current.invalidate()
+    setIsRunning(false)
+    setConfirm(false)
+  }, [])
+  const closePanel = useCallback(() => {
+    abandonRun()
+    onClose()
+  }, [abandonRun, onClose])
 
   const catalogQuery = useQuery({
     queryKey: ['tools-catalog'],
@@ -71,6 +98,7 @@ export function ToolsRunnerPanel({
 
   useEffect(() => {
     if (!selected?.name) return
+    abandonRun()
     const next = defaultParamValues(fields)
     if (symbol && 'symbol' in next && !next.symbol) next.symbol = symbol
     if (timeframe && 'timeframe' in next && !next.timeframe) next.timeframe = timeframe
@@ -78,16 +106,25 @@ export function ToolsRunnerPanel({
     setConfirm(false)
     setRunError(null)
     setResultText(null)
-  }, [selected?.name, fields, symbol, timeframe])
+  }, [selected?.name, fields, symbol, timeframe, abandonRun])
+
+  useEffect(() => {
+    if (!open) abandonRun()
+  }, [open, abandonRun])
+
+  useEffect(() => () => runGateRef.current.invalidate(), [])
 
   const onSelect = useCallback((name: string) => {
+    abandonRun()
+    selectedNameRef.current = name
     setSelectedName(name)
     setRunError(null)
     setResultText(null)
-  }, [])
+  }, [abandonRun])
 
   const run = useCallback(async () => {
     if (!selected?.name || !toolIsRunnable(selected)) return
+    const runIdentity = runGateRef.current.begin(selected.name)
     setIsRunning(true)
     setRunError(null)
     setResultText(null)
@@ -97,12 +134,16 @@ export function ToolsRunnerPanel({
         arguments: argumentsPayload,
         confirm,
       })
+      if (!runGateRef.current.isCurrent(runIdentity, selectedNameRef.current)) return
       setResultText(formatToolResult(response.result ?? response))
     } catch (error) {
+      if (!runGateRef.current.isCurrent(runIdentity, selectedNameRef.current)) return
       setRunError(getErrorMessage(error))
     } finally {
-      setIsRunning(false)
-      setConfirm(false)
+      if (runGateRef.current.isCurrent(runIdentity, selectedNameRef.current)) {
+        setIsRunning(false)
+        setConfirm(false)
+      }
     }
   }, [selected, fields, values, confirm])
 
@@ -119,7 +160,7 @@ export function ToolsRunnerPanel({
   return (
     <WorkspacePanelShell
       open={open}
-      onClose={onClose}
+      onClose={closePanel}
       layoutBreakpoint={layoutBreakpoint}
       label="Tools runner"
       dismissLabel="Dismiss tools panel"
@@ -241,6 +282,8 @@ export function ToolsRunnerPanel({
                     {selected.safety.warning}
                   </div>
                 )}
+
+                <ToolOmissionNotice tool={selected} />
 
                 {selected.enabled === false && (
                   <div className="text-xs text-slate-400 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2">
