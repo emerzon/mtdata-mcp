@@ -865,6 +865,7 @@ def _profile_detail_payload(profile: Dict[str, Any], detail: str) -> Dict[str, A
             compact_value_area["bucket_count"] = len(bucket_indexes)
         if detail_value != "full":
             compact_value_area.pop("bucket_indexes", None)
+            compact_value_area.pop("populated_bucket_indexes", None)
         out["value_area"] = compact_value_area
     if detail_value == "compact":
         out.pop("levels", None)

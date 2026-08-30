@@ -213,6 +213,7 @@ def compute_volume_profile(
             "volume": value_area["volume"],
             "volume_share": value_area["volume_share"],
             "bucket_indexes": value_area["bucket_indexes"],
+            "populated_bucket_indexes": value_area["populated_bucket_indexes"],
         },
         "buckets": buckets,
         "diagnostics": diagnostics,
@@ -527,18 +528,36 @@ def _compute_value_area(
     value_area_fraction: float,
 ) -> Dict[str, Any]:
     by_index = {int(bucket["index"]): bucket for bucket in buckets}
+    populated = dict(by_index)
+    min_index = min(by_index)
+    max_index = max(by_index)
+    reference_index, reference_bucket = next(iter(by_index.items()))
+    bucket_width = float(reference_bucket["price_high"]) - float(
+        reference_bucket["price_low"]
+    )
+    for index in range(min_index, max_index + 1):
+        if index in by_index:
+            continue
+        low = float(reference_bucket["price_low"]) + (
+            (index - reference_index) * bucket_width
+        )
+        by_index[index] = {
+            "index": index,
+            "price_low": low,
+            "price_high": low + bucket_width,
+            "price": low + (bucket_width / 2.0),
+            "volume": 0.0,
+            "volume_share": 0.0,
+            "tick_count": 0,
+        }
     total_volume = float(sum(float(bucket["volume"]) for bucket in buckets))
     target = total_volume * float(value_area_fraction)
     included: set[int] = {int(poc_index)}
     included_volume = float(by_index[int(poc_index)]["volume"])
-    min_index = min(by_index)
-    max_index = max(by_index)
 
     while included_volume < target and (min(included) > min_index or max(included) < max_index):
-        lower_candidates = [index for index in by_index if index < min(included)]
-        upper_candidates = [index for index in by_index if index > max(included)]
-        lower_index = max(lower_candidates) if lower_candidates else None
-        upper_index = min(upper_candidates) if upper_candidates else None
+        lower_index = min(included) - 1 if min(included) > min_index else None
+        upper_index = max(included) + 1 if max(included) < max_index else None
         lower_volume = (
             float(by_index[lower_index]["volume"]) if lower_index is not None else -1.0
         )
@@ -562,8 +581,10 @@ def _compute_value_area(
             included_volume += upper_volume
 
     bucket_indexes = sorted(included)
+    populated_bucket_indexes = [index for index in bucket_indexes if index in populated]
     return {
         "bucket_indexes": bucket_indexes,
+        "populated_bucket_indexes": populated_bucket_indexes,
         "low_bucket": by_index[bucket_indexes[0]],
         "high_bucket": by_index[bucket_indexes[-1]],
         "volume": included_volume,

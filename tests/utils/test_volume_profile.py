@@ -117,7 +117,8 @@ def test_compute_volume_profile_expands_across_empty_price_buckets():
         ),
     )
 
-    assert result["value_area"]["bucket_indexes"] == [0, 2]
+    assert result["value_area"]["bucket_indexes"] == [0, 1, 2]
+    assert result["value_area"]["populated_bucket_indexes"] == [0, 2]
     assert result["value_area"]["volume_share"] == 1.0
     assert result["val"]["price"] == 10.0
     assert result["vah"]["price"] == 13.0
