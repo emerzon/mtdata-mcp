@@ -846,7 +846,8 @@ def _evaluate_live_trade_guardrails(
     entry_price: float,
     symbol_info: Any,
 ) -> Optional[Dict[str, Any]]:
-    if not trade_guardrails_config.is_enabled():
+    guardrail_config = trade_guardrails_config.snapshot()
+    if not guardrail_config.is_enabled():
         return None
     try:
         account_info = mt5.account_info()
@@ -854,13 +855,13 @@ def _evaluate_live_trade_guardrails(
         account_info = None
     positions, pending_orders, snapshot_error = load_guardrail_book_snapshots(
         mt5,
-        trade_guardrails_config,
+        guardrail_config,
         account_info=account_info,
     )
     if snapshot_error is not None:
         return snapshot_error
     return evaluate_trade_guardrails(
-        trade_guardrails_config,
+        guardrail_config,
         symbol=symbol,
         volume=volume,
         stop_loss=stop_loss,

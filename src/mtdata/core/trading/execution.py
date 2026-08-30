@@ -191,11 +191,12 @@ def _evaluate_position_modify_guardrails(
     current_stop_loss: Optional[float],
     candidate_stop_loss: Optional[float],
 ) -> Optional[Dict[str, Any]]:
+    guardrail_config = trade_guardrails_config.snapshot()
     position_volume = validation._safe_float_attr(position, "volume")
     entry_price = validation._safe_float_attr(position, "price_current")
     if entry_price is None or not math.isfinite(float(entry_price)) or entry_price <= 0.0:
         entry_price = validation._safe_float_attr(position, "price_open")
-    if not trade_guardrails_config.is_enabled() or position_volume is None:
+    if not guardrail_config.is_enabled() or position_volume is None:
         return None
     current_has_stop = bool(
         current_stop_loss is not None
@@ -216,8 +217,8 @@ def _evaluate_position_modify_guardrails(
     else:
         risk_increased = float(candidate_stop_loss) > float(current_stop_loss)
     stop_loss_required = bool(
-        trade_guardrails_config.safety_policy.require_stop_loss
-        or trade_guardrails_config.wallet_risk_limits.has_configured_values()
+        guardrail_config.safety_policy.require_stop_loss
+        or guardrail_config.wallet_risk_limits.has_configured_values()
     )
     if not risk_increased and not (stop_loss_required and not candidate_has_stop):
         return None
@@ -225,7 +226,7 @@ def _evaluate_position_modify_guardrails(
         account_info = mt5.account_info()
     except Exception:
         account_info = None
-    if _guardrails_ignored_for_demo(trade_guardrails_config, account_info=account_info):
+    if _guardrails_ignored_for_demo(guardrail_config, account_info=account_info):
         return None
     if stop_loss_required and not candidate_has_stop:
         block = _build_guardrail_block(
@@ -238,13 +239,13 @@ def _evaluate_position_modify_guardrails(
         return block
     positions, pending_orders, snapshot_error = load_guardrail_book_snapshots(
         mt5,
-        trade_guardrails_config,
+        guardrail_config,
         account_info=account_info,
     )
     if snapshot_error is not None:
         return snapshot_error
     guardrail_block = evaluate_trade_guardrails(
-        trade_guardrails_config,
+        guardrail_config,
         symbol=position.symbol,
         volume=abs(float(position_volume)),
         stop_loss=candidate_stop_loss,
@@ -1030,8 +1031,9 @@ def _modify_pending_order(  # noqa: C901
                 _normalize_stop_loss_value(current_stop_loss) is None
                 and _normalize_stop_loss_value(candidate_stop_loss) is None
             )
+            guardrail_config = trade_guardrails_config.snapshot()
             if (
-                trade_guardrails_config.is_enabled()
+                guardrail_config.is_enabled()
                 and order_volume is not None
                 and (risk_increased or unquantifiable_stop)
             ):
@@ -1042,7 +1044,7 @@ def _modify_pending_order(  # noqa: C901
                 if risk_increased:
                     positions, pending_orders, snapshot_error = load_guardrail_book_snapshots(
                         mt5,
-                        trade_guardrails_config,
+                        guardrail_config,
                         account_info=account_info,
                     )
                     if snapshot_error is not None:
@@ -1051,7 +1053,7 @@ def _modify_pending_order(  # noqa: C901
                         snapshot_error["ticket_resolution"] = ticket_resolution
                         return snapshot_error
                     guardrail_block = evaluate_trade_guardrails(
-                        trade_guardrails_config,
+                        guardrail_config,
                         symbol=order.symbol,
                         volume=float(order_volume),
                         stop_loss=candidate_stop_loss,
@@ -1070,7 +1072,7 @@ def _modify_pending_order(  # noqa: C901
                     )
                 else:
                     guardrail_block = evaluate_trade_guardrails(
-                        trade_guardrails_config,
+                        guardrail_config,
                         symbol=order.symbol,
                         volume=float(order_volume),
                         stop_loss=candidate_stop_loss,

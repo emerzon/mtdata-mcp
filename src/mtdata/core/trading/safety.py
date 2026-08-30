@@ -218,7 +218,15 @@ def _model_has_values(model: Any) -> bool:
     return False
 
 
+def _guardrail_snapshot(config: Optional[Any]) -> Optional[Any]:
+    if config is None:
+        return None
+    snapshot = getattr(config, "snapshot", None)
+    return snapshot() if callable(snapshot) else config
+
+
 def _guardrails_active(config: Optional[Any]) -> bool:
+    config = _guardrail_snapshot(config)
     if config is None:
         return False
     if config.enabled:
@@ -252,6 +260,7 @@ def guardrails_require_position_snapshot(
     for_live_projection: bool = False,
 ) -> bool:
     """Return whether enabled guardrails depend on the current position book."""
+    config = _guardrail_snapshot(config)
     if not _guardrails_active(config):
         return False
     if (
@@ -287,6 +296,7 @@ def guardrails_require_pending_snapshot(
     for_live_projection: bool = False,
 ) -> bool:
     """Return whether enabled portfolio guardrails depend on pending orders."""
+    config = _guardrail_snapshot(config)
     if not _guardrails_active(config):
         return False
     if (
@@ -314,6 +324,7 @@ def load_guardrail_book_snapshots(
     account_info: Any = None,
 ) -> tuple[List[Any], List[Any], Optional[Dict[str, Any]]]:
     """Load every book component required by configured portfolio limits."""
+    config = _guardrail_snapshot(config)
     try:
         positions = gateway.positions_get()
     except Exception:
@@ -571,6 +582,7 @@ def resolve_volume_guardrail(
     account_info: Any = None,
 ) -> Dict[str, Any]:
     """Return the effective mtdata volume policy used by trade_place."""
+    config = _guardrail_snapshot(config)
     inactive = {
         "active": False,
         "blocked": False,
@@ -1239,6 +1251,7 @@ def evaluate_trade_guardrails(
     enforce_wallet_risk: bool = True,
 ) -> Optional[Dict[str, Any]]:
     """Evaluate configured guardrails against an order request."""
+    config = _guardrail_snapshot(config)
     if not _guardrails_active(config):
         return None
     if config is not None and not config.trading_enabled:
@@ -1365,6 +1378,7 @@ def preview_trade_guardrails(
     symbol_info_resolver: Optional[Callable[[str], Any]] = None,
 ) -> Dict[str, Any]:
     """Produce a dry-run friendly preview of guardrail checks."""
+    config = _guardrail_snapshot(config)
     enabled = _guardrails_active(config)
     if not enabled:
         return {

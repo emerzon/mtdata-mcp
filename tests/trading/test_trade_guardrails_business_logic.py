@@ -62,6 +62,53 @@ def test_trade_guardrail_env_typos_fail_closed(monkeypatch, restore_trade_guardr
         trade_guardrails_config.reload_from_env()
 
 
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("MTDATA_TRADE_MAX_VOLUME", "nan"),
+        ("MTDATA_TRADE_MAX_FLOATING_LOSS", "inf"),
+        ("MTDATA_TRADE_MAX_RISK_PCT_OF_EQUITY", "-inf"),
+        ("MTDATA_TRADE_MAX_VOLUME_BY_SYMBOL", "EURUSD:inf"),
+    ],
+)
+def test_trade_guardrail_env_rejects_nonfinite_limits(
+    monkeypatch,
+    restore_trade_guardrails,
+    name,
+    value,
+):
+    previous_policy = trade_guardrails_config.snapshot()
+    previous_version = trade_guardrails_config._policy_version
+    monkeypatch.setenv(name, value)
+
+    with pytest.raises(ValueError, match="finite"):
+        trade_guardrails_config.reload_from_env()
+
+    assert trade_guardrails_config.snapshot() is previous_policy
+    assert trade_guardrails_config._policy_version == previous_version
+
+
+def test_trade_guardrail_reload_rolls_back_the_whole_policy(
+    monkeypatch,
+    restore_trade_guardrails,
+):
+    monkeypatch.setenv("MTDATA_TRADE_ALLOWED_SYMBOLS", "EURUSD")
+    monkeypatch.setenv("MTDATA_TRADE_MAX_RISK_PCT_OF_EQUITY", "1.0")
+    trade_guardrails_config.reload_from_env()
+    previous_policy = trade_guardrails_config.snapshot()
+    previous_version = trade_guardrails_config._policy_version
+
+    monkeypatch.setenv("MTDATA_TRADE_ALLOWED_SYMBOLS", "BTCUSD")
+    monkeypatch.setenv("MTDATA_TRADE_MAX_RISK_PCT_OF_EQUITY", "invalid")
+    with pytest.raises(ValueError, match="MTDATA_TRADE_MAX_RISK_PCT_OF_EQUITY"):
+        trade_guardrails_config.reload_from_env()
+
+    assert trade_guardrails_config.snapshot() is previous_policy
+    assert trade_guardrails_config.allowed_symbols == ["EURUSD"]
+    assert trade_guardrails_config.wallet_risk_limits.max_risk_pct_of_equity == 1.0
+    assert trade_guardrails_config._policy_version == previous_version
+
+
 def test_ignore_on_demo_does_not_activate_guardrails_by_itself(monkeypatch):
     env_names = (
         "MTDATA_TRADE_GUARDRAILS_ENABLED",

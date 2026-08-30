@@ -259,6 +259,48 @@ def test_load_environment_logs_reload_failures(monkeypatch, caplog):
     )
 
 
+def test_load_environment_activates_guardrail_kill_switch_on_reload_failure(
+    monkeypatch,
+    caplog,
+):
+    fail_closed_calls = []
+    monkeypatch.setattr(cfg, "_ENV_LOADED", False)
+    monkeypatch.setattr(
+        cfg,
+        "trade_guardrails_config",
+        SimpleNamespace(
+            reload_from_env=lambda: (_ for _ in ()).throw(
+                RuntimeError("invalid guardrail policy")
+            ),
+            activate_fail_closed=lambda: fail_closed_calls.append(True),
+        ),
+    )
+    monkeypatch.setattr(
+        cfg,
+        "mt5_config",
+        SimpleNamespace(reload_from_env=lambda **kwargs: None),
+    )
+    monkeypatch.setattr(
+        cfg,
+        "news_embeddings_config",
+        SimpleNamespace(reload_from_env=lambda: None),
+    )
+    monkeypatch.setattr(
+        cfg,
+        "options_data_config",
+        SimpleNamespace(reload_from_env=lambda: None),
+    )
+
+    with caplog.at_level("WARNING"):
+        cfg.load_environment(force=True)
+
+    assert fail_closed_calls == [True]
+    assert any(
+        "Failed to reload trade guardrails configuration" in record.message
+        for record in caplog.records
+    )
+
+
 def test_load_environment_force_reload_overrides_dotenv(monkeypatch):
     calls = []
 
