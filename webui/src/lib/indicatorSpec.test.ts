@@ -136,4 +136,35 @@ describe('buildIndicatorOverlays', () => {
     expect(overlays.find((overlay) => overlay.name === 'indicator:volume')).toBeUndefined()
     expect(barsHaveUsableVolume([bar({ time: 1, tick_volume: 12 })])).toBe(true)
   })
+
+  it('renders a selected post-indicator denoise column and labels it as filtered', () => {
+    const overlays = buildIndicatorOverlays(
+      [
+        bar({ time: 1, rsi_14: 40, rsi_14_dn: 44 }),
+        bar({ time: 2, rsi_14: 60, rsi_14_dn: 55 }),
+      ],
+      { ...DEFAULT_CHART_INDICATORS, rsi14: true },
+      {
+        spec: { method: 'ema', columns: ['rsi_14'], when: 'post_ti', keep_original: true },
+        status: 'applied',
+      }
+    )
+    const rsi = overlays.find((overlay) => overlay.name === 'indicator:rsi_14')
+    expect(rsi?.points.map((point) => point.value)).toEqual([44, 55])
+    expect(rsi?.label).toBe('RSI 14 · filtered')
+  })
+
+  it('uses raw indicator values when the requested denoise was skipped', () => {
+    const overlays = buildIndicatorOverlays(
+      [bar({ time: 1, ema_20: 1.2, ema_20_dn: 9.9 })],
+      { ...DEFAULT_CHART_INDICATORS, ema20: true },
+      {
+        spec: { method: 'ema', columns: 'ema_20', keep_original: true },
+        status: 'skipped',
+      }
+    )
+    const ema = overlays.find((overlay) => overlay.name === 'indicator:ema_20')
+    expect(ema?.points[0].value).toBe(1.2)
+    expect(ema?.label).toBe('EMA 20')
+  })
 })

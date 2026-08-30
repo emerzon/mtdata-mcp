@@ -366,7 +366,13 @@ export function useChartOverlays(
         .map(bar => ({ time: bar.time, value: bar.close_dn }))
 
       if (dnPoints.length) {
-        addOverlay({ name: 'denoise:close', points: dnPoints, color: '#f59e0b', lineWidth: 2 })
+        addOverlay({
+          name: 'denoise:close',
+          points: dnPoints,
+          color: '#f59e0b',
+          lineWidth: 2,
+          label: 'Close · filtered',
+        })
       }
     }
 

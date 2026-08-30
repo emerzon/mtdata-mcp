@@ -5,7 +5,7 @@ export function liveQuotePriceLines(
   tick: Tick | undefined,
   options: { showBid: boolean; showAsk: boolean; showLast: boolean },
 ): PriceLineSpec[] {
-  if (!tick) return []
+  if (!tick || tick.usable_for_live_trading !== true) return []
 
   const lines: PriceLineSpec[] = []
   if (options.showBid && Number.isFinite(tick.bid) && tick.bid > 0) {

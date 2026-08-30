@@ -46,6 +46,8 @@ export type OutputWarning = {
   [key: string]: unknown
 }
 
+export type OutputWarningLike = OutputWarning | string
+
 export type HistoryResponse = {
   data: HistoryBar[]
   count: number
@@ -64,7 +66,13 @@ export type HistoryResponse = {
   server_utc_offset_seconds?: number
   server_timezone?: string
   source?: { provider: string }
-  warnings?: OutputWarning[]
+  warnings?: OutputWarningLike[]
+  denoise_status?: string
+  denoise_status_reason?: string
+  denoise_applied?: boolean
+  denoise_method?: string | string[]
+  denoise_overwrote_columns?: string[]
+  denoise_live_safe?: boolean
   meta?: {
     runtime?: {
       timezone?: RuntimeTimezoneMeta
@@ -605,5 +613,5 @@ export type Tick = {
   spread_points?: number
   usable_for_live_trading?: boolean
   source?: { provider: string }
-  warnings?: OutputWarning[]
+  warnings?: OutputWarningLike[]
 }

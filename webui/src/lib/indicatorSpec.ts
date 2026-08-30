@@ -3,7 +3,7 @@
  * Spec strings must match the data_fetch_candles / GET /history `indicators` DSL.
  */
 
-import type { ChartOverlay, HistoryBar } from '../types'
+import type { ChartOverlay, DenoiseSpecUI, HistoryBar } from '../types'
 
 export const CHART_INDICATOR_IDS = ['ema20', 'ema50', 'rsi14', 'macd', 'volume'] as const
 export type ChartIndicatorId = (typeof CHART_INDICATOR_IDS)[number]
@@ -139,16 +139,62 @@ function linePoints(bars: HistoryBar[], column: string): ChartOverlay['points'] 
   return points
 }
 
+export type IndicatorDenoiseContext = {
+  spec?: DenoiseSpecUI
+  status?: string
+}
+
+type ResolvedIndicatorColumn = {
+  column: string
+  filtered: boolean
+}
+
+function requestedDenoiseColumns(spec: DenoiseSpecUI | undefined): Set<string> {
+  const values = Array.isArray(spec?.columns) ? spec.columns : [spec?.columns ?? 'close']
+  return new Set(
+    values
+      .flatMap((value) => String(value).split(','))
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean)
+  )
+}
+
+function resolveIndicatorColumn(
+  bars: HistoryBar[],
+  column: string,
+  denoise: IndicatorDenoiseContext | undefined
+): ResolvedIndicatorColumn {
+  const status = String(denoise?.status || '').trim().toLowerCase()
+  const selected = requestedDenoiseColumns(denoise?.spec).has(column.toLowerCase())
+  if (!selected || status !== 'applied') return { column, filtered: false }
+
+  if (denoise?.spec?.keep_original === false) {
+    return { column, filtered: true }
+  }
+
+  const suffixed = `${column}_dn`
+  if (bars.some((bar) => numericBarField(bar, suffixed) !== undefined)) {
+    return { column: suffixed, filtered: true }
+  }
+  return { column, filtered: false }
+}
+
+function filteredLabel(label: string, resolved: ResolvedIndicatorColumn): string {
+  return resolved.filtered ? `${label} · filtered` : label
+}
+
 export function buildIndicatorOverlays(
   bars: HistoryBar[],
-  selection: ChartIndicatorSelection
+  selection: ChartIndicatorSelection,
+  denoise?: IndicatorDenoiseContext
 ): ChartOverlay[] {
   if (!bars.length) return []
 
   const overlays: ChartOverlay[] = []
 
   if (selection.ema20) {
-    const points = linePoints(bars, 'ema_20')
+    const resolved = resolveIndicatorColumn(bars, 'ema_20', denoise)
+    const points = linePoints(bars, resolved.column)
     if (points.length) {
       overlays.push({
         name: 'indicator:ema_20',
@@ -156,13 +202,14 @@ export function buildIndicatorOverlays(
         color: '#38bdf8',
         lineWidth: 2,
         pane: 'price',
-        label: 'EMA 20',
+        label: filteredLabel('EMA 20', resolved),
       })
     }
   }
 
   if (selection.ema50) {
-    const points = linePoints(bars, 'ema_50')
+    const resolved = resolveIndicatorColumn(bars, 'ema_50', denoise)
+    const points = linePoints(bars, resolved.column)
     if (points.length) {
       overlays.push({
         name: 'indicator:ema_50',
@@ -170,13 +217,14 @@ export function buildIndicatorOverlays(
         color: '#a78bfa',
         lineWidth: 2,
         pane: 'price',
-        label: 'EMA 50',
+        label: filteredLabel('EMA 50', resolved),
       })
     }
   }
 
   if (selection.rsi14) {
-    const points = linePoints(bars, 'rsi_14')
+    const resolved = resolveIndicatorColumn(bars, 'rsi_14', denoise)
+    const points = linePoints(bars, resolved.column)
     if (points.length) {
       overlays.push({
         name: 'indicator:rsi_14',
@@ -184,7 +232,7 @@ export function buildIndicatorOverlays(
         color: '#f472b6',
         lineWidth: 2,
         pane: 'rsi',
-        label: 'RSI 14',
+        label: filteredLabel('RSI 14', resolved),
         referenceLines: [
           { price: 70, color: '#64748b', title: '70' },
           { price: 30, color: '#64748b', title: '30' },
@@ -194,11 +242,14 @@ export function buildIndicatorOverlays(
   }
 
   if (selection.macd) {
-    const macdPoints = linePoints(bars, 'macd_12_26_9')
-    const signalPoints = linePoints(bars, 'macd_s_12_26_9')
+    const macdResolved = resolveIndicatorColumn(bars, 'macd_12_26_9', denoise)
+    const signalResolved = resolveIndicatorColumn(bars, 'macd_s_12_26_9', denoise)
+    const histogramResolved = resolveIndicatorColumn(bars, 'macd_h_12_26_9', denoise)
+    const macdPoints = linePoints(bars, macdResolved.column)
+    const signalPoints = linePoints(bars, signalResolved.column)
     const histPoints: ChartOverlay['points'] = []
     for (const bar of bars) {
-      const value = numericBarField(bar, 'macd_h_12_26_9')
+      const value = numericBarField(bar, histogramResolved.column)
       if (!Number.isFinite(bar.time) || value === undefined) continue
       histPoints.push({
         time: bar.time,
@@ -213,7 +264,7 @@ export function buildIndicatorOverlays(
         color: '#22c55e',
         pane: 'macd',
         kind: 'histogram',
-        label: 'MACD hist',
+        label: filteredLabel('MACD hist', histogramResolved),
       })
     }
     if (macdPoints.length) {
@@ -223,7 +274,7 @@ export function buildIndicatorOverlays(
         color: '#38bdf8',
         lineWidth: 2,
         pane: 'macd',
-        label: 'MACD',
+        label: filteredLabel('MACD', macdResolved),
         referenceLines: [{ price: 0, color: '#475569', title: '0' }],
       })
     }
@@ -234,7 +285,7 @@ export function buildIndicatorOverlays(
         color: '#f59e0b',
         lineWidth: 1,
         pane: 'macd',
-        label: 'Signal',
+        label: filteredLabel('Signal', signalResolved),
       })
     }
   }

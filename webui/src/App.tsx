@@ -59,6 +59,7 @@ export default function App() {
           hasPivots={!!workspace.pivotLevels}
           hasSR={!!workspace.srLevels}
           denoise={workspace.chartDenoise}
+          denoiseFeedback={workspace.denoiseFeedback}
           indicators={workspace.chartIndicators}
           onIndicatorsChange={workspace.handleIndicatorsChange}
           barsCount={workspace.bars.length}
@@ -105,14 +106,30 @@ export default function App() {
 
         <ChartWorkspaceStatusView status={chartStatus} onReload={workspace.reload} />
 
-        {workspace.workspaceErrors.length > 0 && chartStatus.kind === 'ready' && (
-          <div
-            className="absolute top-16 sm:top-14 left-2 right-2 sm:right-auto z-20 max-w-xl rounded-lg border border-rose-800 bg-rose-950/95 px-3 py-2 text-xs text-rose-200 shadow-lg"
-            role="alert"
-          >
-            {workspace.workspaceErrors.map((message) => (
-              <div key={message}>{message}</div>
-            ))}
+        {chartStatus.kind === 'ready'
+          && (workspace.workspaceErrors.length > 0 || workspace.workspaceWarnings.length > 0)
+          && (
+          <div className="absolute top-16 sm:top-14 left-2 right-2 sm:right-auto z-20 max-w-xl space-y-2 text-xs shadow-lg">
+            {workspace.workspaceErrors.length > 0 && (
+              <div
+                className="rounded-lg border border-rose-800 bg-rose-950/95 px-3 py-2 text-rose-200"
+                role="alert"
+              >
+                {workspace.workspaceErrors.map((message) => (
+                  <div key={message}>{message}</div>
+                ))}
+              </div>
+            )}
+            {workspace.workspaceWarnings.length > 0 && (
+              <div
+                className="rounded-lg border border-amber-800 bg-amber-950/95 px-3 py-2 text-amber-100"
+                role="status"
+              >
+                {workspace.workspaceWarnings.map((message) => (
+                  <div key={message}>{message}</div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

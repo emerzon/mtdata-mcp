@@ -9,6 +9,7 @@ const baseTick = {
   time_epoch: 1788091200,
   bid: 1.1,
   ask: 1.2,
+  usable_for_live_trading: true,
 }
 
 describe('liveQuotePriceLines', () => {
@@ -21,5 +22,17 @@ describe('liveQuotePriceLines', () => {
     expect(liveQuotePriceLines({ ...baseTick, last: 1.15 }, options)).toEqual([
       { price: 1.15, color: '#facc15', title: 'Last' },
     ])
+  })
+
+  it('hides positive prices when the backend blocks live use', () => {
+    expect(liveQuotePriceLines(
+      { ...baseTick, last: 1.15, usable_for_live_trading: false },
+      { showBid: true, showAsk: true, showLast: true }
+    )).toEqual([])
+  })
+
+  it('requires an explicit live-readiness decision', () => {
+    const { usable_for_live_trading: _gate, ...unverified } = baseTick
+    expect(liveQuotePriceLines({ ...unverified, last: 1.15 }, options)).toEqual([])
   })
 })

@@ -17,6 +17,7 @@ import {
 import { loadJSON } from '../../lib/storage'
 import { useDismissiblePanel } from '../../lib/useDismissiblePanel'
 import type { DenoiseSpecUI } from '../../types'
+import type { ChartDenoiseFeedback } from '../../lib/historyFeedback'
 import { ChevronDown, IndicatorIcon } from './toolbarIcons'
 
 export function SymbolSelector({
@@ -221,25 +222,40 @@ export function TimeframeSelector({
 
 export function DenoiseSelector({
   value,
+  feedback,
   disabled,
   onChange,
 }: {
   value?: DenoiseSpecUI
+  feedback: ChartDenoiseFeedback
   disabled: boolean
   onChange: (value?: DenoiseSpecUI) => void
 }) {
   const [open, setOpen] = useState(false)
+  const statusClass = feedback.state === 'applied'
+    ? 'text-emerald-400'
+    : feedback.state === 'skipped' || feedback.state === 'failed'
+      ? 'text-rose-400'
+      : feedback.state === 'pending'
+        ? 'text-amber-400'
+        : ''
+  const statusLabel = feedback.state === 'applied'
+    ? 'Filter ✓'
+    : feedback.state === 'skipped' || feedback.state === 'failed'
+      ? 'Filter !'
+      : 'Filter'
 
   return (
     <div className="relative">
       <button
-        className={`toolbar-btn ${value?.method ? 'text-orange-400' : ''}`}
+        className={`toolbar-btn ${statusClass}`}
         onClick={() => setOpen(true)}
         disabled={disabled}
-        title="Chart denoising"
+        title={feedback.title}
         aria-label="Chart denoising"
+        aria-pressed={feedback.state === 'applied'}
       >
-        <span>Filter</span>
+        <span>{statusLabel}</span>
         <ChevronDown />
       </button>
       <DenoiseModal

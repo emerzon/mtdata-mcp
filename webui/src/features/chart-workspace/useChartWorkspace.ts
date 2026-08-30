@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getErrorMessage, getHistory, getTick } from '../../api/client'
 import { useConfluenceLevels, useExposureOverlay, useVolumeProfileLevels } from '../../hooks/useGeometry'
@@ -19,6 +19,11 @@ import { mapCompactForecastToSeries } from '../../lib/compactForecast'
 import { toUtcSec } from '../../lib/time'
 import { chartWorkspaceLivePollMs } from '../../lib/timeframes'
 import { liveQuotePriceLines } from '../../lib/chartPriceLines'
+import { chartQueryActivity, mergeHistoryBars } from '../../lib/historyBars'
+import {
+  resolveChartDenoiseFeedback,
+  responseWarningMessages,
+} from '../../lib/historyFeedback'
 import { formatDateTime } from '../../lib/utils'
 import {
   confluencePriceLines,
@@ -61,6 +66,7 @@ export function useChartWorkspace() {
   const [symbol, setSymbol] = useState(() => loadJSON<string>('last_symbol') || '')
   const [timeframe, setTimeframe] = useState('H1')
   const [extraHistory, setExtraHistory] = useState<HistoryBar[]>([])
+  const [liveHistory, setLiveHistory] = useState<HistoryBar[]>([])
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [anchor, setAnchor] = useState<number | undefined>(undefined)
   const [showBid, setShowBid] = useState(false)
@@ -89,6 +95,7 @@ export function useChartWorkspace() {
   })
   const historyContractRef = useRef(historyContract)
   historyContractRef.current = historyContract
+  const queryActivity = chartQueryActivity(symbol, isLive)
 
   const pivotState = usePivotLevels(symbol, timeframe)
   const srState = useSupportResistance(symbol, timeframe)
@@ -105,18 +112,26 @@ export function useChartWorkspace() {
     isLoading: isHistoryLoading,
     isFetched: isHistoryFetched,
   } = useQuery({
-    queryKey: ['hist', symbol, timeframe, QUERY_LIMIT, JSON.stringify(chartDenoise || {}), indicatorsQuery, indicatorsOhlcv, isLive],
+    queryKey: [
+      'hist',
+      symbol,
+      timeframe,
+      QUERY_LIMIT,
+      JSON.stringify(chartDenoise || {}),
+      indicatorsQuery,
+      indicatorsOhlcv,
+    ],
     queryFn: ({ signal }) =>
       getHistory({
         symbol,
         timeframe,
         limit: QUERY_LIMIT,
         denoise: chartDenoise,
-        include_incomplete: isLive,
+        include_incomplete: false,
         indicators: indicatorsQuery,
         ohlcv: indicatorsOhlcv,
       }, signal),
-    enabled: isLive && !!symbol,
+    enabled: queryActivity.history,
   })
 
   const { data: liveDataResponse, error: liveHistoryError } = useQuery({
@@ -130,47 +145,30 @@ export function useChartWorkspace() {
       indicators: indicatorsQuery,
       ohlcv: indicatorsOhlcv,
     }, signal),
-    enabled: isLive && !!symbol,
+    enabled: queryActivity.liveHistory,
     refetchInterval: livePollMs,
   })
 
   const { data: tickData, error: tickError } = useQuery({
     queryKey: ['tick', symbol],
     queryFn: ({ signal }) => getTick(symbol, signal),
-    enabled: !!symbol,
-    refetchInterval: livePollMs,
+    enabled: queryActivity.tick,
+    refetchInterval: isLive ? livePollMs : false,
   })
+
+  useEffect(() => {
+    setLiveHistory([])
+  }, [historyContract])
+
+  useEffect(() => {
+    if (!isLive || !liveDataResponse?.data?.length) return
+    setLiveHistory((previous) => mergeHistoryBars(previous, liveDataResponse.data))
+  }, [historyContract, isLive, liveDataResponse])
 
   const bars = useMemo(() => {
     const base = (histDataResponse?.data ?? []) as HistoryBar[]
-    const live = (liveDataResponse?.data ?? []) as HistoryBar[]
-
-    let combined = base
-
-    if (extraHistory.length) {
-      const mainStart = base.length ? base[0].time : Infinity
-      const older = extraHistory.filter((bar) => bar.time < mainStart)
-      combined = [...older, ...base]
-    }
-
-    if (!isLive || !live.length || !combined.length) return combined
-
-    const merged = [...combined]
-    live.forEach((bar) => {
-      const lastIndex = merged.length - 1
-      if (lastIndex < 0) {
-        merged.push(bar)
-        return
-      }
-      const last = merged[lastIndex]
-      if (Math.abs(bar.time - last.time) < 0.1) {
-        merged[lastIndex] = bar
-      } else if (bar.time > last.time) {
-        merged.push(bar)
-      }
-    })
-    return merged
-  }, [extraHistory, histDataResponse, isLive, liveDataResponse])
+    return mergeHistoryBars(extraHistory, base, liveHistory)
+  }, [extraHistory, histDataResponse, liveHistory])
 
   const serverTimeZone = useMemo(() => {
     const candidate = histDataResponse?.server_timezone
@@ -200,6 +198,7 @@ export function useChartWorkspace() {
 
   const resetWorkspaceView = useCallback(() => {
     setExtraHistory([])
+    setLiveHistory([])
     setForecastOverlays([])
     setAnchor(undefined)
     setMetrics(null)
@@ -276,6 +275,7 @@ export function useChartWorkspace() {
       const normalized = ensureChartDenoiseCausality(denoise)
       setChartDenoise(normalized)
       setExtraHistory([])
+      setLiveHistory([])
       setHistoryPageError(null)
       setForecastOverlays([])
       setMetrics(null)
@@ -291,6 +291,7 @@ export function useChartWorkspace() {
       const normalized = normalizeChartIndicators(next)
       setChartIndicators(normalized)
       setExtraHistory([])
+      setLiveHistory([])
       setHistoryPageError(null)
       if (symbol && timeframe) {
         saveJSON(`chart_ti:${symbol}:${timeframe}`, normalized)
@@ -413,9 +414,27 @@ export function useChartWorkspace() {
     [bars]
   )
 
+  const denoiseFeedback = useMemo(
+    () => resolveChartDenoiseFeedback(
+      chartDenoise,
+      histDataResponse,
+      isLive ? liveDataResponse : undefined
+    ),
+    [chartDenoise, histDataResponse, isLive, liveDataResponse]
+  )
   const indicatorOverlays = useMemo(
-    () => buildIndicatorOverlays(bars, chartIndicators),
-    [bars, chartIndicators]
+    () => buildIndicatorOverlays(bars, chartIndicators, {
+      spec: chartDenoise,
+      status: histDataResponse?.denoise_status
+        || (histDataResponse?.denoise_applied === true ? 'applied' : undefined),
+    }),
+    [
+      bars,
+      chartDenoise,
+      chartIndicators,
+      histDataResponse?.denoise_applied,
+      histDataResponse?.denoise_status,
+    ]
   )
   const forecastAndIndicatorOverlays = useMemo(
     () => [...forecastOverlays, ...indicatorOverlays],
@@ -456,13 +475,32 @@ export function useChartWorkspace() {
   ])
 
   const earliest = bars.length ? bars[0].time : undefined
+  const workspaceWarnings = useMemo(() => {
+    const warnings = [
+      ...responseWarningMessages('History', histDataResponse),
+      ...(isLive
+        ? responseWarningMessages(
+            'Live history',
+            liveDataResponse,
+            new Set(['forming_candle_included'])
+          )
+        : []),
+      ...(isLive ? responseWarningMessages('Quote', tickData) : []),
+      denoiseFeedback.warning ?? null,
+      isLive && tickData && tickData.usable_for_live_trading !== true
+        ? 'Quote: Live price lines are hidden because this snapshot is not verified as usable for live trading.'
+        : null,
+    ].filter((value): value is string => Boolean(value))
+    return Array.from(new Set(warnings))
+  }, [denoiseFeedback.warning, histDataResponse, isLive, liveDataResponse, tickData])
+
   const workspaceErrors = useMemo(() => {
     const errors = [
       historyError ? `History: ${getErrorMessage(historyError)}` : null,
       isLive && liveHistoryError
         ? `Live history: ${getErrorMessage(liveHistoryError)}`
         : null,
-      tickError ? `Quote: ${getErrorMessage(tickError)}` : null,
+      isLive && tickError ? `Quote: ${getErrorMessage(tickError)}` : null,
       historyPageError ? `Older history: ${historyPageError}` : null,
       pivotState.error ? `Pivots: ${pivotState.error}` : null,
       srState.error ? `Support/resistance: ${srState.error}` : null,
@@ -514,6 +552,7 @@ export function useChartWorkspace() {
     chartOverlays,
     priceLines,
     metrics,
+    denoiseFeedback,
     pivotLevels: pivotState.levels,
     pivotMethod: pivotState.method,
     pivotsLoading: pivotState.isLoading,
@@ -526,6 +565,7 @@ export function useChartWorkspace() {
     isInitialHistoryLoading: !!symbol && (isHistoryLoading || (!isHistoryFetched && isFetching)),
     historyErrorMessage: historyError ? getErrorMessage(historyError) : null,
     workspaceErrors,
+    workspaceWarnings,
     earliest,
     setTimezoneMode,
     handleAnchorSelect,
@@ -553,6 +593,7 @@ export function useChartWorkspace() {
     exposureLoading: exposureState.isLoading,
     reload: () => {
       setExtraHistory([])
+      setLiveHistory([])
       void refetch()
     },
     toggleBid: () => setShowBid((value) => !value),

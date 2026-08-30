@@ -16,6 +16,7 @@ import {
   TimezoneSelector,
 } from '../features/chart-workspace/toolbarMenus'
 import type { ChartIndicatorSelection } from '../lib/indicatorSpec'
+import type { ChartDenoiseFeedback } from '../lib/historyFeedback'
 import { formatEpochTime } from '../lib/time'
 
 type Props = {
@@ -27,6 +28,7 @@ type Props = {
   hasPivots: boolean
   hasSR: boolean
   denoise?: DenoiseSpecUI
+  denoiseFeedback: ChartDenoiseFeedback
   indicators: ChartIndicatorSelection
   onIndicatorsChange: (value: ChartIndicatorSelection) => void
   showBid: boolean
@@ -78,6 +80,7 @@ export function ChartToolbar({
   hasPivots,
   hasSR,
   denoise,
+  denoiseFeedback,
   indicators,
   onIndicatorsChange,
   showBid,
@@ -163,7 +166,12 @@ export function ChartToolbar({
       />
       <div className="w-px h-5 bg-slate-700 hidden sm:block" />
       <IndicatorSelector value={indicators} disabled={!symbol} onChange={onIndicatorsChange} />
-      <DenoiseSelector value={denoise} disabled={!symbol} onChange={onDenoiseChange} />
+      <DenoiseSelector
+        value={denoise}
+        feedback={denoiseFeedback}
+        disabled={!symbol}
+        onChange={onDenoiseChange}
+      />
     </>
   )
 
