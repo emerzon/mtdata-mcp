@@ -396,8 +396,8 @@ symbol, timeframe, horizon, seasonality, exogenous-input shape, preprocessing, a
 training parameters. The observed history start/end are freshness metadata, not
 part of that identity. Live `forecast_generate` calls reuse the latest matching
 artifact for at most one resolved seasonal cycle only when the method can refresh
-its fitted history from the newly supplied bars (MLForecast, StatsForecast, and
-sktime adapters). They report `model_staleness_bars`; methods without safe live
+its fitted history from the newly supplied bars (currently MLForecast adapters).
+They report `model_staleness_bars`; methods without safe live
 history refresh retrain instead of forecasting from a stale cutoff. Historical
 `as_of` calls always require the artifact's exact training anchor to prevent
 look-ahead reuse.

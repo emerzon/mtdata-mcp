@@ -116,7 +116,7 @@ class SktimeMethod(ForecastMethod):
 
     @property
     def supports_live_model_update(self) -> bool:
-        return True
+        return False
 
     @property
     def training_category(self):

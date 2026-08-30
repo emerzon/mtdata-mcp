@@ -39,18 +39,6 @@ def _coerce_params(params: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def _statsforecast_train_frame(
-    Y_df: pd.DataFrame,
-    X_df: Optional[pd.DataFrame],
-) -> pd.DataFrame:
-    """Return current history in StatsForecast's historical-covariate shape."""
-    if X_df is None:
-        return Y_df
-    join_cols = [column for column in ("unique_id", "ds") if column in Y_df and column in X_df]
-    if not join_cols:
-        return Y_df
-    return Y_df.merge(X_df, on=join_cols, how="left")
-
 class StatsForecastMethod(ForecastMethod):
     """Base class for StatsForecast methods."""
     
@@ -79,7 +67,7 @@ class StatsForecastMethod(ForecastMethod):
 
     @property
     def supports_live_model_update(self) -> bool:
-        return True
+        return False
 
     @property
     def training_category(self):
@@ -191,7 +179,7 @@ class StatsForecastMethod(ForecastMethod):
         from ..common import _extract_forecast_values, _resolve_trained_forecast_frames
 
         p = dict(params or {})
-        Y_df, X_df, Xf_df = _resolve_trained_forecast_frames(
+        _, _, Xf_df = _resolve_trained_forecast_frames(
             series,
             horizon,
             p,
@@ -211,17 +199,7 @@ class StatsForecastMethod(ForecastMethod):
         sf = model  # deserialized StatsForecast object
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            if callable(getattr(sf, "forecast", None)):
-                forecast_kwargs = {
-                    "h": int(horizon),
-                    "df": _statsforecast_train_frame(Y_df, X_df),
-                    "level": level,
-                }
-                if Xf_df is not None:
-                    Yf = sf.forecast(X_df=Xf_df, **forecast_kwargs)
-                else:
-                    Yf = sf.forecast(**forecast_kwargs)
-            elif Xf_df is not None:
+            if Xf_df is not None:
                 Yf = sf.predict(h=int(horizon), X_df=Xf_df, level=level)
             else:
                 Yf = sf.predict(h=int(horizon), level=level)

@@ -53,9 +53,12 @@ class _StatsArtifact:
     def __init__(self) -> None:
         self.call: Dict[str, Any] | None = None
 
-    def forecast(self, **kwargs: Any) -> pd.DataFrame:
+    def predict(self, **kwargs: Any) -> pd.DataFrame:
         self.call = kwargs
         return pd.DataFrame({"unique_id": ["ts", "ts"], "stats_test": [4.0, 5.0]})
+
+    def forecast(self, **kwargs: Any) -> pd.DataFrame:
+        raise AssertionError("stored artifacts must not be refitted")
 
 
 class _SktimeArtifact:
@@ -84,7 +87,7 @@ def test_mlforecast_predict_refreshes_fitted_history() -> None:
     assert artifact.call["new_df"]["y"].tolist() == [1.0, 2.0, 3.0]
 
 
-def test_statsforecast_predict_refreshes_fitted_history() -> None:
+def test_statsforecast_predict_uses_stored_fit() -> None:
     artifact = _StatsArtifact()
     series = pd.Series([1.0, 2.0, 3.0])
 
@@ -92,18 +95,9 @@ def test_statsforecast_predict_refreshes_fitted_history() -> None:
 
     assert isinstance(result, ForecastResult)
     assert artifact.call is not None
-    assert artifact.call["df"]["y"].tolist() == [1.0, 2.0, 3.0]
+    assert artifact.call == {"h": 2, "level": None}
+    assert _StatsMethod().supports_live_model_update is False
 
 
-def test_sktime_predict_updates_only_new_history(monkeypatch) -> None:
-    from mtdata.forecast.methods import sktime
-
-    monkeypatch.setattr(sktime, "_HAS_SKTIME", True)
-    artifact = _SktimeArtifact()
-    series = pd.Series([1.0, 2.0, 3.0, 4.0])
-
-    result = _SktimeMethod().predict_with_model(artifact, series, 2, 1, {})
-
-    assert isinstance(result, ForecastResult)
-    assert artifact.updated is not None
-    assert artifact.updated.tolist() == [3.0, 4.0]
+def test_sktime_does_not_claim_live_history_refresh() -> None:
+    assert _SktimeMethod().supports_live_model_update is False
