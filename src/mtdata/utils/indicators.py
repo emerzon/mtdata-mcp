@@ -115,7 +115,7 @@ def _parse_doc_default_value(raw: str) -> Any:
     return _DEFAULT_MISSING
 
 
-def _parse_ti_number(token: str) -> int | float | None:
+def _parse_ti_number(token: str) -> int | float:
     """Parse a numeric TI arg, normalizing integral floats to int.
 
     pandas_ta uses the provided parameter values when building output column
@@ -124,8 +124,12 @@ def _parse_ti_number(token: str) -> int | float | None:
     """
     try:
         val = float(token)
-    except Exception:
-        return None
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            f"Indicator parameter {token!r} must be a finite number."
+        ) from exc
+    if not math.isfinite(val):
+        raise ValueError(f"Indicator parameter {token!r} must be a finite number.")
     return int(val) if val.is_integer() else val
 
 
@@ -347,13 +351,13 @@ def _parse_ti_specs(spec: str) -> List[Tuple[str, List[int | float], Dict[str, i
                     k, v = tok.split('=', 1)
                     k = k.strip()
                     v = v.strip()
-                    num = _parse_ti_number(v)
-                    if num is not None:
-                        kwargs[k] = num
+                    if not k:
+                        raise ValueError(
+                            f"Indicator parameter name must not be empty in {part!r}."
+                        )
+                    kwargs[k] = _parse_ti_number(v)
                 else:
-                    num = _parse_ti_number(tok)
-                    if num is not None:
-                        args.append(num)
+                    args.append(_parse_ti_number(tok))
         # Flex: detect trailing number in name (EMA21 -> length=21)
         normalized_name = _normalize_ta_indicator_name(name.strip())
         m = re.search(r"(.*?)[_\-]?([0-9]{1,3})$", name)
@@ -424,7 +428,11 @@ def _format_missing_indicator_columns(
     )
 
 
-def _resolve_indicator_volume_series(df: pd.DataFrame) -> Optional[pd.Series]:
+def _resolve_indicator_volume_series(
+    df: pd.DataFrame,
+    *,
+    record_source: bool = True,
+) -> Optional[pd.Series]:
     for col_name in _VOLUME_SOURCE_COLUMNS:
         if col_name not in df.columns:
             continue
@@ -435,7 +443,8 @@ def _resolve_indicator_volume_series(df: pd.DataFrame) -> Optional[pd.Series]:
             numeric = series
         try:
             if bool((numeric.fillna(0) != 0).any()):
-                df.attrs["indicator_volume_source"] = col_name
+                if record_source:
+                    df.attrs["indicator_volume_source"] = col_name
                 return series
         except Exception:
             pass
@@ -545,6 +554,11 @@ def _validate_ta_indicator_parameters(
                 f"Indicator '{indicator}' parameter '{name}' must be greater than 0; "
                 f"received {raw_value!r}."
             )
+        if not numeric.is_integer():
+            raise ValueError(
+                f"Indicator '{indicator}' parameter '{name}' must be a whole "
+                f"number of bars; received {raw_value!r}."
+            )
         if numeric > available_rows:
             raise ValueError(
                 f"Indicator '{indicator}' parameter '{name}' requests {raw_value} bars, "
@@ -573,6 +587,53 @@ def _validate_ta_indicator_parameters(
             )
 
 
+def _prepare_ta_indicator_parameters(
+    indicator: str,
+    args: List[int | float],
+    kwargs: Dict[str, int | float],
+) -> tuple[Any, Dict[str, inspect.Parameter], Dict[str, Any]]:
+    """Bind and validate explicit parameters without invoking an indicator."""
+    lname = _normalize_ta_indicator_name(indicator)
+    func = getattr(pta, lname, None)
+    if not callable(func):
+        raise ValueError(_format_unknown_ta_indicators_error([lname]))
+
+    params = dict(inspect.signature(func).parameters)
+    explicit = _canonicalize_ta_period_kwargs(lname, kwargs)
+    unknown = sorted(key for key in explicit if key not in params)
+    if unknown:
+        accepted = sorted(
+            name
+            for name, parameter in params.items()
+            if name not in _INDICATOR_SERIES_NAMES
+            and parameter.kind
+            not in (inspect.Parameter.VAR_KEYWORD, inspect.Parameter.VAR_POSITIONAL)
+        )
+        accepted_text = ", ".join(accepted) or "no named parameters"
+        raise ValueError(
+            f"Indicator '{lname}' does not accept parameter(s): "
+            f"{', '.join(unknown)}. Accepted named parameters: {accepted_text}."
+        )
+
+    ordered_names = [
+        name
+        for name, parameter in params.items()
+        if name not in _INDICATOR_SERIES_NAMES
+        and parameter.kind
+        not in (inspect.Parameter.VAR_KEYWORD, inspect.Parameter.VAR_POSITIONAL)
+    ]
+    remaining_names = [name for name in ordered_names if name not in explicit]
+    if len(args) > len(remaining_names):
+        raise ValueError(
+            f"Indicator '{lname}' accepts at most {len(remaining_names)} positional "
+            f"parameter(s); received {len(args)}."
+        )
+    for name, value in zip(remaining_names, args):
+        explicit[name] = value
+
+    return func, params, explicit
+
+
 def _apply_ta_indicators(df: pd.DataFrame, ti_spec: str) -> List[str]:  # noqa: C901
     """Apply indicators specified by ti_spec to df in-place, return list of added column names."""
     added_cols: List[str] = []
@@ -581,6 +642,53 @@ def _apply_ta_indicators(df: pd.DataFrame, ti_spec: str) -> List[str]:  # noqa: 
     unknown_indicators = _find_unknown_ta_indicators(ti_spec)
     if unknown_indicators:
         raise ValueError(_format_unknown_ta_indicators_error(unknown_indicators))
+    specs = _parse_ti_specs(ti_spec)
+    prepared_specs = []
+    for name, args, kwargs in specs:
+        lname = _normalize_ta_indicator_name(name)
+        if lname == "vwap":
+            if args or kwargs:
+                raise ValueError(
+                    "Indicator 'vwap' uses the broker-server daily session and "
+                    "does not accept parameters."
+                )
+            prepared_specs.append((lname, None, {}, {}))
+            continue
+        func, params, explicit = _prepare_ta_indicator_parameters(
+            lname,
+            args,
+            kwargs,
+        )
+        prepared_specs.append((lname, func, params, explicit))
+    preflight_volume = _resolve_indicator_volume_series(df, record_source=False)
+    for lname, _func, params, explicit in prepared_specs:
+        if lname == "vwap":
+            missing = [
+                column for column in ("high", "low", "close") if column not in df.columns
+            ]
+            if preflight_volume is None:
+                missing.append("volume")
+            if missing:
+                raise ValueError(
+                    _format_missing_indicator_columns(
+                        "vwap",
+                        required=["high", "low", "close", "volume"],
+                        missing=missing,
+                        available=list(df.columns),
+                    )
+                )
+            continue
+        _resolve_indicator_series_inputs(
+            df,
+            lname,
+            params,
+            volume_series=preflight_volume,
+        )
+        _validate_ta_indicator_parameters(
+            lname,
+            explicit,
+            available_rows=len(df),
+        )
     # Many TA funcs expect a DatetimeIndex
     original_index = df.index
     try:
@@ -594,17 +702,9 @@ def _apply_ta_indicators(df: pd.DataFrame, ti_spec: str) -> List[str]:  # noqa: 
                 except Exception:
                     pass
         before = set(df.columns)
-        specs = _parse_ti_specs(ti_spec)
         volume_series = _resolve_indicator_volume_series(df)
-        for name, args, kwargs in specs:
-            lname = _normalize_ta_indicator_name(name)
-            kwargs = _canonicalize_ta_period_kwargs(lname, kwargs)
+        for lname, func, params, explicit in prepared_specs:
             if lname == "vwap":
-                if args or kwargs:
-                    raise ValueError(
-                        "Indicator 'vwap' uses the broker-server daily session and "
-                        "does not accept parameters."
-                    )
                 missing = [
                     column for column in ("high", "low", "close") if column not in df.columns
                 ]
@@ -623,12 +723,7 @@ def _apply_ta_indicators(df: pd.DataFrame, ti_spec: str) -> List[str]:  # noqa: 
                 added_cols.append("VWAP_D")
                 before = set(df.columns)
                 continue
-            func = getattr(pta, lname, None)
-            if not callable(func):
-                continue
             try:
-                sig = inspect.signature(func)
-                params = sig.parameters
                 series_inputs = _resolve_indicator_series_inputs(
                     df,
                     lname,
@@ -638,41 +733,10 @@ def _apply_ta_indicators(df: pd.DataFrame, ti_spec: str) -> List[str]:  # noqa: 
                 # Prepare keyword arguments safely. Passing resolved series by
                 # name avoids binding collisions for multi-series indicators
                 # such as supertrend(high, low, close, ...).
-                call_kwargs = dict(kwargs)
+                call_kwargs = dict(explicit)
                 for series_name, series_value in series_inputs.items():
                     if series_name not in call_kwargs:
                         call_kwargs[series_name] = series_value
-
-                # Generic mapping: map provided numeric args to function parameters in declared order
-                # Skip series parameters and any already supplied in call_kwargs
-                series_names = {'open', 'open_', 'high', 'low', 'close', 'volume'}
-                ordered_param_names = []
-                for pname, p in params.items():
-                    if p.kind in (inspect.Parameter.VAR_KEYWORD, inspect.Parameter.VAR_POSITIONAL):
-                        continue
-                    if pname in series_names:
-                        continue
-                    ordered_param_names.append(pname)
-                # Assign args to next available param name not already set
-                ai = 0
-                for pname in ordered_param_names:
-                    if ai >= len(args):
-                        break
-                    if pname in call_kwargs:
-                        continue
-                    # Use provided arg in order
-                    call_kwargs[pname] = args[ai]
-                    ai += 1
-
-                _validate_ta_indicator_parameters(
-                    lname,
-                    {
-                        key: value
-                        for key, value in call_kwargs.items()
-                        if key not in series_inputs
-                    },
-                    available_rows=len(df),
-                )
 
                 # Call once with the signature-derived argument mapping. Retrying with
                 # different bindings can silently change indicator semantics.

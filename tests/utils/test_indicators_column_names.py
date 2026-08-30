@@ -101,6 +101,36 @@ def test_apply_ta_indicators_rejects_period_beyond_available_history() -> None:
     assert list(df.columns) == ["close"]
 
 
+@pytest.mark.parametrize(
+    ("ti_spec", "message"),
+    [
+        ("ema(twenty)", "must be a finite number"),
+        ("ema(length=abc)", "must be a finite number"),
+        ("ema(lenght=5)", "does not accept parameter.*lenght"),
+        ("ema(14.5)", "must be a whole number of bars"),
+    ],
+)
+def test_apply_ta_indicators_rejects_malformed_explicit_parameters(
+    ti_spec: str,
+    message: str,
+) -> None:
+    df = _sample_df()
+
+    with pytest.raises(ValueError, match=message):
+        _apply_ta_indicators(df, ti_spec)
+
+    assert list(df.columns) == ["close"]
+
+
+def test_apply_ta_indicators_validates_all_specs_before_mutation() -> None:
+    df = _sample_df()
+
+    with pytest.raises(ValueError, match="does not accept parameter.*lenght"):
+        _apply_ta_indicators(df, "ema(20),rsi(lenght=14)")
+
+    assert list(df.columns) == ["close"]
+
+
 def test_apply_ta_indicators_restores_original_index_on_value_error() -> None:
     df = pd.DataFrame(
         {
@@ -256,14 +286,14 @@ def test_vwap_resets_at_broker_midnight_not_utc_midnight(monkeypatch) -> None:
 def test_apply_ta_indicators_raises_actionable_error_without_retries(monkeypatch) -> None:
     df = _sample_df()
 
-    def _broken_indicator(*args, **kwargs):
+    def _broken_indicator(close, length=None, **kwargs):
         raise RuntimeError("boom")
 
     monkeypatch.setattr(indicators.pta, "ema", _broken_indicator, raising=False)
 
     with pytest.raises(
         ValueError,
-        match="Indicator 'ema' failed with parameters defaults: boom",
+        match="Indicator 'ema' failed with parameters close, length: boom",
     ):
         _apply_ta_indicators(df, "ema(20)")
 

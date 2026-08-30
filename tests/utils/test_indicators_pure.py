@@ -132,7 +132,8 @@ class TestParseTiNumber:
         assert _parse_ti_number("0.5") == pytest.approx(0.5)
 
     def test_non_numeric(self):
-        assert _parse_ti_number("abc") is None
+        with pytest.raises(ValueError, match="must be a finite number"):
+            _parse_ti_number("abc")
 
     def test_int_string(self):
         assert _parse_ti_number("14") == 14
