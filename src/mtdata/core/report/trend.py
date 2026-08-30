@@ -13,12 +13,12 @@ _TREND_COMPACT_LEGEND: Dict[str, str] = {
     "slope_atr_scores": "ATR-adjusted slope score (x100) for windows [5, 20, 60] bars.",
     "fit_r2_pcts": "Linear fit quality (R^2 percent) for windows [5, 20, 60] bars.",
     "volatility_bps": "ATR as basis points of price (volatility proxy).",
-    "squeeze_percentile": "Bollinger bandwidth percentile (squeeze percentile).",
+    "squeeze_percentile": "Bollinger bandwidth percentile; unavailable until 10 rolling windows exist.",
     "regime_code": "Regime code: 0=neutral, 1=uptrend, 2=downtrend, 3=breakout_up, 4=breakout_down.",
     "bars_since_swing_high": "Bars since most recent swing high (within lookback window).",
     "bars_since_swing_low": "Bars since most recent swing low (within lookback window).",
     "bars_analyzed": "Consecutive source-timeframe bars used by the calculations.",
-    "input_resolution": "Input spacing used by bar-window calculations.",
+    "input_resolution": "Input ordering used by bar-window calculations.",
     "data_quality": "Missing-input summary when close/high/low values were imputed for trend calculations.",
 }
 
@@ -87,17 +87,17 @@ def _percentile_rank(values: List[float], current: float) -> int:
         return 0
 
 
-def _bars_since_latest_pivot(values: List[float], *, high: bool) -> int:
+def _bars_since_latest_pivot(values: List[float], *, high: bool) -> Optional[int]:
     """Return bars since the latest one-bar confirmed local extremum."""
     if len(values) < 3:
-        return 0
+        return None
     for index in range(len(values) - 2, 0, -1):
         value = values[index]
         if high and value >= values[index - 1] and value > values[index + 1]:
             return (len(values) - 1) - index
         if not high and value <= values[index - 1] and value < values[index + 1]:
             return (len(values) - 1) - index
-    return 0
+    return None
 
 
 def _compute_compact_trend(rows: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -106,7 +106,9 @@ def _compute_compact_trend(rows: List[Dict[str, Any]]) -> Optional[Dict[str, Any
     closes: List[Optional[float]] = [_safe_float(r.get("close")) for r in rows]
     highs: List[Optional[float]] = [_safe_float(r.get("high")) for r in rows]
     lows: List[Optional[float]] = [_safe_float(r.get("low")) for r in rows]
-    seed_close = next((float(c) for c in closes if c is not None and float(c) > 0.0), None)
+    seed_close = next(
+        (float(c) for c in closes if c is not None and float(c) > 0.0), None
+    )
     if seed_close is None:
         return None
     imputed_fields = {"close": 0, "high": 0, "low": 0}
@@ -179,15 +181,15 @@ def _compute_compact_trend(rows: List[Dict[str, Any]]) -> Optional[Dict[str, Any
             except Exception:
                 width = 0.0
             widths.append(width)
-    q = 0
-    if widths:
+    q: Optional[int] = None
+    if len(widths) >= 10:
         q = _percentile_rank(widths, widths[-1])
 
     s5 = s_vals[0] if s_vals[0] is not None else 0
-    s20 = s_vals[1] if s_vals[1] is not None else 0
-    r20 = r_vals[1] if r_vals[1] is not None else 0
-    g = 0
-    if len(clean_high) >= 21 and len(clean_low) >= 21:
+    s20 = s_vals[1]
+    r20 = r_vals[1]
+    g: Optional[int] = 0 if s20 is not None and r20 is not None else None
+    if g is not None and len(clean_high) >= 21 and len(clean_low) >= 21:
         prev_high = max(clean_high[-21:-1])
         prev_low = min(clean_low[-21:-1])
         eps = 1e-9
@@ -195,43 +197,72 @@ def _compute_compact_trend(rows: List[Dict[str, Any]]) -> Optional[Dict[str, Any
             g = 3
         elif last_price <= prev_low + eps and s5 < 0:
             g = 4
-    if g == 0:
+    if g == 0 and s20 is not None and r20 is not None:
         if s20 > 8 and r20 >= 40:
             g = 1
         elif s20 < -8 and r20 >= 40:
             g = 2
 
     lookback = min(60, len(clean_close))
-    h_idx = 0
-    l_idx = 0
+    h_idx: Optional[int] = None
+    l_idx: Optional[int] = None
     if lookback >= 2:
         h_idx = _bars_since_latest_pivot(clean_high[-lookback:], high=True)
         l_idx = _bars_since_latest_pivot(clean_low[-lookback:], high=False)
 
-    v = int(round(((atr / last_price) * 10000.0) if last_price > 0 and atr > 0 else 0.0))
+    v = int(
+        round(((atr / last_price) * 10000.0) if last_price > 0 and atr > 0 else 0.0)
+    )
 
     out = {
         "slope_atr_scores": s_vals,
         "fit_r2_pcts": r_vals,
         "volatility_bps": v,
-        "squeeze_percentile": int(q),
-        "regime_code": int(g),
-        "bars_since_swing_high": int(h_idx),
-        "bars_since_swing_low": int(l_idx),
+        "squeeze_percentile": q,
+        "regime_code": g,
+        "bars_since_swing_high": h_idx,
+        "bars_since_swing_low": l_idx,
         "bars_analyzed": int(len(clean_close)),
-        "input_resolution": "consecutive_timeframe_bars",
+        "input_resolution": "ordered_source_rows",
     }
-    if imputed_bars:
-        out["data_quality"] = {
-            "status": "imputed",
-            "imputed_bars": int(len(imputed_bars)),
-            "imputed_pct": round((100.0 * len(imputed_bars)) / float(len(rows)), 1),
-            "imputed_fields": {
-                key: int(value) for key, value in imputed_fields.items() if int(value) > 0
-            },
-            "warning": (
-                "Trend metrics include imputed close/high/low values; treat regime and slope scores as "
-                "lower-confidence when gaps are present."
+    unavailable_fields = [
+        field
+        for field, value in (
+            ("squeeze_percentile", q),
+            ("regime_code", g),
+        )
+        if value is None
+    ]
+    if imputed_bars or unavailable_fields:
+        quality: Dict[str, Any] = {
+            "status": (
+                "imputed_and_incomplete"
+                if imputed_bars and unavailable_fields
+                else "imputed"
+                if imputed_bars
+                else "insufficient_history"
             ),
         }
+        if imputed_bars:
+            quality.update(
+                {
+                    "imputed_bars": int(len(imputed_bars)),
+                    "imputed_pct": round(
+                        (100.0 * len(imputed_bars)) / float(len(rows)), 1
+                    ),
+                    "imputed_fields": {
+                        key: int(value)
+                        for key, value in imputed_fields.items()
+                        if int(value) > 0
+                    },
+                }
+            )
+        if unavailable_fields:
+            quality["unavailable_fields"] = unavailable_fields
+        quality["warning"] = (
+            "Some trend metrics are unavailable because the input history is too short."
+            if unavailable_fields and not imputed_bars
+            else "Trend metrics include imputed values or incomplete history; treat them as lower-confidence."
+        )
+        out["data_quality"] = quality
     return out

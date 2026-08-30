@@ -279,7 +279,7 @@ class TestComputeCompactTrend:
         assert result["slope_atr_scores"][2] is None
         assert result["fit_r2_pcts"][2] is None
         assert result["bars_analyzed"] == 30
-        assert result["input_resolution"] == "consecutive_timeframe_bars"
+        assert result["input_resolution"] == "ordered_source_rows"
 
     def test_uptrend_positive_slopes(self):
         rows = _make_rows(30, base=100, step=0.5)
@@ -310,6 +310,25 @@ class TestComputeCompactTrend:
         assert result is not None
         assert 0 <= result['squeeze_percentile'] <= 100
 
+    def test_short_history_marks_window_metrics_unavailable(self):
+        result = _compute_compact_trend(_make_rows(12))
+
+        assert result is not None
+        assert result["squeeze_percentile"] is None
+        assert result["regime_code"] is None
+        assert result["data_quality"]["status"] == "insufficient_history"
+        assert result["data_quality"]["unavailable_fields"] == [
+            "squeeze_percentile",
+            "regime_code",
+        ]
+
+    def test_missing_pivot_is_not_reported_as_current_bar(self):
+        result = _compute_compact_trend(_make_rows(30, base=100, step=0.5))
+
+        assert result is not None
+        assert result["bars_since_swing_high"] is None
+        assert result["bars_since_swing_low"] is None
+
     def test_regime_code_range(self):
         rows = _make_rows(30)
         result = _compute_compact_trend(rows)
@@ -320,8 +339,8 @@ class TestComputeCompactTrend:
         rows = _make_rows(30)
         result = _compute_compact_trend(rows)
         assert result is not None
-        assert result['bars_since_swing_high'] >= 0
-        assert result['bars_since_swing_low'] >= 0
+        assert result['bars_since_swing_high'] is None or result['bars_since_swing_high'] >= 0
+        assert result['bars_since_swing_low'] is None or result['bars_since_swing_low'] >= 0
 
     def test_none_close_handled(self):
         rows = [{"close": None, "high": 101, "low": 99, "tick_volume": 100} for _ in range(10)]
