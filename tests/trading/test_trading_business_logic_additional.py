@@ -11,10 +11,19 @@ from mtdata.core.trading.comments import (
     _comment_sanitization_info,
     _normalize_trade_comment,
 )
+from mtdata.core.trading.execution import _position_no_change_result
 from mtdata.core.trading.orders import build_trade_place_dry_run_preview
-from mtdata.core.trading.requests import TradeCloseRequest, TradePlaceRequest
+from mtdata.core.trading.requests import (
+    TradeCloseRequest,
+    TradeModifyRequest,
+    TradePlaceRequest,
+)
 from mtdata.core.trading.time import _server_time_naive_to_mt5_timestamp
-from mtdata.core.trading.use_cases import run_trade_close, run_trade_place
+from mtdata.core.trading.use_cases import (
+    run_trade_close,
+    run_trade_modify,
+    run_trade_place,
+)
 from mtdata.core.trading.validation import (
     _normalize_order_type_input,
     _normalize_price_for_symbol,
@@ -394,6 +403,40 @@ def test_run_trade_place_logs_finish_event(caplog):
     assert any(
         "event=finish operation=trade_place success=True" in record.message
         for record in caplog.records
+    )
+
+
+def test_run_trade_modify_no_change_is_not_reported_as_submitted():
+    request = TradeModifyRequest(ticket=42, stop_loss=1.08, dry_run=False)
+    mt5 = SimpleNamespace(retcode_name=lambda value: "TRADE_RETCODE_NO_CHANGES")
+    modify_position = MagicMock(
+        return_value=_position_no_change_result(
+            mt5,
+            resolved_ticket=42,
+            requested_ticket=42,
+            ticket_resolution={"matched_by": "ticket"},
+            desired_sl=1.08,
+            desired_tp=1.12,
+            dry_run=False,
+        )
+    )
+
+    result = run_trade_modify(
+        request,
+        normalize_pending_expiration=lambda value: (value, False),
+        modify_pending_order=MagicMock(),
+        modify_position=modify_position,
+        idempotency_store=None,
+    )
+
+    assert result["success"] is True
+    assert result["no_change"] is True
+    assert result["no_action"] is True
+    assert result["order_sent"] is False
+    assert result["would_send_order"] is False
+    assert "guardrails_enabled" not in result
+    assert not any(
+        "Live trade submitted" in warning for warning in result.get("warnings", [])
     )
 
 

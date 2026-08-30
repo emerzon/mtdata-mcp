@@ -460,7 +460,7 @@ def _attach_live_guardrail_status(
     if dry_run or not isinstance(result, dict):
         return result
     if not (
-        infer_result_success(result)
+        result.get("order_sent") is True
         or result.get("ambiguous") is True
         or result.get("error_code") == "order_send_ambiguous"
     ):
@@ -662,18 +662,21 @@ def _should_persist_idempotency_outcome(result: Any) -> bool:
         return True
     if result.get("ambiguous") or result.get("error_code") == "order_send_ambiguous":
         return True
+    if result.get("order_sent") is True:
+        return True
     if infer_result_success(result):
         return True
-    if result.get("error_code") == "ticket_not_found":
-        # The ticket is request context, not evidence of a broker-side effect.
-        # Keep the reservation retryable in case terminal state was stale.
-        return False
     for count_key in ("closed_count", "cancelled_count"):
         try:
             if int(result.get(count_key) or 0) > 0:
                 return True
         except (TypeError, ValueError):
             pass
+    try:
+        if float(result.get("filled_volume") or 0.0) > 0.0:
+            return True
+    except (TypeError, ValueError):
+        pass
     nested_results = result.get("results")
     if isinstance(nested_results, list):
         for nested in nested_results:
@@ -688,8 +691,6 @@ def _should_persist_idempotency_outcome(result: Any) -> bool:
     for key in (
         "deal",
         "order",
-        "position_ticket",
-        "ticket",
         "order_ticket",
         "deal_ticket",
     ):
@@ -704,7 +705,7 @@ def _should_persist_idempotency_outcome(result: Any) -> bool:
     # Nested auto-close after a partial fill is also a durable side effect.
     if isinstance(result.get("auto_close_result"), dict):
         nested = result["auto_close_result"]
-        for key in ("deal", "order", "ticket"):
+        for key in ("deal", "order"):
             if nested.get(key) not in (None, "", 0, "0"):
                 return True
     return False
@@ -780,6 +781,79 @@ def _begin_trade_idempotency(
         key=key,
         original_outcome=copy.deepcopy(original_outcome),
     ), False
+
+
+class _TradeIdempotencyLifecycle:
+    """Own one trade request's durable reservation from begin through cleanup.
+
+    Dry-run requests deliberately never enter the durable store. Live requests
+    retain an unresolved reservation only across abrupt process failure; normal
+    exceptions release it through :meth:`release` in the owning use case's
+    ``finally`` block.
+    """
+
+    def __init__(
+        self,
+        request: Any,
+        store: Optional[TradeIdempotencyStore],
+    ) -> None:
+        self.store = store
+        self.key = _normalize_idempotency_key(
+            getattr(request, "idempotency_key", None)
+        )
+        self.dry_run = bool(getattr(request, "dry_run", False))
+        self.request_signature = (
+            _build_trade_request_signature(request)
+            if self.key is not None and not self.dry_run
+            else None
+        )
+        self._begun = False
+        self._reservation_active = False
+
+    def begin(self) -> Optional[Dict[str, Any]]:
+        if self._begun:
+            raise RuntimeError("Trade idempotency lifecycle already began.")
+        self._begun = True
+        if self.dry_run:
+            return None
+        duplicate, reserved = _begin_trade_idempotency(
+            idempotency_store=self.store,
+            key=self.key,
+            request_signature=self.request_signature,
+        )
+        self._reservation_active = reserved
+        return duplicate
+
+    def annotate(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        return _annotate_idempotency_scope(result, self.key, self.store)
+
+    def settle(self, result: Any) -> bool:
+        """Record a durable outcome or release a retryable reservation."""
+        if not self._reservation_active:
+            return False
+        handled = _record_or_release_idempotency(
+            self.store,
+            self.key,
+            result,
+            request_signature=self.request_signature,
+        )
+        if handled:
+            self._reservation_active = False
+        return handled
+
+    def release(self) -> None:
+        """Release an unfinished live reservation after normal exception unwind."""
+        if (
+            not self._reservation_active
+            or self.store is None
+            or self.key is None
+        ):
+            return
+        self.store.release(
+            self.key,
+            request_signature=self.request_signature,
+        )
+        self._reservation_active = False
 
 
 def _compact_close_preview_payload(payload: Dict[str, Any]) -> Dict[str, Any]:

@@ -292,6 +292,10 @@ def _position_no_change_result(
         "applied_sl": desired_sl,
         "applied_tp": desired_tp,
         "no_change": True,
+        "no_action": True,
+        "no_action_reason": "requested_levels_already_match",
+        "order_sent": False,
+        "would_send_order": False,
         "message": "Requested SL/TP already match the live position.",
     }
     if dry_run:
