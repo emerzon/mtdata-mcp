@@ -2210,6 +2210,24 @@ def _run_data_fetch_ticks_impl(
             details=details,
             remediation="Use start and end timestamps at or before the current time.",
         )
+    requested_selection = str(
+        getattr(request, "selection", None) or ""
+    ).strip().lower()
+    if (
+        request.start in (None, "")
+        and request.end not in (None, "")
+        and requested_selection == "first_n"
+    ):
+        return build_error_payload(
+            "selection=first_n is not supported for end-only tick queries.",
+            code="selection_unsupported_for_end_only",
+            operation="data_fetch_ticks",
+            details={"selection": "first_n", "end": str(request.end)},
+            remediation=(
+                "Omit selection or pass last_n, or supply start to page from "
+                "the beginning of a bounded window."
+            ),
+        )
     connection_error = _ensure_gateway_connection(gateway)
     if connection_error is not None:
         return connection_error
@@ -2217,13 +2235,12 @@ def _run_data_fetch_ticks_impl(
         effective_limit if effective_limit is not None else request.limit
     )
     limit_explicit = "limit" in getattr(request, "model_fields_set", set())
-    requested_selection = str(getattr(request, "selection", None) or "").strip().lower()
     if requested_selection in {"first_n", "last_n"}:
         range_selection = requested_selection
     else:
         range_selection = (
             "last_n"
-            if request.start and request.end
+            if request.end
             else "first_n"
         )
     page_offset = 0
@@ -2507,20 +2524,27 @@ def _future_tick_bound(
     request: DataFetchTicksRequest,
 ) -> Optional[tuple[str, str]]:
     now_utc = datetime.now(timezone.utc)
+    now_naive = now_utc.replace(tzinfo=None)
     for field in ("start", "end"):
         value = getattr(request, field, None)
         if value in (None, ""):
             continue
-        try:
-            parsed = datetime.fromisoformat(
-                str(value).strip()
-            )
-            if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=timezone.utc)
-        except (TypeError, ValueError):
+        parsed = (
+            _parse_start_datetime(str(value))
+            if field == "start"
+            else _parse_end_datetime(str(value))
+        )
+        if parsed is None:
             continue
-        if parsed.astimezone(timezone.utc) > now_utc:
-            return field, str(value)
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+        if parsed <= now_naive:
+            continue
+        if field == "end" and _is_in_progress_calendar_day_end(
+            str(value), parsed, now_naive
+        ):
+            continue
+        return field, str(value)
     return None
 
 

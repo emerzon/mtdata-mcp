@@ -606,7 +606,7 @@ def fetch_ticks(  # noqa: C901
     simplify: Optional[SimplifySpec] = None,
     time_as_epoch: bool = False,
     format: Literal["summary", "stats", "rows", "full_rows"] = "summary",
-    range_selection: Literal["first_n", "last_n"] = "first_n",
+    range_selection: Optional[Literal["first_n", "last_n"]] = None,
     page_offset: int = 0,
     probe_more: bool = False,
     force_utc: bool = False,
@@ -630,9 +630,15 @@ def fetch_ticks(  # noqa: C901
         effective_limit = int(limit)
         effective_offset = max(0, int(page_offset))
         fetch_limit = effective_limit + effective_offset + int(bool(probe_more))
-        normalized_range_selection = str(range_selection or "first_n").strip().lower()
+        normalized_range_selection = str(
+            range_selection or ("last_n" if end else "first_n")
+        ).strip().lower()
         if normalized_range_selection not in {"first_n", "last_n"}:
             return {"error": "range_selection must be first_n or last_n."}
+        if end and not start and normalized_range_selection == "first_n":
+            return {
+                "error": "range_selection=first_n is not supported for end-only tick queries."
+            }
         history_window_truncated = False
         history_window_floor: Optional[datetime] = None
         if effective_limit <= 0:
@@ -711,12 +717,20 @@ def fetch_ticks(  # noqa: C901
                     )
                     history_window_truncated = from_date < history_window_floor
                     effective_from_date = max(from_date, history_window_floor)
-                    ticks = _fetch_ticks_forward(
-                        symbol,
-                        from_date=effective_from_date,
-                        to_date=history_to_date,
-                        limit=fetch_limit,
-                    )
+                    if normalized_range_selection == "last_n":
+                        ticks = _fetch_recent_ticks_backwards(
+                            symbol,
+                            to_date=history_to_date,
+                            limit=fetch_limit,
+                            min_from_date=effective_from_date,
+                        )
+                    else:
+                        ticks = _fetch_ticks_forward(
+                            symbol,
+                            from_date=effective_from_date,
+                            to_date=history_to_date,
+                            limit=fetch_limit,
+                        )
             else:
                 # End-only requests are historical backward queries anchored
                 # at the supplied endpoint, not aliases for "latest".
@@ -1160,18 +1174,12 @@ def fetch_ticks(  # noqa: C901
                     "limit": int(effective_limit),
                     "limit_anchor": (
                         "end"
-                        if start and end and normalized_range_selection == "last_n"
+                        if normalized_range_selection == "last_n"
                         else "start"
                         if start
                         else "end"
                     ),
-                    "selection": (
-                        normalized_range_selection
-                        if start and end
-                        else "first_n"
-                        if start
-                        else "last_n"
-                    ),
+                    "selection": normalized_range_selection,
                     "order": "ascending",
                 }
                 if start:

@@ -276,10 +276,10 @@ class TestFetchTicks(unittest.TestCase):
             result['history_window_floor'],
         )
         self.assertEqual(len(result['warnings']), 1)
-        self.assertEqual(mock_ticks.call_count, 1)
+        self.assertEqual(mock_ticks.call_count, 2)
         provider_from = mock_ticks.call_args.args[1]
         provider_to = mock_ticks.call_args.args[2]
-        self.assertLessEqual((provider_to - provider_from).days, 1)
+        self.assertLessEqual((provider_to - provider_from).days, 2)
 
     @patch(_TICKS_RANGE)
     @patch(_CACHED_INFO, return_value=MagicMock())
@@ -891,6 +891,58 @@ class TestFetchTicks(unittest.TestCase):
         self.assertEqual(bids, [1.2, 1.2001, 1.2002, 1.3, 1.3001])
         self.assertEqual(result['query_applied']['limit_anchor'], 'start')
         self.assertEqual(result['query_applied']['selection'], 'first_n')
+
+    @patch(_TICKS_RANGE)
+    @patch(_CACHED_INFO, return_value=MagicMock())
+    @patch(_RESOLVE_CTZ, return_value=None)
+    @patch(_GUARD, _mock_symbol_guard)
+    @patch(_PARSE_START)
+    def test_start_only_last_n_returns_latest_ticks_since_start(
+        self,
+        mock_parse,
+        mock_ctz,
+        mock_info,
+        mock_range,
+    ):
+        now = datetime.now(timezone.utc).replace(microsecond=0)
+        mock_parse.return_value = now - timedelta(days=2)
+        mock_range.return_value = _make_ticks(
+            5,
+            base_ts=now.timestamp() - 4.0,
+        )
+
+        result = fetch_ticks(
+            'EURUSD',
+            limit=3,
+            start='ignored',
+            format='rows',
+            range_selection='last_n',
+        )
+
+        self.assertTrue(result.get('success'), result)
+        self.assertEqual(result['count'], 3)
+        self.assertEqual(result['query_applied']['limit_anchor'], 'end')
+        self.assertEqual(result['query_applied']['selection'], 'last_n')
+        self.assertEqual(result['data'][-1]['time'], result['last_quote']['time'])
+
+    @patch(_TICKS_RANGE)
+    @patch(_CACHED_INFO, return_value=MagicMock())
+    @patch(_RESOLVE_CTZ, return_value=None)
+    @patch(_GUARD, _mock_symbol_guard)
+    def test_end_only_first_n_is_rejected(
+        self,
+        mock_ctz,
+        mock_info,
+        mock_range,
+    ):
+        result = fetch_ticks(
+            'EURUSD',
+            end='2025-01-01',
+            range_selection='first_n',
+        )
+
+        self.assertIn('not supported', result['error'])
+        mock_range.assert_not_called()
 
     @patch(_TICKS_RANGE)
     @patch(_CACHED_INFO, return_value=MagicMock())

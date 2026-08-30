@@ -1,6 +1,7 @@
 import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 from pydantic import ValidationError
@@ -3257,6 +3258,61 @@ def test_run_data_fetch_ticks_rejects_future_end_before_provider_call(start) -> 
     assert result["error_code"] == "future_date_range"
     assert "end datetime" in result["error"]
     assert called is False
+
+
+@pytest.mark.parametrize("end", ["tomorrow", "next year"])
+def test_run_data_fetch_ticks_rejects_natural_language_future_end(end) -> None:
+    fetch_ticks_impl = MagicMock(return_value={"success": True, "data": []})
+
+    result = run_data_fetch_ticks(
+        DataFetchTicksRequest(symbol="EURUSD", end=end),
+        gateway=SimpleNamespace(ensure_connection=lambda: None),
+        fetch_ticks_impl=fetch_ticks_impl,
+    )
+
+    assert result["success"] is False
+    assert result["error_code"] == "future_date_range"
+    assert result["details"]["end"] == end
+    fetch_ticks_impl.assert_not_called()
+
+
+def test_run_data_fetch_ticks_rejects_end_only_first_n_before_provider_call():
+    fetch_ticks_impl = MagicMock(return_value={"success": True, "data": []})
+
+    result = run_data_fetch_ticks(
+        DataFetchTicksRequest(
+            symbol="EURUSD",
+            end="2020-01-01",
+            selection="first_n",
+        ),
+        gateway=SimpleNamespace(ensure_connection=lambda: None),
+        fetch_ticks_impl=fetch_ticks_impl,
+    )
+
+    assert result["success"] is False
+    assert result["error_code"] == "selection_unsupported_for_end_only"
+    fetch_ticks_impl.assert_not_called()
+
+
+def test_run_data_fetch_ticks_preserves_start_only_last_n_selection():
+    observed = {}
+
+    def fetch_ticks_impl(**kwargs):
+        observed.update(kwargs)
+        return {"success": True, "data": [], "count": 0}
+
+    result = run_data_fetch_ticks(
+        DataFetchTicksRequest(
+            symbol="EURUSD",
+            start="2020-01-01",
+            selection="last_n",
+        ),
+        gateway=SimpleNamespace(ensure_connection=lambda: None),
+        fetch_ticks_impl=fetch_ticks_impl,
+    )
+
+    assert result["success"] is True
+    assert observed["range_selection"] == "last_n"
 
 
 def test_run_data_fetch_ticks_compact_summarizes_quality_without_verbose_warnings():

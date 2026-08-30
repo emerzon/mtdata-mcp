@@ -521,8 +521,9 @@ class DataFetchTicksRequest(_DetailNormalizedRequest):
         description=(
             "Which end of a bounded tick range to keep when limit truncates the "
             "result. first_n keeps the earliest ticks; last_n keeps the latest. "
-            "Omit to use the default: last_n for a fully bounded start/end range, "
-            "first_n for start-only queries."
+            "Start-only queries support either direction. Omit to use the default: "
+            "last_n when end is set and first_n for start-only queries. End-only "
+            "queries cannot use first_n."
         ),
     )
     cursor: Optional[str] = Field(
