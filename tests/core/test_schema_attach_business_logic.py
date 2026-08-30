@@ -27,8 +27,10 @@ def _attach_tool_schema(monkeypatch, tool_name: str, base_schema: dict, *, share
         schema_attach_mod,
         "_complex_defs",
         lambda: {
+            "BarrierPairSpec": {"type": "object"},
             "IndicatorSpec": {"type": "object"},
             "DenoiseSpec": {"type": "object"},
+            "SinglePriceBarrierSpec": {"type": "object"},
             "SimplifySpec": {"type": "object"},
         },
     )
@@ -262,7 +264,7 @@ def test_attach_schemas_to_tools_keeps_canonical_barrier_objects(monkeypatch) ->
             "tp_ticks",
             "sl_ticks",
         }.intersection(params_obj["properties"])
-        for key in ("allOf", "anyOf", "oneOf", "not", "enum"):
+        for key in ("anyOf", "oneOf", "not", "enum"):
             assert key not in params_obj
 
 
@@ -319,14 +321,33 @@ def test_attach_schemas_to_tools_patches_wait_event_with_discriminated_watch_spe
     assert symbols_array["uniqueItems"] is True
     parameters = tool_obj.schema["parameters"]
     assert parameters["if"] == {"required": ["timeframe"]}
-    assert "then" not in parameters
+    assert parameters["then"] == {
+        "not": {"required": ["max_wait_seconds"]}
+    }
     assert parameters["else"] == {
         "required": ["max_wait_seconds"],
-        "not": {"required": ["end_on"]},
+        "properties": {"end_on": {"maxItems": 0}},
+    }
+    duration_scope_requires_watcher = {
+        "if": {"not": {"required": ["timeframe"]}},
+        "then": {
+            "required": ["watch_for"],
+            "properties": {"watch_for": {"minItems": 1}},
+        },
     }
     assert parameters["dependentSchemas"] == {
-        "symbol": {"not": {"required": ["symbols"]}},
-        "symbols": {"not": {"required": ["symbol"]}},
+        "symbol": {
+            "allOf": [
+                {"not": {"required": ["symbols"]}},
+                duration_scope_requires_watcher,
+            ]
+        },
+        "symbols": {
+            "allOf": [
+                {"not": {"required": ["symbol"]}},
+                duration_scope_requires_watcher,
+            ]
+        },
     }
 
 

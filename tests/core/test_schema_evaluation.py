@@ -91,6 +91,50 @@ def test_schema_evaluation_rejects_generated_placeholder_descriptions() -> None:
     )
 
 
+def test_schema_evaluation_rejects_pydantic_only_constraint_keywords() -> None:
+    def sample_tool(
+        limit: int = 10,
+        json: bool = False,
+        output_fields: list[str] | None = None,
+    ):
+        return limit, json, output_fields
+
+    findings: list[SchemaFinding] = []
+    _evaluate_tool(
+        "sample_tool",
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "ge": 1,
+                    "default": 10,
+                    "description": "Maximum rows to return.",
+                },
+                "json": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Return JSON.",
+                },
+                "output_fields": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Fields to return.",
+                },
+            },
+        },
+        sample_tool,
+        findings,
+    )
+
+    assert any(
+        finding.code == "non_json_schema_constraint"
+        and finding.parameter == "limit"
+        for finding in findings
+    )
+
+
 def test_public_schema_evaluation_has_no_unbounded_numeric_parameters() -> None:
     report = evaluate_public_tool_schemas()
 
@@ -98,6 +142,11 @@ def test_public_schema_evaluation_has_no_unbounded_numeric_parameters() -> None:
         finding
         for finding in report.findings
         if finding.code == "unbounded_numeric_parameter"
+    ]
+    assert not [
+        finding
+        for finding in report.findings
+        if finding.code == "non_json_schema_constraint"
     ]
 
 

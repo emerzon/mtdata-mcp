@@ -111,7 +111,7 @@ def _expanded_watch_specs(
     raw_watch_specs: Optional[List[Any]],
 ) -> List[Any]:
     if raw_watch_specs is None:
-        if request.max_wait_seconds is not None:
+        if request.timeframe is None:
             return []
         return _default_watch_specs(request)
     if not request.symbols:

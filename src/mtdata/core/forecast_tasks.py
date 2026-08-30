@@ -1233,12 +1233,12 @@ def forecast_task_wait(request: ForecastTaskWaitRequest) -> Dict[str, Any]:
 @mcp.tool()
 def forecast_task_list(
     status_filter: Literal["all", "pending", "running", "completed", "failed", "cancelled"] = "all",
-    since_minutes: Optional[float] = None,
+    since_minutes: Annotated[Optional[float], Field(ge=0.0)] = None,
     method: Optional[str] = None,
     adapter: Optional[str] = None,
     data_scope: Optional[str] = None,
     detail: DetailLevel = "compact",
-    limit: Annotated[int, Field(ge=1)] = 50,
+    limit: Annotated[int, Field(ge=1, le=500)] = 50,
     offset: Annotated[int, Field(ge=0)] = 0,
 ) -> Dict[str, Any]:
     """List active and recent forecast training tasks.

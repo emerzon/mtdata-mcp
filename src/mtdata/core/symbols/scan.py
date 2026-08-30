@@ -2696,14 +2696,14 @@ def market_scan(  # noqa: C901
     timeframe: TimeframeLiteral = "H1",
     detail: DetailLiteral = "compact",
     lookback: Annotated[int, Field(ge=2)] = 100,
-    rsi_length: int = 14,
-    sma_period: int = 20,
+    rsi_length: Annotated[int, Field(ge=1)] = 14,
+    sma_period: Annotated[int, Field(ge=1)] = 20,
     min_price_change_pct: Optional[float] = None,
     max_price_change_pct: Optional[float] = None,
-    max_spread_pct: Optional[float] = None,
-    min_tick_volume: Optional[int] = None,
-    rsi_below: Optional[float] = None,
-    rsi_above: Optional[float] = None,
+    max_spread_pct: Annotated[Optional[float], Field(ge=0.0)] = None,
+    min_tick_volume: Annotated[Optional[int], Field(ge=0)] = None,
+    rsi_below: Annotated[Optional[float], Field(ge=0.0, le=100.0)] = None,
+    rsi_above: Annotated[Optional[float], Field(ge=0.0, le=100.0)] = None,
     price_vs_sma: Optional[Literal["above", "below"]] = None,  # type: ignore
     rank_by: Literal["abs_price_change_pct", "abs_price_change", "abs_live_price_change_pct", "abs_live_price_change", "live_price_change_pct", "live_price_change", "price_change_pct", "price_change", "gap_pct", "tick_volume", "rsi", "spread_pct", "spread"] = "abs_price_change_pct",  # type: ignore
     rank_order: Literal["auto", "asc", "desc", "ascending", "descending"] = "auto",  # type: ignore

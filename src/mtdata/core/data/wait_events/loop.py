@@ -108,7 +108,10 @@ def run_wait_event_loop(  # noqa: C901
     )
     poll_interval_seconds = float(request.poll_interval_seconds)
     timer_only = bool(
-        max_wait_seconds is not None and not watch_for and not boundaries
+        request.timeframe is None
+        and max_wait_seconds is not None
+        and not watch_for
+        and not boundaries
     )
 
     def _timeout_if_expired(*, polls: int = 0) -> Optional[Dict[str, Any]]:
@@ -405,8 +408,7 @@ def _run_candle_boundary_only(
             preview["max_wait_seconds"] = float(max_wait_seconds)
         preview["wait_mode"] = "timeframe_boundary"
         preview["remediation"] = (
-            "Retry after assumed_closure_end or increase max_wait_seconds "
-            "to cover the closed session. Do not treat the next clock hour "
+            "Retry after assumed_closure_end. Do not treat the next clock hour "
             "as a live bar close."
         )
         preview["event"] = None
@@ -424,8 +426,8 @@ def _run_candle_boundary_only(
         preview["status"] = "wait_budget_exceeded"
         preview["error_code"] = "wait_budget_exceeded"
         preview["error"] = (
-            "The next candle boundary is beyond max_wait_seconds; no wait was "
-            "performed and no candle-close event was observed."
+            "The next candle boundary is beyond the inferred timeframe wait "
+            "budget; no wait was performed and no candle-close event was observed."
         )
         preview["not_waited"] = True
         preview["slept"] = False
@@ -439,13 +441,13 @@ def _run_candle_boundary_only(
                 "Market is closed; the next candle close is after session reopen."
             )
             preview["remediation"] = (
-                "Retry after assumed_closure_end or increase max_wait_seconds "
-                "to cover the closed session. Do not treat the next clock hour "
-                "as a live bar close."
+                "Retry after assumed_closure_end. Do not treat the next clock "
+                "hour as a live bar close."
             )
         else:
             preview["remediation"] = (
-                "Increase max_wait_seconds beyond remaining_seconds and retry."
+                "Retry closer to the next candle boundary or choose a shorter "
+                "timeframe."
             )
         preview["event"] = None
         preview["boundary_event"] = None
@@ -897,6 +899,7 @@ def _build_wait_result(
     )
     successful_duration = (
         status == "completed"
+        and request.timeframe is None
         and request.max_wait_seconds is not None
         and (watch_for_inferred or not watch_for_payload)
     )
@@ -948,7 +951,10 @@ def _build_wait_result(
                     "Wait timed out before a watched event or boundary was observed."
                 ),
                 "remediation": (
-                    "Retry the same wait or increase max_wait_seconds."
+                    "Retry closer to the next candle boundary or choose a shorter "
+                    "timeframe."
+                    if request.timeframe is not None
+                    else "Retry the same wait or increase max_wait_seconds."
                 ),
                 "details": {
                     "mode": (

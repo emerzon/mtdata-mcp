@@ -912,16 +912,19 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
     ),
     ("wait_event", "symbols"): (
         "Basket of 1-12 trading symbols. Cannot be combined with symbol; omitted-symbol "
-        "watchers apply to every basket member."
+        "watchers apply to every basket member, and explicitly named watcher symbols "
+        "must belong to the basket."
     ),
     ("wait_event", "timeframe"): (
-        "Candle-boundary wait mode. Set max_wait_seconds for an optional safety cap. "
+        "Candle-boundary wait mode. Cannot be combined with max_wait_seconds; "
+        "the maximum wait is inferred as the timeframe length plus 60 seconds. "
         "With inferred watchers, reaching the boundary is a successful completion."
     ),
     ("wait_event", "max_wait_seconds"): (
-        "Maximum wait in seconds (alias: --timeout). With timeframe, defaults to "
-        "the timeframe length plus 60 seconds. Without timeframe, omit the symbol "
-        "and watch_for for a timer, or pass watchers to return early."
+        "Duration-mode wait in seconds (alias: --timeout). Cannot be combined "
+        "with timeframe or boundary entries in end_on; an empty end_on is "
+        "treated as omitted. Omit the symbol and watch_for for a timer, or pass "
+        "watchers to return early."
     ),
     ("wait_event", "poll_interval_seconds"): (
         "Seconds between polls; must be at least 0.1. Omit to use 0.5."
@@ -973,10 +976,11 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
     ),
     ("pivot_compute_points", "end"): (
         "Historical cutoff. Uses the last completed bar at or before this "
-        "instant; later bars are not used. Alias: as_of."
+        "instant; later bars are not used. Alias: as_of; do not pass both."
     ),
     ("pivot_compute_points", "as_of"): (
-        "Alias for end. Historical cutoff for the last completed source bar."
+        "Alias for end. Historical cutoff for the last completed source bar; "
+        "do not pass both aliases."
     ),
     ("correlation_matrix", "allow_partial"): (
         "Keep symbols with sufficient aligned observations and report exclusions; "

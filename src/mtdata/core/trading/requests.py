@@ -123,13 +123,13 @@ def _normalize_magic(value: Any) -> int:
 
 MT5Ticket = Annotated[
     int,
-    BeforeValidator(_normalize_positive_ticket),
     Field(ge=1, le=validation.MT5_UINT64_MAX),
+    BeforeValidator(_normalize_positive_ticket),
 ]
 MT5Magic = Annotated[
     int,
-    BeforeValidator(_normalize_magic),
     Field(ge=0, le=validation.MT5_UINT64_MAX),
+    BeforeValidator(_normalize_magic),
 ]
 
 
@@ -757,7 +757,7 @@ class TradeStressTestRequest(BaseModel):
 class TradeGetOpenRequest(_DirectionalSideNormalizedRequest):
     symbol: Optional[str] = None
     ticket: Optional[MT5Ticket] = None
-    side: Optional[str] = Field(
+    side: Optional[Literal["BUY", "SELL"]] = Field(
         default=None,
         description="Optional direction filter. Accepts buy/sell or long/short.",
     )
@@ -810,11 +810,20 @@ class TradeGetOpenRequest(_DirectionalSideNormalizedRequest):
 class TradeGetPendingRequest(_DirectionalSideNormalizedRequest):
     symbol: Optional[str] = None
     ticket: Optional[MT5Ticket] = None
-    side: Optional[str] = Field(
+    side: Optional[Literal["BUY", "SELL"]] = Field(
         default=None,
         description="Optional order direction filter. Accepts buy/sell or long/short.",
     )
-    order_type: Optional[str] = Field(
+    order_type: Optional[
+        Literal[
+            "BUY_LIMIT",
+            "SELL_LIMIT",
+            "BUY_STOP",
+            "SELL_STOP",
+            "BUY_STOP_LIMIT",
+            "SELL_STOP_LIMIT",
+        ]
+    ] = Field(
         default=None,
         description=(
             "Optional pending order type filter: buy_limit, sell_limit, "

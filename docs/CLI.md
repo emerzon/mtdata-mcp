@@ -760,15 +760,14 @@ broker-symbol names.
 Do not run long waits from the Web UI. See [WAIT_EVENT.md](WAIT_EVENT.md).
 
 ```bash
-mtdata-cli wait_event EURUSD --timeframe H1 --watch-for '[]' --max-wait-seconds 3700 --json
-mtdata-cli wait_event EURUSD --timeframe H1 --watch-for '[]' --max-wait-seconds 300 --json
+mtdata-cli wait_event EURUSD --timeframe H1 --watch-for '[]' --json
 mtdata-cli wait_event --max-wait-seconds 30 --json
 ```
 
-The first command is boundary-only and bounded to one H1 close plus its buffer.
-The 300-second form refuses to start until that close is within the shorter
-budget. Omitting `--watch-for` in timeframe mode waits only for the candle
-boundary.
+The first command is boundary-only; its maximum wait is inferred as the H1
+length plus 60 seconds. The second command is a 30-second timer. `timeframe`
+and `max_wait_seconds` are mutually exclusive. Omitting `--watch-for` in
+timeframe mode waits only for the candle boundary.
 
 ### Place Orders
 `trade_place` requires `symbol`, `volume`, and `order_type`.

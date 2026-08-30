@@ -509,6 +509,14 @@ def pivot_compute_points(  # noqa: C901
             tf_secs = TIMEFRAME_SECONDS.get(timeframe)
             if not tf_secs:
                 return {"error": unsupported_timeframe_seconds_error(timeframe)}
+            if end not in (None, "") and as_of not in (None, ""):
+                return build_error_payload(
+                    "end and as_of are aliases and cannot be combined.",
+                    code="incompatible_parameters",
+                    operation="pivot_compute_points",
+                    details={"conflicting_parameters": ["end", "as_of"]},
+                    remediation="Pass either end or as_of as the historical cutoff.",
+                )
             cutoff_raw = end if end not in (None, "") else as_of
             range_error = validate_historical_range(None, cutoff_raw)
             if range_error is not None:
@@ -877,7 +885,7 @@ def confluence_levels(  # noqa: C901
     symbol: str,
     pivot_timeframe: TimeframeLiteral = "D1",
     sr_timeframe: AutoTimeframeLiteral = "auto",
-    lookback: Annotated[int, Field(ge=1, le=20_000)] = 200,
+    lookback: Annotated[int, Field(ge=3, le=20_000)] = 200,
     start: Optional[str] = None,
     end: Optional[str] = None,
     tolerance_pct: Annotated[float, Field(ge=0.0)] = 0.15,
@@ -1276,7 +1284,7 @@ def confluence_levels(  # noqa: C901
 def support_resistance_levels(  # noqa: C901
     symbol: str,
     timeframe: AutoTimeframeLiteral = "H1",
-    lookback: Annotated[int, Field(ge=1, le=20_000)] = 200,
+    lookback: Annotated[int, Field(ge=3, le=20_000)] = 200,
     start: Optional[str] = None,
     end: Optional[str] = None,
     tolerance_pct: Annotated[float, Field(ge=0.0)] = 0.15,

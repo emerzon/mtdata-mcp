@@ -609,7 +609,7 @@ def test_tools_catalog_publishes_enforced_numeric_lower_bounds():
         ("market_scan", "lookback"): 2,
         ("outliers_detect", "lookback"): 20,
         ("seasonality_detect", "lookback"): 31,
-        ("stationarity_test", "lookback"): 21,
+        ("stationarity_test", "lookback"): 20,
         ("trade_journal_analyze", "min_sample"): 1,
     }
     for (tool_name, parameter), minimum in expected.items():

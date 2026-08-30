@@ -47,7 +47,7 @@ def test_wait_quote_payload_includes_quote_freshness() -> None:
     )
 
     result = wait_events_mod._wait_result_quote_payload(
-        request=WaitEventRequest(symbol="EURUSD", timeframe="M1", max_wait_seconds=2),
+        request=WaitEventRequest(symbol="EURUSD", timeframe="M1"),
         watch_for_payload=[],
         market_state=None,
         gateway=gateway,
@@ -79,7 +79,7 @@ def test_wait_quote_payload_marks_locked_quote_unusable() -> None:
     )
 
     result = wait_events_mod._wait_result_quote_payload(
-        request=WaitEventRequest(symbol="EURUSD", timeframe="M1", max_wait_seconds=2),
+        request=WaitEventRequest(symbol="EURUSD", timeframe="M1"),
         watch_for_payload=[],
         market_state=None,
         gateway=gateway,
@@ -637,19 +637,22 @@ def test_wait_event_compact_timeout_keeps_explicit_watch_types() -> None:
     assert result["events_monitored"] == ["candle_close", "price_change"]
     assert result["wait_mode"] == "timeframe_boundary"
     assert result["details"]["mode"] == "timeframe_boundary"
+    assert "max_wait_seconds" not in result
+    assert "requested_wait_seconds" not in result["details"]
+    assert "shorter timeframe" in result["remediation"]
 
 
-def test_wait_event_compact_budget_error_keeps_required_retry_seconds() -> None:
+def test_wait_event_compact_budget_error_keeps_remaining_seconds() -> None:
     result = core_data._compact_wait_event_public_result(
         {
             "success": False,
             "status": "wait_budget_exceeded",
             "error_code": "wait_budget_exceeded",
-            "error": "The next candle boundary exceeds max_wait_seconds.",
+            "error": "The next candle boundary exceeds the inferred wait budget.",
             "remaining_seconds": 46.25,
             "max_wait_seconds": 1.0,
             "remediation": (
-                "Increase max_wait_seconds beyond remaining_seconds and retry."
+                "Retry closer to the next candle boundary or choose a shorter timeframe."
             ),
         },
         explicit_watch_for=False,
@@ -657,7 +660,7 @@ def test_wait_event_compact_budget_error_keeps_required_retry_seconds() -> None:
     )
 
     assert result["remaining_seconds"] == 46.25
-    assert "remaining_seconds" in result["remediation"]
+    assert "shorter timeframe" in result["remediation"]
 
 
 def test_wait_event_tool_compacts_matched_event_by_default(monkeypatch) -> None:
@@ -889,7 +892,6 @@ def test_symbol_less_weekend_timeframe_wait_is_market_closed() -> None:
     result = run_wait_event(
         WaitEventRequest(
             timeframe="M1",
-            max_wait_seconds=90.0,
         ),
         gateway=None,
         sleep_impl=clock.sleep,
@@ -938,7 +940,6 @@ def test_symbol_less_weekday_timeframe_wait_is_clock_boundary(monkeypatch) -> No
         WaitEventRequest(
             timeframe="M1",
             end_on=[{"type": "candle_close", "timeframe": "M1", "buffer_seconds": 0.0}],
-            max_wait_seconds=180.0,
         ),
         gateway=None,
         sleep_impl=clock.sleep,
@@ -1139,16 +1140,16 @@ def test_run_wait_event_infers_candle_boundary_from_request_timeframe(monkeypatc
     assert result["boundary_event"]["type"] == "candle_close"
     assert result["boundary_event"]["timeframe"] == "M1"
 
-def test_wait_event_boundary_respects_duration_cap(monkeypatch) -> None:
+def test_wait_event_boundary_uses_inferred_timeframe_cap(monkeypatch) -> None:
     started = datetime(2026, 3, 15, 12, 0, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(
         "mtdata.core.data.wait_events.compile._next_candle_wait_payload",
         lambda timeframe, buffer_seconds, now_utc, **_kwargs: {
             "timeframe": timeframe,
             "buffer_seconds": buffer_seconds,
-            "sleep_seconds": 60.0,
+            "sleep_seconds": 121.0,
             "started_at_utc": now_utc.isoformat(),
-            "next_candle_close_utc": (now_utc + timedelta(seconds=60)).isoformat(),
+            "next_candle_close_utc": (now_utc + timedelta(seconds=121)).isoformat(),
             "next_candle_close_server": "2026-03-15T12:01:00",
             "server_timezone": "UTC",
         },
@@ -1160,7 +1161,6 @@ def test_wait_event_boundary_respects_duration_cap(monkeypatch) -> None:
             watch_for=[],
             timeframe="M1",
             end_on=[{"type": "candle_close", "timeframe": "M1"}],
-            max_wait_seconds=30.0,
         ),
         gateway=None,
         sleep_impl=clock.sleep,
@@ -1171,8 +1171,8 @@ def test_wait_event_boundary_respects_duration_cap(monkeypatch) -> None:
     assert result["success"] is False
     assert result["status"] == "wait_budget_exceeded"
     assert result["wait_mode"] == "timeframe_boundary"
-    assert result["max_wait_seconds"] == 30.0
-    assert result["remaining_seconds"] == 60.0
+    assert result["max_wait_seconds"] == 120.0
+    assert result["remaining_seconds"] == 121.0
     assert clock.monotonic_value == 0.0
 
 
@@ -1183,9 +1183,9 @@ def test_wait_event_empty_watch_with_symbol_uses_boundary_budget(monkeypatch) ->
         lambda timeframe, buffer_seconds, now_utc, **_kwargs: {
             "timeframe": timeframe,
             "buffer_seconds": buffer_seconds,
-            "sleep_seconds": 60.0,
+            "sleep_seconds": 121.0,
             "started_at_utc": now_utc.isoformat(),
-            "next_candle_close_utc": (now_utc + timedelta(seconds=60)).isoformat(),
+            "next_candle_close_utc": (now_utc + timedelta(seconds=121)).isoformat(),
             "next_candle_close_server": "2026-03-15T12:01:00",
             "server_timezone": "UTC",
         },
@@ -1196,8 +1196,7 @@ def test_wait_event_empty_watch_with_symbol_uses_boundary_budget(monkeypatch) ->
         WaitEventRequest(
             watch_for=[],
             symbol="EURUSD",
-            timeframe="H1",
-            max_wait_seconds=0,
+            timeframe="M1",
         ),
         gateway=SequenceGateway(),
         sleep_impl=clock.sleep,
@@ -1209,7 +1208,7 @@ def test_wait_event_empty_watch_with_symbol_uses_boundary_budget(monkeypatch) ->
     assert result["error_code"] == "wait_budget_exceeded"
     assert result["not_waited"] is True
     assert result["wait_mode"] == "timeframe_boundary"
-    assert result["remaining_seconds"] == 60.0
+    assert result["remaining_seconds"] == 121.0
     assert clock.monotonic_value == 0.0
 
 
@@ -1932,7 +1931,6 @@ def test_wait_event_symbol_boundary_needs_gateway() -> None:
         watch_for=[],
         symbol="EURUSD",
         timeframe="H1",
-        max_wait_seconds=0.5,
     )
     assert _wait_event_needs_gateway(request) is True
 
@@ -1965,9 +1963,9 @@ def test_wait_event_budget_failure_includes_broker_source_context(monkeypatch) -
         lambda timeframe, buffer_seconds, now_utc, **_kwargs: {
             "timeframe": timeframe,
             "buffer_seconds": buffer_seconds,
-            "sleep_seconds": 60.0,
+            "sleep_seconds": 3661.0,
             "started_at_utc": now_utc.isoformat(),
-            "next_candle_close_utc": (now_utc + timedelta(seconds=60)).isoformat(),
+            "next_candle_close_utc": (now_utc + timedelta(seconds=3661)).isoformat(),
             "next_candle_close_server": "2026-03-15T12:01:00",
             "server_timezone": "UTC",
         },
@@ -1980,7 +1978,6 @@ def test_wait_event_budget_failure_includes_broker_source_context(monkeypatch) -
             watch_for=[],
             symbol="EURUSD",
             timeframe="H1",
-            max_wait_seconds=0,
         ),
         gateway=gateway,
         sleep_impl=clock.sleep,

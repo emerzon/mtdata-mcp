@@ -116,7 +116,7 @@ def causal_discover_signals(  # noqa: C901
     start: Optional[str] = None,
     end: Optional[str] = None,
     max_lag: Annotated[int, Field(ge=1)] = 5,
-    significance: float = 0.05,
+    significance: Annotated[float, Field(gt=0.0, lt=1.0)] = 0.05,
     include_incomplete: bool = False,
     transform: str = "log_return",
     normalize: bool = True,

@@ -15,6 +15,7 @@ from pydantic import (
     model_validator,
 )
 
+from ...shared.constants import TIMEFRAME_SECONDS
 from ...shared.schema import (
     DenoiseSpecInput,
     DetailLiteral,
@@ -891,12 +892,12 @@ class WaitEventRequest(BaseModel):
                 )
         has_boundary = self.timeframe is not None
         has_duration = self.max_wait_seconds is not None
+        if has_boundary and has_duration:
+            raise ValueError("Do not combine timeframe with max_wait_seconds.")
         if self.end_on and not has_boundary:
             raise ValueError("end_on requires a top-level timeframe.")
         if not has_boundary and not has_duration:
-            raise ValueError(
-                "Provide timeframe and/or max_wait_seconds."
-            )
+            raise ValueError("Provide exactly one of timeframe or max_wait_seconds.")
         has_symbol_scope = self.symbol is not None or self.symbols is not None
         if (
             has_symbol_scope
@@ -922,4 +923,7 @@ class WaitEventRequest(BaseModel):
                     "end_on timeframes must match the top-level timeframe "
                     f"({self.timeframe}); received {', '.join(conflicting_timeframes)}."
                 )
+            self.max_wait_seconds = (
+                float(TIMEFRAME_SECONDS[str(self.timeframe).upper()]) + 60.0
+            )
         return self

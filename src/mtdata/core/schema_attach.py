@@ -173,6 +173,18 @@ def _patch_forecast_generate_schema(schema: Dict[str, Any]) -> None:
             "type": "object",
             "additionalProperties": True,
         }
+    _append_schema_rules(
+        schema,
+        _as_of_excludes_range(),
+        {
+            "if": _explicit_value("model_cache", "ephemeral"),
+            "then": _forbid_fields("model_id"),
+        },
+        {
+            "if": _explicit_value("async_mode", True),
+            "then": {"properties": {"model_cache": {"const": "reuse"}}},
+        },
+    )
 
 
 def _patch_indicators_list_schema(schema: Dict[str, Any]) -> None:
@@ -204,6 +216,19 @@ def _patch_data_fetch_candles_schema(schema: Dict[str, Any]) -> None:
         params["indicators"] = {"anyOf": indicator_options}
     _set_denoise_param(params, required_params)
     _set_simplify_param(params, required_params)
+    _append_schema_rules(
+        schema,
+        {"dependentRequired": {"cursor": ["start"]}},
+        {
+            "not": {
+                "allOf": [
+                    _explicit_value("selection", "first_n"),
+                    {"required": ["end"]},
+                    {"not": {"required": ["start"]}},
+                ]
+            }
+        },
+    )
 
 
 def _patch_data_fetch_ticks_schema(schema: Dict[str, Any]) -> None:
@@ -214,6 +239,10 @@ def _patch_data_fetch_ticks_schema(schema: Dict[str, Any]) -> None:
             "Opaque continuation cursor from pagination.next_cursor; reuse it "
             "with the same symbol, start, and end."
         )
+    _append_schema_rules(
+        schema,
+        {"dependentRequired": {"cursor": ["start", "end"]}},
+    )
 
 
 def _patch_trade_history_schema(schema: Dict[str, Any]) -> None:
@@ -223,6 +252,71 @@ def _patch_trade_history_schema(schema: Dict[str, Any]) -> None:
             "Opaque keyset cursor from pagination.next_cursor; reuse it with "
             "the same history kind, filters, time controls, and order."
         )
+    minutes_back = params.get("minutes_back")
+    if isinstance(minutes_back, dict):
+        minutes_back.update({"minimum": 1, "maximum": 10_512_000})
+    side = params.get("side")
+    if isinstance(side, dict):
+        side["pattern"] = (
+            "^(?:[Bb][Uu][Yy]|[Ss][Ee][Ll][Ll]|"
+            "[Ll][Oo][Nn][Gg]|[Ss][Hh][Oo][Rr][Tt])$"
+        )
+    _append_schema_rules(
+        schema,
+        _at_most_one("start", "minutes_back"),
+        {
+            "if": _explicit_value("history_kind", "orders"),
+            "then": {
+                "allOf": [
+                    _forbid_fields("deal_ticket"),
+                    {
+                        "properties": {
+                            "side": {
+                                "pattern": (
+                                    "^(?:[Bb][Uu][Yy]|[Ss][Ee][Ll][Ll])$"
+                                )
+                            }
+                        }
+                    },
+                ]
+            },
+        },
+    )
+
+
+def _patch_trade_journal_schema(schema: Dict[str, Any]) -> None:
+    params, _required_params = _schema_params(schema)
+    minutes_back = params.get("minutes_back")
+    if isinstance(minutes_back, dict):
+        minutes_back.update({"minimum": 1, "maximum": 10_512_000})
+    _append_schema_rules(schema, _at_most_one("start", "minutes_back"))
+
+
+def _patch_trade_query_schema(schema: Dict[str, Any]) -> None:
+    params, _required = _schema_params(schema)
+    side = params.get("side")
+    if isinstance(side, dict):
+        params["side"] = {
+            "type": "string",
+            "pattern": (
+                "^(?:[Bb][Uu][Yy]|[Ss][Ee][Ll][Ll]|"
+                "[Ll][Oo][Nn][Gg]|[Ss][Hh][Oo][Rr][Tt])$"
+            ),
+            "description": side.get("description", "Optional direction filter."),
+        }
+    order_type = params.get("order_type")
+    if isinstance(order_type, dict):
+        params["order_type"] = {
+            "type": "string",
+            "pattern": (
+                "^(?:[Bb][Uu][Yy]_(?:[Ll][Ii][Mm][Ii][Tt]|[Ss][Tt][Oo][Pp]"
+                "(?:_[Ll][Ii][Mm][Ii][Tt])?)|[Ss][Ee][Ll][Ll]_(?:"
+                "[Ll][Ii][Mm][Ii][Tt]|[Ss][Tt][Oo][Pp](?:_[Ll][Ii][Mm][Ii][Tt])?))$"
+            ),
+            "description": order_type.get(
+                "description", "Optional pending-order type filter."
+            ),
+        }
 
 
 def _patch_trade_stress_test_schema(schema: Dict[str, Any]) -> None:
@@ -236,6 +330,8 @@ def _patch_trade_stress_test_schema(schema: Dict[str, Any]) -> None:
         shocks["additionalProperties"] = additional
     additional["type"] = "number"
     additional["exclusiveMinimum"] = -100
+    shocks["minProperties"] = 1
+    shocks["propertyNames"] = {"pattern": r".*\S.*"}
 
 
 def _patch_forecast_barrier_prob_schema(schema: Dict[str, Any]) -> None:
@@ -248,6 +344,31 @@ def _patch_forecast_barrier_prob_schema(schema: Dict[str, Any]) -> None:
         "default": "mc_gbm_bb",
         "description": "Barrier probability algorithm.",
     }
+    monte_carlo_methods = [
+        method
+        for method in _BARRIER_PROB_METHODS
+        if method not in {"auto", "closed_form"}
+    ]
+    _append_schema_rules(
+        schema,
+        _as_of_excludes_range(),
+        {
+            "if": _explicit_value("method", "closed_form"),
+            "then": {
+                "properties": {
+                    "barrier": {"$ref": "#/$defs/SinglePriceBarrierSpec"}
+                }
+            },
+        },
+        {
+            "if": _explicit_enum("method", monte_carlo_methods),
+            "then": {
+                "properties": {
+                    "barrier": {"$ref": "#/$defs/BarrierPairSpec"}
+                }
+            },
+        },
+    )
 
 
 def _patch_forecast_barrier_optimize_schema(schema: Dict[str, Any]) -> None:
@@ -260,6 +381,15 @@ def _patch_forecast_barrier_optimize_schema(schema: Dict[str, Any]) -> None:
         "default": "auto",
         "description": "Barrier simulation method.",
     }
+    _append_schema_rules(
+        schema,
+        _as_of_excludes_range(),
+        {
+            "if": _explicit_value("grid_style", "preset"),
+            "then": {"required": ["preset"]},
+            "else": _forbid_fields("preset"),
+        },
+    )
 
 
 def _patch_trade_place_schema(schema: Dict[str, Any]) -> None:
@@ -288,6 +418,114 @@ def _patch_trade_place_schema(schema: Dict[str, Any]) -> None:
             ],
             "description": "Dateparser input, UTC epoch seconds, or GTC token.",
         }
+    market_orders = ["BUY", "SELL"]
+    stop_limit_orders = ["BUY_STOP_LIMIT", "SELL_STOP_LIMIT"]
+    ordinary_pending_orders = [
+        "BUY_LIMIT",
+        "BUY_STOP",
+        "SELL_LIMIT",
+        "SELL_STOP",
+    ]
+    _append_schema_rules(
+        schema,
+        {
+            "if": _explicit_enum("order_type", market_orders),
+            "then": _forbid_fields("price", "stop_limit_price"),
+        },
+        {
+            "if": _explicit_enum("order_type", ordinary_pending_orders),
+            "then": {
+                "allOf": [
+                    {"required": ["price"]},
+                    _forbid_fields("stop_limit_price"),
+                ]
+            },
+        },
+        {
+            "if": _explicit_enum("order_type", stop_limit_orders),
+            "then": {"required": ["price", "stop_limit_price"]},
+        },
+    )
+
+
+def _patch_trade_modify_schema(schema: Dict[str, Any]) -> None:
+    mutable_fields = (
+        "price",
+        "stop_limit_price",
+        "stop_loss",
+        "take_profit",
+        "clear_stop_loss",
+        "clear_take_profit",
+        "expiration",
+    )
+    _append_schema_rules(
+        schema,
+        _require_any(*mutable_fields),
+        {
+            "if": _explicit_value("clear_stop_loss", True),
+            "then": {
+                "properties": {
+                    "stop_loss": {"const": 0},
+                }
+            },
+        },
+        {
+            "if": _explicit_value("clear_take_profit", True),
+            "then": {
+                "properties": {
+                    "take_profit": {"const": 0},
+                }
+            },
+        },
+    )
+
+
+def _patch_trade_close_schema(schema: Dict[str, Any]) -> None:
+    _append_schema_rules(
+        schema,
+        {
+            "anyOf": [
+                {"required": ["ticket"]},
+                {"required": ["symbol"]},
+                {"required": ["magic"]},
+                _explicit_value("close_all", True),
+            ]
+        },
+        {
+            "if": {"required": ["volume"]},
+            "then": {
+                "allOf": [
+                    {"required": ["ticket"]},
+                    {"properties": {"target": {"const": "positions"}}},
+                    {"properties": {"pnl_filter": {"const": "all"}}},
+                ]
+            },
+        },
+        {
+            "if": _explicit_enum("target", ("pending", "all_exposure")),
+            "then": {"properties": {"pnl_filter": {"const": "all"}}},
+        },
+        {
+            "if": _explicit_value("target", "all_exposure"),
+            "then": _forbid_fields("ticket"),
+        },
+        {
+            "if": {"required": ["ticket"]},
+            "then": {"properties": {"close_all": {"const": False}}},
+        },
+        {
+            "if": {
+                "allOf": [
+                    _explicit_value("dry_run", False),
+                    {"not": {"required": ["ticket"]}},
+                ]
+            },
+            "then": {
+                "required": ["confirm_close_all"],
+                "properties": {"confirm_close_all": {"const": True}},
+            },
+        },
+    )
 
 
 def _patch_wait_event_schema(schema: Dict[str, Any]) -> None:
@@ -312,8 +550,16 @@ def _patch_wait_event_schema(schema: Dict[str, Any]) -> None:
             for option in symbols_options:
                 if isinstance(option, dict) and option.get("type") == "array":
                     option["uniqueItems"] = True
+                    option["items"] = {
+                        "type": "string",
+                        "pattern": r".*\S.*",
+                    }
         elif symbols_schema.get("type") == "array":
             symbols_schema["uniqueItems"] = True
+            symbols_schema["items"] = {
+                "type": "string",
+                "pattern": r".*\S.*",
+            }
 
     max_wait_schema = params.get("max_wait_seconds")
     if isinstance(max_wait_schema, dict):
@@ -323,13 +569,31 @@ def _patch_wait_event_schema(schema: Dict[str, Any]) -> None:
         poll_schema["minimum"] = 0.1
 
     params_obj["if"] = {"required": ["timeframe"]}
+    params_obj["then"] = {"not": {"required": ["max_wait_seconds"]}}
     params_obj["else"] = {
         "required": ["max_wait_seconds"],
-        "not": {"required": ["end_on"]},
+        "properties": {"end_on": {"maxItems": 0}},
+    }
+    duration_scope_requires_watcher = {
+        "if": {"not": {"required": ["timeframe"]}},
+        "then": {
+            "required": ["watch_for"],
+            "properties": {"watch_for": {"minItems": 1}},
+        },
     }
     params_obj["dependentSchemas"] = {
-        "symbol": {"not": {"required": ["symbols"]}},
-        "symbols": {"not": {"required": ["symbol"]}},
+        "symbol": {
+            "allOf": [
+                {"not": {"required": ["symbols"]}},
+                copy.deepcopy(duration_scope_requires_watcher),
+            ]
+        },
+        "symbols": {
+            "allOf": [
+                {"not": {"required": ["symbol"]}},
+                copy.deepcopy(duration_scope_requires_watcher),
+            ]
+        },
     }
 
     defs = wait_event_schema.get("$defs")
@@ -339,17 +603,912 @@ def _patch_wait_event_schema(schema: Dict[str, Any]) -> None:
             schema_defs.update(copy.deepcopy(defs))
 
 
+def _append_schema_rules(schema: Dict[str, Any], *rules: Dict[str, Any]) -> None:
+    """Append rules under an always-true conditional accepted by MCP schemas."""
+    if not rules:
+        return
+    params_obj = _schema_obj(schema)
+    then_schema = params_obj.get("then") if params_obj.get("if") == {} else None
+    all_of = then_schema.get("allOf") if isinstance(then_schema, dict) else None
+    if not isinstance(all_of, list):
+        existing_rules: list[Dict[str, Any]] = []
+        existing_all_of = params_obj.pop("allOf", None)
+        if isinstance(existing_all_of, list):
+            existing_rules.extend(
+                item for item in existing_all_of if isinstance(item, dict)
+            )
+        elif isinstance(existing_all_of, dict):
+            existing_rules.append(existing_all_of)
+
+        if "if" in params_obj and params_obj.get("if") != {}:
+            existing_conditional = {
+                key: params_obj.pop(key)
+                for key in ("if", "then", "else")
+                if key in params_obj
+            }
+            existing_rules.append(existing_conditional)
+
+        all_of = existing_rules
+        params_obj["if"] = {}
+        params_obj["then"] = {"allOf": all_of}
+    all_of.extend(copy.deepcopy(rule) for rule in rules)
+
+
+def _forbid_fields(*field_names: str) -> Dict[str, Any]:
+    return {
+        "not": {
+            "anyOf": [
+                {"required": [field_name]}
+                for field_name in field_names
+            ]
+        }
+    }
+
+
+def _at_most_one(*field_names: str) -> Dict[str, Any]:
+    pairs = [
+        {"required": [left, right]}
+        for index, left in enumerate(field_names)
+        for right in field_names[index + 1 :]
+    ]
+    return {"not": {"anyOf": pairs}}
+
+
+def _as_of_excludes_range() -> Dict[str, Any]:
+    return {
+        "not": {
+            "anyOf": [
+                {"required": ["as_of", "start"]},
+                {"required": ["as_of", "end"]},
+            ]
+        }
+    }
+
+
+def _explicit_value(field_name: str, value: Any) -> Dict[str, Any]:
+    return {
+        "required": [field_name],
+        "properties": {field_name: {"const": value}},
+    }
+
+
+def _explicit_enum(field_name: str, values: Iterable[Any]) -> Dict[str, Any]:
+    return {
+        "required": [field_name],
+        "properties": {field_name: {"enum": list(values)}},
+    }
+
+
+def _require_any(*field_names: str) -> Dict[str, Any]:
+    return {
+        "anyOf": [
+            {"required": [field_name]}
+            for field_name in field_names
+        ]
+    }
+
+
+def _patch_as_of_range_schema(schema: Dict[str, Any]) -> None:
+    _append_schema_rules(schema, _as_of_excludes_range())
+
+
+def _patch_selector_schema(schema: Dict[str, Any]) -> None:
+    params, _required = _schema_params(schema)
+    for field_name in ("symbols", "group"):
+        field_schema = params.get(field_name)
+        if isinstance(field_schema, dict):
+            field_schema["pattern"] = r".*\S.*"
+    _append_schema_rules(
+        schema,
+        _require_any("symbols", "group"),
+        _at_most_one("symbols", "group"),
+    )
+
+
+def _patch_cross_correlation_schema(schema: Dict[str, Any]) -> None:
+    params, _required = _schema_params(schema)
+    symbols = params.get("symbols")
+    if isinstance(symbols, dict):
+        symbols["pattern"] = r"^\s*[^,\s]+\s*,\s*[^,\s]+\s*$"
+
+
+def _patch_nonblank_symbols_schema(schema: Dict[str, Any]) -> None:
+    params, _required = _schema_params(schema)
+    symbols = params.get("symbols")
+    if isinstance(symbols, dict):
+        symbols["pattern"] = r".*\S.*"
+
+
+def _patch_cointegration_schema(schema: Dict[str, Any]) -> None:
+    _append_schema_rules(
+        schema,
+        {
+            "if": {
+                "anyOf": [
+                    {"not": {"required": ["method"]}},
+                    _explicit_value("method", "engle_granger"),
+                ]
+            },
+            "then": {
+                "properties": {
+                    "window_bars": {"minimum": 20},
+                    "min_overlap": {"minimum": 20},
+                }
+            },
+        },
+        {
+            "if": _explicit_value("method", "johansen"),
+            "then": {
+                "properties": {
+                    "trend": {"enum": ["n", "c", "ct"]},
+                    "significance": {"enum": [0.01, 0.05, 0.1]},
+                }
+            },
+        },
+    )
+
+
+def _patch_stationarity_schema(schema: Dict[str, Any]) -> None:
+    params, _required = _schema_params(schema)
+    tests = params.get("tests")
+    if isinstance(tests, dict):
+        tests["pattern"] = r".*\S.*"
+    _append_schema_rules(
+        schema,
+        {
+            "if": {
+                "anyOf": [
+                    {"not": {"required": ["target"]}},
+                    _explicit_enum("target", ("return", "log_return", "diff")),
+                ]
+            },
+            "then": {"properties": {"lookback": {"minimum": 21}}},
+        },
+    )
+
+
+def _patch_cost_model_schema(schema: Dict[str, Any]) -> None:
+    _append_schema_rules(
+        schema,
+        {
+            "if": _explicit_value("cost_model", "fixed"),
+            "then": {"required": ["spread_bps"]},
+            "else": _forbid_fields("spread_bps"),
+        },
+    )
+
+
+def _patch_asset_performance_schema(schema: Dict[str, Any]) -> None:
+    _append_schema_rules(
+        schema,
+        {
+            "if": _explicit_value("universe", "insider"),
+            "then": {
+                "allOf": [
+                    _forbid_fields("symbol", "rank_by", "order"),
+                    {"properties": {"offset": {"const": 0}}},
+                ]
+            },
+            "else": {
+                "allOf": [
+                    {"properties": {"option": {"const": "latest"}}},
+                    {"properties": {"page": {"const": 1}}},
+                ]
+            },
+        },
+        {"dependentRequired": {"order": ["rank_by"]}},
+    )
+
+
+def _patch_calendar_schema(schema: Dict[str, Any]) -> None:
+    _append_schema_rules(
+        schema,
+        {
+            "if": _explicit_value("view", "period"),
+            "then": {
+                "allOf": [
+                    {
+                        "required": ["kind"],
+                        "properties": {"kind": {"const": "earnings"}},
+                    },
+                    _forbid_fields(
+                        "start",
+                        "end",
+                        "impact",
+                        "country",
+                        "currency",
+                        "upcoming",
+                    ),
+                ]
+            },
+            "else": {
+                "allOf": [
+                    _forbid_fields("period"),
+                    {"properties": {"include_elapsed": {"const": False}}},
+                ]
+            },
+        },
+        {
+            "if": _explicit_enum("kind", ("earnings", "dividends")),
+            "then": _forbid_fields("impact", "country", "currency", "upcoming"),
+        },
+    )
+
+
+def _patch_market_status_schema(schema: Dict[str, Any]) -> None:
+    _append_schema_rules(schema, _at_most_one("symbol", "venue"))
+
+
+def _patch_market_scan_schema(schema: Dict[str, Any]) -> None:
+    _append_schema_rules(
+        schema,
+        _at_most_one("symbols", "group"),
+        {
+            "if": _explicit_value("universe", "all"),
+            "then": _require_any("symbols", "group"),
+        },
+    )
+
+
+def _patch_news_schema(schema: Dict[str, Any]) -> None:
+    params, _required = _schema_params(schema)
+    limit_per_bucket = params.get("limit_per_bucket")
+    if isinstance(limit_per_bucket, dict):
+        limit_per_bucket["minimum"] = 1
+    raw_view_source = {"properties": {"source": {"enum": ["auto", "finviz"]}}}
+    _append_schema_rules(
+        schema,
+        {
+            "if": _explicit_value("view", "ticker"),
+            "then": {
+                "allOf": [
+                    {"required": ["symbol"]},
+                    _forbid_fields("limit_per_bucket"),
+                    {
+                        "properties": {
+                            "offset": {"const": 0},
+                            "news_type": {"const": "news"},
+                        }
+                    },
+                    raw_view_source,
+                ]
+            },
+        },
+        {
+            "if": _explicit_value("view", "market"),
+            "then": {
+                "allOf": [
+                    _forbid_fields("symbol", "limit_per_bucket"),
+                    {"properties": {"offset": {"const": 0}}},
+                    raw_view_source,
+                ]
+            },
+        },
+        {
+            "if": {
+                "anyOf": [
+                    {"not": {"required": ["view"]}},
+                    _explicit_value("view", "unified"),
+                ]
+            },
+            "then": {
+                "properties": {
+                    "page": {"const": 1},
+                    "news_type": {"const": "news"},
+                }
+            },
+        },
+    )
+
+
+def _patch_screener_schema(schema: Dict[str, Any]) -> None:
+    _append_schema_rules(
+        schema,
+        {
+            "if": _explicit_value("list_filters", True),
+            "then": {
+                "properties": {
+                    "filters": {
+                        "anyOf": [
+                            {"type": "string", "pattern": r"^\s*$"},
+                            {"type": "object", "maxProperties": 0},
+                        ]
+                    },
+                    "order": {"const": "-marketcap"},
+                    "view": {"const": "overview"},
+                    "page": {"const": 1},
+                }
+            },
+            "else": {
+                "allOf": [
+                    _forbid_fields("value_limit"),
+                    {
+                        "properties": {
+                            "search": {"pattern": r"^\s*$"},
+                            "filter_name": {"pattern": r"^\s*$"},
+                            "offset": {"const": 0},
+                            "value_offset": {"const": 0},
+                        }
+                    },
+                ]
+            },
+        },
+    )
+
+
+def _patch_volume_profile_schema(schema: Dict[str, Any]) -> None:
+    params, _required = _schema_params(schema)
+    for field_name in ("bucket_size", "bucket_points"):
+        field_schema = params.get(field_name)
+        if isinstance(field_schema, dict):
+            field_schema["exclusiveMinimum"] = 0.0
+    bucket_count = params.get("bucket_count")
+    if isinstance(bucket_count, dict):
+        bucket_count["minimum"] = 1
+    _append_schema_rules(
+        schema,
+        _at_most_one("bucket_size", "bucket_points", "bucket_count"),
+        {
+            "not": {
+                "anyOf": [
+                    {"required": ["start", "timeframe"]},
+                    {"required": ["start", "lookback"]},
+                ]
+            }
+        },
+        {"dependentRequired": {"lookback": ["timeframe"]}},
+        {
+            "if": _explicit_value("source", "m1_bars"),
+            "then": {"properties": {"volume_source": {"not": {"const": "tick_count"}}}},
+        },
+    )
+
+
+def _patch_patterns_detect_schema(schema: Dict[str, Any]) -> None:
+    _append_schema_rules(
+        schema,
+        {
+            "if": _explicit_value("mode", "all"),
+            "then": {"properties": {"lookback": {"minimum": 150}}},
+        },
+        {
+            "if": {"required": ["engine"]},
+            "then": {
+                "required": ["mode"],
+                "properties": {"mode": {"const": "classic"}},
+            },
+        },
+        {
+            "if": _explicit_value("ensemble", True),
+            "then": {
+                "required": ["mode"],
+                "properties": {"mode": {"const": "classic"}},
+            },
+        },
+        {
+            "if": {"required": ["ensemble_weights"]},
+            "then": {
+                "allOf": [
+                    {
+                        "required": ["mode"],
+                        "properties": {"mode": {"const": "classic"}},
+                    },
+                    {
+                        "anyOf": [
+                            _explicit_value("ensemble", True),
+                            {
+                                "required": ["engine"],
+                                "properties": {"engine": {"pattern": "[,;]"}},
+                            },
+                        ]
+                    },
+                ]
+            },
+        },
+        {
+            "if": {"required": ["last_n_bars"]},
+            "then": {
+                "properties": {"mode": {"enum": ["candlestick", "all"]}}
+            },
+        },
+    )
+
+
+def _patch_regime_detect_schema(schema: Dict[str, Any]) -> None:
+    params, _required = _schema_params(schema)
+    fetch_limit = params.get("fetch_limit")
+    if isinstance(fetch_limit, dict):
+        fetch_limit["minimum"] = 10
+    min_regime_bars = params.get("min_regime_bars")
+    if isinstance(min_regime_bars, dict):
+        min_regime_bars["minimum"] = 1
+    threshold = params.get("threshold")
+    if isinstance(threshold, dict):
+        threshold.update({"minimum": 0.0, "maximum": 1.0})
+    _append_schema_rules(
+        schema,
+        {
+            "if": _explicit_value("method", "garch"),
+            "then": {"properties": {"target": {"not": {"const": "price"}}}},
+        },
+        {
+            "if": {"required": ["threshold"]},
+            "then": {
+                "required": ["method"],
+                "properties": {
+                    "method": {"enum": ["bocpd", "all", "ensemble"]}
+                }
+            },
+        },
+        {
+            "if": {
+                "anyOf": [
+                    {"not": {"required": ["method"]}},
+                    _explicit_enum("method", ("rule_based", "all")),
+                ]
+            },
+            "then": {
+                "properties": {
+                    "fetch_limit": {"minimum": 20},
+                    "lookback": {"minimum": 20},
+                }
+            },
+        },
+    )
+
+
+def _patch_temporal_analyze_schema(schema: Dict[str, Any]) -> None:
+    params, _required = _schema_params(schema)
+    min_bars = params.get("min_bars")
+    if isinstance(min_bars, dict):
+        min_bars["minimum"] = 0
+    _append_schema_rules(
+        schema,
+        {
+            "if": _explicit_enum("timeframe", ("D1", "W1", "MN1")),
+            "then": {
+                "properties": {
+                    "group_by": {"not": {"enum": ["hour", "session"]}}
+                }
+            },
+        },
+    )
+
+
+def _patch_report_generate_schema(schema: Dict[str, Any]) -> None:
+    rejected_timeframes = {
+        "scalping": ("D1", "W1", "MN1"),
+        "intraday": ("MN1",),
+        "swing": ("M1",),
+        "position": ("M1", "M2", "M3", "M4", "M5"),
+    }
+    template_rules = [
+        {
+            "not": {
+                "allOf": [
+                    _explicit_value("template", template),
+                    _explicit_enum("timeframe", timeframes),
+                ]
+            }
+        }
+        for template, timeframes in rejected_timeframes.items()
+    ]
+    _append_schema_rules(
+        schema,
+        {"dependentRequired": {"start": ["end"]}},
+        {
+            "if": {
+                "anyOf": [
+                    {"not": {"required": ["template"]}},
+                    _explicit_value("template", "minimal"),
+                ]
+            },
+            "then": {
+                "properties": {
+                    "methods": {
+                        "not": {
+                            "anyOf": [
+                                {"type": "array", "minItems": 2},
+                                {
+                                    "type": "string",
+                                    "pattern": r",|\S+\s+\S+",
+                                },
+                            ]
+                        }
+                    }
+                }
+            },
+        },
+        *template_rules,
+    )
+
+
+def _patch_relative_strength_schema(schema: Dict[str, Any]) -> None:
+    params, _required = _schema_params(schema)
+    horizons = params.get("horizons")
+    if isinstance(horizons, dict):
+        horizons.update(
+            {
+                "minItems": 1,
+                "uniqueItems": True,
+                "items": {"type": "integer", "minimum": 1, "maximum": 2_000},
+            }
+        )
+    weights = params.get("weights")
+    if isinstance(weights, dict):
+        weights.update(
+            {
+                "minItems": 1,
+                "items": {"type": "number", "minimum": 0.0},
+            }
+        )
+    symbols = params.get("symbols")
+    if isinstance(symbols, dict):
+        symbols["pattern"] = r".*\S.*"
+    _append_schema_rules(
+        schema,
+        _at_most_one("symbols", "group"),
+        {
+            "if": _explicit_value("universe", "all"),
+            "then": _require_any("symbols", "group"),
+        },
+    )
+
+
+def _patch_portfolio_risk_decompose_schema(schema: Dict[str, Any]) -> None:
+    params, _required = _schema_params(schema)
+    horizon_bars = params.get("horizon_bars")
+    if isinstance(horizon_bars, dict):
+        horizon_bars.update(
+            {
+                "minItems": 1,
+                "items": {"type": "integer", "minimum": 1, "maximum": 50},
+            }
+        )
+    confidence = params.get("confidence")
+    if isinstance(confidence, dict):
+        confidence.update(
+            {
+                "minItems": 1,
+                "items": {
+                    "type": "number",
+                    "exclusiveMinimum": 0.5,
+                    "exclusiveMaximum": 1.0,
+                },
+            }
+        )
+    _append_schema_rules(
+        schema,
+        {
+            "if": _explicit_value("method", "bootstrap_historical"),
+            "then": {"properties": {"ewma_half_life": {"const": 60.0}}},
+        },
+    )
+
+
+def _patch_market_microstructure_schema(schema: Dict[str, Any]) -> None:
+    _append_schema_rules(
+        schema,
+        {"dependentRequired": {"start": ["end"], "end": ["start"]}},
+        {
+            "not": {
+                "anyOf": [
+                    {"required": ["start", "minutes_back"]},
+                    {"required": ["end", "minutes_back"]},
+                ]
+            }
+        },
+    )
+
+
+def _patch_execution_quality_schema(schema: Dict[str, Any]) -> None:
+    params, _required = _schema_params(schema)
+    minutes_back = params.get("minutes_back")
+    if isinstance(minutes_back, dict):
+        minutes_back["maximum"] = 10_512_000
+    markout_seconds = params.get("markout_seconds")
+    if isinstance(markout_seconds, dict):
+        markout_seconds.update(
+            {
+                "minItems": 1,
+                "items": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 3_600,
+                },
+            }
+        )
+    _append_schema_rules(
+        schema,
+        {
+            "not": {
+                "anyOf": [
+                    {"required": ["start", "minutes_back"]},
+                    {"required": ["end", "minutes_back"]},
+                ]
+            }
+        },
+    )
+
+
+def _patch_strategy_validate_schema(schema: Dict[str, Any]) -> None:
+    defs = schema.get("$defs")
+    candidate = defs.get("StrategyCandidate") if isinstance(defs, dict) else None
+    if isinstance(candidate, dict):
+        candidate_props = candidate.get("properties")
+        if isinstance(candidate_props, dict):
+            candidate_id = candidate_props.get("id")
+            if isinstance(candidate_id, dict):
+                candidate_id["pattern"] = r".*\S.*"
+        candidate["allOf"] = [
+            {
+                "if": _explicit_value("type", "builtin_strategy"),
+                "then": {
+                    "required": ["strategy"],
+                    "properties": {"strategy": {"type": "string"}},
+                },
+            },
+            {
+                "if": _explicit_value("type", "forecast_threshold"),
+                "then": {
+                    "required": ["method"],
+                    "properties": {
+                        "method": {"type": "string", "pattern": r".*\S.*"}
+                    },
+                },
+            },
+        ]
+    _append_schema_rules(
+        schema,
+        {"dependentRequired": {"start": ["end"], "end": ["start"]}},
+        {
+            "if": {"required": ["strategy"]},
+            "then": {"properties": {"candidates": {"maxItems": 0}}},
+            "else": {
+                "required": ["candidates"],
+                "properties": {"candidates": {"minItems": 1}},
+            },
+        },
+        {
+            "if": {
+                "anyOf": [
+                    _explicit_enum("strategy", ("sma_cross", "ema_cross")),
+                    {
+                        "required": ["candidates"],
+                        "properties": {
+                            "candidates": {
+                                "contains": {
+                                    "required": ["type", "strategy"],
+                                    "properties": {
+                                        "type": {"const": "builtin_strategy"},
+                                        "strategy": {
+                                            "enum": ["sma_cross", "ema_cross"]
+                                        },
+                                    },
+                                }
+                            }
+                        },
+                    },
+                ]
+            },
+            "then": {
+                "properties": {
+                    "barrier": {
+                        "properties": {
+                            "tp_pct": {"type": "null"},
+                            "sl_pct": {"type": "null"},
+                        }
+                    }
+                }
+            },
+        },
+    )
+    _patch_cost_model_schema(schema)
+
+
+def _patch_nonblank_method_items(schema: Dict[str, Any]) -> None:
+    params, _required = _schema_params(schema)
+    methods = params.get("methods")
+    if isinstance(methods, dict):
+        methods["items"] = {"type": "string", "pattern": r".*\S.*"}
+
+
+def _patch_forecast_tuning_schema(schema: Dict[str, Any]) -> None:
+    from ..forecast.tuning_contract import (
+        ANNUALIZED_TUNING_METRICS,
+        MIN_ANNUALIZED_TUNING_TRADES,
+        TRADING_TUNING_METRICS,
+    )
+
+    _patch_nonblank_method_items(schema)
+    _append_schema_rules(
+        schema,
+        _as_of_excludes_range(),
+        {
+            "if": _explicit_enum("metric", sorted(TRADING_TUNING_METRICS)),
+            "then": {"required": ["spread_bps", "commission_bps_per_side"]},
+        },
+        {
+            "if": _explicit_enum("metric", sorted(ANNUALIZED_TUNING_METRICS)),
+            "then": {
+                "properties": {
+                    "steps": {"minimum": MIN_ANNUALIZED_TUNING_TRADES}
+                }
+            },
+        },
+    )
+
+
+def _patch_forecast_optimize_hints_schema(schema: Dict[str, Any]) -> None:
+    from ..forecast.tuning_contract import (
+        ANNUALIZED_TUNING_METRICS,
+        MIN_ANNUALIZED_TUNING_TRADES,
+        TRADING_TUNING_METRICS,
+    )
+
+    trading_metrics = sorted((*TRADING_TUNING_METRICS, "composite"))
+    params, _required = _schema_params(schema)
+    methods = params.get("methods")
+    if isinstance(methods, dict):
+        methods.update(
+            {
+                "minItems": 1,
+                "items": {"type": "string", "pattern": r".*\S.*"},
+            }
+        )
+    _append_schema_rules(
+        schema,
+        _as_of_excludes_range(),
+        {
+            "if": _explicit_enum("fitness_metric", trading_metrics),
+            "then": {"required": ["spread_bps", "commission_bps_per_side"]},
+        },
+        {
+            "if": _explicit_enum(
+                "fitness_metric", sorted(ANNUALIZED_TUNING_METRICS)
+            ),
+            "then": {
+                "properties": {
+                    "steps": {"minimum": MIN_ANNUALIZED_TUNING_TRADES}
+                }
+            },
+        },
+        {
+            "if": {"required": ["fitness_weights"]},
+            "then": {
+                "required": ["fitness_metric"],
+                "properties": {"fitness_metric": {"const": "composite"}},
+            },
+        },
+    )
+
+
+def _patch_forecast_models_delete_schema(schema: Dict[str, Any]) -> None:
+    _append_schema_rules(
+        schema,
+        {
+            "if": _explicit_value("dry_run", False),
+            "then": {"required": ["confirm_model_id"]},
+        },
+    )
+
+
+def _patch_options_barrier_price_schema(schema: Dict[str, Any]) -> None:
+    params, _required = _schema_params(schema)
+    for field_name in (
+        "spot",
+        "strike",
+        "barrier",
+        "heston_v0",
+        "heston_kappa",
+        "heston_theta",
+        "heston_sigma",
+    ):
+        field_schema = params.get(field_name)
+        if isinstance(field_schema, dict):
+            field_schema["exclusiveMinimum"] = 0.0
+    maturity = params.get("maturity_days")
+    if isinstance(maturity, dict):
+        maturity["minimum"] = 1
+    rho = params.get("heston_rho")
+    if isinstance(rho, dict):
+        rho.update({"minimum": -1.0, "maximum": 1.0})
+
+    heston_fields = (
+        "heston_v0",
+        "heston_kappa",
+        "heston_theta",
+        "heston_sigma",
+        "heston_rho",
+    )
+    _append_schema_rules(
+        schema,
+        {
+            "if": _explicit_value("model", "heston"),
+            "then": {"required": list(heston_fields)},
+            "else": {
+                "allOf": [
+                    _forbid_fields(*heston_fields),
+                    {
+                        "properties": {
+                            "volatility": {"exclusiveMinimum": 0.0}
+                        }
+                    },
+                ]
+            },
+        },
+    )
+
+
+def _patch_symbols_list_schema(schema: Dict[str, Any]) -> None:
+    _append_schema_rules(
+        schema,
+        {
+            "if": _explicit_value("list_mode", "groups"),
+            "then": {
+                "properties": {
+                    "search_mode": {"not": {"enum": ["name", "description"]}}
+                }
+            },
+        },
+    )
+
+
+def _patch_pivot_compute_points_schema(schema: Dict[str, Any]) -> None:
+    _append_schema_rules(schema, _at_most_one("end", "as_of"))
+
+
 _TOOL_SCHEMA_PATCHERS: Dict[str, tuple[_SchemaPatcher, ...]] = {
+    "asset_performance": (_patch_asset_performance_schema,),
+    "calendar": (_patch_calendar_schema,),
+    "causal_discover_signals": (_patch_selector_schema,),
+    "cointegration_test": (_patch_selector_schema, _patch_cointegration_schema),
+    "correlation_matrix": (_patch_selector_schema,),
+    "cross_correlation": (_patch_cross_correlation_schema,),
     "forecast_generate": (_patch_forecast_generate_schema,),
+    "forecast_models_delete": (_patch_forecast_models_delete_schema,),
+    "forecast_optimize_hints": (_patch_forecast_optimize_hints_schema,),
+    "forecast_conformal_intervals": (_patch_as_of_range_schema,),
+    "forecast_train": (_patch_as_of_range_schema,),
+    "forecast_tune_genetic": (_patch_forecast_tuning_schema,),
+    "forecast_tune_optuna": (_patch_forecast_tuning_schema,),
+    "forecast_volatility_estimate": (_patch_as_of_range_schema,),
+    "forecast_backtest_run": (_patch_nonblank_method_items,),
+    "strategy_backtest": (_patch_cost_model_schema,),
+    "strategy_validate": (_patch_strategy_validate_schema,),
     "indicators_list": (_patch_indicators_list_schema,),
     "indicators_describe": (_patch_indicators_describe_schema,),
     "data_fetch_candles": (_patch_data_fetch_candles_schema,),
     "data_fetch_ticks": (_patch_data_fetch_ticks_schema,),
     "trade_history": (_patch_trade_history_schema,),
+    "trade_get_open": (_patch_trade_query_schema,),
+    "trade_get_pending": (_patch_trade_query_schema,),
+    "trade_journal_analyze": (_patch_trade_journal_schema,),
     "trade_stress_test": (_patch_trade_stress_test_schema,),
     "forecast_barrier_prob": (_patch_forecast_barrier_prob_schema,),
     "forecast_barrier_optimize": (_patch_forecast_barrier_optimize_schema,),
     "trade_place": (_patch_trade_place_schema,),
+    "trade_modify": (_patch_trade_modify_schema,),
+    "trade_close": (_patch_trade_close_schema,),
+    "labels_triple_barrier": (_patch_as_of_range_schema,),
+    "market_microstructure_analyze": (_patch_market_microstructure_schema,),
+    "trade_execution_quality": (_patch_execution_quality_schema,),
+    "portfolio_risk_decompose": (_patch_portfolio_risk_decompose_schema,),
+    "market_relative_strength": (_patch_relative_strength_schema,),
+    "market_radar": (_patch_nonblank_symbols_schema,),
+    "market_scan": (_patch_market_scan_schema,),
+    "market_status": (_patch_market_status_schema,),
+    "news": (_patch_news_schema,),
+    "options_barrier_price": (_patch_options_barrier_price_schema,),
+    "patterns_detect": (_patch_patterns_detect_schema,),
+    "pivot_compute_points": (_patch_pivot_compute_points_schema,),
+    "regime_detect": (_patch_regime_detect_schema,),
+    "report_generate": (_patch_report_generate_schema,),
+    "screener": (_patch_screener_schema,),
+    "stationarity_test": (_patch_stationarity_schema,),
+    "symbols_list": (_patch_symbols_list_schema,),
+    "temporal_analyze": (_patch_temporal_analyze_schema,),
+    "volume_profile_levels": (_patch_volume_profile_schema,),
     "wait_event": (_patch_wait_event_schema,),
 }
 

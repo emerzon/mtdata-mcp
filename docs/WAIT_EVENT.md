@@ -18,42 +18,32 @@ runner, which has no progress bar for a long wait.
 
 ## Pick a wait target
 
-Choose at least one:
+Choose exactly one stopping mode:
 
 - a **timeframe** — stop at the next candle boundary (for example the next H1 close),
-- **`max_wait_seconds`** — stop after a fixed number of seconds, or bound a timeframe wait.
+- **`max_wait_seconds`** — stop after a fixed number of seconds.
 
-Do not omit both. Setting both creates a bounded boundary wait: the command
-returns at the candle boundary when it fits within the budget, or reports
-`wait_budget_exceeded` without starting an over-budget sleep.
+Do not combine them or omit both. In timeframe mode, `wait_event` infers the
+maximum wait as the timeframe length plus 60 seconds.
 
 ---
 
 ## Example 1 — wait for the next H1 close
 
 ```powershell
-mtdata-cli wait_event EURUSD --timeframe H1 --watch-for '[]' --max-wait-seconds 3700 --json
+mtdata-cli wait_event EURUSD --timeframe H1 --watch-for '[]' --json
 ```
 
 The explicit empty watch list makes this a candle-boundary-only wait, so the
 next research step runs on a *completed* hour rather than returning early for
-an inferred market or account event. The 3,700-second budget covers at most one
-H1 boundary plus the default close buffer, so an unattended call is bounded.
-
-Use a shorter budget when the script should start only near the boundary:
-
-```powershell
-mtdata-cli wait_event EURUSD --timeframe H1 --watch-for '[]' --max-wait-seconds 300 --json
-```
-
-That five-minute budget returns `wait_budget_exceeded` without sleeping unless
-the next buffered H1 close already fits inside it.
+an inferred market or account event. The inferred 3,660-second maximum covers
+at most one H1 boundary plus a safety margin.
 
 A timeframe wait with no symbol and no extra watch list is a pure clock wait
 (no candle payload). Passing the symbol includes a best-effort closed-candle
 snapshot when the boundary hits. Omitting `--watch-for` waits only for that
-candle boundary. `max_wait_seconds` defaults to the timeframe length plus 60
-seconds so a weekend H1 wait cannot block until Sunday reopen.
+candle boundary. The inferred maximum prevents a weekend H1 wait from blocking
+until Sunday reopen.
 
 ---
 

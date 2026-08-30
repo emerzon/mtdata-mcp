@@ -577,7 +577,7 @@ class _ForecastTuneRequestBase(_RollingWindowForecastRequest):
         "auto",
         description="Objective direction. auto uses the standard direction for the selected metric.",
     )
-    seed: int = 42
+    seed: int = Field(42, ge=0, le=4_294_967_295)
     slippage_bps: float = Field(
         0.0,
         ge=0.0,
@@ -844,7 +844,7 @@ class ForecastOptimizeHintsRequest(_RollingWindowForecastRequest):
         ),
     )
     trade_threshold: float = Field(0.0, ge=0.0)
-    seed: int = 42
+    seed: int = Field(42, ge=0, le=4_294_967_295)
     max_search_time_seconds: Optional[float] = Field(
         None,
         gt=0.0,

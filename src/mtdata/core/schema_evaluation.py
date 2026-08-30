@@ -69,6 +69,9 @@ _EXPECTED_GATED_TOOL_COUNT = 83
 _OUTPUT_CONTROLS = frozenset({"json", "output_fields"})
 _LEGACY_OUTPUT_CONTROLS = frozenset({"extras"})
 _FINVIZ_DOMAIN_FIELDS = frozenset({"equity_profile"})
+_PYDANTIC_CONSTRAINT_KEYWORDS = frozenset(
+    {"allow_inf_nan", "ge", "gt", "le", "lt", "max_length", "min_length"}
+)
 
 # These are intentional breaking migrations.  Keeping them here makes the scan
 # catch accidental reintroduction of aliases after the implementation is
@@ -244,6 +247,23 @@ def _schema_has_numeric_bound(value: Any, defs: Mapping[str, Any]) -> bool:
     )
 
 
+def _pydantic_constraint_paths(
+    value: Any,
+    path: tuple[str, ...] = (),
+) -> list[tuple[tuple[str, ...], str]]:
+    findings: list[tuple[tuple[str, ...], str]] = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            child_path = (*path, str(key))
+            if key in _PYDANTIC_CONSTRAINT_KEYWORDS:
+                findings.append((child_path, key))
+            findings.extend(_pydantic_constraint_paths(item, child_path))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            findings.extend(_pydantic_constraint_paths(item, (*path, str(index))))
+    return findings
+
+
 def _runtime_parameters(func: Any) -> dict[str, inspect.Parameter]:
     signature = get_runtime_signature(func)
     return {
@@ -288,6 +308,20 @@ def _evaluate_tool(  # noqa: C901
             name,
             "",
             "Top-level schema must reject undeclared parameters.",
+        )
+
+    for path, keyword in _pydantic_constraint_paths(schema):
+        parameter = path[1] if len(path) > 1 and path[0] == "properties" else ""
+        _finding(
+            findings,
+            "error",
+            "non_json_schema_constraint",
+            name,
+            parameter,
+            (
+                f"Constraint {keyword!r} at /{'/'.join(path)} is a Pydantic "
+                "keyword and is ignored by JSON Schema validators."
+            ),
         )
 
     for control in sorted(_OUTPUT_CONTROLS - properties.keys()):

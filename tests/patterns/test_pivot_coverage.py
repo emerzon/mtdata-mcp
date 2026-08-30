@@ -212,6 +212,18 @@ def test_pivot_compute_points_as_of_alias_matches_end():
     assert res["levels"]["PP"] == round((1.12 + 1.09 + 1.11) / 3.0, 5)
 
 
+def test_pivot_compute_points_rejects_both_cutoff_aliases():
+    result = _get_pivot_fn()(
+        "EURUSD",
+        end="2026-08-30T10:00:00Z",
+        as_of="2026-08-30T10:00:00Z",
+    )
+
+    assert result["success"] is False
+    assert result["error_code"] == "incompatible_parameters"
+    assert result["details"]["conflicting_parameters"] == ["end", "as_of"]
+
+
 def test_pivot_compute_points_attaches_freshness_and_bid_price_basis():
     fn = _get_pivot_fn()
     info = _make_symbol_info()

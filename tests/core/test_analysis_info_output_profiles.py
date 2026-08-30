@@ -214,7 +214,7 @@ def test_compact_error_drops_empty_success_shape_and_duplicate_symbol() -> None:
 def test_wait_event_budget_error_keeps_only_actionable_compact_state() -> None:
     payload = {
         "success": False,
-        "error": "The next candle boundary is beyond max_wait_seconds.",
+        "error": "The next candle boundary is beyond the inferred timeframe wait budget.",
         "error_code": "wait_budget_exceeded",
         "request_id": "63c928cdb2c9",
         "operation": "wait_event",
@@ -228,7 +228,7 @@ def test_wait_event_budget_error_keeps_only_actionable_compact_state() -> None:
         "not_waited": True,
         "remaining_seconds": 654,
         "wait_mode": "timeframe_boundary",
-        "remediation": "Increase max_wait_seconds and retry.",
+        "remediation": "Retry closer to the boundary or choose a shorter timeframe.",
         "symbol": "BTCUSD",
         "bid": 79061.3,
         "ask": 79066.3,
@@ -237,7 +237,7 @@ def test_wait_event_budget_error_keeps_only_actionable_compact_state() -> None:
         "data_stale": False,
         "usable_for_live_trading": True,
         "source": {"provider": "mt5", "server": "ICMarketsSC-MT5-2"},
-        "wait_policy": {"max_wait_seconds": 300},
+        "wait_policy": {"max_wait_seconds": 3660},
     }
 
     result = shape_public_tool_output(
@@ -248,20 +248,20 @@ def test_wait_event_budget_error_keeps_only_actionable_compact_state() -> None:
 
     assert result == {
         "success": False,
-        "error": "The next candle boundary is beyond max_wait_seconds.",
+        "error": "The next candle boundary is beyond the inferred timeframe wait budget.",
         "error_code": "wait_budget_exceeded",
         "request_id": "63c928cdb2c9",
         "symbol": "BTCUSD",
         "next_candle_close_utc": "2026-08-30T19:00:00Z",
         "remaining_seconds": 654,
-        "remediation": "Increase max_wait_seconds and retry.",
+        "remediation": "Retry closer to the boundary or choose a shorter timeframe.",
     }
 
 
 def test_wait_event_error_retains_diagnostics_at_full_detail() -> None:
     payload = {
         "success": False,
-        "error": "The next candle boundary is beyond max_wait_seconds.",
+        "error": "The next candle boundary is beyond the inferred timeframe wait budget.",
         "error_code": "wait_budget_exceeded",
         "request_id": "63c928cdb2c9",
         "operation": "wait_event",

@@ -1359,11 +1359,29 @@ class TestMcpToolSchemas:
         assert props["max_wait_seconds"]["minimum"] == 0.0
         assert props["poll_interval_seconds"]["minimum"] == 0.1
         assert schema["if"] == {"required": ["timeframe"]}
-        assert "then" not in schema
+        assert schema["then"] == {
+            "not": {"required": ["max_wait_seconds"]}
+        }
         assert schema["else"]["required"] == ["max_wait_seconds"]
+        assert schema["else"]["properties"]["end_on"]["maxItems"] == 0
+        duration_symbol = schema["dependentSchemas"]["symbol"]["allOf"][1]
+        duration_symbols = schema["dependentSchemas"]["symbols"]["allOf"][1]
+        assert duration_symbol == duration_symbols
+        assert duration_symbol["then"]["required"] == ["watch_for"]
+        assert duration_symbol["then"]["properties"]["watch_for"]["minItems"] == 1
         assert schema["dependentSchemas"] == {
-            "symbol": {"not": {"required": ["symbols"]}},
-            "symbols": {"not": {"required": ["symbol"]}},
+            "symbol": {
+                "allOf": [
+                    {"not": {"required": ["symbols"]}},
+                    duration_symbol,
+                ]
+            },
+            "symbols": {
+                "allOf": [
+                    {"not": {"required": ["symbol"]}},
+                    duration_symbols,
+                ]
+            },
         }
 
     def test_prioritized_tools_list_tools_schemas_are_compact_and_aligned(self):
