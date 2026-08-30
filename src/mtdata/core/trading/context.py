@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 
 from ...shared.constants import BROKER_VOLUME_UNIT
 from ...utils.coercion import round_finite
+from ...utils.quote import QUOTE_EXECUTION_SOURCE_AGREEMENT_BASIS
 from ...utils.time import format_datetime_utc
 from .._mcp_instance import mcp
 from ..execution_logging import run_logged_operation
@@ -35,7 +36,11 @@ def _quote_readiness_blocker(quote: Dict[str, Any]) -> str:
         return "quote_locked"
     if spread_quality and spread_quality != "two_sided":
         return "quote_spread_not_executable"
-    if isinstance(quote.get("quote_source_conflict"), dict):
+    if (
+        isinstance(quote.get("quote_source_conflict"), dict)
+        or quote.get("usable_for_live_trading_basis")
+        == QUOTE_EXECUTION_SOURCE_AGREEMENT_BASIS
+    ):
         return "quote_source_conflict"
     return (
         "quote_not_live"
@@ -311,7 +316,8 @@ def _build_quote_quality(quote: Any) -> Dict[str, Any]:
     if not isinstance(quote, dict) or quote.get("error") not in (None, ""):
         return {
             "status": "unavailable",
-            "is_live": False,
+            "freshness_status": "unavailable",
+            "freshness_is_live": False,
             "warning": "quote_unavailable",
         }
     age_seconds = quote.get("data_age_seconds")
@@ -321,10 +327,21 @@ def _build_quote_quality(quote: Any) -> Dict[str, Any]:
     freshness_live = freshness_state == "live" or (
         not freshness_state and execution_usable
     )
-    status = "stale" if stale else "live" if freshness_live else "recent"
+    freshness_status = "stale" if stale else "live" if freshness_live else "recent"
+    if execution_usable:
+        status = "usable"
+    else:
+        blocker = _quote_readiness_blocker(quote)
+        status = {
+            "quote_stale": "stale",
+            "quote_locked": "locked",
+            "quote_source_conflict": "source_conflict",
+            "quote_spread_not_executable": "invalid_spread",
+        }.get(blocker, "not_live_ready")
     out: Dict[str, Any] = {
         "status": status,
-        "is_live": freshness_live,
+        "freshness_status": freshness_status,
+        "freshness_is_live": freshness_live,
         "data_stale": stale,
     }
     if age_seconds not in (None, ""):

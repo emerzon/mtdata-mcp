@@ -216,6 +216,29 @@ def test_snapshot_reconciles_earlier_quote_only_status_block() -> None:
     assert "reason" not in execution
 
 
+def test_snapshot_reconciles_compact_quote_only_status_block() -> None:
+    result = snapshot_mod._snapshot_summary_payload(
+        {
+            "quote": {
+                "usable_for_live_trading": True,
+                "freshness_state": "live",
+            },
+            "status": {
+                "status": "quote_not_live_ready",
+                "can_open_new_positions": False,
+                "reason": "quote_source_conflict",
+            },
+        }
+    )
+
+    execution = result["execution"]
+    assert execution["usable_for_live_trading"] is True
+    assert execution["status"] == "probably_open"
+    assert execution["can_open_new_positions"] is True
+    assert execution["status_reconciled_from_final_quote"] is True
+    assert "reason" not in execution
+
+
 def test_snapshot_preserves_non_quote_status_block() -> None:
     result = snapshot_mod._snapshot_summary_payload(
         {

@@ -135,6 +135,53 @@ def test_market_depth_tick_fallback_marks_fresh_quote_live_ready() -> None:
     assert out["usable_for_live_trading"] is True
 
 
+def test_market_depth_tick_fallback_blocks_material_quote_source_conflict() -> None:
+    now = 1_700_000_100.0
+    cached_tick = SimpleNamespace(
+        bid=1.15304,
+        ask=1.15326,
+        last=1.15315,
+        volume=5,
+        time=now - 1.0,
+        time_msc=(now - 1.0) * 1000.0,
+    )
+    stream_tick = {
+        "bid": 1.15408,
+        "ask": 1.15422,
+        "last": 1.15415,
+        "volume": 6,
+        "time": now - 1.0,
+        "time_msc": (now - 1.0) * 1000.0,
+    }
+    with patch("mtdata.core.market_depth.mt5") as mt5, patch(
+        "mtdata.core.market_depth.time.time", return_value=now
+    ):
+        mt5.COPY_TICKS_ALL = 0
+        mt5.symbol_select.return_value = True
+        mt5.symbol_info.return_value = SimpleNamespace(
+            digits=5,
+            point=0.00001,
+            trade_tick_size=0.00001,
+            trade_tick_value=1.0,
+        )
+        mt5.market_book_add.return_value = False
+        mt5.market_book_get.return_value = []
+        mt5.symbol_info_tick.return_value = cached_tick
+        mt5.copy_ticks_range.return_value = [stream_tick]
+
+        out = _raw_market_depth_fetch("EURUSD")
+
+    assert out["success"] is True
+    assert out["type"] == "quote_fallback"
+    assert out["quote_source_state"] == "reconciled_equal_timestamp_conflict"
+    assert isinstance(out["quote_source_conflict"], dict)
+    assert out["usable_for_live_trading"] is False
+    assert out["usable_for_live_trading_basis"] == (
+        "quote_age_market_session_spread_and_source_agreement"
+    )
+    assert out["execution_blockers"] == ["quote_source_conflict"]
+
+
 def test_market_depth_full_depth_includes_price_display() -> None:
     depth = [
         {"price": 65601.0, "volume": 1.0, "volume_real": 1.0, "type": 2},
@@ -639,6 +686,41 @@ def test_market_ticker_price_field_returns_simple_price() -> None:
     assert "bid" not in out
     assert "spread_pips" not in out
     assert out["meta"]["tool"] == "market_ticker"
+
+
+def test_market_ticker_mid_keeps_quote_readiness_separate_from_executability() -> None:
+    now = 1_700_000_100.0
+    tick = SimpleNamespace(
+        bid=1.17221,
+        ask=1.17237,
+        last=1.17230,
+        volume=5,
+        time=now - 1.0,
+        time_msc=(now - 1.0) * 1000.0,
+    )
+    with patch("mtdata.core.market_depth.mt5") as mt5, patch(
+        "mtdata.core.market_depth.time.time", return_value=now
+    ), patch("mtdata.core.market_depth._use_client_tz", return_value=False):
+        mt5.COPY_TICKS_ALL = 0
+        mt5.symbol_select.return_value = True
+        mt5.symbol_info.return_value = SimpleNamespace(
+            digits=5,
+            point=0.00001,
+            trade_tick_size=0.00001,
+            trade_tick_value=1.0,
+            currency_profit="USD",
+        )
+        mt5.symbol_info_tick.return_value = tick
+        mt5.copy_ticks_range.return_value = []
+
+        out = _raw_market_ticker("EURUSD", price_field="mid")
+
+    assert out["quote_usable_for_live_trading"] is True
+    assert out["usable_for_live_trading"] is True
+    assert out["usable_for_live_trading_basis"] == (
+        "quote_age_market_session_and_positive_spread"
+    )
+    assert out["selected_value_executable"] is False
 
 
 def test_market_ticker_spread_field_retains_spread_units() -> None:

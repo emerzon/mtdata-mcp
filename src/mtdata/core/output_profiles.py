@@ -2028,6 +2028,14 @@ def _compact_trade_session_context(payload: MutableMapping[str, Any]) -> None:
         compact_quote_quality = dict(quote_quality)
         if compact_quote_quality.get("status") in {"live", "stale", "unverified"}:
             compact_quote_quality.pop("is_live", None)
+        if compact_quote_quality.get("freshness_status") in {
+            "live",
+            "recent",
+            "stale",
+            "unavailable",
+            "unverified",
+        }:
+            compact_quote_quality.pop("freshness_is_live", None)
         if isinstance(quote, Mapping) and compact_quote_quality.get(
             "usable_for_live_trading"
         ) == quote.get("usable_for_live_trading"):

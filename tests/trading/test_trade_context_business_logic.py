@@ -111,9 +111,31 @@ def test_trade_ready_names_fresh_locked_quote_blocker() -> None:
     quality = _build_quote_quality(quote)
 
     assert readiness["blockers"] == ["quote_locked"]
-    assert quality["is_live"] is True
+    assert quality["status"] == "locked"
+    assert quality["freshness_status"] == "live"
+    assert quality["freshness_is_live"] is True
+    assert "is_live" not in quality
     assert quality["usable_for_live_trading"] is False
     assert quality["spread_quality"] == "locked"
+
+
+def test_quote_quality_names_live_freshness_and_source_conflict_separately() -> None:
+    quality = _build_quote_quality(
+        {
+            "freshness_state": "live",
+            "data_stale": False,
+            "spread_quality": "two_sided",
+            "usable_for_live_trading": False,
+            "usable_for_live_trading_basis": (
+                "quote_age_market_session_spread_and_source_agreement"
+            ),
+        }
+    )
+
+    assert quality["status"] == "source_conflict"
+    assert quality["freshness_status"] == "live"
+    assert quality["freshness_is_live"] is True
+    assert quality["usable_for_live_trading"] is False
 
 
 @pytest.mark.parametrize(
@@ -377,6 +399,9 @@ def test_trade_session_context_compacts_nested_sections_by_default() -> None:
         "time": "2023-11-14 22:13",
         "timezone": "UTC",
     }
+    assert out["quote_quality"]["status"] == "usable"
+    assert out["quote_quality"]["freshness_status"] == "live"
+    assert out["quote_quality"]["freshness_is_live"] is True
     assert out["open_positions"] == [
         {
             "symbol": "EURUSD",

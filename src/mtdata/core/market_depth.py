@@ -36,6 +36,7 @@ from ..utils.mt5 import (
     symbol_price_point,
 )
 from ..utils.quote import (
+    QUOTE_EXECUTION_SOURCE_AGREEMENT_BASIS,
     compute_spread_metrics,
     enforce_quote_execution_readiness,
     resolve_quote_tick,
@@ -460,15 +461,26 @@ def _market_depth_fetch_impl(symbol: str, spread: bool = False, require_dom: boo
 
                 bid = tick_value(tick_value_obj, "bid")
                 ask = tick_value(tick_value_obj, "ask")
-                try:
-                    executable_quote = float(ask) > float(bid) > 0.0
-                except (TypeError, ValueError):
-                    executable_quote = False
-                if not executable_quote:
-                    payload["usable_for_live_trading"] = False
+                enforce_quote_execution_readiness(
+                    payload,
+                    bid=bid,
+                    ask=ask,
+                    quote_source_conflict=payload.get("quote_source_conflict"),
+                    point=point,
+                )
+                blocker = None
+                if (
+                    payload.get("usable_for_live_trading") is False
+                    and payload.get("usable_for_live_trading_basis")
+                    == QUOTE_EXECUTION_SOURCE_AGREEMENT_BASIS
+                ):
+                    blocker = "quote_source_conflict"
+                elif payload.get("spread_valid") is False:
+                    blocker = "reference_quote_not_executable"
+                if blocker is not None:
                     blockers = list(payload.get("execution_blockers") or [])
-                    if "reference_quote_not_executable" not in blockers:
-                        blockers.append("reference_quote_not_executable")
+                    if blocker not in blockers:
+                        blockers.append(blocker)
                     payload["execution_blockers"] = blockers
 
             book_subscription_active = False
@@ -1140,16 +1152,9 @@ def market_ticker(  # noqa: C901
                     "quote_refresh_attempted",
                     "spread_valid",
                     "spread_quality",
+                    "usable_for_live_trading",
+                    "usable_for_live_trading_basis",
                 ]
-                if selected_executable:
-                    copy_keys.extend(
-                        ("usable_for_live_trading", "usable_for_live_trading_basis")
-                    )
-                else:
-                    simple["usable_for_live_trading"] = False
-                    simple["usable_for_live_trading_basis"] = (
-                        "selected_field_is_not_an_executable_side_price"
-                    )
                 for key in copy_keys:
                     if out.get(key) is not None:
                         simple[key] = out.get(key)

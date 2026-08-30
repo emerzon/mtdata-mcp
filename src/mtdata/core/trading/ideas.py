@@ -276,6 +276,10 @@ def _extract_quote(session: Any) -> Dict[str, Any]:
         compact["is_session_open"] = session.get("is_session_open")
     if session.get("now_tradable") is not None:
         compact["now_tradable"] = session.get("now_tradable")
+    if session.get("trade_mode_allows_opening") is not None:
+        compact["trade_mode_allows_opening"] = session.get(
+            "trade_mode_allows_opening"
+        )
     if session.get("execution_preconditions_allow_open") is not None:
         compact["execution_preconditions_allow_open"] = session.get(
             "execution_preconditions_allow_open"
@@ -315,9 +319,9 @@ def _reference_price(quote: Dict[str, Any], direction: Optional[str]) -> Optiona
 def _session_open_gate(payload: Any) -> Optional[bool]:
     if not isinstance(payload, dict):
         return None
-    if payload.get("execution_preconditions_allow_open") is False:
+    if payload.get("is_session_open") is False:
         return False
-    if payload.get("can_open_new_positions") is False:
+    if payload.get("trade_mode_allows_opening") is False:
         return False
     return None
 

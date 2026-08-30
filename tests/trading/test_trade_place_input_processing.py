@@ -795,6 +795,85 @@ def test_trade_place_dry_run_pending_preview_skips_order_send() -> None:
     mock_pending.assert_not_called()
 
 
+def test_trade_place_pending_preview_blocks_live_use_of_unusable_quote() -> None:
+    with patch("mtdata.core.trading._place_pending_order") as mock_pending, patch(
+        "mtdata.core.trading.build_trade_place_dry_run_preview",
+        return_value={
+            "bid": 1.1000,
+            "ask": 1.1002,
+            "entry_price": 1.0950,
+            "quote_context": {
+                "usable_for_live_trading": False,
+                "freshness_state": "live",
+                "warning": "Quote sources conflict.",
+            },
+        },
+    ), patch(
+        "mtdata.core.trading.time._normalize_pending_expiration",
+        return_value=(1787270399, True),
+    ):
+        out = trade_place(
+            symbol="EURUSD",
+            volume=0.01,
+            order_type="BUY_LIMIT",
+            price=1.0950,
+            stop_loss=1.0900,
+            take_profit=1.1050,
+            expiration="2026-08-20",
+            dry_run=True,
+            __cli_raw=True,
+        )
+
+    assert out["success"] is False
+    assert out["error_code"] == "preview_blocked"
+    assert out["preview_ok"] is False
+    assert out["validation_passed"] is False
+    assert out["validation"]["local_requirements_passed"] is True
+    assert out["validation"]["live_submission_eligible"] is False
+    assert out["validation"]["staging_valid"] is True
+    assert out["staging_valid"] is True
+    assert out["blockers"] == ["quote_not_live_ready"]
+    assert "not usable for live submission" in out["error"]
+    mock_pending.assert_not_called()
+
+
+def test_trade_place_unusable_quote_does_not_make_invalid_pending_stageable() -> None:
+    with patch("mtdata.core.trading._place_pending_order") as mock_pending, patch(
+        "mtdata.core.trading.build_trade_place_dry_run_preview",
+        return_value={
+            "quote_context": {"usable_for_live_trading": False},
+            "sl_tp_valid": False,
+            "sl_tp_error": "Pending protection levels are invalid.",
+        },
+    ), patch(
+        "mtdata.core.trading.time._normalize_pending_expiration",
+        return_value=(1787270399, True),
+    ):
+        out = trade_place(
+            symbol="EURUSD",
+            volume=0.01,
+            order_type="BUY_LIMIT",
+            price=1.0950,
+            stop_loss=1.0900,
+            take_profit=1.1050,
+            expiration="2026-08-20",
+            dry_run=True,
+            __cli_raw=True,
+        )
+
+    assert out["success"] is False
+    assert out["preview_ok"] is False
+    assert out["validation"]["local_requirements_passed"] is False
+    assert out["validation"]["live_submission_eligible"] is False
+    assert out["validation"]["staging_valid"] is False
+    assert out["staging_valid"] is False
+    assert out["blockers"] == [
+        "quote_not_live_ready",
+        "invalid_protection_levels",
+    ]
+    mock_pending.assert_not_called()
+
+
 def test_trade_place_stop_limit_preview_exposes_both_prices() -> None:
     with patch("mtdata.core.trading._place_pending_order") as mock_pending, patch(
         "mtdata.core.trading.build_trade_place_dry_run_preview",

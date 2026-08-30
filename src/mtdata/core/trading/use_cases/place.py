@@ -327,12 +327,11 @@ def run_trade_place(  # noqa: C901
                 and isinstance(quote_context, dict)
                 and send_path_fresh is False
             )
-            resolved_quote_blocks_market = (
-                not pending
-                and isinstance(quote_context, dict)
+            resolved_quote_blocks_submission = (
+                isinstance(quote_context, dict)
                 and quote_context.get("usable_for_live_trading") is not True
             )
-            if send_path_blocks_market or resolved_quote_blocks_market:
+            if send_path_blocks_market or resolved_quote_blocks_submission:
                 validation_payload = preview.get("validation")
                 closure_blocker = (
                     None
@@ -363,7 +362,18 @@ def run_trade_place(  # noqa: C901
                         blockers.append("quote_not_live_ready")
                 preview["validation_passed"] = False
                 preview["preview_ok"] = False
-                if send_path_blocks_market:
+                if pending:
+                    if closure_blocker:
+                        next_open = _next_market_open(quote_context)
+                        if next_open:
+                            preview["next_market_open"] = next_open
+                        if quote_context.get("market_status") is not None:
+                            preview["market_status"] = quote_context["market_status"]
+                        if quote_context.get("market_status_reason") is not None:
+                            preview["market_status_reason"] = quote_context[
+                                "market_status_reason"
+                            ]
+                elif send_path_blocks_market:
                     preview["actionability"] = "blocked_by_send_path_quote"
                     preview["actionability_reason"] = (
                         quote_context.get("send_path_freshness_error")
@@ -399,19 +409,6 @@ def run_trade_place(  # noqa: C901
                         or quote_context.get("warning")
                         or "Quote is not usable for live trading."
                     )
-                )
-                warnings_out = preview.setdefault("warnings", [])
-                if quote_warning not in warnings_out:
-                    warnings_out.append(quote_warning)
-            elif (
-                pending
-                and isinstance(quote_context, dict)
-                and quote_context.get("usable_for_live_trading") is not True
-            ):
-                quote_warning = str(
-                    quote_context.get("timestamp_warning")
-                    or quote_context.get("warning")
-                    or "Quote is not live; pending staging uses the last session snapshot."
                 )
                 warnings_out = preview.setdefault("warnings", [])
                 if quote_warning not in warnings_out:
@@ -484,6 +481,39 @@ def run_trade_place(  # noqa: C901
                     if isinstance(validation_payload, dict):
                         validation_payload["local_requirements_passed"] = False
                         validation_payload["blockers"] = ["symbol_not_found"]
+            if pending and resolved_quote_blocks_submission:
+                validation_payload = preview.get("validation")
+                staging_valid = bool(
+                    isinstance(validation_payload, dict)
+                    and validation_payload.get("local_requirements_passed") is True
+                )
+                preview["staging_valid"] = staging_valid
+                if isinstance(validation_payload, dict):
+                    validation_payload["staging_valid"] = staging_valid
+                if preview.get("actionability") == "preview_only":
+                    preview["actionability"] = (
+                        "staging_only"
+                        if staging_valid
+                        else "blocked_by_local_requirements"
+                    )
+                    if closure_blocker:
+                        preview["actionability_reason"] = (
+                            "The pending request can be staged offline, but the market "
+                            "is closed. Wait for the next session and rerun the preview "
+                            "before submission."
+                            if staging_valid
+                            else "The pending request has local blockers and the market "
+                            "is closed."
+                        )
+                    else:
+                        preview["actionability_reason"] = (
+                            "The pending request passed offline request checks, but the "
+                            "reference quote is not live-ready. Refresh the quote and "
+                            "rerun the preview before submission."
+                            if staging_valid
+                            else "The pending request has local blockers and its "
+                            "reference quote is not live-ready."
+                        )
             validation_payload = preview.get("validation")
             local_requirements_passed = bool(
                 isinstance(validation_payload, dict)

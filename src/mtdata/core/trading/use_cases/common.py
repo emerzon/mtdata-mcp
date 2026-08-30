@@ -191,6 +191,7 @@ _TRADE_PLACE_PREVIEW_KEYS = (
     "message",
     "dry_run_note",
     "preview_ok",
+    "staging_valid",
     "validation_passed",
     "validation",
     "validation_scope",
@@ -374,6 +375,7 @@ def _shape_trade_place_preview(
             for key in (
                 "local_requirements_passed",
                 "live_submission_eligible",
+                "staging_valid",
                 "blockers",
             )
             if key in validation_payload

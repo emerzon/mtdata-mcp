@@ -803,7 +803,7 @@ def test_run_trade_place_preview_blocks_market_when_raw_send_tick_is_skewed():
     assert result["blockers"] == ["raw_quote_timestamp_ahead_of_clock"]
 
 
-def test_run_trade_place_pending_preview_allows_stale_session_snapshot():
+def test_run_trade_place_pending_preview_blocks_stale_session_submission():
     request = TradePlaceRequest(
         symbol="EURUSD",
         volume=0.01,
@@ -828,6 +828,7 @@ def test_run_trade_place_pending_preview_allows_stale_session_snapshot():
             "ask": 1.15825,
             "estimated_fill_price": 1.14,
             "sl_tp_valid": True,
+            "validation": {"local_requirements_passed": True},
             "quote_context": {
                 "usable_for_live_trading": False,
                 "freshness_state": "stale",
@@ -837,9 +838,11 @@ def test_run_trade_place_pending_preview_allows_stale_session_snapshot():
         },
     )
 
-    assert result["preview_ok"] is True
-    assert result["validation"]["live_submission_eligible"] is True
-    assert "quote_not_live_ready" not in result["blockers"]
+    assert result["preview_ok"] is False
+    assert result["staging_valid"] is True
+    assert result["validation"]["live_submission_eligible"] is False
+    assert result["actionability"] == "staging_only"
+    assert "quote_not_live_ready" in result["blockers"]
 
 
 def test_build_trade_place_dry_run_preview_uses_live_quote_and_margin():

@@ -711,8 +711,15 @@ def _snapshot_summary_payload(sections: Dict[str, Any]) -> Dict[str, Any]:  # no
     if (
         execution.get("usable_for_live_trading") is True
         and execution.get("status") == "quote_not_live_ready"
-        and execution.get("trade_mode_allows_opening") is True
+        and execution.get("trade_mode_allows_opening") is not False
+        and execution.get("is_tradable") is not False
     ):
+        # ``quote_not_live_ready`` is only produced after broker trade mode has
+        # allowed opening; ``can_open_new_positions=False`` is therefore the
+        # earlier quote decision, not an independent market-mode blocker.  A
+        # compact status section may omit that trade-mode evidence, so reconcile
+        # from the status contract rather than from its verbosity-dependent
+        # fields when the final quote snapshot is live-ready.
         execution["status"] = (
             "probably_open"
             if quote.get("freshness_state") == "live"

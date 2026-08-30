@@ -451,6 +451,43 @@ def test_trade_idea_compose_stands_down_on_stale_quote() -> None:
     assert "sizing" not in idea.get("failed_sections", [])
 
 
+def test_trade_idea_quote_only_block_does_not_fail_session_gate() -> None:
+    session = _session(usable=False, tradable=True)
+    session.update(
+        {
+            "is_session_open": True,
+            "now_tradable": False,
+            "can_open_new_positions": False,
+            "trade_mode_allows_opening": True,
+            "execution_preconditions_allow_open": False,
+            "trade_ready": {
+                "trade_mode_allows_opening": True,
+                "execution_preconditions_allow_open": False,
+                "blockers": ["quote_not_live"],
+            },
+        }
+    )
+
+    idea = run_trade_idea_compose(
+        TradeIdeaComposeRequest(symbol="EURUSD", direction="long"),
+        call_section=_caller(
+            {
+                "session": session,
+                "forecast": _forecast(),
+                "volatility": _volatility(),
+                "barriers": _barriers(),
+            }
+        ),
+    )
+
+    assert idea["gates"]["quote_fresh"] == {
+        "status": "fail",
+        "reason": "quote is not live-ready",
+    }
+    assert idea["gates"]["session"] == {"status": "pass"}
+    assert "market is not accepting new positions" not in idea["narrative"]
+
+
 def test_trade_idea_compose_auto_stands_down_when_barriers_disagree() -> None:
     idea = run_trade_idea_compose(
         TradeIdeaComposeRequest(symbol="EURUSD", direction="auto"),
