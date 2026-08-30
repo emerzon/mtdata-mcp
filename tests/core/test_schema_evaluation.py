@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import subprocess
+import sys
+
 from mtdata.core.schema_attach import get_public_tool_schema
 from mtdata.core.schema_evaluation import (
     SchemaEvaluationReport,
@@ -8,6 +11,23 @@ from mtdata.core.schema_evaluation import (
     evaluate_public_tool_schemas,
     format_schema_evaluation,
 )
+
+
+def test_mcp_singleton_initializes_with_warnings_as_errors() -> None:
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-W",
+            "error",
+            "-c",
+            "from mtdata.core._mcp_instance import mcp; assert mcp is not None",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
 
 
 def test_schema_evaluation_report_is_sorted_and_fails_only_on_errors() -> None:
