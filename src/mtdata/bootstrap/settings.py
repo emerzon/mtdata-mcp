@@ -428,7 +428,15 @@ class MT5Config:
         self._login_value = _env_strict_optional_int("MT5_LOGIN")
         self.password = os.getenv("MT5_PASSWORD")
         self.server = os.getenv("MT5_SERVER")
-        self.timeout = get_int_env("MT5_TIMEOUT", 30)
+        timeout_raw = os.getenv("MT5_TIMEOUT")
+        timeout = get_int_env("MT5_TIMEOUT", 30)
+        if timeout <= 0 or timeout > 3600:
+            _LOGGER.warning(
+                "MT5_TIMEOUT=%r must be between 1 and 3600 seconds; using default 30.",
+                timeout_raw,
+            )
+            timeout = 30
+        self.timeout = timeout
         self.server_tz_name = os.getenv("MT5_SERVER_TZ")  # e.g., "Europe/Lisbon"
         self.client_tz_name = os.getenv("CLIENT_TZ") or os.getenv("MT5_CLIENT_TZ")  # e.g., "America/New_York"
         self.time_offset_minutes = get_int_env("MT5_TIME_OFFSET_MINUTES", 0)
@@ -464,7 +472,24 @@ class MT5Config:
     
     def has_credentials(self) -> bool:
         """Check if all credentials are available"""
-        return self.get_login() is not None and bool(self.password) and bool(self.server)
+        return self.credential_state() == "complete"
+
+    def credential_state(self) -> str:
+        """Return ``none``, ``complete``, or ``partial`` credential state."""
+        configured = (
+            self.get_login() is not None,
+            bool(self.password),
+            bool(str(self.server or "").strip()),
+        )
+        if all(configured):
+            return "complete"
+        if any(configured):
+            return "partial"
+        return "none"
+
+    def get_timeout_milliseconds(self) -> int:
+        """Return the documented seconds setting in MT5's millisecond unit."""
+        return int(self.timeout) * 1000
 
     def get_time_offset_seconds(self, at_time: Optional[datetime] = None) -> int:
         """Return the broker session/calendar offset relative to UTC in seconds.

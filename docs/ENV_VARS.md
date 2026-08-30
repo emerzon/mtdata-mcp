@@ -21,7 +21,10 @@ Never commit real credentials. Keep `.env` local.
 | `MT5_SERVER` | — | Broker server name |
 | `MT5_TIMEOUT` | `30` | Connection timeout in seconds |
 
-All four are optional if MT5 is already logged in interactively. Set them for unattended / headless use.
+All connection settings are optional if MT5 is already logged in interactively.
+For unattended/headless use, set `MT5_LOGIN`, `MT5_PASSWORD`, and `MT5_SERVER`
+together; a partial credential set is rejected so mtdata cannot silently attach
+to a different saved terminal account. `MT5_TIMEOUT` accepts 1–3600 seconds.
 
 ```ini
 MT5_LOGIN=12345678

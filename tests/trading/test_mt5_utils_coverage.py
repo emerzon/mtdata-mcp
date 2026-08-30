@@ -432,10 +432,11 @@ class TestMT5Connection:
     def test_ensure_connection_with_credentials_success(self, cfg, caplog):
         conn = MT5Connection()
         _mt5_mock.terminal_info.return_value = None
-        cfg.has_credentials.return_value = True
+        cfg.credential_state.return_value = "complete"
         cfg.get_login.return_value = 12345
         cfg.get_password.return_value = "pass"
         cfg.get_server.return_value = "Demo"
+        cfg.get_timeout_milliseconds.return_value = 30_000
         _mt5_mock.initialize.reset_mock(side_effect=True)
         _mt5_mock.initialize.return_value = True
         _mt5_mock.account_info.return_value = MagicMock(login=12345, server="Demo")
@@ -444,15 +445,22 @@ class TestMT5Connection:
         assert conn.connected is True
         assert "12345" not in caplog.text
         assert "Connected to the configured MT5 account" in caplog.text
+        _mt5_mock.initialize.assert_called_once_with(
+            login=12345,
+            password="pass",
+            server="Demo",
+            timeout=30_000,
+        )
 
     @patch("mtdata.utils.mt5.mt5_config")
     def test_ensure_connection_cred_fail_does_not_fallback_to_current_terminal(self, cfg, caplog):
         conn = MT5Connection()
         _mt5_mock.terminal_info.return_value = None
-        cfg.has_credentials.return_value = True
+        cfg.credential_state.return_value = "complete"
         cfg.get_login.return_value = 12345
         cfg.get_password.return_value = "pass"
         cfg.get_server.return_value = "Demo"
+        cfg.get_timeout_milliseconds.return_value = 12_000
         _mt5_mock.initialize.reset_mock(side_effect=True)
         _mt5_mock.initialize.return_value = False
         _mt5_mock.last_error.return_value = (-1, "account 12345 rejected")
@@ -461,6 +469,7 @@ class TestMT5Connection:
             login=12345,
             password="pass",
             server="Demo",
+            timeout=12_000,
         )
         assert "error_code=-1" in caplog.text
         assert "12345" not in caplog.text
@@ -470,10 +479,11 @@ class TestMT5Connection:
     def test_ensure_connection_credential_account_mismatch_fails(self, cfg, caplog):
         conn = MT5Connection()
         _mt5_mock.terminal_info.return_value = None
-        cfg.has_credentials.return_value = True
+        cfg.credential_state.return_value = "complete"
         cfg.get_login.return_value = 12345
         cfg.get_password.return_value = "pass"
         cfg.get_server.return_value = "Demo"
+        cfg.get_timeout_milliseconds.return_value = 30_000
         _mt5_mock.initialize.reset_mock(side_effect=True)
         _mt5_mock.shutdown.reset_mock()
         _mt5_mock.initialize.return_value = True
@@ -488,10 +498,42 @@ class TestMT5Connection:
     def test_ensure_connection_no_cred_success(self, cfg):
         conn = MT5Connection()
         _mt5_mock.terminal_info.return_value = None
-        cfg.has_credentials.return_value = False
+        cfg.credential_state.return_value = "none"
+        cfg.get_timeout_milliseconds.return_value = 7_000
         _mt5_mock.initialize.reset_mock(side_effect=True)
         _mt5_mock.initialize.return_value = True
         assert conn._ensure_connection() is True
+        _mt5_mock.initialize.assert_called_once_with(timeout=7_000)
+
+    @patch("mtdata.utils.mt5.mt5_config")
+    def test_ensure_connection_rejects_partial_credentials(self, cfg):
+        conn = MT5Connection()
+        cfg.credential_state.return_value = "partial"
+        _mt5_mock.initialize.reset_mock(side_effect=True)
+
+        assert conn._ensure_connection() is False
+        assert "Incomplete MT5 credentials" in str(conn.last_error)
+        _mt5_mock.initialize.assert_not_called()
+
+    @patch("mtdata.utils.mt5.mt5_config")
+    def test_ensure_connection_rejects_configured_server_mismatch(self, cfg):
+        conn = MT5Connection()
+        _mt5_mock.terminal_info.return_value = None
+        cfg.credential_state.return_value = "complete"
+        cfg.get_login.return_value = 12345
+        cfg.get_password.return_value = "pass"
+        cfg.get_server.return_value = "Demo"
+        cfg.get_timeout_milliseconds.return_value = 30_000
+        _mt5_mock.initialize.return_value = True
+        _mt5_mock.account_info.return_value = MagicMock(
+            login=12345,
+            server="Live",
+        )
+
+        assert conn._ensure_connection() is False
+        assert conn.connected is False
+        assert "login/server" in str(conn.last_error)
+        _mt5_mock.shutdown.assert_called()
 
     @patch("mtdata.utils.mt5.clear_mt5_time_alignment_cache")
     @patch("mtdata.utils.mt5.clear_symbol_info_cache")
@@ -500,7 +542,8 @@ class TestMT5Connection:
         conn = MT5Connection()
         _mt5_mock.terminal_info.return_value = None
         _mt5_mock.account_info.return_value = MagicMock(login=12345, server="Demo")
-        cfg.has_credentials.return_value = False
+        cfg.credential_state.return_value = "none"
+        cfg.get_timeout_milliseconds.return_value = 30_000
         _mt5_mock.initialize.return_value = True
 
         assert conn._ensure_connection() is True
@@ -517,6 +560,7 @@ class TestMT5Connection:
         conn.connected = True
         conn._connection_identity = (12345, "Demo-A")
         cfg.get_login.return_value = None
+        cfg.credential_state.return_value = "none"
         _mt5_mock.terminal_info.return_value = MagicMock(
             connected=True,
             server="Demo-B",
@@ -534,6 +578,8 @@ class TestMT5Connection:
         conn.connected = True
         conn._connection_identity = (12345, "Demo-A")
         cfg.get_login.return_value = 12345
+        cfg.get_server.return_value = "Demo-A"
+        cfg.credential_state.return_value = "complete"
         _mt5_mock.terminal_info.return_value = MagicMock(
             connected=True,
             server="Demo-B",
@@ -550,10 +596,29 @@ class TestMT5Connection:
         assert "67890" not in caplog.text
 
     @patch("mtdata.utils.mt5.mt5_config")
+    def test_ensure_connection_rejects_mid_session_server_switch(self, cfg):
+        conn = MT5Connection()
+        conn.connected = True
+        conn._connection_identity = (12345, "Demo-A")
+        cfg.credential_state.return_value = "complete"
+        cfg.get_login.return_value = 12345
+        cfg.get_server.return_value = "Demo-A"
+        _mt5_mock.terminal_info.return_value = MagicMock(
+            connected=True,
+            server="Demo-B",
+        )
+        _mt5_mock.account_info.return_value = MagicMock(login=12345, server="Demo-B")
+
+        assert conn._ensure_connection() is False
+        assert conn.connected is False
+        assert "login/server" in str(conn.last_error)
+
+    @patch("mtdata.utils.mt5.mt5_config")
     def test_ensure_connection_no_cred_fail(self, cfg):
         conn = MT5Connection()
         _mt5_mock.terminal_info.return_value = None
-        cfg.has_credentials.return_value = False
+        cfg.credential_state.return_value = "none"
+        cfg.get_timeout_milliseconds.return_value = 30_000
         _mt5_mock.initialize.return_value = False
         _mt5_mock.last_error.return_value = (-1, "err")
         assert conn._ensure_connection() is False
@@ -562,7 +627,7 @@ class TestMT5Connection:
     def test_ensure_connection_exception(self, cfg, caplog):
         conn = MT5Connection()
         _mt5_mock.terminal_info.return_value = None
-        cfg.has_credentials.side_effect = RuntimeError("account 12345 rejected")
+        cfg.credential_state.side_effect = RuntimeError("account 12345 rejected")
         assert conn._ensure_connection() is False
         assert "exception_type=RuntimeError" in caplog.text
         assert "12345" not in caplog.text
@@ -616,6 +681,15 @@ class TestEnsureMt5ConnectionOrRaise:
         svc = MagicMock()
         svc.ensure_connected.return_value = False
         with pytest.raises(MT5ConnectionError, match="Failed to connect to MetaTrader5"):
+            ensure_mt5_connection_or_raise(service=svc)
+
+    def test_raises_actionable_connection_detail(self):
+        connection = MagicMock()
+        connection.last_error = "Incomplete MT5 credentials: configure all fields."
+        svc = MT5Service(connection=connection)
+        connection._ensure_connection.return_value = False
+
+        with pytest.raises(MT5ConnectionError, match="Incomplete MT5 credentials"):
             ensure_mt5_connection_or_raise(service=svc)
 
     def test_wraps_unexpected_service_errors(self):

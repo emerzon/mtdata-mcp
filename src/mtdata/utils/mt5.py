@@ -1312,6 +1312,25 @@ class MT5Connection:
         self._lock = threading.RLock()
         self.connected = False
         self._connection_identity: Optional[tuple[Optional[int], Optional[str]]] = None
+        self.last_error: Optional[str] = None
+
+    @staticmethod
+    def _same_server(configured: Optional[str], connected: Optional[str]) -> bool:
+        configured_name = str(configured or "").strip().casefold()
+        connected_name = str(connected or "").strip().casefold()
+        return bool(configured_name and connected_name == configured_name)
+
+    def _reject_connection(self, public_error: str) -> bool:
+        try:
+            mt5.shutdown()
+        except Exception:
+            pass
+        self.connected = False
+        self._connection_identity = None
+        self.last_error = public_error
+        clear_symbol_info_cache()
+        clear_mt5_time_alignment_cache()
+        return False
 
     def _read_connection_identity(self) -> tuple[Optional[int], Optional[str]]:
         login: Optional[int] = None
@@ -1356,19 +1375,46 @@ class MT5Connection:
 
     def _ensure_connection(self) -> bool:
         with self._lock:
+            try:
+                credential_state = mt5_config.credential_state()
+            except Exception as exc:
+                logger.error(
+                    "Error reading MT5 connection configuration (exception_type=%s)",
+                    type(exc).__name__,
+                )
+                self.last_error = _MT5_CONNECTION_FAILURE_MESSAGE
+                return False
+            if credential_state == "partial":
+                logger.error(
+                    "Incomplete MT5 credentials. Configure MT5_LOGIN, MT5_PASSWORD, "
+                    "and MT5_SERVER together, or unset all three to use the terminal's "
+                    "saved login."
+                )
+                return self._reject_connection(
+                    "Incomplete MT5 credentials: configure MT5_LOGIN, MT5_PASSWORD, "
+                    "and MT5_SERVER together, or unset all three."
+                )
             if self.is_connected():
                 self._refresh_connection_identity()
                 configured_login = mt5_config.get_login()
+                configured_server = mt5_config.get_server()
                 connected_login = (
                     self._connection_identity[0]
                     if self._connection_identity is not None
                     else None
                 )
+                connected_server = (
+                    self._connection_identity[1]
+                    if self._connection_identity is not None
+                    else None
+                )
                 if (
-                    configured_login is not None
+                    credential_state == "complete"
                     and (
-                        connected_login is None
+                        configured_login is None
+                        or connected_login is None
                         or int(connected_login) != int(configured_login)
+                        or not self._same_server(configured_server, connected_server)
                     )
                 ):
                     logger.error(
@@ -1376,57 +1422,64 @@ class MT5Connection:
                         "configured account. "
                         "Refusing to continue on a different account."
                     )
-                    try:
-                        mt5.shutdown()
-                    except Exception:
-                        pass
-                    self.connected = False
-                    self._connection_identity = None
-                    clear_symbol_info_cache()
-                    clear_mt5_time_alignment_cache()
-                    return False
+                    return self._reject_connection(
+                        "The active MT5 login/server does not match the configured account."
+                    )
+                self.last_error = None
                 return True
             try:
-                if mt5_config.has_credentials():
+                timeout_ms = mt5_config.get_timeout_milliseconds()
+                if credential_state == "complete":
                     login = mt5_config.get_login()
                     password = mt5_config.get_password()
                     server = mt5_config.get_server()
-                    if not mt5.initialize(login=login, password=password, server=server):
+                    if not mt5.initialize(
+                        login=login,
+                        password=password,
+                        server=server,
+                        timeout=timeout_ms,
+                    ):
                         logger.error(
                             "Failed to initialize MT5 with configured credentials "
                             "(error_code=%s)",
                             _safe_mt5_error_code(mt5.last_error()),
                         )
+                        self.last_error = _MT5_CONNECTION_FAILURE_MESSAGE
                         return False
-                    connected_login, _connected_server = self._read_connection_identity()
-                    if connected_login is None or int(connected_login) != int(login):
+                    connected_login, connected_server = self._read_connection_identity()
+                    if (
+                        connected_login is None
+                        or int(connected_login) != int(login)
+                        or not self._same_server(server, connected_server)
+                    ):
                         logger.error(
-                            "Connected MT5 account does not match the configured account."
+                            "Connected MT5 login/server does not match the configured account."
                         )
-                        try:
-                            mt5.shutdown()
-                        except Exception:
-                            pass
-                        return False
+                        return self._reject_connection(
+                            "The active MT5 login/server does not match the configured account."
+                        )
                     else:
                         logger.debug("Connected to the configured MT5 account")
                 else:
-                    if not mt5.initialize():
+                    if not mt5.initialize(timeout=timeout_ms):
                         logger.error(
                             "Failed to initialize MT5 (error_code=%s)",
                             _safe_mt5_error_code(mt5.last_error()),
                         )
+                        self.last_error = _MT5_CONNECTION_FAILURE_MESSAGE
                         return False
                     else:
                         logger.debug("Connected to MT5 using terminal's current login")
                 self.connected = True
                 self._refresh_connection_identity()
+                self.last_error = None
                 return True
             except Exception as exc:
                 logger.error(
                     "Error connecting to MT5 (exception_type=%s)",
                     type(exc).__name__,
                 )
+                self.last_error = _MT5_CONNECTION_FAILURE_MESSAGE
                 return False
 
     def disconnect(self):
@@ -1435,6 +1488,7 @@ class MT5Connection:
                 mt5.shutdown()
                 self.connected = False
                 self._connection_identity = None
+                self.last_error = None
                 clear_symbol_info_cache()
                 clear_mt5_time_alignment_cache()
                 logger.debug("Disconnected from MetaTrader5")
@@ -1476,7 +1530,10 @@ def ensure_mt5_connection_or_raise(*, service: Optional[MT5Service] = None) -> N
     except Exception as exc:
         raise MT5ConnectionError(_MT5_CONNECTION_FAILURE_MESSAGE) from exc
     if not connected:
-        raise MT5ConnectionError(_MT5_CONNECTION_FAILURE_MESSAGE)
+        connection = getattr(svc, "connection", None)
+        detail = getattr(connection, "last_error", None)
+        message = detail.strip() if isinstance(detail, str) and detail.strip() else None
+        raise MT5ConnectionError(message or _MT5_CONNECTION_FAILURE_MESSAGE)
 
 
 def _compact_symbol_name(value: Any) -> str:

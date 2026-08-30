@@ -21,6 +21,31 @@ def test_mt5_config_credentials_and_login_parsing(monkeypatch):
     assert conf.get_password() == "secret"
     assert conf.get_server() == "Demo-Server"
     assert conf.has_credentials() is True
+    assert conf.credential_state() == "complete"
+
+
+@pytest.mark.parametrize(
+    "configured",
+    [
+        {"MT5_LOGIN": "123456"},
+        {"MT5_PASSWORD": "secret"},
+        {"MT5_SERVER": "Demo-Server"},
+        {"MT5_LOGIN": "123456", "MT5_PASSWORD": "secret"},
+        {"MT5_LOGIN": "123456", "MT5_SERVER": "Demo-Server"},
+        {"MT5_PASSWORD": "secret", "MT5_SERVER": "Demo-Server"},
+    ],
+)
+def test_mt5_config_identifies_partial_credentials(monkeypatch, configured):
+    for name in ("MT5_LOGIN", "MT5_PASSWORD", "MT5_SERVER"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in configured.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setenv("MT5_TIME_OFFSET_MINUTES", "0")
+
+    conf = cfg.MT5Config(warn_if_timezone_missing=False)
+
+    assert conf.credential_state() == "partial"
+    assert conf.has_credentials() is False
 
 
 def test_mt5_config_rejects_invalid_login(monkeypatch):
@@ -155,6 +180,19 @@ def test_mt5_config_handles_invalid_timeout_with_warning(monkeypatch, caplog):
 
     assert conf.timeout == 30
     assert any("Invalid MT5_TIMEOUT" in record.message for record in caplog.records)
+
+
+@pytest.mark.parametrize("raw", ["0", "-1", "3601"])
+def test_mt5_config_rejects_out_of_range_timeout(monkeypatch, caplog, raw):
+    monkeypatch.setenv("MT5_TIMEOUT", raw)
+    monkeypatch.setenv("MT5_TIME_OFFSET_MINUTES", "0")
+
+    with caplog.at_level("WARNING"):
+        conf = cfg.MT5Config(warn_if_timezone_missing=False)
+
+    assert conf.timeout == 30
+    assert conf.get_timeout_milliseconds() == 30_000
+    assert any("between 1 and 3600 seconds" in record.message for record in caplog.records)
 
 
 def test_mt5_config_reads_broker_time_check_settings(monkeypatch):
