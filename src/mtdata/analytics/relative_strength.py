@@ -23,6 +23,7 @@ from ..utils.quote import (
     tick_epoch,
     tick_value,
 )
+from ..utils.symbol import _normalize_group_path_query
 from ..utils.time import bar_close_epoch, format_datetime_utc, format_epoch_utc
 from .engine_common import (
     _log_close_returns,
@@ -285,8 +286,10 @@ def rank_relative_strength(  # noqa: C901
             ).strip()
         }
     )
-    if request.group and not any(
-        str(request.group).lower() in group.lower() for group in available_groups
+    requested_group = _normalize_group_path_query(request.group or "").lower()
+    if requested_group and not any(
+        requested_group in _normalize_group_path_query(group).lower()
+        for group in available_groups
     ):
         return {
             "success": False,
@@ -309,7 +312,8 @@ def rank_relative_strength(  # noqa: C901
         visible = bool(row.get("visible", getattr(item, "visible", False)))
         if explicit and name not in explicit:
             continue
-        if request.group and str(request.group).lower() not in path.lower():
+        normalized_path = _normalize_group_path_query(path).lower()
+        if requested_group and requested_group not in normalized_path:
             continue
         if request.universe == "visible" and not visible and not explicit:
             continue

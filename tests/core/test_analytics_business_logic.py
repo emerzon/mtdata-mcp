@@ -3925,6 +3925,15 @@ def test_relative_strength_rejects_unknown_group_before_history_fetch() -> None:
     gateway.copy_rates_from_pos.assert_not_called()
 
 
+def test_relative_strength_normalizes_repeated_group_separators() -> None:
+    result = rank_relative_strength(
+        MarketRelativeStrengthRequest(group="Forex\\\\Majors"),
+        FakeGateway(),
+    )
+
+    assert result.get("error_code") != "symbol_group_error"
+
+
 def test_relative_strength_does_not_rank_benchmark_from_requested_symbols() -> None:
     gateway = FakeGateway()
     request = MarketRelativeStrengthRequest(
