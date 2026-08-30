@@ -408,7 +408,7 @@ class TestAnnualizationCadence:
         assert all(row.get("history_sample_ok") is False for row in details if row.get("success"))
 
     @patch("mtdata.forecast.backtest._fetch_history")
-    def test_backtest_passes_actual_spacing_to_metrics(self, fetch):
+    def test_backtest_passes_full_evaluation_duration_to_metrics(self, fetch):
         fetch.return_value = _make_df(500)
         with patch("mtdata.forecast.backtest.forecast") as fc:
             fc.return_value = {"forecast_price": [200.0] * 12}
@@ -418,9 +418,10 @@ class TestAnnualizationCadence:
             )
         r = result["results"]["naive"]
         if "metrics" in r:
-            # trades_per_year should reflect spacing=30, not horizon=12.
-            # EURUSD uses the forex calendar (260 sessions/year), not equity 252.
-            expected_tpy = (260.0 * 24.0) / 30.0
+            # Five 30-bar-spaced anchors span 120 bars; the final trade adds
+            # its 12-bar horizon, so all five trades cover 132 evaluated bars.
+            expected_tpy = 5.0 / (132.0 / (260.0 * 24.0))
+            assert r["metrics"]["annualization_method"] == "evaluation_duration"
             assert r["metrics"]["trades_per_year"] == pytest.approx(expected_tpy, rel=0.01)
 
     def test_metrics_sharpe_scales_with_cadence(self):
