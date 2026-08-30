@@ -77,6 +77,10 @@ def denoise_list_methods(
     causality: Optional[Literal["causal", "zero_phase"]] = None,
     core_only: bool = False,
     limit: Annotated[int, Field(ge=1)] = _DENOISE_METHOD_DEFAULT_LIMIT,
+    offset: Annotated[
+        int,
+        Field(ge=0, description="Zero-based method offset for pagination."),
+    ] = 0,
 ) -> Dict[str, Any]:
     """List denoise methods, optional dependencies, causality support, and auto params."""
 
@@ -94,8 +98,15 @@ def denoise_list_methods(
                 code="denoise_invalid_limit",
                 operation="denoise_list_methods",
             )
-        visible = methods[:limit_value]
-        hidden = max(0, len(methods) - len(visible))
+        offset_value = int(offset)
+        if offset_value < 0:
+            return build_error_payload(
+                "offset must be at least 0.",
+                code="denoise_invalid_offset",
+                operation="denoise_list_methods",
+            )
+        visible = methods[offset_value : offset_value + limit_value]
+        hidden = max(0, len(methods) - offset_value - len(visible))
         compact_mode = detail_mode == "compact"
         method_rows = (
             [
@@ -136,7 +147,7 @@ def denoise_list_methods(
             "pagination": build_pagination_meta(
                 total=len(methods),
                 returned=len(visible),
-                offset=0,
+                offset=offset_value,
                 limit=limit_value,
             ),
             "columns": columns,
@@ -147,7 +158,9 @@ def denoise_list_methods(
             "describe_hint": "Use denoise_describe(method) for descriptions and defaults.",
         }
         if hidden > 0:
-            out["list_all_hint"] = f"Pass limit={len(methods)} to list every method."
+            out["list_all_hint"] = (
+                f"Pass offset={offset_value + len(visible)} to continue listing methods."
+            )
         return out
 
     return run_logged_operation(
@@ -158,6 +171,7 @@ def denoise_list_methods(
         causality=causality,
         core_only=core_only,
         limit=limit,
+        offset=offset,
         func=_run,
     )
 

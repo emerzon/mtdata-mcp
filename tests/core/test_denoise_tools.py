@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from mtdata.core import denoise as denoise_core
+from mtdata.core._mcp_tools import shape_public_tool_output
 
 
 def _raw_list_methods():
@@ -82,7 +83,39 @@ def test_denoise_list_methods_compact_reports_hidden_catalog_hint(monkeypatch):
         "has_more": True,
         "more_available": 5,
     }
-    assert result["list_all_hint"] == "Pass limit=35 to list every method."
+    assert result["list_all_hint"] == "Pass offset=30 to continue listing methods."
+
+
+def test_denoise_list_methods_consumes_reported_next_offset(monkeypatch):
+    rows = [{"method": f"m{idx}", "available": True} for idx in range(35)]
+    monkeypatch.setattr(denoise_core, "_denoise_methods", lambda available_only=False: rows)
+
+    first_page = shape_public_tool_output(
+        _raw_list_methods()(limit=30),
+        tool_name="denoise_list_methods",
+        detail="compact",
+    )
+    second_page = _raw_list_methods()(
+        limit=30,
+        offset=first_page["pagination"]["next_offset"],
+    )
+
+    assert first_page["pagination"]["next_offset"] == 30
+    assert second_page["pagination"] == {
+        "total": 35,
+        "returned": 5,
+        "offset": 30,
+        "limit": 30,
+        "has_more": False,
+        "more_available": 0,
+    }
+    assert [row["method"] for row in second_page["methods"]] == [
+        "m30",
+        "m31",
+        "m32",
+        "m33",
+        "m34",
+    ]
 
 
 def test_denoise_list_methods_full_respects_limit(monkeypatch):
