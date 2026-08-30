@@ -835,6 +835,28 @@ def test_inferred_symbol_schedule_respects_mid_hour_session_open() -> None:
     assert after_open["current_time_in_active_session"] is True
 
 
+def test_inferred_symbol_schedule_bridges_one_minute_tick_gap() -> None:
+    prior_tuesday = datetime(2026, 8, 11, 13, 30, tzinfo=timezone.utc)
+
+    class Gateway:
+        TIMEFRAME_M1 = 1
+
+        def copy_rates_range(self, symbol, timeframe, start, end):
+            return [
+                {"time": (prior_tuesday + timedelta(minutes=minute)).timestamp()}
+                for minute in (0, 2, 3)
+            ]
+
+    result = market_status_mod._infer_symbol_schedule_from_recent_candles(
+        "THIN.CFD",
+        Gateway(),
+        now_utc=datetime(2026, 8, 18, 13, 31, tzinfo=timezone.utc),
+    )
+
+    assert result["active_intervals_utc"] == {"tuesday": ["13:30-13:34"]}
+    assert result["current_time_in_active_session"] is True
+
+
 def test_market_status_symbol_mode_blocks_weekend_opening(monkeypatch) -> None:
     raw = _unwrap(market_status_mod.market_status)
     fixed_now = datetime(2026, 4, 25, 3, 14, tzinfo=timezone.utc)

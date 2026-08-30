@@ -799,29 +799,38 @@ def _rate_epoch_seconds(row: Any) -> Optional[float]:
     return epoch
 
 
-def _minute_ranges(minutes: List[int]) -> List[str]:
-    """Format contiguous UTC minute-of-day slots as half-open intervals."""
+def _minute_bounds(minutes: List[int], *, max_missing_minutes: int = 1) -> List[Tuple[int, int]]:
+    """Return inferred half-open intervals while bridging small tick gaps."""
     normalized = sorted(
         {int(minute) for minute in minutes if 0 <= int(minute) < 24 * 60}
     )
     if not normalized:
         return []
 
+    bounds: List[Tuple[int, int]] = []
+    start = normalized[0]
+    previous = normalized[0]
+    for minute in normalized[1:]:
+        if minute <= previous + int(max_missing_minutes) + 1:
+            previous = minute
+            continue
+        bounds.append((start, previous + 1))
+        start = previous = minute
+    bounds.append((start, previous + 1))
+    return bounds
+
+
+def _minute_ranges(minutes: List[int]) -> List[str]:
+    """Format inferred UTC minute-of-day intervals."""
+
     def _label(minute: int) -> str:
         hour, minute_of_hour = divmod(minute, 60)
         return f"{hour:02d}:{minute_of_hour:02d}"
 
-    ranges: List[str] = []
-    start = normalized[0]
-    previous = normalized[0]
-    for minute in normalized[1:]:
-        if minute == previous + 1:
-            previous = minute
-            continue
-        ranges.append(f"{_label(start)}-{_label(previous + 1)}")
-        start = previous = minute
-    ranges.append(f"{_label(start)}-{_label(previous + 1)}")
-    return ranges
+    return [
+        f"{_label(start)}-{_label(end)}"
+        for start, end in _minute_bounds(minutes)
+    ]
 
 
 def _infer_symbol_schedule_from_recent_candles(
@@ -899,11 +908,18 @@ def _infer_symbol_schedule_from_recent_candles(
             "candles_analyzed": 0,
         }
 
-    current_slot = (now_utc.weekday(), now_utc.hour * 60 + now_utc.minute)
+    current_weekday = now_utc.weekday()
+    current_minute = now_utc.hour * 60 + now_utc.minute
     active_intervals_by_day: Dict[str, List[str]] = {}
+    current_time_in_active_session = False
     for weekday in sorted(active_weekdays):
         minutes = [minute for day, minute in slots if day == weekday]
         active_intervals_by_day[_WEEKDAY_NAMES[weekday]] = _minute_ranges(minutes)
+        if weekday == current_weekday:
+            current_time_in_active_session = any(
+                start <= current_minute < end
+                for start, end in _minute_bounds(minutes)
+            )
 
     active_slot_count = len(slots)
     active_minute_coverage = active_slot_count / (7 * 24 * 60)
@@ -927,7 +943,7 @@ def _infer_symbol_schedule_from_recent_candles(
         "weekend_candles": weekend_candles,
         "saturday_candles": saturday_candles,
         "sunday_candles": sunday_candles,
-        "current_time_in_active_session": current_slot in slots,
+        "current_time_in_active_session": current_time_in_active_session,
         "inferred_24_7": inferred_24_7,
     }
 
