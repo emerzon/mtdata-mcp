@@ -1359,9 +1359,7 @@ class TestMcpToolSchemas:
         assert props["max_wait_seconds"]["minimum"] == 0.0
         assert props["poll_interval_seconds"]["minimum"] == 0.1
         assert schema["if"] == {"required": ["timeframe"]}
-        assert schema["then"] == {
-            "not": {"required": ["max_wait_seconds"]}
-        }
+        assert "then" not in schema
         assert schema["else"]["required"] == ["max_wait_seconds"]
         assert schema["dependentSchemas"] == {
             "symbol": {"not": {"required": ["symbols"]}},

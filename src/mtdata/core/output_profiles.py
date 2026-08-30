@@ -276,7 +276,11 @@ def apply_public_output_profile(
         return result
     normalized = str(tool_name or "").strip().lower()
     if result.get("error"):
-        return dict(result) if detail == "full" else _compact_error_payload(result)
+        if detail == "full":
+            return dict(result)
+        if normalized == "wait_event":
+            return _compact_wait_event_error_payload(result)
+        return _compact_error_payload(result)
     if normalized == "data_fetch_candles":
         return _shape_candles(result, detail=detail)
     if normalized == "data_fetch_ticks":
@@ -711,6 +715,28 @@ def _compact_error_payload(payload: Mapping[str, Any]) -> Dict[str, Any]:
         else:
             out.pop("details", None)
     return out
+
+
+def _compact_wait_event_error_payload(payload: Mapping[str, Any]) -> Dict[str, Any]:
+    """Keep only actionable state for a failed compact wait."""
+    return {
+        key: payload[key]
+        for key in (
+            "success",
+            "error",
+            "error_code",
+            "request_id",
+            "symbol",
+            "symbols",
+            "next_candle_close_utc",
+            "remaining_seconds",
+            "market_status",
+            "assumed_closure_end",
+            "remediation",
+            "hint",
+        )
+        if key in payload and payload[key] not in (None, "", [], {})
+    }
 
 
 def _drop_keys(payload: MutableMapping[str, Any], keys: Iterable[str]) -> None:

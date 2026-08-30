@@ -319,9 +319,7 @@ def test_attach_schemas_to_tools_patches_wait_event_with_discriminated_watch_spe
     assert symbols_array["uniqueItems"] is True
     parameters = tool_obj.schema["parameters"]
     assert parameters["if"] == {"required": ["timeframe"]}
-    assert parameters["then"] == {
-        "not": {"required": ["max_wait_seconds"]}
-    }
+    assert "then" not in parameters
     assert parameters["else"] == {
         "required": ["max_wait_seconds"],
         "not": {"required": ["end_on"]},

@@ -323,7 +323,6 @@ def _patch_wait_event_schema(schema: Dict[str, Any]) -> None:
         poll_schema["minimum"] = 0.1
 
     params_obj["if"] = {"required": ["timeframe"]}
-    params_obj["then"] = {"not": {"required": ["max_wait_seconds"]}}
     params_obj["else"] = {
         "required": ["max_wait_seconds"],
         "not": {"required": ["end_on"]},

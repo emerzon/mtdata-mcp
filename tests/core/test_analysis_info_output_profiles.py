@@ -211,6 +211,76 @@ def test_compact_error_drops_empty_success_shape_and_duplicate_symbol() -> None:
     }
 
 
+def test_wait_event_budget_error_keeps_only_actionable_compact_state() -> None:
+    payload = {
+        "success": False,
+        "error": "The next candle boundary is beyond max_wait_seconds.",
+        "error_code": "wait_budget_exceeded",
+        "request_id": "63c928cdb2c9",
+        "operation": "wait_event",
+        "buffer_seconds": 1,
+        "next_candle_close_utc": "2026-08-30T19:00:00Z",
+        "next_candle_close_server": "2026-08-30T22:00:00+03:00",
+        "server_timezone": "Europe/Nicosia",
+        "server_utc_offset": "+03:00",
+        "completed": False,
+        "status": "wait_budget_exceeded",
+        "not_waited": True,
+        "remaining_seconds": 654,
+        "wait_mode": "timeframe_boundary",
+        "remediation": "Increase max_wait_seconds and retry.",
+        "symbol": "BTCUSD",
+        "bid": 79061.3,
+        "ask": 79066.3,
+        "quote_time": "2026-08-30T18:49:06Z",
+        "data_age_seconds": 0.162,
+        "data_stale": False,
+        "usable_for_live_trading": True,
+        "source": {"provider": "mt5", "server": "ICMarketsSC-MT5-2"},
+        "wait_policy": {"max_wait_seconds": 300},
+    }
+
+    result = shape_public_tool_output(
+        payload,
+        tool_name="wait_event",
+        detail="compact",
+    )
+
+    assert result == {
+        "success": False,
+        "error": "The next candle boundary is beyond max_wait_seconds.",
+        "error_code": "wait_budget_exceeded",
+        "request_id": "63c928cdb2c9",
+        "symbol": "BTCUSD",
+        "next_candle_close_utc": "2026-08-30T19:00:00Z",
+        "remaining_seconds": 654,
+        "remediation": "Increase max_wait_seconds and retry.",
+    }
+
+
+def test_wait_event_error_retains_diagnostics_at_full_detail() -> None:
+    payload = {
+        "success": False,
+        "error": "The next candle boundary is beyond max_wait_seconds.",
+        "error_code": "wait_budget_exceeded",
+        "request_id": "63c928cdb2c9",
+        "operation": "wait_event",
+        "next_candle_close_server": "2026-08-30T22:00:00+03:00",
+        "source": {"provider": "mt5", "server": "ICMarketsSC-MT5-2"},
+    }
+
+    result = shape_public_tool_output(
+        payload,
+        tool_name="wait_event",
+        detail="full",
+    )
+
+    assert result["request_id"] == "63c928cdb2c9"
+    assert result["operation"] == "wait_event"
+    assert result["next_candle_close_server"] == "2026-08-30T22:00:00+03:00"
+    assert result["source"]["server"] == "ICMarketsSC-MT5-2"
+
+
 def test_task_list_compact_keeps_actionable_task_state() -> None:
     payload = {
         "success": True,
