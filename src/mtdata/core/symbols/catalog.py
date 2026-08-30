@@ -15,6 +15,7 @@ from typing import (
 from pydantic import Field
 
 from ...shared.constants import (
+    BROKER_VOLUME_UNIT,
     DEFAULT_ROW_LIMIT,
 )
 from ...shared.schema import (
@@ -1423,6 +1424,30 @@ def symbols_describe(  # noqa: C901
                 symbol_data = _compact_symbol_describe_payload(symbol_data)
             elif detail_mode == "standard":
                 symbol_data = _standard_symbol_describe_payload(symbol_data)
+
+            sizing_units = {
+                field: (
+                    "contract_units_per_broker_lot"
+                    if field == "trade_contract_size"
+                    else BROKER_VOLUME_UNIT
+                )
+                for field in (
+                    "trade_contract_size",
+                    "volume_min",
+                    "volume_max",
+                    "volume_step",
+                    "volume_limit",
+                )
+                if symbol_data.get(field) is not None
+            }
+            if sizing_units:
+                units = symbol_data.setdefault("units", {})
+                if isinstance(units, dict):
+                    units.update(sizing_units)
+                if "trade_contract_size" in sizing_units:
+                    symbol_data["lot_definition"] = (
+                        "1 broker lot equals trade_contract_size contract units."
+                    )
 
             if symbol_data.get("trade_tick_value") is not None:
                 tick_value_currency = account_currency_from_gateway(mt5_gateway)

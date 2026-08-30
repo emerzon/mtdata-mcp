@@ -246,3 +246,34 @@ def test_compact_symbol_description_uses_general_code_for_unknown_live_blocker()
     )
 
     assert result["warnings"][0]["code"] == "quote_not_live"
+
+
+def test_compact_symbol_description_keeps_broker_lot_units() -> None:
+    payload = {
+        "success": True,
+        "symbol": "EURUSD",
+        "details": {
+            "trade_contract_size": 100_000.0,
+            "volume_min": 0.01,
+            "volume_max": 100.0,
+            "volume_step": 0.01,
+            "lot_definition": (
+                "1 broker lot equals trade_contract_size contract units."
+            ),
+            "units": {
+                "trade_contract_size": "contract_units_per_broker_lot",
+                "volume_min": "broker_lot",
+                "volume_max": "broker_lot",
+                "volume_step": "broker_lot",
+            },
+        },
+    }
+
+    result = shape_public_tool_output(
+        payload,
+        tool_name="symbols_describe",
+        detail="compact",
+    )
+
+    assert result["details"]["lot_definition"].startswith("1 broker lot")
+    assert result["details"]["units"] == payload["details"]["units"]

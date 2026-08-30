@@ -1792,6 +1792,15 @@ class TestSymbolsDescribe:
         assert sd["volume_min"] == 0.01
         assert sd["volume_max"] == 100.0
         assert sd["volume_step"] == 0.01
+        assert sd["lot_definition"] == (
+            "1 broker lot equals trade_contract_size contract units."
+        )
+        assert sd["units"] == {
+            "trade_contract_size": "contract_units_per_broker_lot",
+            "volume_min": "broker_lot",
+            "volume_max": "broker_lot",
+            "volume_step": "broker_lot",
+        }
         assert "order_mode_labels" not in sd
         for raw_key in (
             "bidlow",
