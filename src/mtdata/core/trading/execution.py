@@ -1748,6 +1748,7 @@ def _execute_single_close(  # noqa: C901
 def _sort_close_positions(
     positions: List[Any],
     priority: Optional[str],
+    mt5: Any = None,
 ) -> List[Any]:
     """Sort positions for close ordering. Returns a new list.
 
@@ -1766,12 +1767,30 @@ def _sort_close_positions(
     def _safe_volume(pos: Any) -> float:
         return validation._safe_float_attr(pos, "volume")
 
+    def _safe_notional(pos: Any) -> tuple[float, float]:
+        if mt5 is not None:
+            from .use_cases.common import _linearized_account_currency_notional
+
+            symbol = str(getattr(pos, "symbol", "") or "").strip()
+            try:
+                symbol_info = mt5.symbol_info(symbol)
+            except Exception:
+                symbol_info = None
+            notional = _linearized_account_currency_notional(
+                volume=_safe_volume(pos),
+                price=validation._safe_float_attr(pos, "price_current"),
+                symbol_info=symbol_info,
+            )
+            if notional is not None and math.isfinite(notional):
+                return float(notional), _safe_volume(pos)
+        return 0.0, _safe_volume(pos)
+
     if priority == "loss_first":
         return sorted(positions, key=_safe_profit)
     elif priority == "profit_first":
         return sorted(positions, key=_safe_profit, reverse=True)
     elif priority == "largest_first":
-        return sorted(positions, key=_safe_volume, reverse=True)
+        return sorted(positions, key=_safe_notional, reverse=True)
     return list(positions)
 
 
@@ -2088,7 +2107,7 @@ def _close_positions(  # noqa: C901
             if not to_close:
                 return {"message": "No positions matched criteria"}
 
-            to_close = _sort_close_positions(to_close, close_priority)
+            to_close = _sort_close_positions(to_close, close_priority, mt5)
 
             deviation_validated, deviation_error = validation._validate_deviation(deviation)
             if deviation_error:

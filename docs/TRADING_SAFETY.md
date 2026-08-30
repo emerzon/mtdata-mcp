@@ -218,7 +218,7 @@ with `--target all_exposure`. There is no automatic position-to-order fallback.
 | `--close-all` | `false` | Select the whole account when ticket, symbol, and magic are omitted |
 | `--confirm-close-all` | `false` | **Required** for any ticketless live bulk operation |
 | `--pnl-filter` | `all` | Close all matches, only winners (`profit`), or only losers (`loss`) |
-| `--close-priority` | — | `loss_first`, `profit_first`, or `largest_first` |
+| `--close-priority` | — | `loss_first`, `profit_first`, or `largest_first`; largest uses broker tick economics to compare approximate account-currency exposure, with lot size only as a fallback |
 | `--deviation` | `20` | Max slippage in points |
 | `--dry-run` | `true` | Preview by default; set `false` explicitly for a live close |
 

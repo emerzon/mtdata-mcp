@@ -1712,6 +1712,37 @@ class TestClosePositions:
         result = _sort_close_positions(positions, "largest_first")
         assert [p.ticket for p in result] == [2, 3, 1]
 
+    def test_sort_largest_first_uses_account_currency_notional(self):
+        positions = [
+            SimpleNamespace(
+                ticket=1,
+                symbol="EURUSD",
+                volume=2.0,
+                price_current=1.1,
+            ),
+            SimpleNamespace(
+                ticket=2,
+                symbol="INDEX.CFD",
+                volume=0.5,
+                price_current=18_000.0,
+            ),
+        ]
+        infos = {
+            "EURUSD": SimpleNamespace(
+                trade_tick_size=0.0001,
+                trade_tick_value=10.0,
+            ),
+            "INDEX.CFD": SimpleNamespace(
+                trade_tick_size=1.0,
+                trade_tick_value=100.0,
+            ),
+        }
+        mt5 = SimpleNamespace(symbol_info=lambda symbol: infos[symbol])
+
+        result = _sort_close_positions(positions, "largest_first", mt5)
+
+        assert [position.ticket for position in result] == [2, 1]
+
     def test_sort_none_preserves_order(self):
         """None priority preserves discovery order."""
         positions = [
