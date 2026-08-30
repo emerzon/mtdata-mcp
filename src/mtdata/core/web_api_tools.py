@@ -385,11 +385,35 @@ def list_tools_for_webapi(
     if not isinstance(tools, list):
         tools = []
 
+    searchable_names: Optional[set[str]] = None
+    search_filter = str(search or "").strip()
+    if search_filter and detail_mode != "full":
+        search_catalog = registered_tool_catalog(detail="full")
+        searchable_rows = (
+            search_catalog.get("tools") if isinstance(search_catalog, dict) else []
+        )
+        if not isinstance(searchable_rows, list):
+            searchable_rows = []
+        searchable_names = {
+            str(row.get("name") or "")
+            for row in filter_tool_catalog_rows(
+                searchable_rows,
+                category=category_filter,
+                search=search_filter,
+            )
+            if isinstance(row, dict)
+        }
+
     filtered = filter_tool_catalog_rows(
         tools,
         category=category_filter,
-        search=search,
+        search=None if searchable_names is not None else search_filter,
     )
+    if searchable_names is not None:
+        filtered = [
+            row for row in filtered
+            if str(row.get("name") or "") in searchable_names
+        ]
     start = min(offset_value, len(filtered))
     paged = filtered[start : start + limit_value]
     enriched = [_enrich_catalog_row(row, include_fields=include_fields) for row in paged]

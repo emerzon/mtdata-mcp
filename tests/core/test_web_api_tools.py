@@ -148,6 +148,14 @@ class TestListAndInvoke:
         assert payload["pagination"]["total"] == 0
         assert payload["pagination"]["has_more"] is False
 
+    def test_list_tools_searches_full_schema_before_compact_projection(self):
+        payload = list_tools_for_webapi(search="wavelet", detail="compact", limit=100)
+
+        names = {row["name"] for row in payload["tools"]}
+        assert "data_fetch_candles" in names
+        assert "forecast_generate" in names
+        assert all("input_schema" not in row for row in payload["tools"])
+
     def test_get_tool_rejects_unknown_detail(self):
         with pytest.raises(HTTPException) as exc:
             get_tool_for_webapi("trade_place", detail="verbose")
