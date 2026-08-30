@@ -1646,6 +1646,30 @@ class TestMcpHttpProbes:
             paths = {getattr(route, "path", None) for route in app.routes}
             assert {"/live", "/ready"} <= paths
 
+    def test_http_auth_keeps_root_probes_open(self):
+        from starlette.testclient import TestClient
+
+        from mtdata.bootstrap.runtime import _install_mcp_bearer_auth
+        from mtdata.core import server
+
+        class AppFactory:
+            _mtdata_auth_installed = False
+
+            @staticmethod
+            def sse_app():
+                return server.mcp.sse_app()
+
+        factory = AppFactory()
+        _install_mcp_bearer_auth(factory, "secret-token")
+
+        with (
+            patch.object(server, "mt5_connection_error", return_value=None),
+            TestClient(factory.sse_app()) as client,
+        ):
+            assert client.get("/live").status_code == 200
+            assert client.get("/ready").status_code == 200
+            assert client.get("/sse").status_code == 401
+
     def test_readiness_payload_reports_connected(self):
         from mtdata.core import server
 

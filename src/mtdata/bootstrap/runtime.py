@@ -211,7 +211,9 @@ def _install_mcp_bearer_auth(mcp: Any, token: str) -> None:
 
             class _BearerAuthMiddleware(BaseHTTPMiddleware):
                 async def dispatch(self, request, call_next):  # type: ignore[no-untyped-def]
-                    if _authorized(request.headers):
+                    if request.url.path in {"/live", "/ready"} or _authorized(
+                        request.headers
+                    ):
                         return await call_next(request)
                     return JSONResponse(
                         {
