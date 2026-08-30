@@ -86,6 +86,114 @@ def _attach_history_price_currency(
         row["price_currency_unavailable"] = True
 
 
+def _coerce_history_identifier(value: Any) -> Optional[int]:
+    """Return an exact integer identifier without routing through float."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        try:
+            numeric = float(text)
+        except (TypeError, ValueError, OverflowError):
+            return None
+        if not math.isfinite(numeric) or not numeric.is_integer():
+            return None
+        return int(numeric)
+
+
+def _attribute_deal_magic(
+    df: Any,
+    *,
+    pd_module: Any,
+) -> None:
+    """Attribute every deal leg to its position's originating entry magic.
+
+    MT5 stamps each deal independently, so a manual exit commonly has magic
+    zero even when the position was opened by an EA. When the opening deal is
+    present in the requested history window, all rows for that position inherit
+    its magic for strategy filtering while ``deal_magic`` preserves the raw
+    broker value.
+    """
+    if "magic" not in df.columns:
+        return
+
+    deal_magic = pd_module.Series(
+        [_coerce_history_identifier(value) for value in df["magic"].tolist()],
+        index=df.index,
+        dtype=object,
+    )
+    attributed_magic = deal_magic.copy()
+    attribution_method = pd_module.Series(
+        [
+            "deal_magic" if value is not None else "deal_magic_unavailable"
+            for value in deal_magic
+        ],
+        index=df.index,
+        dtype=object,
+    )
+
+    def _position_key(row: Any) -> Optional[int]:
+        for column in ("position_id", "position_by_id"):
+            ticket = _coerce_history_identifier(row.get(column))
+            if ticket not in (None, 0):
+                return ticket
+        return None
+
+    def _origin_sort_key(index: Any) -> tuple[float, int]:
+        row = df.loc[index]
+        timestamp = float("inf")
+        for column, multiplier in (("time_msc", 1.0), ("time", 1000.0)):
+            try:
+                candidate = float(row.get(column)) * multiplier
+            except (TypeError, ValueError, OverflowError):
+                continue
+            if math.isfinite(candidate):
+                timestamp = candidate
+                break
+        ticket = _coerce_history_identifier(row.get("ticket")) or 0
+        return timestamp, ticket
+
+    position_keys = pd_module.Series(
+        [_position_key(row) for _, row in df.iterrows()],
+        index=df.index,
+        dtype=object,
+    )
+    for position_key in position_keys.dropna().unique().tolist():
+        group_indices = position_keys.index[position_keys.eq(position_key)].tolist()
+        entry_indices = [
+            index
+            for index in group_indices
+            if validation._trade_history_action(
+                df.loc[index].to_dict(),
+                history_kind="deals",
+            )
+            == "open"
+        ]
+        if not entry_indices:
+            continue
+        origin_index = min(entry_indices, key=_origin_sort_key)
+        origin_magic = deal_magic.loc[origin_index]
+        if origin_magic is None:
+            continue
+        for index in group_indices:
+            attributed_magic.loc[index] = origin_magic
+            attribution_method.loc[index] = "position_origin_entry"
+
+    df["deal_magic"] = pd_module.Series(deal_magic, index=df.index, dtype=object)
+    df["attributed_magic"] = pd_module.Series(
+        attributed_magic,
+        index=df.index,
+        dtype=object,
+    )
+    df["attribution_method"] = attribution_method
+
+
 def _format_trade_history_snapshot_bound(value: datetime) -> str:
     if value.tzinfo is None:
         value = value.replace(tzinfo=timezone.utc)
@@ -619,15 +727,24 @@ def run_trade_history(  # noqa: C901
                     mask = mask | extra
                 return df_in.loc[mask]
 
-            def _filter_by_magic(df_in: "pd.DataFrame") -> "pd.DataFrame":
+            def _filter_by_magic(
+                df_in: "pd.DataFrame",
+                *,
+                history_kind: str,
+            ) -> "pd.DataFrame":
                 if request.magic is None:
                     return df_in
-                if "magic" not in df_in.columns:
+                magic_column = (
+                    "attributed_magic"
+                    if history_kind == "deals"
+                    else "magic"
+                )
+                if magic_column not in df_in.columns:
                     return df_in.iloc[0:0]
                 return df_in.loc[
-                    pd.to_numeric(df_in["magic"], errors="coerce").eq(
-                        int(request.magic)
-                    )
+                    df_in[magic_column]
+                    .apply(_coerce_history_identifier)
+                    .eq(int(request.magic))
                 ]
 
             def _is_non_informative_series(series: "pd.Series") -> bool:
@@ -770,17 +887,20 @@ def run_trade_history(  # noqa: C901
                         df["symbol"].astype(str).str.upper()
                         == str(request.symbol).upper()
                     ]
-                df = _filter_by_magic(df)
+                df = _filter_by_ticket_columns(
+                    df,
+                    position_ticket_value,
+                    columns=("position_id", "position_by_id"),
+                )
+                for col, prefix in deal_enum_columns:
+                    _decode_enum_column(df, col, prefix)
+                _attribute_deal_magic(df, pd_module=pd)
+                df = _filter_by_magic(df, history_kind=kind)
                 df = _filter_by_ticket_columns(
                     df, deal_ticket_value, columns=("ticket",)
                 )
                 df = _filter_by_ticket_columns(
                     df, order_ticket_value, columns=("order",)
-                )
-                df = _filter_by_ticket_columns(
-                    df,
-                    position_ticket_value,
-                    columns=("position_id", "position_by_id"),
                 )
                 if len(df) == 0:
                     return _empty_history_message("deals")
@@ -801,8 +921,6 @@ def run_trade_history(  # noqa: C901
                             future_mask,
                             None,
                         ).round(3)
-                for col, prefix in deal_enum_columns:
-                    _decode_enum_column(df, col, prefix)
                 df = _filter_by_side(df, history_kind=kind)
                 if len(df) == 0:
                     return _empty_history_message("deals")
@@ -824,7 +942,7 @@ def run_trade_history(  # noqa: C901
                         ]
                         for col in triggers.columns:
                             df[col] = triggers[col]
-                for noise_col in ("time_msc", "external_id", "fee"):
+                for noise_col in ("time_msc", "external_id"):
                     if noise_col in df.columns and _is_non_informative_series(
                         df[noise_col]
                     ):
@@ -848,7 +966,7 @@ def run_trade_history(  # noqa: C901
                         df["symbol"].astype(str).str.upper()
                         == str(request.symbol).upper()
                     ]
-                df = _filter_by_magic(df)
+                df = _filter_by_magic(df, history_kind=kind)
                 df = _filter_by_ticket_columns(
                     df, order_ticket_value, columns=("ticket",)
                 )

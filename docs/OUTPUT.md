@@ -289,6 +289,12 @@ one hour; `offset` and `page` are not accepted by that tool. Cursors are opaque:
 store and return the exact string rather than decoding it or depending on its
 representation.
 
+Compact trade-history responses retain `item_schema`. Deal rows keep the
+monetary columns `profit`, `commission`, `swap`, `fee`, and `net_pnl` at stable
+paths: a known zero is `0.0`, while unavailable source data is `null`.
+`net_pnl` is the sum of the four broker components on that deal, not the
+journal's separately reported round-trip result with allocated entry costs.
+
 Page through results with `--offset` and `--limit`:
 
 ```bash

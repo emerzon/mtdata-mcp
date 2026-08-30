@@ -146,6 +146,7 @@ def test_trade_account_info_rounds_margin_level_for_display() -> None:
 
     assert out["success"] is True
     assert out["margin_level"] == 53231.43
+    assert out["units"]["margin_level"] == "percent (100 = 100%)"
 
 
 def test_trade_account_info_compact_detail_includes_account_fields_without_diagnostics() -> None:

@@ -25,6 +25,12 @@ MAGIC_NUMBER_DESCRIPTION = (
     "strategy trades. Accepted range is 0..18446744073709551615; zero is valid. "
     "Use as a filter for one strategy; omit for all magic numbers."
 )
+HISTORY_MAGIC_NUMBER_DESCRIPTION = (
+    "Strategy magic filter. Deal history and journal analysis attribute every "
+    "position leg to the earliest opening deal available in the requested window, "
+    "so a manual exit retains its originating strategy. Order history filters each "
+    "order's own MT5 magic. Zero is valid; omit for all strategies."
+)
 
 
 def _strict_trade_bool(value: Any) -> bool:
@@ -430,7 +436,10 @@ class TradeHistoryRequest(_SideNormalizedRequest):
     start: Optional[str] = None
     end: Optional[str] = None
     symbol: Optional[str] = None
-    magic: Optional[MT5Magic] = Field(default=None, description=MAGIC_NUMBER_DESCRIPTION)
+    magic: Optional[MT5Magic] = Field(
+        default=None,
+        description=HISTORY_MAGIC_NUMBER_DESCRIPTION,
+    )
     side: Optional[str] = Field(
         default=None,
         description=(
@@ -494,7 +503,10 @@ class TradeJournalAnalyzeRequest(_SideNormalizedRequest):
     start: Optional[str] = None
     end: Optional[str] = None
     symbol: Optional[str] = None
-    magic: Optional[MT5Magic] = Field(default=None, description=MAGIC_NUMBER_DESCRIPTION)
+    magic: Optional[MT5Magic] = Field(
+        default=None,
+        description=HISTORY_MAGIC_NUMBER_DESCRIPTION,
+    )
     side: Optional[str] = Field(
         default=None,
         description=(

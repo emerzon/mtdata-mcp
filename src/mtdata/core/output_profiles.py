@@ -1634,6 +1634,7 @@ def _compact_trade_account(payload: MutableMapping[str, Any]) -> None:
         "session_note",
         "source",
         "success",
+        "units",
         "warnings",
     }
     for key in list(payload):

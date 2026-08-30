@@ -362,12 +362,21 @@ controls. Cursor pages retain the first page's exact UTC bounds and expire
 after one hour, preventing a moving relative window from skipping records.
 On accounts shared by multiple strategies, pass `--magic` to either command so
 history pagination and journal metrics are scoped to one MT5 strategy identifier.
+For deal history, mtdata attributes every position leg to the earliest opening
+deal available in the requested window. A manual exit with deal magic `0` therefore
+stays with the strategy that opened the position. Each row keeps the broker's raw
+`deal_magic`, the resolved `attributed_magic`, and `attribution_method`. If the
+opening deal falls outside the window, attribution falls back to that row's own
+deal magic; expand the window when you need complete strategy reconciliation.
 
 **History vs journal:** history is the raw deal/order tape. The journal
 summarizes *exit* deals (wins, losses, averages) for review. It matches entry
 fills by position ticket and allocates their commission and fees by closed
 volume. Check `entry_cost_coverage`: an entry outside the requested history
 window leaves that exit on the explicitly reported exit-deal-only PnL basis.
+History deal rows preserve MT5's `profit`, `commission`, `swap`, and `fee`
+components and also report `net_pnl` as their sum. `profit_basis` makes clear
+that the broker `profit` value excludes those separately reported cost fields.
 
 **Do not paste journal averages into Kelly sizing.**
 `trade_journal_analyze` reports profit and loss in account currency per exit,

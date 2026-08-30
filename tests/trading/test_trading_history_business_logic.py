@@ -599,7 +599,13 @@ def test_trade_history_compact_omits_parallel_normalized_rows() -> None:
         "volume": 0.5,
         "price": 1.2345,
         "profit": -1.0,
+        "commission": None,
+        "swap": None,
+        "fee": None,
+        "net_pnl": -1.0,
+        "profit_basis": "broker_profit_excluding_cost_components",
     }
+    assert out["item_schema"] == "trade_history.v4"
     assert "normalized_items" not in out
 
 
@@ -624,7 +630,7 @@ def test_trade_history_full_detail_uses_normalized_deal_items() -> None:
     )
 
     assert "normalized_items" not in out
-    assert out["item_schema"] == "trade_history.v3"
+    assert out["item_schema"] == "trade_history.v4"
     assert out["items"] == [
         {
             "fill_time": "2024-01-01 12:00:00",
@@ -635,6 +641,12 @@ def test_trade_history_full_detail_uses_normalized_deal_items() -> None:
             "volume": 0.5,
             "price": 1.2345,
             "deal_effect": "close",
+            "profit": None,
+            "commission": None,
+            "swap": None,
+            "fee": None,
+            "net_pnl": None,
+            "profit_basis": None,
             "comment": "closed",
             "raw": {
                 "entry": "Out",
@@ -1201,7 +1213,8 @@ def test_trade_history_deals_drops_non_informative_noise_columns() -> None:
     row = out["items"][0]
     assert "time_msc" not in row
     assert "external_id" not in row
-    assert "fee" not in row
+    assert row["fee"] == 0.0
+    assert row["net_pnl"] == 0.0
 
 
 def test_trade_history_deals_keeps_fee_when_non_zero() -> None:
@@ -1258,7 +1271,8 @@ def test_trade_history_replaces_non_finite_values_with_none() -> None:
     if prev is not None:
         sys.modules["MetaTrader5"] = prev
 
-    assert "profit" not in out["items"][0]
+    assert out["items"][0]["profit"] is None
+    assert out["items"][0]["net_pnl"] is None
 
 
 def test_run_trade_history_logs_finish_event(caplog) -> None:

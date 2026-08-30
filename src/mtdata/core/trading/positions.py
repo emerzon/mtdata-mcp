@@ -265,6 +265,7 @@ _TRADE_MONEY_FIELDS = {
     "commission",
     "swap",
     "fee",
+    "net_pnl",
 }
 
 
@@ -703,6 +704,9 @@ _TRADE_HISTORY_COMPACT_DEAL_FIELDS = (
     "position_ticket",
     "symbol",
     "magic",
+    "deal_magic",
+    "attributed_magic",
+    "attribution_method",
     "fill_side",
     "deal_effect",
     "position_side",
@@ -716,6 +720,8 @@ _TRADE_HISTORY_COMPACT_DEAL_FIELDS = (
     "commission",
     "swap",
     "fee",
+    "net_pnl",
+    "profit_basis",
     "comment",
     "comment_truncated",
     "exit_trigger",
@@ -724,6 +730,15 @@ _TRADE_HISTORY_COMPACT_DEAL_FIELDS = (
     "original_fill_time",
     "fill_time_future_seconds",
 )
+_TRADE_HISTORY_STABLE_DEAL_FIELDS = (
+    "profit",
+    "commission",
+    "swap",
+    "fee",
+    "net_pnl",
+    "profit_basis",
+)
+_TRADE_HISTORY_ITEM_SCHEMA = "trade_history.v4"
 _TRADE_HISTORY_COMPACT_ORDER_FIELDS = (
     "placed_time",
     "done_time",
@@ -785,6 +800,22 @@ def _round_trade_money_value(value: Any) -> Any:
     if not math.isfinite(numeric):
         return value
     return float(round(numeric, 2))
+
+
+def _trade_history_deal_net_pnl(row: Dict[str, Any]) -> Optional[float]:
+    """Sum the broker profit field and its separately reported deal costs."""
+    total = 0.0
+    seen = False
+    for key in ("profit", "commission", "swap", "fee"):
+        try:
+            value = float(row.get(key))
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if not math.isfinite(value):
+            continue
+        total += value
+        seen = True
+    return float(round(total, 2)) if seen else None
 
 
 def _round_trade_price_value(value: Any) -> Any:
@@ -904,13 +935,29 @@ def _compact_trade_history_row(
             compact["position_action"] = f"{action}_{position_side}"
         if compact.get("comment_may_be_truncated") is True:
             compact["comment_truncated"] = True
+        compact["net_pnl"] = _trade_history_deal_net_pnl(compact)
+        try:
+            profit_value = float(compact.get("profit"))
+        except (TypeError, ValueError, OverflowError):
+            profit_value = float("nan")
+        compact["profit_basis"] = (
+            "broker_profit_excluding_cost_components"
+            if math.isfinite(profit_value)
+            else None
+        )
         fields = _TRADE_HISTORY_COMPACT_DEAL_FIELDS
     return {
-        key: compact[key]
+        key: compact.get(key)
         for key in fields
-        if key in compact
-        and compact[key] is not None
-        and not (isinstance(compact[key], str) and not compact[key].strip())
+        if (
+            history_kind != "orders"
+            and key in _TRADE_HISTORY_STABLE_DEAL_FIELDS
+        )
+        or (
+            key in compact
+            and compact[key] is not None
+            and not (isinstance(compact[key], str) and not compact[key].strip())
+        )
     }
 
 
@@ -947,9 +994,10 @@ def _full_trade_history_row(
             "position_ticket", "position_id", "position_by_id", "time", "time_msc",
             "type", "type_label", "symbol", "volume", "price", "price_currency",
             "price_basis", "price_currency_unavailable", "profit",
-            "commission", "swap", "fee", "magic", "comment", "exit_trigger",
-            "exit_trigger_price", "timestamp_anomaly", "original_fill_time",
-            "fill_time_future_seconds",
+            "commission", "swap", "fee", "net_pnl", "profit_basis", "magic",
+            "deal_magic", "attributed_magic", "attribution_method", "comment",
+            "exit_trigger", "exit_trigger_price", "timestamp_anomaly",
+            "original_fill_time", "fill_time_future_seconds",
         }
     raw = {
         key: value
@@ -1038,8 +1086,13 @@ def _trade_history_humanized_key(key: str) -> str:
         "commission": "Commission",
         "swap": "Swap",
         "fee": "Fee",
+        "net_pnl": "Net P&L",
+        "profit_basis": "Profit Basis",
         "comment": "Comments",
         "magic": "Magic",
+        "deal_magic": "Deal Magic",
+        "attributed_magic": "Attributed Magic",
+        "attribution_method": "Attribution Method",
         "exit_trigger": "Exit Trigger",
         "exit_trigger_price": "Exit Trigger Price",
         "exit_trigger_source": "Exit Trigger Source",
@@ -1200,7 +1253,7 @@ def _finalize_trade_history_items(
             for item in raw_items
             if isinstance(item, dict)
         ]
-        out["item_schema"] = "trade_history.v3"
+        out["item_schema"] = _TRADE_HISTORY_ITEM_SCHEMA
     else:
         out["items"] = [
             _compact_trade_history_row(item, history_kind=history_kind)
@@ -1208,6 +1261,7 @@ def _finalize_trade_history_items(
             else item
             for item in raw_items
         ]
+        out["item_schema"] = _TRADE_HISTORY_ITEM_SCHEMA
     return timezone_label
 
 

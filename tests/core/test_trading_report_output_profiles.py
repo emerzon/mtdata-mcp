@@ -218,16 +218,20 @@ def test_trade_history_compact_hoists_uniform_basis_and_drops_request_prose() ->
     }
     assert result["units"] == {"volume": "broker_lot"}
     assert result["items"] == [
-        {
-            "deal_ticket": 101,
-            "position_ticket": 55,
+            {
+                "deal_ticket": 101,
+                "order_ticket": 55,
+                "position_ticket": 55,
             "symbol": "EURUSD",
             "fill_time": "2026-08-29T10:00:00Z",
             "position_action": "close_long",
             "volume": 0.1,
-            "price": 1.1,
-            "profit": 25.0,
-        }
+                "price": 1.1,
+                "profit": 25.0,
+                "commission": 0.0,
+                "swap": 0.0,
+                "fee": 0.0,
+            }
     ]
     assert "note" not in result
 

@@ -42,7 +42,7 @@ from ..runtime_metadata import attach_mt5_source, run_mt5_logged_operation
 from . import comments, safety, validation
 from .common import account_context_id
 from .gateway import create_trading_gateway
-from .positions import normalize_trade_history_output
+from .positions import _trade_history_deal_net_pnl, normalize_trade_history_output
 from .requests import TradeHistoryRequest, TradeJournalAnalyzeRequest
 from .use_cases import run_trade_history
 from .use_cases.history import _DEFAULT_TRADE_HISTORY_LOOKBACK_DAYS
@@ -72,6 +72,7 @@ _TRADE_ACCOUNT_COMPACT_KEYS = (
     "margin_free",
     "margin_level",
     "margin_level_note",
+    "units",
     "currency",
     "leverage",
     "trade_allowed",
@@ -227,15 +228,7 @@ def _is_exit_deal_row(row: Dict[str, Any]) -> bool:
 
 
 def _trade_journal_net_pnl(row: Dict[str, Any]) -> Optional[float]:
-    seen = False
-    total = 0.0
-    for key in ("profit", "commission", "swap", "fee"):
-        value = coerce_finite_float(row.get(key))
-        if value is None:
-            continue
-        total += value
-        seen = True
-    return _round_trade_journal_value(total, digits=2) if seen else None
+    return _trade_history_deal_net_pnl(row)
 
 
 def _trade_journal_position_key(row: Dict[str, Any]) -> Optional[str]:
@@ -554,7 +547,7 @@ def _trade_journal_breakdowns(
 
 
 def _trade_journal_trade_snapshot(row: Dict[str, Any]) -> Dict[str, Any]:
-    return {
+    snapshot = {
         "deal_ticket": row.get("deal_ticket", row.get("ticket")),
         "order_ticket": row.get("order_ticket"),
         "position_ticket": row.get("position_ticket"),
@@ -574,6 +567,17 @@ def _trade_journal_trade_snapshot(row: Dict[str, Any]) -> Dict[str, Any]:
         "fee": row.get("fee"),
         "volume": row.get("volume"),
     }
+    if any(
+        row.get(key) is not None
+        for key in ("magic", "deal_magic", "attributed_magic")
+    ):
+        snapshot["deal_magic"] = row.get("deal_magic", row.get("magic"))
+        snapshot["attributed_magic"] = row.get(
+            "attributed_magic",
+            row.get("magic"),
+        )
+        snapshot["attribution_method"] = row.get("attribution_method")
+    return snapshot
 
 
 def _trade_journal_period_context(
@@ -788,7 +792,7 @@ def _run_trade_journal_request(  # noqa: C901
 
         def _matches_magic(row: Dict[str, Any]) -> bool:
             try:
-                return int(row.get("magic")) == magic_value
+                return int(row.get("attributed_magic", row.get("magic"))) == magic_value
             except (TypeError, ValueError):
                 return False
 
@@ -1299,6 +1303,7 @@ def trade_account_info(
             "margin": info.margin,
             "margin_free": info.margin_free,
             "margin_level": margin_level,
+            "units": {"margin_level": "percent (100 = 100%)"},
             "currency": info.currency,
             "leverage": info.leverage,
             "trade_allowed": actionable_trade_allowed,
