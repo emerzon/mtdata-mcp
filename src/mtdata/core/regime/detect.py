@@ -108,6 +108,88 @@ def _pelt_return_direction(
     return ("positive" if mean_value > 0 else "negative"), mean_t_stat, True
 
 
+def _pelt_auto_penalty(values: np.ndarray, model: str) -> tuple[float, str]:
+    """Return a BIC-like penalty expressed in the selected cost's units."""
+    x = np.asarray(values, dtype=float)
+    multiplier = 3.0 * float(np.log(max(int(x.size), 2)))
+    if model in {"l2", "ar"}:
+        scale = float(np.var(x, ddof=0))
+    elif model == "l1":
+        scale = float(np.mean(np.abs(x - np.median(x))))
+    else:
+        # RBF is kernel-normalized and normal is already a log-likelihood cost.
+        scale = 1.0
+    return max(1e-12, multiplier * scale), f"bic_like_auto_{model}"
+
+
+def _pelt_adjusted_separation_confidence(
+    values: np.ndarray,
+    segment_ends: List[int],
+) -> float:
+    """Measure explained variation while penalizing extra fitted segments."""
+    x = np.asarray(values, dtype=float)
+    n_points = int(x.size)
+    ends = [int(end) for end in segment_ends if 0 < int(end) <= n_points]
+    n_segments = len(ends)
+    if n_points <= n_segments or n_points < 2 or not ends:
+        return 0.0
+    total_ss = float(np.sum((x - float(np.mean(x))) ** 2))
+    if not np.isfinite(total_ss) or total_ss <= 1e-18:
+        return 0.0
+    within_ss = 0.0
+    start = 0
+    for end in ends:
+        segment = x[start:end]
+        if segment.size:
+            within_ss += float(np.sum((segment - float(np.mean(segment))) ** 2))
+        start = end
+    explained_share = 1.0 - within_ss / total_ss
+    complexity_penalty = (
+        max(0, n_segments - 1) * math.log(float(n_points)) / float(n_points)
+    )
+    return float(np.clip(explained_share - complexity_penalty, 0.0, 1.0))
+
+
+def _attach_pelt_segment_confidences(
+    regimes: List[Dict[str, Any]],
+    *,
+    min_size: int,
+) -> None:
+    for index, row in enumerate(regimes):
+        contrasts: List[float] = []
+        for neighbor_index in (index - 1, index + 1):
+            if not 0 <= neighbor_index < len(regimes):
+                continue
+            neighbor = regimes[neighbor_index]
+            pooled_volatility = max(
+                1e-12,
+                math.sqrt(
+                    (
+                        float(row["volatility"]) ** 2
+                        + float(neighbor["volatility"]) ** 2
+                    )
+                    / 2.0
+                ),
+            )
+            mean_contrast = (
+                abs(float(row["mean"]) - float(neighbor["mean"]))
+                / pooled_volatility
+            )
+            volatility_contrast = abs(
+                math.log(
+                    max(float(row["volatility"]), 1e-12)
+                    / max(float(neighbor["volatility"]), 1e-12)
+                )
+            )
+            contrasts.append(max(mean_contrast, volatility_contrast))
+        separation = max(contrasts, default=0.0)
+        length_weight = min(1.0, float(row["bars"]) / max(2.0 * min_size, 1.0))
+        row["regime_confidence"] = round(
+            float((1.0 - math.exp(-separation)) * length_weight),
+            4,
+        )
+
+
 def _coerce_param(
     params: Dict[str, Any],
     key: str,
@@ -578,6 +660,7 @@ def _detect_bocpd(  # noqa: C901
         default=min(1000, x.size),
         cast=int,
     )
+    bocpd_priors = _resolve_bocpd_priors(p, x)
     threshold_cal_mode = (
         str(
             p.get("cp_threshold_calibration_mode", "walkforward_quantile")
@@ -633,9 +716,9 @@ def _detect_bocpd(  # noqa: C901
                 max_windows=cal_max_windows,
                 bootstrap_runs=cal_boot,
                 max_run_length=max_rl,
+                priors=bocpd_priors,
             )
         )
-    bocpd_priors = _resolve_bocpd_priors(p, x)
     res = bocpd_gaussian(
         x,
         hazard_lambda=hazard_lambda,
@@ -869,9 +952,7 @@ def _detect_pelt(  # noqa: C901
         return {"error": jump_error or "params.jump must be >= 1."}
     penalty_raw = p.get("penalty")
     if penalty_raw is None or str(penalty_raw).strip().lower() == "auto":
-        variance = float(np.var(x, ddof=0))
-        penalty = max(1e-12, 3.0 * np.log(max(int(x.size), 2)) * variance)
-        penalty_source = "bic_like_auto"
+        penalty, penalty_source = _pelt_auto_penalty(x, model)
     else:
         try:
             penalty = float(penalty_raw)
@@ -938,15 +1019,15 @@ def _detect_pelt(  # noqa: C901
 
     if not regimes:
         return {"error": "PELT produced no valid regime segments."}
+    _attach_pelt_segment_confidences(regimes, min_size=int(min_size))
     latest = regimes[-1]
-    mean_contrast = float(np.std([float(row["mean"]) for row in regimes], ddof=0))
-    confidence = min(1.0, mean_contrast / global_volatility) if global_volatility > 0 else 0.0
+    confidence = _pelt_adjusted_separation_confidence(x, segment_ends)
     current_regime = {
         "regime_id": latest["regime"],
         "label": latest["label"],
         "since": latest["start"],
         "bars": latest["bars"],
-        "regime_confidence": round(float(confidence), 4),
+        "regime_confidence": float(latest["regime_confidence"]),
     }
     payload: Dict[str, Any] = {
         "success": True,
@@ -964,7 +1045,7 @@ def _detect_pelt(  # noqa: C901
         },
         "reliability": _common_reliability(
             None,
-            source="pelt_segment_separation",
+            source="pelt_adjusted_variance_separation",
             confidence=confidence,
         ),
         "params_used": {

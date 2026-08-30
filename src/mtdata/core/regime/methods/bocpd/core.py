@@ -69,6 +69,7 @@ def _calibration_cache_key(
     bootstrap_runs: int,
     seed: int,
     max_run_length: Optional[int] = None,
+    priors: Optional[Dict[str, float]] = None,
 ) -> str:
     """Build a stable cache key from series content hash + calibration params."""
     h = hashlib.sha256()
@@ -79,6 +80,7 @@ def _calibration_cache_key(
             f"|{hazard_lambda}|{base_threshold:.6f}|{target_false_alarm_rate:.6f}"
             f"|{window}|{step}|{max_windows}|{bootstrap_runs}|{seed}"
             f"|{max_run_length if max_run_length is not None else 'auto'}"
+            f"|{sorted((priors or {}).items())}"
         ).encode()
     )
     return h.hexdigest()[:24]
@@ -393,6 +395,7 @@ def _walkforward_quantile_threshold_calibration(
     bootstrap_runs: int = 20,
     seed: int = 42,
     max_run_length: Optional[int] = None,
+    priors: Optional[Dict[str, float]] = None,
 ) -> Tuple[float, Dict[str, Any]]:
     """Calibrate CP threshold using dependence-preserving bootstrap windows."""
     x = np.asarray(series, dtype=float)
@@ -423,7 +426,7 @@ def _walkforward_quantile_threshold_calibration(
     cache_key = _calibration_cache_key(
         x, int(hazard_lambda), float(base_threshold),
         diagnostics["target_false_alarm_rate"],
-        int(win), int(stp), int(max_w), int(n_boot), seed_val, max_rl,
+        int(win), int(stp), int(max_w), int(n_boot), seed_val, max_rl, priors,
     )
     cached = _calibration_cache_get(cache_key)
     if cached is not None:
@@ -467,6 +470,7 @@ def _walkforward_quantile_threshold_calibration(
                     shuffled,
                     hazard_lambda=int(max(1, hazard_lambda)),
                     max_run_length=max_rl,
+                    **(priors or {}),
                 )
                 cp = np.asarray(r.get("cp_prob", []), dtype=float)
                 cp = cp[np.isfinite(cp)]
@@ -477,7 +481,7 @@ def _walkforward_quantile_threshold_calibration(
             return float(base_threshold), diagnostics
 
         null_q = float(np.quantile(np.asarray(null_maxima, dtype=float), q))
-        calibrated = float(np.clip(max(float(base_threshold), null_q), 0.15, 0.90))
+        calibrated = float(np.clip(null_q, 1e-6, 1.0))
         diagnostics.update(
             {
                 "calibrated": True,
@@ -493,6 +497,7 @@ def _walkforward_quantile_threshold_calibration(
                 "calibration_scope": "in_sample_resampled",
                 "quantile": float(q),
                 "threshold_delta": float(calibrated - float(base_threshold)),
+                "priors": dict(priors or {}),
             }
         )
         diagnostics["cache_hit"] = False

@@ -164,7 +164,9 @@ transition_summary:
 mtdata-cli regime_detect EURUSD --timeframe H1 --method pelt --params "model=rbf penalty=auto min_size=5 jump=1"
 ```
 
-Supported cost models are `l1`, `l2`, `rbf`, `normal`, and `ar`. Set a numeric `penalty` for explicit sensitivity or keep `penalty=auto` for a variance-scaled default.
+Supported cost models are `l1`, `l2`, `rbf`, `normal`, and `ar`. Set a numeric
+`penalty` for explicit sensitivity or keep `penalty=auto` for a cost-model-aware
+BIC-like default expressed in the selected model's units.
 
 An explicit `--start` / `--end` range is analyzed in full by default. Add
 `--fetch-limit` or `--lookback` only when you deliberately want a recent tail

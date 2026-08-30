@@ -153,9 +153,19 @@ class TestWalkforwardCacheIntegration:
                 max_windows=1,
                 bootstrap_runs=1,
                 max_run_length=77,
+                priors={
+                    "mu0": 0.1,
+                    "kappa0": 2.0,
+                    "alpha0": 3.0,
+                    "beta0": 4.0,
+                },
             )
 
         assert bocpd.call_args.kwargs["max_run_length"] == 77
+        assert bocpd.call_args.kwargs["mu0"] == 0.1
+        assert bocpd.call_args.kwargs["kappa0"] == 2.0
+        assert bocpd.call_args.kwargs["alpha0"] == 3.0
+        assert bocpd.call_args.kwargs["beta0"] == 4.0
         assert diagnostics["max_run_length"] == 77
         assert diagnostics["null_model"] == "moving_block_bootstrap"
         assert diagnostics["calibration_scope"] == "in_sample_resampled"

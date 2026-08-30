@@ -5,6 +5,7 @@ import pandas as pd
 
 from mtdata.core.regime import api as regime
 from mtdata.core.regime.api import _pelt_return_direction
+from mtdata.core.regime.detect import _pelt_adjusted_separation_confidence
 
 
 def _raw_regime_detect():
@@ -74,8 +75,62 @@ def test_pelt_detects_structural_break(monkeypatch):
     assert result["method"] == "pelt"
     assert result["summary"]["change_points_count"] >= 1
     assert len(result["regimes"]) >= 2
-    assert result["params_used"]["penalty_source"] == "bic_like_auto"
+    assert result["params_used"]["penalty_source"] == "bic_like_auto_l2"
     assert all(row["direction_significant"] for row in result["regimes"])
+    assert all("regime_confidence" in row for row in result["regimes"])
+
+
+def test_pelt_adjusted_confidence_penalizes_oversegmentation() -> None:
+    rng = np.random.default_rng(4)
+    values = np.concatenate(
+        [rng.normal(0.0, 0.001, 300), rng.normal(0.002, 0.001, 300)]
+    )
+
+    correct = _pelt_adjusted_separation_confidence(values, [300, 600])
+    oversegmented = _pelt_adjusted_separation_confidence(
+        values,
+        list(range(5, 601, 5)),
+    )
+
+    assert correct > oversegmented
+
+
+def test_pelt_rbf_auto_penalty_does_not_saturate_minimum_segments(monkeypatch):
+    rng = np.random.default_rng(3)
+    returns = np.concatenate(
+        [
+            rng.normal(0.0, 0.001, 300),
+            rng.normal(0.0, 0.004, 300),
+            rng.normal(0.0, 0.001, 300),
+        ]
+    )
+    close = 100.0 * np.exp(np.r_[0.0, np.cumsum(returns)])
+    frame = pd.DataFrame(
+        {
+            "time": np.arange(
+                1_700_000_000,
+                1_700_000_000 + len(close) * 3600,
+                3600,
+            ),
+            "close": close,
+        }
+    )
+    monkeypatch.setattr(regime, "mt5_connection_error", lambda *args, **kwargs: None)
+    monkeypatch.setattr(regime, "_fetch_history", lambda *args, **kwargs: frame)
+
+    result = _raw_regime_detect()(
+        symbol="TEST",
+        timeframe="H1",
+        fetch_limit=len(frame),
+        method="pelt",
+        target="return",
+        params={"model": "rbf", "penalty": "auto", "min_size": 5},
+        detail="full",
+    )
+
+    assert result["success"] is True
+    assert result["params_used"]["penalty_source"] == "bic_like_auto_rbf"
+    assert result["summary"]["segments"] < 20
 
 
 def test_pelt_lookback_bounds_analyzed_window(monkeypatch):

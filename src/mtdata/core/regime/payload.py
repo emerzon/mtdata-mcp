@@ -6,7 +6,6 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 
 from ...utils.coercion import coerce_finite_float as _finite_float
-from .smoothing import _canonicalize_regime_labels
 
 # Direction label requires mean return to be at least this many standard errors
 # away from zero. Aligns BOCPD segment labeling with the PELT gate so that a
@@ -768,19 +767,6 @@ def _consolidate_payload(  # noqa: C901
                 probs = raw_probs
             else:
                 probs = [0.0] * len(times)
-
-            raw_series = payload.get("_series_values")
-            if isinstance(raw_series, list) and states:
-                canon_state, _, canon_meta = _canonicalize_regime_labels(
-                    np.asarray(states, dtype=int),
-                    None,
-                    np.asarray(raw_series, dtype=float),
-                )
-                states = [int(value) for value in canon_state.tolist()]
-                params_used = payload.get("params_used")
-                if isinstance(params_used, dict) and canon_meta.get("relabeled", False):
-                    params_used["relabeled"] = True
-                    params_used["label_mapping"] = canon_meta.get("mapping", {})
 
         elif method in ("ms_ar", "hmm", "gmm", "clustering", "garch", "wavelet", "ensemble"):
             raw_state = payload.get("state")

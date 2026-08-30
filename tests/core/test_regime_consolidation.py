@@ -230,7 +230,7 @@ class TestConsolidatePayload:
         assert "regime_confidence" not in result["current_regime"]
         assert all("regime_confidence" not in row for row in result["regimes"])
 
-    def test_bocpd_regimes_are_canonicalized_by_series_mean(self):
+    def test_bocpd_regime_ids_remain_chronological(self):
         payload = {
             "symbol": "EURUSD",
             "timeframe": "H1",
@@ -253,8 +253,9 @@ class TestConsolidatePayload:
         assert result["regimes"][0]["state_label_canonical"] == "trending_up"
         assert result["units"]["regime_context.return_pct"] == "percent"
         assert result["units"]["scale_note"] == "Percent values use 1.0 = 1%."
-        assert result["params_used"]["relabeled"] is True
-        assert result["params_used"]["label_mapping"] == {"0": 1, "1": 0}
+        assert [regime["regime"] for regime in result["regimes"]] == [0, 1]
+        assert "relabeled" not in result["params_used"]
+        assert "label_mapping" not in result["params_used"]
 
     def test_all_invalid_states_are_dropped_from_consolidated_regimes(self):
         payload = {
