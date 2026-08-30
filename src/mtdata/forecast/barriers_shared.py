@@ -204,7 +204,7 @@ def _scale_price_paths_to_reference(
     simulated_anchor_price: Any,
     reference_price: Any,
 ) -> np.ndarray:
-    """Rescale simulated paths so barrier scoring uses the same entry anchor."""
+    """Rescale simulated paths to the quote side used when an exit is filled."""
     paths = np.asarray(price_paths, dtype=float)
     anchor = _safe_float(simulated_anchor_price)
     ref = _safe_float(reference_price)
@@ -214,6 +214,22 @@ def _scale_price_paths_to_reference(
     if not np.isfinite(scale) or scale <= 0.0 or abs(scale - 1.0) <= 1e-12:
         return paths
     return paths * scale
+
+
+def _barrier_exit_quote_reference(
+    entry_reference_price: Any,
+    *,
+    direction: str,
+    reference_context: Dict[str, Any],
+) -> float:
+    """Use the executable exit quote side for scoring simulated close paths."""
+    entry = _safe_float(entry_reference_price)
+    direction_norm, _ = normalize_trade_direction(direction)
+    quote_key = "reference_bid" if direction_norm == "long" else "reference_ask"
+    exit_quote = _safe_float(reference_context.get(quote_key))
+    if exit_quote is not None and exit_quote > 0.0:
+        return float(exit_quote)
+    return float(entry) if entry is not None else float("nan")
 
 
 def _prepare_brownian_bridge_draws(
@@ -233,7 +249,7 @@ def _prepare_brownian_bridge_draws(
     Optional[np.ndarray],
     Optional[np.ndarray],
 ]:
-    """Scale simulated paths to the live reference and optionally build BB draws.
+    """Scale simulated paths to the scoring reference and optionally build BB draws.
 
     Returns ``(paths, bb_enabled, bb_sigma, bb_log_paths, uniform_tp, uniform_sl)``.
     When sigma is non-finite or non-positive, Brownian-bridge extras are disabled
@@ -487,26 +503,21 @@ def _build_selection_diagnostics(  # noqa: C901
         )
 
     ev_se = _safe_float(row.get("ev_se"))
-    statistical_edge_unresolved = False
-    selection_adjusted_ci: Optional[Dict[str, float]] = None
+    simulation_precision_unresolved = False
+    simulation_precision_ci: Optional[Dict[str, float]] = None
     comparisons = max(1, int(candidate_count))
     if best_ev is not None and ev_se is not None and ev_se >= 0.0:
         adjusted_alpha = 0.05 / comparisons
         adjusted_z = NormalDist().inv_cdf(1.0 - adjusted_alpha / 2.0)
         adjusted_low = float(best_ev - adjusted_z * ev_se)
         adjusted_high = float(best_ev + adjusted_z * ev_se)
-        selection_adjusted_ci = {
+        simulation_precision_ci = {
             "low": adjusted_low,
             "high": adjusted_high,
         }
-        row["ev_selection_adjusted_ci95"] = selection_adjusted_ci
-        row["ev_selection_comparisons"] = comparisons
-        statistical_edge_unresolved = adjusted_low <= 0.0
-        if statistical_edge_unresolved:
-            warnings_out.append(
-                "Selected EV is not statistically distinguishable from zero after "
-                f"adjusting for {comparisons} searched candidate(s)."
-            )
+        row["ev_simulation_precision_ci95"] = simulation_precision_ci
+        row["ev_simulation_comparisons"] = comparisons
+        simulation_precision_unresolved = adjusted_low <= 0.0
 
     best_kelly = _safe_float(row.get("kelly"))
     if best_kelly is not None and best_kelly < 0.0:
@@ -643,13 +654,19 @@ def _build_selection_diagnostics(  # noqa: C901
             pq = prob_win_val * (1.0 - prob_win_val)
             min_sims = int(math.ceil((2.0 * z) ** 2 * pq / (target_width ** 2)))
             out["min_sims_recommended"] = max(min_sims, 2000)
-    if selection_adjusted_ci is not None:
-        out["ev_selection_adjusted_ci95"] = selection_adjusted_ci
-        out["ev_selection_comparisons"] = comparisons
-        out["ev_selection_adjustment"] = "bonferroni_two_sided_95pct"
-    if statistical_edge_unresolved:
-        out["statistical_edge_unresolved"] = True
-        out["statistical_edge_basis"] = "selection_adjusted_ev_lower_bound_le_zero"
+    if simulation_precision_ci is not None:
+        out["ev_simulation_precision_ci95"] = simulation_precision_ci
+        out["ev_simulation_comparisons"] = comparisons
+        out["ev_simulation_precision_adjustment"] = "bonferroni_two_sided_95pct"
+    if simulation_precision_unresolved:
+        out["simulation_precision_unresolved"] = True
+        out["simulation_precision_basis"] = (
+            "monte_carlo_ev_lower_bound_le_zero_after_candidate_adjustment"
+        )
+        out["simulation_precision_note"] = (
+            "This interval measures finite-simulation noise under the fitted path "
+            "model; it is not evidence for or against market edge."
+        )
     return out
 
 
@@ -676,10 +693,6 @@ def _build_actionability_payload(  # noqa: C901
         flags.append("ev_edge_conflict")
     if bool(diag.get("low_practical_win_probability")):
         flags.append("low_practical_win_probability")
-    if bool(diag.get("low_confidence")):
-        flags.append("low_confidence")
-    if bool(diag.get("statistical_edge_unresolved")):
-        flags.append("statistical_edge_unresolved")
     if bool(diag.get("trading_costs_incomplete")):
         flags.append("trading_costs_incomplete")
     if diag.get("selection_warnings"):
@@ -731,8 +744,6 @@ def _build_actionability_payload(  # noqa: C901
             )
     elif {
         "selection_warnings",
-        "low_confidence",
-        "statistical_edge_unresolved",
         "trading_costs_incomplete",
         "warning",
         "ensemble_degraded",
@@ -750,15 +761,8 @@ def _build_actionability_payload(  # noqa: C901
                 "Trading cost assumptions are incomplete "
                 f"({missing_text}); provide explicit zero or positive assumptions."
             )
-        elif "statistical_edge_unresolved" in seen:
-            actionability_reason = (
-                "Selected EV is not statistically distinguishable from zero after "
-                "accounting for the searched candidate set."
-            )
         elif warning:
             actionability_reason = str(warning).strip()
-        elif diag.get("confidence_warning"):
-            actionability_reason = str(diag["confidence_warning"]).strip()
         elif diag.get("selection_warnings"):
             warnings_list = diag.get("selection_warnings")
             if isinstance(warnings_list, list) and warnings_list:

@@ -78,7 +78,7 @@ class TestBarrierStatisticalSignificance(unittest.TestCase):
         self.assertNotIn("confidence_warning", diag)
         self.assertNotIn("low_confidence", diag)
 
-    def test_selection_adjusted_ev_crossing_zero_blocks_trade_gate(self):
+    def test_simulation_precision_interval_does_not_decide_trade_gate(self):
         row = {
             "tp": 0.5,
             "sl": 0.5,
@@ -103,14 +103,18 @@ class TestBarrierStatisticalSignificance(unittest.TestCase):
             diagnostics=diagnostics,
         )
 
-        self.assertTrue(diagnostics["statistical_edge_unresolved"])
-        self.assertLessEqual(diagnostics["ev_selection_adjusted_ci95"]["low"], 0.0)
-        self.assertEqual(diagnostics["ev_selection_comparisons"], 63)
-        self.assertEqual(actionability["actionability"], "review")
-        self.assertEqual(actionability["recommendation"], "review")
-        self.assertFalse(actionability["trade_gate_passed"])
-        self.assertIn(
-            "statistical_edge_unresolved",
+        self.assertTrue(diagnostics["simulation_precision_unresolved"])
+        self.assertLessEqual(
+            diagnostics["ev_simulation_precision_ci95"]["low"],
+            0.0,
+        )
+        self.assertEqual(diagnostics["ev_simulation_comparisons"], 63)
+        self.assertIn("finite-simulation noise", diagnostics["simulation_precision_note"])
+        self.assertEqual(actionability["actionability"], "actionable")
+        self.assertEqual(actionability["recommendation"], "trade")
+        self.assertTrue(actionability["trade_gate_passed"])
+        self.assertNotIn(
+            "simulation_precision_unresolved",
             actionability["actionability_flags"],
         )
 

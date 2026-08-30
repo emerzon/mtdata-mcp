@@ -52,6 +52,7 @@ from .barriers_shared import (
     _annotate_candidate_metrics,
     _apply_barrier_freshness_contract,
     _auto_barrier_method,
+    _barrier_exit_quote_reference,
     _binomial_se,
     _binomial_wilson_95,
     _brownian_bridge_hits,
@@ -1118,8 +1119,10 @@ _BARRIER_CONCISE_CANDIDATE_KEYS = (
     "ev",
     "ev_se",
     "ev_ci95",
-    "ev_selection_adjusted_ci95",
-    "ev_selection_comparisons",
+    "ev_simulation_precision_ci95",
+    "ev_simulation_comparisons",
+    "ev_model_dispersion",
+    "edge_model_dispersion",
     "ev_including_timeout",
     "ev_resolved_contribution",
     "timeout_mtm_contribution",
@@ -1330,6 +1333,61 @@ def _cohere_ensemble_probability_row(
         else:
             row["kelly"] = 0.0
     return row
+
+
+def _combine_ensemble_standard_error(
+    values: List[float],
+    standard_errors: List[float],
+    *,
+    weights: Optional[List[float]] = None,
+    aggregation: str = "weighted_mean",
+) -> Tuple[Optional[float], Optional[float]]:
+    """Combine within-model Monte Carlo error with between-model dispersion."""
+    samples: List[Tuple[float, float, float]] = []
+    raw_weights = weights if weights is not None else [1.0] * len(values)
+    for value, standard_error, weight in zip(values, standard_errors, raw_weights):
+        value_float = _optional_finite_float(value)
+        se_float = _optional_finite_float(standard_error)
+        weight_float = _optional_finite_float(weight)
+        if (
+            value_float is None
+            or se_float is None
+            or se_float < 0.0
+            or weight_float is None
+            or weight_float <= 0.0
+        ):
+            continue
+        samples.append((value_float, se_float, weight_float))
+    if not samples:
+        return None, None
+
+    sample_values = np.asarray([sample[0] for sample in samples], dtype=float)
+    sample_ses = np.asarray([sample[1] for sample in samples], dtype=float)
+    if aggregation == "weighted_mean":
+        normalized_weights = np.asarray(
+            [sample[2] for sample in samples],
+            dtype=float,
+        )
+        normalized_weights /= float(normalized_weights.sum())
+        center = float(np.sum(normalized_weights * sample_values))
+        between_variance = float(
+            np.sum(normalized_weights * np.square(sample_values - center))
+        )
+        within_variance = float(
+            np.sum(np.square(normalized_weights * sample_ses))
+        )
+        dispersion = float(np.sqrt(max(0.0, between_variance)))
+    else:
+        center = float(np.median(sample_values))
+        dispersion = float(
+            1.4826 * np.median(np.abs(sample_values - center))
+        )
+        # Retain a typical member's simulation error. Model disagreement is
+        # epistemic and must not disappear merely because more methods agree.
+        within_variance = float(np.median(np.square(sample_ses)))
+
+    combined = float(np.sqrt(max(0.0, within_variance + dispersion**2)))
+    return combined, dispersion
 
 
 def _attach_viability_semantics(
@@ -1915,6 +1973,11 @@ def forecast_barrier_optimize(  # noqa: C901
             if str(last_price_source or "").startswith("live_tick")
             else {}
         )
+        simulation_reference_price = _barrier_exit_quote_reference(
+            last_price,
+            direction=direction_norm,
+            reference_context=reference_context,
+        )
         price_precision = _symbol_price_precision(symbol)
 
         tick_size = _get_tick_size(symbol)
@@ -2285,7 +2348,6 @@ def forecast_barrier_optimize(  # noqa: C901
                 'prob_tp_strict_first', 'prob_sl_strict_first',
                 'prob_no_hit', 'prob_same_bar', 'prob_resolve', 'prob_unresolved',
                 'ev', 'ev_gross', 'ev_net', 'ev_unresolved', 'ev_cond', 'edge',
-                'ev_se', 'edge_se',
                 'kelly', 'kelly_cond',
                 'ev_per_bar', 'profit_factor', 'utility',
                 't_hit_tp_median', 't_hit_sl_median',
@@ -2363,7 +2425,7 @@ def forecast_barrier_optimize(  # noqa: C901
                             metric_name: candidate_row.get(metric_name)
                             for metric_name in (
                                 'ev', 'edge', 'prob_tp_first', 'prob_sl_first',
-                                'prob_no_hit', 'kelly', 'utility',
+                                'prob_no_hit', 'kelly', 'utility', 'ev_se', 'edge_se',
                             )
                         }
                         for member_run, candidate_row in member_rows
@@ -2377,6 +2439,32 @@ def forecast_barrier_optimize(  # noqa: C901
                     aggregate_row,
                     cost_per_trade=cost_per_trade,
                 )
+                for metric_name, se_name in (("ev", "ev_se"), ("edge", "edge_se")):
+                    metric_values: List[float] = []
+                    standard_errors: List[float] = []
+                    metric_weights: List[float] = []
+                    for member_run, candidate_row in member_rows:
+                        metric_value = _optional_finite_float(
+                            candidate_row.get(metric_name)
+                        )
+                        standard_error = _optional_finite_float(
+                            candidate_row.get(se_name)
+                        )
+                        if metric_value is None or standard_error is None:
+                            continue
+                        metric_values.append(metric_value)
+                        standard_errors.append(standard_error)
+                        metric_weights.append(_member_weight(member_run))
+                    combined_se, model_dispersion = _combine_ensemble_standard_error(
+                        metric_values,
+                        standard_errors,
+                        weights=metric_weights,
+                        aggregation=ensemble_agg,
+                    )
+                    if combined_se is not None:
+                        aggregate_row[se_name] = combined_se
+                    if model_dispersion is not None:
+                        aggregate_row[f"{metric_name}_model_dispersion"] = model_dispersion
                 _annotate_candidate_metrics(
                     aggregate_row,
                     cost_per_trade=cost_per_trade,
@@ -2480,6 +2568,8 @@ def forecast_barrier_optimize(  # noqa: C901
                 "last_price": out_last_price,
                 "last_price_close": out_last_price_close,
                 "last_price_source": "ensemble_members_median",
+                "simulation_reference_price": simulation_reference_price,
+                "simulation_quote_side": "bid" if direction_norm == "long" else "ask",
                 "objective": objective_val,
                 "search_profile": search_profile_val,
                 "fast_defaults": bool(search_profile_val == 'fast'),
@@ -2871,7 +2961,7 @@ def forecast_barrier_optimize(  # noqa: C901
                 local_paths,
                 calibration_prices=calibration_prices,
                 last_price_close=last_price_close,
-                reference_price=last_price,
+                reference_price=simulation_reference_price,
                 bb_enabled=local_bb_enabled,
                 seed_base=local_seed_base,
             )
@@ -3609,6 +3699,8 @@ def forecast_barrier_optimize(  # noqa: C901
             "last_price": float(last_price),
             "last_price_close": float(last_price_close),
             "last_price_source": last_price_source,
+            "simulation_reference_price": simulation_reference_price,
+            "simulation_quote_side": "bid" if direction_norm == "long" else "ask",
             "objective": objective_val,
             "search_profile": search_profile_val,
             "fast_defaults": bool(search_profile_val == 'fast'),

@@ -31,6 +31,7 @@ from .barriers_shared import (
     BROWNIAN_BRIDGE_DUAL_BARRIER_WARNING,
     _apply_barrier_freshness_contract,
     _auto_barrier_method,
+    _barrier_exit_quote_reference,
     _binomial_se,
     _binomial_wilson_95,
     _brownian_bridge_hits,
@@ -210,6 +211,14 @@ def forecast_barrier_hit_probabilities(  # noqa: C901
             return {"error": price_error}
         if price_warning:
             warnings_out.append(price_warning)
+        reference_context: Dict[str, Any] = {}
+        if str(last_price_source or "").startswith("live_tick"):
+            reference_context = _live_reference_time_context(symbol, timeframe)
+        simulation_reference_price = _barrier_exit_quote_reference(
+            last_price,
+            direction=direction_norm,
+            reference_context=reference_context,
+        )
         tick_size = _get_tick_size(symbol)
 
         abs_side_error = _abs_barrier_side_error(
@@ -413,7 +422,7 @@ def forecast_barrier_hit_probabilities(  # noqa: C901
             price_paths,
             calibration_prices=prices,
             last_price_close=last_price_close,
-            reference_price=last_price,
+            reference_price=simulation_reference_price,
             bb_enabled=bb_enabled,
             seed_base=request_seed_base,
         )
@@ -512,6 +521,8 @@ def forecast_barrier_hit_probabilities(  # noqa: C901
             "last_price": last_price,
             "last_price_close": float(last_price_close),
             "last_price_source": last_price_source,
+            "simulation_reference_price": simulation_reference_price,
+            "simulation_quote_side": "bid" if dir_long else "ask",
             "tp_price": float(tp_price),
             "sl_price": float(sl_price),
             "n_sims": int(S),
@@ -532,9 +543,6 @@ def forecast_barrier_hit_probabilities(  # noqa: C901
             "time_to_tp_bars": tp_stats,
             "time_to_sl_bars": sl_stats,
         }
-        reference_context: Dict[str, Any] = {}
-        if str(last_price_source or "").startswith("live_tick"):
-            reference_context = _live_reference_time_context(symbol, timeframe)
         _apply_barrier_freshness_contract(
             out,
             history_context=freshness_context,

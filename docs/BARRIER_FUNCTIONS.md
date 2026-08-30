@@ -46,8 +46,9 @@ intrabar hits, so a non-default `same_bar_policy` is rejected with guidance to
 use `mc_gbm_bb`. The default `sl_first` is recorded as
 `same_bar_policy_applied=false` / `same_bar_policy_reason=close_only_path`.
 Compact output keeps Wilson intervals, `n_sims`, `history_bars_used`, and a
-concise `history_window` so probability edges can be judged against sampling
-error.
+concise `history_window` so simulation precision is visible. These intervals
+measure finite Monte Carlo noise under the fitted path model; they do not
+measure uncertainty about real-world market edge.
 
 ### 2) Search for “good” TP/SL levels
 
@@ -764,10 +765,11 @@ Enable it with `statistical_robustness=true` in `params` or with the Python keyw
 - Optional held-out walk-forward validation with `enable_oos_validation=true`
 
 Every optimizer run also reports the selected candidate's EV standard error and
-95% interval. The execution gate applies a Bonferroni-adjusted EV lower bound
-over the full searched candidate set. A positive point estimate remains visible
-as mathematically viable, but it is labeled `review` and is not tradable when
-that adjusted interval crosses zero.
+a Bonferroni-adjusted simulation-precision interval over the searched candidate
+set. This is a convergence diagnostic only: changing `n_sims` can tighten the
+interval, but cannot create evidence of market edge, so it does not control the
+trade gate. Economic viability, costs, unresolved-path behavior, and explicit
+validation diagnostics remain separate decisions.
 
 **Important:** These checks do not make a trade valid by themselves. They are quality controls on the simulation and on the optimizer output.
 
@@ -1314,10 +1316,12 @@ mtdata-cli forecast_barrier_optimize EURUSD --timeframe H1 --horizon 12 --method
 mtdata-cli forecast_barrier_prob EURUSD --timeframe H1 --horizon 12 --method closed_form --direction long --barrier '{"kind":"single_price","level":1.1000}'
 ```
 
-For a current request, the closed-form calculation measures the barrier from
-the same direction-aware live side used by the simulation methods (ask for a
-long, bid for a short), while estimating drift and volatility from completed
-bars. `last_price_close` retains that model-data anchor. Requests with
+For a current request, barrier distance starts at the executable entry side
+(ask for a long, bid for a short). Simulated exit-price paths start at the
+opposite executable side (bid for a long, ask for a short), so the current
+spread is present before a TP or SL can be reached. The response discloses both
+anchors. The closed-form single-barrier calculation remains entry-side anchored.
+`last_price_close` retains the model-data anchor. Requests with
 `--as-of`, `--start`, or `--end` remain candle-close-anchored historical
 research and are labeled `analysis_mode=historical_research`.
 

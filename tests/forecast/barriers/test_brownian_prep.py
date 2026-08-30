@@ -4,7 +4,33 @@ from __future__ import annotations
 
 import numpy as np
 
-from mtdata.forecast.barriers_shared import _prepare_brownian_bridge_draws
+from mtdata.forecast.barriers_shared import (
+    _barrier_exit_quote_reference,
+    _prepare_brownian_bridge_draws,
+)
+
+
+def test_barrier_exit_quote_reference_uses_the_executable_close_side():
+    context = {"reference_bid": 1.1000, "reference_ask": 1.1002}
+
+    assert _barrier_exit_quote_reference(
+        1.1002,
+        direction="long",
+        reference_context=context,
+    ) == 1.1000
+    assert _barrier_exit_quote_reference(
+        1.1000,
+        direction="short",
+        reference_context=context,
+    ) == 1.1002
+
+
+def test_barrier_exit_quote_reference_falls_back_for_historical_paths():
+    assert _barrier_exit_quote_reference(
+        1.1001,
+        direction="long",
+        reference_context={},
+    ) == 1.1001
 
 
 def test_prepare_brownian_bridge_scales_paths_and_builds_draws():

@@ -8,7 +8,10 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
-from mtdata.forecast.barriers_optimization import forecast_barrier_optimize
+from mtdata.forecast.barriers_optimization import (
+    _combine_ensemble_standard_error,
+    forecast_barrier_optimize,
+)
 from mtdata.forecast.barriers_probabilities import forecast_barrier_hit_probabilities
 
 from ._helpers import _BARRIER_OPT_ROOT, _BARRIER_PROB_ROOT, _BarrierTestBase
@@ -16,6 +19,18 @@ from ._helpers import _BARRIER_OPT_ROOT, _BARRIER_PROB_ROOT, _BarrierTestBase
 
 class TestBarrierOptimizeProfilesEnsemble(_BarrierTestBase):
     """Search profiles, ensemble method, live reference price, geometry filter."""
+
+    def test_ensemble_standard_error_includes_model_disagreement(self):
+        combined, dispersion = _combine_ensemble_standard_error(
+            [0.10, -0.10],
+            [0.01, 0.01],
+            weights=[1.0, 1.0],
+            aggregation="weighted_mean",
+        )
+
+        self.assertAlmostEqual(float(dispersion), 0.10)
+        self.assertGreater(float(combined), 0.10)
+        self.assertGreater(float(combined), 0.01)
 
     def test_forecast_barrier_optimize_search_profile_long(self):
         self._set_flat_history(1.0)
@@ -449,7 +464,8 @@ class TestBarrierOptimizeProfilesEnsemble(_BarrierTestBase):
         self._set_flat_history(1.0, bars=200)
         paths = self._sample_paths()
         with patch(f'{_BARRIER_PROB_ROOT}._simulate_gbm_mc') as mock_sim, \
-             patch(f'{_BARRIER_PROB_ROOT}._get_live_reference_price', return_value=(1.2345, "live_tick_ask")):
+             patch(f'{_BARRIER_PROB_ROOT}._get_live_reference_price', return_value=(1.2345, "live_tick_ask")), \
+             patch(f'{_BARRIER_PROB_ROOT}._live_reference_time_context', return_value={"reference_bid": 1.2343, "reference_ask": 1.2345}):
             mock_sim.return_value = {"price_paths": paths}
             hit_probs = forecast_barrier_hit_probabilities(
                 symbol="EURUSD",
@@ -461,7 +477,8 @@ class TestBarrierOptimizeProfilesEnsemble(_BarrierTestBase):
                 sl_pct=0.5,
             )
         with patch(f'{_BARRIER_OPT_ROOT}._simulate_gbm_mc') as mock_sim, \
-             patch(f'{_BARRIER_OPT_ROOT}._get_live_reference_price', return_value=(1.2345, "live_tick_ask")):
+             patch(f'{_BARRIER_OPT_ROOT}._get_live_reference_price', return_value=(1.2345, "live_tick_ask")), \
+             patch(f'{_BARRIER_OPT_ROOT}._live_reference_time_context', return_value={"reference_bid": 1.2343, "reference_ask": 1.2345}):
             mock_sim.return_value = {"price_paths": paths}
             result = forecast_barrier_optimize(
                 symbol="EURUSD",
@@ -480,6 +497,9 @@ class TestBarrierOptimizeProfilesEnsemble(_BarrierTestBase):
             )
         self.assertTrue(hit_probs.get("success"))
         self.assertTrue(result.get("success"))
+        self.assertAlmostEqual(hit_probs["simulation_reference_price"], 1.2343)
+        self.assertAlmostEqual(result["simulation_reference_price"], 1.2343)
+        self.assertEqual(hit_probs["simulation_quote_side"], "bid")
         best = result["best"]
         self.assertAlmostEqual(best["prob_tp_first"], hit_probs["prob_tp_first"], places=8)
         self.assertAlmostEqual(best["prob_sl_first"], hit_probs["prob_sl_first"], places=8)

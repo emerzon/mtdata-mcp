@@ -450,12 +450,29 @@ class TestBarrierOptimizeGuardrails(_BarrierTestBase):
         self.assertIsInstance(diagnostics.get("best_ev"), float)
         self.assertIsInstance(diagnostics.get("best_edge"), float)
 
-    def test_forecast_barrier_optimize_marks_low_confidence_viable_result_for_review(self):
+    def test_forecast_barrier_optimize_reports_low_precision_without_changing_gate(self):
         self._set_flat_history(1.0)
         wins = np.full((11, 1), 1.0060)
         losses = np.full((9, 1), 0.9940)
         paths = np.vstack([wins, losses])
-        with patch(f'{_BARRIER_OPT_ROOT}._simulate_gbm_mc') as mock_sim:
+        with patch(f'{_BARRIER_OPT_ROOT}._simulate_gbm_mc') as mock_sim, \
+             patch(
+                 f'{_BARRIER_OPT_ROOT}._get_live_reference_price',
+                 return_value=(1.0, "live_tick_ask"),
+             ), \
+             patch(
+                 f'{_BARRIER_OPT_ROOT}._history_freshness_context',
+                 return_value={"history_policy_ok": True},
+             ), \
+             patch(
+                 f'{_BARRIER_OPT_ROOT}._live_reference_time_context',
+                 return_value={
+                     "reference_usable_for_live": True,
+                     "reference_price_stale": False,
+                     "reference_bid": 1.0,
+                     "reference_ask": 1.0,
+                 },
+             ):
             mock_sim.return_value = {"price_paths": paths}
             result = forecast_barrier_optimize(
                 symbol="EURUSD",
@@ -470,17 +487,22 @@ class TestBarrierOptimizeGuardrails(_BarrierTestBase):
                 sl_min=0.5,
                 sl_max=0.5,
                 sl_steps=1,
-                params={"n_sims": 20},
+                params={
+                    "n_sims": 20,
+                    "spread_bps": 0.0,
+                    "commission_bps": 0.0,
+                    "slippage_bps": 0.0,
+                },
                 objective="ev",
                 return_grid=True,
             )
         self.assertTrue(result.get("success"))
         self.assertTrue(result.get("viable"))
         self.assertEqual(result.get("status"), "ok")
-        self.assertEqual(result.get("actionability"), "review")
-        self.assertFalse(result.get("trade_gate_passed"))
-        self.assertTrue(result.get("no_action"))
-        self.assertIn("low_confidence", result.get("actionability_flags", []))
+        self.assertEqual(result.get("actionability"), "actionable")
+        self.assertTrue(result.get("trade_gate_passed"))
+        self.assertFalse(result.get("no_action"))
+        self.assertNotIn("low_confidence", result.get("actionability_flags", []))
         self.assertIn("confidence_warning", result)
 
 
