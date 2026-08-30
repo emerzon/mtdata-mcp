@@ -380,10 +380,9 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "(native theta/fourier_ols: 300 bars)."
     ),
     ("forecast_backtest_run", "lookback"): (
-        "Omit for an expanding window (all history up to each anchor). Pass N for "
-        "a fixed N-bar training window at every origin. HAR-RV rejects lookback, "
-        "so set params.days and optionally params.rv_timeframe for its intraday "
-        "fit window."
+        "Training bars per anchor; omit for an expanding window or pass N for a "
+        "fixed window. HAR-RV rejects lookback; use params.days and optionally "
+        "params.rv_timeframe."
     ),
     ("forecast_backtest_run", "horizon"): (
         "Bars forecast after each backtest anchor. In rolling mode, --spacing "
