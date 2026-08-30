@@ -3570,6 +3570,7 @@ def forecast_backtest(  # noqa: C901
                     net_return = float('nan')
                     exit_price = float('nan')
                     exit_step = m - 1
+                    exit_price_source = "horizon_close"
                     if direction != 0:
                         if target_mode == 'return':
                             try:
@@ -3585,8 +3586,14 @@ def forecast_backtest(  # noqa: C901
                                         hit_idx = np.where(cum_log <= forecast_target_log)[0]
                                     if hit_idx.size > 0:
                                         exit_step = int(hit_idx[0])
+                                        exit_price = float(
+                                            signal_reference_price
+                                            * math.exp(forecast_target_log)
+                                        )
+                                        exit_price_source = "forecast_target"
                                 exit_idx = idx + exit_step + 1
-                                exit_price = float(closes[exit_idx]) if exit_idx < len(closes) else float('nan')
+                                if not math.isfinite(exit_price):
+                                    exit_price = float(closes[exit_idx]) if exit_idx < len(closes) else float('nan')
                                 if math.isfinite(exit_price):
                                     gross_return = direction * (
                                         (exit_price - entry_price) / entry_price
@@ -3610,7 +3617,10 @@ def forecast_backtest(  # noqa: C901
                                         hit_idx = np.where(realized_prices <= forecast_target_price)[0]
                                     if hit_idx.size > 0:
                                         exit_step = int(hit_idx[0])
-                                exit_price = float(realized_prices[exit_step]) if realized_prices.size else float('nan')
+                                        exit_price = forecast_target_price
+                                        exit_price_source = "forecast_target"
+                                if not math.isfinite(exit_price):
+                                    exit_price = float(realized_prices[exit_step]) if realized_prices.size else float('nan')
                             except Exception:
                                 exit_price = float('nan')
                             if math.isfinite(exit_price):
@@ -3650,6 +3660,7 @@ def forecast_backtest(  # noqa: C901
                         ),
                         "entry_price_source": entry_price_source,
                         "exit_price": exit_price,
+                        "exit_price_source": exit_price_source,
                         "exit_step": int(exit_step) + 1 if m > 0 else 0,
                         "expected_return": expected_return,
                         "position": position,
@@ -3779,11 +3790,17 @@ def forecast_backtest(  # noqa: C901
                     if len(anchor_indices) > 1:
                         _diffs = [anchor_indices[i + 1] - anchor_indices[i] for i in range(len(anchor_indices) - 1)]
                         _spacing = int(np.median(_diffs))
+                    evaluation_bars = (
+                        int(max(anchor_indices) - min(anchor_indices) + int(horizon))
+                        if anchor_indices
+                        else None
+                    )
                     metrics = _compute_performance_metrics(
                         trade_returns, timeframe, int(horizon), float(slippage_bps),
                         trade_spacing_bars=_spacing,
                         symbol=symbol,
                         observed_times=times,
+                        evaluation_bars=evaluation_bars,
                         spread_bps=spread_bps_value,
                         commission_bps_per_side=commission_bps_value,
                     ) if trade_returns else {}
@@ -4014,6 +4031,8 @@ def forecast_backtest(  # noqa: C901
             "execution_policy": {
                 "entry": "next_bar_open",
                 "exit": "first_close_reaching_terminal_forecast_else_horizon",
+                "target_fill": "forecast_target",
+                "horizon_fill": "horizon_close",
                 "stop_loss": "none",
             },
             "detail": detail_mode,

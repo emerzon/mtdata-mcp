@@ -707,8 +707,28 @@ def test_backtest_price_target_trade_returns_vary_by_forecast_implied_exit() -> 
     assert aggressive_detail["success"] is True
     assert slow_detail["position"] == "long"
     assert aggressive_detail["position"] == "long"
+    assert slow_detail["exit_price"] == 141.2
+    assert slow_detail["exit_price_source"] == "forecast_target"
+    assert aggressive_detail["exit_price_source"] == "horizon_close"
     assert float(slow_detail["trade_return"]) != float(aggressive_detail["trade_return"])
     assert int(slow_detail["exit_step"]) < int(aggressive_detail["exit_step"])
+
+
+def test_performance_metrics_annualize_over_full_evaluation_window() -> None:
+    returns = [0.001, -0.0005] * 20
+    metrics = _compute_performance_metrics(
+        returns=returns,
+        timeframe="H1",
+        horizon=12,
+        slippage_bps=0.0,
+        trade_spacing_bars=10,
+        symbol="BTCUSD",
+        evaluation_bars=3000,
+    )
+
+    assert metrics["annualization_method"] == "evaluation_duration"
+    assert metrics["evaluation_years"] == pytest.approx(3000 / 8760)
+    assert metrics["trades_per_year"] == pytest.approx(40 / (3000 / 8760))
 
 
 def test_backtest_default_detail_is_compact_without_full_series_arrays() -> None:

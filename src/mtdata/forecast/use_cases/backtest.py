@@ -374,6 +374,8 @@ def _compact_backtest_result(result: Dict[str, Any]) -> Dict[str, Any]:  # noqa:
         {
             "entry": "next_bar_open",
             "exit": "first_close_reaching_terminal_forecast_else_horizon",
+            "target_fill": "forecast_target",
+            "horizon_fill": "horizon_close",
             "stop_loss": "none",
         },
     )

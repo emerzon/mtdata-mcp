@@ -46,6 +46,8 @@ def test_forecast_backtest_compact_excludes_request_metadata() -> None:
     assert res_compact["execution_policy"] == {
         "entry": "next_bar_open",
         "exit": "first_close_reaching_terminal_forecast_else_horizon",
+        "target_fill": "forecast_target",
+        "horizon_fill": "horizon_close",
         "stop_loss": "none",
     }
 
@@ -264,5 +266,7 @@ def test_compact_backtest_ranks_low_history_methods() -> None:
     assert compact["execution_policy"] == {
         "entry": "next_bar_open",
         "exit": "first_close_reaching_terminal_forecast_else_horizon",
+        "target_fill": "forecast_target",
+        "horizon_fill": "horizon_close",
         "stop_loss": "none",
     }

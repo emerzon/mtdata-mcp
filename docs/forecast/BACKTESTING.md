@@ -172,6 +172,7 @@ the simulated return. Compact results with trading metrics also expose this as
 machine-readable `execution_policy`:
 `entry=next_bar_open`,
 `exit=first_close_reaching_terminal_forecast_else_horizon`,
+`target_fill=forecast_target`, `horizon_fill=horizon_close`,
 `stop_loss=none`. The final anchor is used only when that next open and the
 full realized horizon are available.
 
