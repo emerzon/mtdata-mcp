@@ -1696,7 +1696,7 @@ def test_execution_quality_aggregates_partial_fills_by_order() -> None:
     assert result["summary"]["partial_orders"] == 0
     assert result["summary"]["partial_fill_pct"] == 0.0
     assert result["summary"]["partial_fill_rate_basis"] == (
-        "orders_aggregated_from_deals"
+        "all_eligible_deals_in_requested_window"
     )
     assert [row["deal_fill_ratio"] for row in result["items"]] == [0.4, 0.6]
 
@@ -2026,6 +2026,59 @@ def test_execution_quality_limit_selects_latest_eligible_fill() -> None:
     assert result["sample"]["selection_order"] == "latest_first"
     assert result["sample"]["total_eligible"] == 2
     assert result["sample"]["truncated"] is True
+
+
+def test_execution_quality_limit_does_not_manufacture_partial_fill() -> None:
+    gateway = FakeGateway()
+    start = _now() - 100
+    gateway.tick_rows = []
+    gateway.orders = [
+        {
+            "ticket": 10,
+            "type": 0,
+            "price_open": 1.10005,
+            "volume_initial": 1.0,
+            "time_setup_msc": (start + 9) * 1000,
+        }
+    ]
+    gateway.deals = [
+        {
+            "ticket": 20,
+            "order": 10,
+            "symbol": "EURUSD",
+            "type": 0,
+            "volume": 0.4,
+            "price": 1.10008,
+            "time_msc": (start + 10) * 1000,
+        },
+        {
+            "ticket": 21,
+            "order": 10,
+            "symbol": "EURUSD",
+            "type": 0,
+            "volume": 0.6,
+            "price": 1.10009,
+            "time_msc": (start + 11) * 1000,
+        },
+    ]
+
+    result = analyze_execution_quality(
+        TradeExecutionQualityRequest(
+            minutes_back=60,
+            limit=1,
+            min_sample=1,
+            benchmark="order_price",
+            markout_seconds=[1],
+            detail="full",
+        ),
+        gateway,
+    )
+
+    assert [item["deal_ticket"] for item in result["items"]] == [21]
+    assert result["summary"]["partial_orders"] == 0
+    assert result["summary"]["partial_fill_pct"] == 0.0
+    assert result["summary"]["orders_evaluated_for_partial_fills"] == 1
+    assert result["summary"]["partial_fill_deals_evaluated"] == 2
 
 
 def test_strategy_validation_returns_walk_forward_oos_metrics() -> None:

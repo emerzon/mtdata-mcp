@@ -447,6 +447,33 @@ def analyze_execution_quality(  # noqa: C901
     contract_size_by_symbol: Dict[str, Optional[float]] = {}
     observed_epoch = datetime.now(timezone.utc).timestamp()
     future_tolerance_seconds = 300.0
+    order_fill_totals: Dict[Any, Dict[str, float]] = {}
+    order_completion_deals = 0
+    for deal in eligible_deals:
+        fill_epoch = (
+            float(deal.get("time_msc") or 0) / 1000.0
+            or float(deal.get("time") or 0)
+        )
+        if fill_epoch > observed_epoch + future_tolerance_seconds:
+            continue
+        order_ticket = int(deal.get("order") or 0)
+        order = order_by_ticket.get(order_ticket)
+        if not order:
+            continue
+        try:
+            volume = float(deal.get("volume") or 0.0)
+            initial_volume = float(order.get("volume_initial") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if volume <= 0.0 or initial_volume <= 0.0:
+            continue
+        state = order_fill_totals.setdefault(
+            order_ticket,
+            {"filled_volume": 0.0, "initial_volume": initial_volume},
+        )
+        state["filled_volume"] += volume
+        state["initial_volume"] = max(state["initial_volume"], initial_volume)
+        order_completion_deals += 1
     for deal in eligible_deals:
         processed_candidates += 1
         side = _deal_side(deal, gateway)
@@ -717,19 +744,6 @@ def analyze_execution_quality(  # noqa: C901
     headline_slippages = [
         float(item["slippage_bps"]) for item in headline_fills
     ]
-    order_fill_totals: Dict[Any, Dict[str, float]] = {}
-    for item in fills:
-        order_ticket = item.get("order_ticket")
-        state = order_fill_totals.setdefault(
-            order_ticket,
-            {"filled_volume": 0.0, "initial_volume": 0.0},
-        )
-        state["filled_volume"] += float(item.get("volume") or 0.0)
-        order = order_by_ticket.get(int(order_ticket or 0), {})
-        state["initial_volume"] = max(
-            state["initial_volume"],
-            float(order.get("volume_initial") or item.get("volume") or 0.0),
-        )
     partial_orders = sum(
         state["initial_volume"] > 0.0
         and state["filled_volume"] < state["initial_volume"] * 0.999
@@ -764,7 +778,8 @@ def analyze_execution_quality(  # noqa: C901
         ) if order_fill_totals else None,
         "partial_orders": int(partial_orders),
         "orders_evaluated_for_partial_fills": len(order_fill_totals),
-        "partial_fill_rate_basis": "orders_aggregated_from_deals",
+        "partial_fill_deals_evaluated": order_completion_deals,
+        "partial_fill_rate_basis": "all_eligible_deals_in_requested_window",
         "market_fill_latency_ms": _execution_percentiles(
             item["order_to_fill_duration_ms"]
             for item in market_order_fills
@@ -1012,7 +1027,8 @@ def analyze_execution_quality(  # noqa: C901
             "Headline execution metrics use the latest "
             f"{len(fills)} matched fill(s) of {len(eligible_deals)} eligible "
             "trade deals in the requested window; they are not full-window "
-            "aggregates. Raise --limit to analyze more fills."
+            "aggregates. Raise --limit to analyze more fills. Partial-fill "
+            "metrics are the exception and use all eligible deals in the window."
         )
     sample = {
         "selection_order": "latest_first",

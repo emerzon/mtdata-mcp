@@ -109,7 +109,9 @@ class TradeExecutionQualityRequest(BaseModel):
         description=(
             "Maximum matched fills to include in headline metrics and returned "
             "rows (default 200). Latest fills are selected first; raise this to "
-            "cover more of the requested window."
+            "cover more of the requested window. Order-completion metrics use "
+            "all eligible deals in the window so this limit cannot manufacture "
+            "partial fills."
         ),
     )
     benchmark: Literal["arrival_quote", "order_price"] = "arrival_quote"
