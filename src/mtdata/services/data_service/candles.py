@@ -2334,6 +2334,20 @@ def fetch_candles(  # noqa: C901
             return _indicator_validation_error(str(exc), received=ti_spec)
         denoise_warnings.extend(consume_denoise_warnings(df))
 
+        # Post-indicator filters need the fetched warmup rows just as the
+        # indicators do.  Apply them before selecting the requested target
+        # window so their initial state is not anchored at the first returned
+        # candle.
+        _apply_stage_denoise(
+            df,
+            headers,
+            denoise,
+            denoise_apps,
+            when="post_ti",
+            require_explicit_when=True,
+        )
+        denoise_warnings.extend(consume_denoise_warnings(df))
+
         # Filter out warmup region to return the intended target window only
         df = _trim_df_to_target(
             df,
@@ -2413,6 +2427,15 @@ def fetch_candles(  # noqa: C901
                                 ohlcv_warnings.append(warning_text)
                         if len(df) == 0:
                             return {"error": f"No valid candle data available for {symbol}"}
+                        _apply_stage_denoise(
+                            df,
+                            headers,
+                            denoise,
+                            [],
+                            when="post_ti",
+                            require_explicit_when=True,
+                        )
+                        denoise_warnings.extend(consume_denoise_warnings(df))
                         # Re-trim to target window
                         df = _trim_df_to_target(
                             df,
@@ -2481,17 +2504,6 @@ def fetch_candles(  # noqa: C901
                 timeframe,
                 current_time_epoch=completion_reference_epoch,
             )
-
-        # Optional post-TI denoising (adds new columns by default)
-        _apply_stage_denoise(
-            df,
-            headers,
-            denoise,
-            denoise_apps,
-            when="post_ti",
-            require_explicit_when=True,
-        )
-        denoise_warnings.extend(consume_denoise_warnings(df))
 
         # Ensure headers are unique and exist in df
         headers = [h for h in headers if h in df.columns]

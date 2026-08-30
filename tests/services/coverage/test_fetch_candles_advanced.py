@@ -245,11 +245,18 @@ class TestFetchCandlesAdvanced(unittest.TestCase):
         mock_cfg.get_time_offset_seconds.return_value = 0
         mock_from.return_value = _make_rates(10)
         mock_norm_dn.return_value = {'method': 'ema', 'when': 'post_ti', 'params': {}}
+        denoise_input_lengths = []
+
         mock_apply_dn.side_effect = lambda df, spec, **kw: (
-            df.__setitem__('close_dn', 1.0) or ['close_dn']
+            denoise_input_lengths.append(len(df))
+            or df.__setitem__('close_dn', 1.0)
+            or ['close_dn']
         )
         result = fetch_candles('EURUSD', limit=5, denoise={'method': 'ema', 'when': 'post_ti'})
         self.assertTrue(result.get('success'))
+        self.assertEqual(result['candle_counts']['returned'], 5)
+        self.assertEqual(len(denoise_input_lengths), 1)
+        self.assertGreater(denoise_input_lengths[0], result['candle_counts']['returned'])
         if result.get('denoise'):
             self.assertTrue(result['denoise']['applications'])
             self.assertEqual(
