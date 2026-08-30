@@ -260,7 +260,7 @@ def _resolve_finviz_screen_filters(filters: Any) -> tuple[Optional[Dict[str, Any
             return None, _invalid_finviz_screen_filters_error(filters)
         if not isinstance(parsed, dict):
             return None, _invalid_finviz_screen_filters_error(filters)
-        return parsed, None
+        return _normalize_finviz_screen_filter_dict(parsed)
     if "=" in raw or ":" in raw:
         parsed = _parse_finviz_screen_key_value_filters(raw)
         if parsed is not None:

@@ -3240,6 +3240,23 @@ class TestFinvizTools:
         assert result["count"] == 0
         assert "available_count" not in result
 
+    @patch("mtdata.core.finviz.screen.screen_stocks")
+    def test_finviz_screen_json_string_uses_dict_normalization(self, mock_screen):
+        from mtdata.core.finviz import finviz_screen
+
+        mock_screen.return_value = {"success": True, "count": 1, "stocks": []}
+
+        result = finviz_screen(filters='{"marketcap": "mega"}', limit=5)
+
+        mock_screen.assert_called_once_with(
+            filters={"Market Cap.": "Mega ($200bln and more)"},
+            order=None,
+            limit=5,
+            page=1,
+            view="overview",
+        )
+        assert result["success"] is True
+
     @patch('mtdata.core.finviz.screen.screen_stocks')
     def test_finviz_screen_tool_accepts_operator_key_value_filters(self, mock_screen):
         from mtdata.core.finviz import finviz_screen
