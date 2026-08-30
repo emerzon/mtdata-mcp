@@ -1176,6 +1176,28 @@ class TestFormatResultMinimal:
         assert result["spread_pips"] == 2.2
         assert result["units"] == {"spread": "absolute_price", "spread_pips": "pips"}
 
+    def test_market_ticker_minimal_keeps_warning_and_spread_semantics(self):
+        payload = {
+            "success": True,
+            "symbol": "EURUSD",
+            "bid": 1.1,
+            "ask": 1.1002,
+            "spread": 0.0002,
+            "spread_points": 20.0,
+            "spread_pct": 0.018,
+            "warnings": [{"code": "market_closed", "message": "Market closed."}],
+        }
+
+        result = _normalize_market_ticker_payload(
+            payload,
+            verbose=False,
+            tool_name="market_ticker",
+        )
+
+        assert result["spread_points"] == 20.0
+        assert result["spread_pct"] == 0.018
+        assert result["warnings"] == payload["warnings"]
+
     def test_market_ticker_minimal_preserves_error_envelope(self):
         payload = {
             "success": False,
@@ -1874,7 +1896,9 @@ class TestFormatResultMinimal:
         assert "message: Dry run only. No order was sent to MT5." in result
         assert "preview_scope_summary" not in result
         assert "actionability_reason" not in result
-        assert "warnings[1]: Dry run only." in result
+        assert "warnings[2]:" in result
+        assert "Dry run only. Routing and local safety checks passed" in result
+        assert "Not validated in dry run: broker acceptance" in result
 
     @pytest.mark.parametrize("tool_name", ["trade_modify", "trade_close"])
     def test_trade_mutation_preview_states_no_request_was_sent(self, tool_name):

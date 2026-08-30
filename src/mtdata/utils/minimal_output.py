@@ -702,25 +702,7 @@ def _compact_trade_warnings(warnings: Any, *, verbose: bool) -> List[str]:
     actionable = [msg for msg in cleaned if not _is_informational_trade_warning(msg)]
     if not actionable:
         return []
-    critical = [
-        msg
-        for msg in actionable
-        if any(
-            marker in msg.lower()
-            for marker in (
-                "critical:",
-                "trade_modify",
-                "close the position",
-                "verify the live position is protected",
-                "auto-close failed",
-                "unprotected",
-                "fallback modification",
-            )
-        )
-    ]
-    if critical:
-        return critical[:1]
-    return actionable[:1]
+    return actionable
 
 
 def _maybe_add_trade_key(
@@ -894,13 +876,24 @@ def _normalize_trade_payload(  # noqa: C901
         out.update(_compact_error_envelope(payload))
         for key in (
             "dry_run",
+            "no_action",
+            "no_action_reason",
             "preview_ok",
+            "actionability",
             "would_send_order",
             "would_send_orders",
             "would_cancel_pending_order",
             "order_sent",
             "required_confirmation",
             "protection_removed",
+            "guardrail_blocked",
+            "guardrails_preview",
+            "violations",
+            "validation",
+            "validation_scope",
+            "preview_checks_performed",
+            "checks_not_performed",
+            "broker_validation_not_performed",
         ):
             _maybe_add_trade_key(out, key, payload.get(key))
         _maybe_add_trade_key(out, "checked_scopes", payload.get("checked_scopes"))
@@ -1233,10 +1226,13 @@ def _normalize_market_ticker_payload(  # noqa: C901
         "market_status_reason",
         "spread_valid",
         "spread_quality",
+        "spread_points",
+        "spread_pct",
         "quote_source_state",
         "quote_conflict_pips",
         "alternate_bid",
         "alternate_ask",
+        "warnings",
     ]
     if not _is_empty_value(payload.get("spread")):
         compact_keys.append("spread")
