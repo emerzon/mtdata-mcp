@@ -445,9 +445,35 @@ def _has_payload_error(payload: Any) -> bool:
     return False
 
 
+_REPORT_DIAGNOSTIC_ONLY_KEYS = frozenset(
+    {
+        "error",
+        "error_code",
+        "errors",
+        "hint",
+        "hints",
+        "message",
+        "messages",
+        "modes",
+        "operation",
+        "related_tools",
+        "remediation",
+        "status",
+        "success",
+        "symbol",
+        "warning",
+        "warnings",
+    }
+)
+
+
 def _has_payload_content(payload: Any) -> bool:
     if isinstance(payload, dict):
-        return any(_has_payload_content(value) for key, value in payload.items() if key != "error")
+        return any(
+            _has_payload_content(value)
+            for key, value in payload.items()
+            if str(key).strip().lower() not in _REPORT_DIAGNOSTIC_ONLY_KEYS
+        )
     if isinstance(payload, list):
         return any(_has_payload_content(item) for item in payload)
     return payload not in (None, "")

@@ -103,6 +103,53 @@ def test_sections_status_marks_scheduled_missing_sections_as_errors():
     assert status["summary"]["error"] == 1
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "error": "upstream failed",
+            "error_code": "context_unavailable",
+            "symbol": "EURUSD",
+        },
+        {
+            "error": "All volatility estimators failed.",
+            "errors": [{"method": "ewma", "error": "history unavailable"}],
+            "hint": "Retry with a longer history window.",
+        },
+        {
+            "error": "All pattern modes failed.",
+            "modes": ["candlestick", "classic"],
+            "errors": [{"mode": "classic", "error": "history unavailable"}],
+        },
+    ],
+)
+def test_sections_status_does_not_count_error_metadata_as_usable_data(payload):
+    from mtdata.core.report.use_cases import _build_sections_status
+
+    status = _build_sections_status({"context": payload})
+
+    assert status["sections"]["context"] == "error"
+    assert status["summary"]["error"] == 1
+    assert status["summary"]["partial"] == 0
+
+
+def test_sections_status_keeps_real_data_with_nested_error_partial():
+    from mtdata.core.report.use_cases import _build_sections_status
+
+    status = _build_sections_status(
+        {
+            "volatility": {
+                "volatility_annualized": 0.18,
+                "error": "A secondary estimator failed.",
+                "errors": [{"method": "garch", "error": "dependency unavailable"}],
+            }
+        }
+    )
+
+    assert status["sections"]["volatility"] == "partial"
+    assert status["summary"]["partial"] == 1
+
+
 def test_sections_status_rejects_conformal_section_without_finite_bounds():
     from mtdata.core.report.use_cases import _build_sections_status
 
