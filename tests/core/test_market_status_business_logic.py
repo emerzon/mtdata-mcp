@@ -1336,6 +1336,34 @@ def test_exchange_calendar_differs_from_country_calendar() -> None:
     assert market_status_mod._is_holiday("US", veterans_day, "XNYS")[0] is False
 
 
+def test_lse_uses_england_late_summer_bank_holiday() -> None:
+    market_status_mod.exchange_holidays.cache_clear()
+    for year, day in ((2025, 25), (2026, 31)):
+        holiday = datetime(
+            year,
+            8,
+            day,
+            10,
+            tzinfo=ZoneInfo("Europe/London"),
+        )
+
+        result = market_status_mod._check_market_status("LSE", holiday)
+
+        assert result["status"] == "closed"
+        assert result["reason"] == "holiday"
+        assert "Summer Bank Holiday" in result["holiday"]
+
+
+def test_lse_weekend_next_open_skips_late_summer_bank_holiday() -> None:
+    market_status_mod.exchange_holidays.cache_clear()
+    sunday = datetime(2026, 8, 30, 10, tzinfo=ZoneInfo("Europe/London"))
+
+    result = market_status_mod._check_market_status("LSE", sunday)
+
+    assert result["reason"] == "weekend"
+    assert result["next_open"] == "2026-09-01T08:00:00+01:00"
+
+
 def test_tokyo_session_uses_current_1530_close(monkeypatch) -> None:
     monkeypatch.setattr(
         market_status_mod,

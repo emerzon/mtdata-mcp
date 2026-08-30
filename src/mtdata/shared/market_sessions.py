@@ -40,6 +40,7 @@ MARKET_SESSIONS: Dict[str, Dict[str, Any]] = {
     "LSE": {
         "name": "London Stock Exchange",
         "country": "UK",
+        "exchange_calendar": "XLON",
         "timezone": "Europe/London",
         "open": (8, 0),
         "close": (16, 30),
@@ -125,6 +126,7 @@ HolidayResolver = Callable[[str, Any, Optional[str]], Tuple[bool, Optional[str]]
 # French national holiday but the cash market remains open. Christmas Eve and
 # New Year's Eve are half days when they fall on a weekday.
 _EURONEXT_CALENDAR_KEYS = frozenset({"EURONEXT", "XPAR"})
+_LONDON_CALENDAR_KEYS = frozenset({"LSE", "XLON"})
 
 
 def _gregorian_easter(year: int) -> date:
@@ -165,6 +167,15 @@ def exchange_holidays(exchange: str, year: int) -> holidays.HolidayBase:
     key = str(exchange or "").strip().upper()
     if key in _EURONEXT_CALENDAR_KEYS:
         return euronext_paris_holidays(int(year))  # type: ignore[return-value]
+    if key in _LONDON_CALENDAR_KEYS:
+        # UK bank holidays differ by constituent country. The London venue
+        # follows England and Wales closures, including the late-summer bank
+        # holiday that is absent from python-holidays' unsubdivided UK calendar.
+        return holidays.country_holidays(
+            "UK",
+            subdiv="England",
+            years=[int(year)],
+        )
     return holidays.financial_holidays(exchange, years=[int(year)])
 
 
