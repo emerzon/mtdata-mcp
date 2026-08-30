@@ -134,6 +134,35 @@ def test_equity_profile_normalizes_provider_error_operation(monkeypatch) -> None
     assert result["provider_operation"] == "finviz_fundamentals"
 
 
+def test_equity_profile_keeps_successful_sections_on_partial_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "mtdata.core.finviz.finviz_fundamentals",
+        lambda symbol, **_kwargs: {
+            "success": True,
+            "symbol": symbol,
+            "fundamentals": {"pe_ratio": 25.0},
+        },
+    )
+    monkeypatch.setattr(
+        "mtdata.core.finviz.finviz_peers",
+        lambda *_args, **_kwargs: {
+            "success": False,
+            "error": "Peers endpoint unavailable",
+            "error_code": "provider_unavailable",
+            "operation": "finviz_peers",
+        },
+    )
+
+    result = _unwrap(equity_profile)("AAPL", sections="summary,peers")
+
+    assert result["success"] is True
+    assert result["status"] == "partial"
+    assert result["partial_failure"] is True
+    assert result["fundamentals"]["fundamentals"]["pe_ratio"] == 25.0
+    assert result["failed_sections"] == ["peers"]
+    assert result["section_errors"]["peers"]["error_code"] == "provider_unavailable"
+
+
 def test_equity_profile_non_price_sections_keep_observation_contract(monkeypatch) -> None:
     monkeypatch.setattr(
         "mtdata.core.finviz.finviz_fundamentals",

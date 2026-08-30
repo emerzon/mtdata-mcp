@@ -154,16 +154,23 @@ def _compose_profile(
     sections: tuple[str, ...],
     provider: str,
 ) -> Dict[str, Any]:
+    failed = {
+        key: payload
+        for key, payload in payloads.items()
+        if isinstance(payload, dict)
+        and (payload.get("success") is False or payload.get("error"))
+    }
+    successful = {key: payload for key, payload in payloads.items() if key not in failed}
     error = _first_error(payloads)
-    if error is not None:
+    if error is not None and not successful:
         out = stamp_provider(error, provider=provider)
         provider_operation = out.get("operation")
         if provider_operation not in (None, "", "equity_profile"):
             out["provider_operation"] = provider_operation
         out["operation"] = "equity_profile"
         return out
-    if len(payloads) == 1:
-        only = next(iter(payloads.values()))
+    if len(successful) == 1 and not failed:
+        only = next(iter(successful.values()))
         out = stamp_provider(only, provider=provider)
         if isinstance(out, dict):
             out["sections"] = list(sections)
@@ -174,7 +181,24 @@ def _compose_profile(
         "provider": provider,
         "providers_used": [provider],
     }
-    for key, payload in payloads.items():
+    if failed:
+        out.update(
+            {
+                "status": "partial",
+                "partial_failure": True,
+                "failed_sections": list(failed),
+                "sections_completed": list(successful),
+                "section_errors": {
+                    key: {
+                        field: payload.get(field)
+                        for field in ("error", "error_code", "operation", "remediation")
+                        if payload.get(field) not in (None, "")
+                    }
+                    for key, payload in failed.items()
+                },
+            }
+        )
+    for key, payload in successful.items():
         if isinstance(payload, dict):
             out[key] = payload
             if out.get("symbol") in (None, "") and payload.get("symbol"):
