@@ -1,6 +1,8 @@
 import threading
 from unittest.mock import MagicMock
 
+import pytest
+
 from mtdata.core.trading.idempotency import SQLiteIdempotencyStore
 from mtdata.core.trading.requests import (
     TradeCloseRequest,
@@ -12,6 +14,7 @@ from mtdata.core.trading.use_cases import (
     run_trade_modify,
     run_trade_place,
 )
+from mtdata.core.trading.use_cases.common import _TradeIdempotencyLifecycle
 
 
 def _store(tmp_path) -> SQLiteIdempotencyStore:
@@ -256,6 +259,86 @@ def test_run_trade_place_dry_run_does_not_claim_durable_idempotency(tmp_path):
     kwargs["place_market_order"].assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "trade_request",
+    [
+        TradePlaceRequest(
+            symbol="EURUSD",
+            volume=0.1,
+            order_type="BUY",
+            require_sl_tp=False,
+            idempotency_key="dry-place",
+            dry_run=True,
+        ),
+        TradeModifyRequest(
+            ticket=123,
+            stop_loss=1.0,
+            idempotency_key="dry-modify",
+            dry_run=True,
+        ),
+        TradeCloseRequest(
+            ticket=123,
+            idempotency_key="dry-close",
+            dry_run=True,
+        ),
+    ],
+)
+def test_dry_run_idempotency_lifecycle_never_touches_durable_store(
+    trade_request,
+) -> None:
+    store = MagicMock()
+    lifecycle = _TradeIdempotencyLifecycle(trade_request, store)
+
+    assert lifecycle.begin() is None
+    assert lifecycle.settle({"success": True, "dry_run": True}) is False
+    lifecycle.release()
+
+    assert store.mock_calls == []
+
+
+def test_run_trade_place_dry_run_exception_leaves_no_restart_lock(tmp_path) -> None:
+    database = tmp_path / "idempotency.sqlite3"
+    dry_request = TradePlaceRequest(
+        symbol="EURUSD",
+        volume=0.1,
+        order_type="BUY",
+        require_sl_tp=False,
+        idempotency_key="dry-crash",
+        dry_run=True,
+    )
+    kwargs = {
+        "normalize_order_type_input": lambda value: ("BUY", None),
+        "normalize_pending_expiration": lambda value: (value, False),
+        "prevalidate_trade_place_market_input": lambda symbol, volume: None,
+        "place_market_order": MagicMock(return_value={"success": True, "order": 2}),
+        "place_pending_order": MagicMock(),
+        "close_positions": lambda **values: {"closed_count": 1},
+        "safe_int_ticket": lambda value: value,
+        "build_dry_run_preview": MagicMock(side_effect=RuntimeError("preview crashed")),
+    }
+
+    with pytest.raises(RuntimeError, match="preview crashed"):
+        run_trade_place(
+            dry_request,
+            idempotency_store=SQLiteIdempotencyStore(database),
+            **kwargs,
+        )
+
+    restarted_store = SQLiteIdempotencyStore(database)
+    assert restarted_store.check("dry-crash") is None
+
+    live_request = dry_request.model_copy(update={"dry_run": False})
+    live_result = run_trade_place(
+        live_request,
+        idempotency_store=restarted_store,
+        **kwargs,
+    )
+
+    assert live_result["success"] is True
+    assert live_result.get("duplicate") is not True
+    kwargs["place_market_order"].assert_called_once()
+
+
 def test_run_trade_modify_replays_duplicate_result_without_resending(tmp_path):
     store = _store(tmp_path)
     modify_position = MagicMock(return_value={"success": True, "ticket": 123})
@@ -336,6 +419,47 @@ def test_run_trade_modify_persists_ambiguous_broker_outcome(tmp_path) -> None:
     assert second["duplicate"] is True
     assert second["original_outcome"]["error_code"] == "order_send_ambiguous"
     modify_position.assert_called_once()
+
+
+def test_run_trade_modify_releases_guardrail_failure_with_context_ticket(
+    tmp_path,
+) -> None:
+    store = _store(tmp_path)
+    modify_position = MagicMock(
+        side_effect=[
+            {
+                "success": False,
+                "error": "Trade blocked by guardrails.",
+                "error_code": "trade_guardrail_blocked",
+                "guardrail_blocked": True,
+                "position_ticket": 123,
+                "ticket_requested": 123,
+                "order_sent": False,
+            },
+            {"success": True, "position_ticket": 123},
+        ]
+    )
+    request = TradeModifyRequest(
+        ticket=123,
+        stop_loss=1.0,
+        idempotency_key="modify-guardrail",
+        dry_run=False,
+    )
+    kwargs = {
+        "normalize_pending_expiration": lambda value: (value, False),
+        "modify_pending_order": MagicMock(),
+        "modify_position": modify_position,
+        "idempotency_store": store,
+    }
+
+    first = run_trade_modify(request, **kwargs)
+    second = run_trade_modify(request, **kwargs)
+
+    assert first["guardrail_blocked"] is True
+    assert first["order_sent"] is False
+    assert second["success"] is True
+    assert second.get("duplicate") is not True
+    assert modify_position.call_count == 2
 
 
 def test_run_trade_close_replays_success_without_resending(tmp_path) -> None:
@@ -421,6 +545,92 @@ def test_run_trade_close_releases_preflight_failure_for_retry(tmp_path) -> None:
     assert second["success"] is True
     assert second.get("duplicate") is not True
     assert close_positions.call_count == 2
+
+
+@pytest.mark.parametrize("operation", ["place", "modify", "close"])
+def test_live_idempotency_releases_reservation_when_operation_raises(
+    tmp_path,
+    operation: str,
+) -> None:
+    store = SQLiteIdempotencyStore(tmp_path / f"{operation}.sqlite3")
+
+    if operation == "place":
+        callback = MagicMock(
+            side_effect=[RuntimeError("place crashed"), {"success": True, "order": 7}]
+        )
+        request = TradePlaceRequest(
+            symbol="EURUSD",
+            volume=0.1,
+            order_type="BUY",
+            require_sl_tp=False,
+            idempotency_key="exception-retry",
+            dry_run=False,
+        )
+
+        def invoke():
+            return run_trade_place(
+                request,
+                normalize_order_type_input=lambda value: ("BUY", None),
+                normalize_pending_expiration=lambda value: (value, False),
+                prevalidate_trade_place_market_input=lambda symbol, volume: None,
+                place_market_order=callback,
+                place_pending_order=MagicMock(),
+                close_positions=lambda **values: {"closed_count": 1},
+                safe_int_ticket=lambda value: value,
+                idempotency_store=store,
+            )
+
+    elif operation == "modify":
+        callback = MagicMock(
+            side_effect=[
+                RuntimeError("modify crashed"),
+                {"success": True, "position_ticket": 123},
+            ]
+        )
+        request = TradeModifyRequest(
+            ticket=123,
+            stop_loss=1.0,
+            idempotency_key="exception-retry",
+            dry_run=False,
+        )
+
+        def invoke():
+            return run_trade_modify(
+                request,
+                normalize_pending_expiration=lambda value: (value, False),
+                modify_pending_order=MagicMock(),
+                modify_position=callback,
+                idempotency_store=store,
+            )
+
+    else:
+        callback = MagicMock(
+            side_effect=[
+                RuntimeError("close crashed"),
+                {"success": True, "ticket": 123, "deal": 456},
+            ]
+        )
+        request = TradeCloseRequest(
+            ticket=123,
+            idempotency_key="exception-retry",
+            dry_run=False,
+        )
+
+        def invoke():
+            return run_trade_close(
+                request,
+                close_positions=callback,
+                cancel_pending=MagicMock(),
+                idempotency_store=store,
+            )
+
+    with pytest.raises(RuntimeError, match=f"{operation} crashed"):
+        invoke()
+
+    retry = invoke()
+    assert retry["success"] is True
+    assert retry.get("duplicate") is not True
+    assert callback.call_count == 2
 
 
 def test_run_trade_place_suppresses_inflight_duplicate_while_first_request_runs(tmp_path):

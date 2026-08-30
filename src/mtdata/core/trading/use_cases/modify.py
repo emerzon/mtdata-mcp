@@ -16,16 +16,12 @@ from mtdata.core.trading.requests import TradeModifyRequest
 from mtdata.core.trading.use_cases.common import (
     _TRADE_IDEMPOTENCY_STORE,
     TradeIdempotencyStore,
-    _annotate_idempotency_scope,
     _attach_live_guardrail_status,
     _attach_trade_attempt_markers,
     _attach_trade_correlation,
-    _begin_trade_idempotency,
-    _build_trade_request_signature,
     _invalid_pending_expiration_payload,
     _log_trade_correlation,
-    _normalize_idempotency_key,
-    _record_or_release_idempotency,
+    _TradeIdempotencyLifecycle,
     logger,
 )
 
@@ -40,13 +36,7 @@ def run_trade_modify(
     correlation_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     started_at = time.perf_counter()
-    idempotency_key = _normalize_idempotency_key(getattr(request, "idempotency_key", None))
-    idempotency_signature = (
-        _build_trade_request_signature(request)
-        if idempotency_key is not None
-        else None
-    )
-    idempotency_consumed = False
+    idempotency = _TradeIdempotencyLifecycle(request, idempotency_store)
     log_operation_start(
         logger,
         operation="trade_modify",
@@ -60,7 +50,6 @@ def run_trade_modify(
         *,
         pending: Optional[bool] = None,
     ) -> Dict[str, Any]:
-        nonlocal idempotency_consumed
         result = _attach_trade_attempt_markers(result, dry_run=request.dry_run)
         if (
             request.dry_run
@@ -77,16 +66,9 @@ def run_trade_modify(
                 operation="trade_modify",
             )
         result = _attach_live_guardrail_status(result, dry_run=request.dry_run)
-        result = _annotate_idempotency_scope(result, idempotency_key, idempotency_store)
+        result = idempotency.annotate(result)
         result = _attach_trade_correlation(result, correlation_id=correlation_id)
-        if not idempotency_consumed:
-            if _record_or_release_idempotency(
-                idempotency_store,
-                idempotency_key,
-                result,
-                request_signature=idempotency_signature,
-            ):
-                idempotency_consumed = True
+        idempotency.settle(result)
         _log_trade_correlation(operation="trade_modify", result=result)
         log_operation_finish(
             logger,
@@ -182,13 +164,8 @@ def run_trade_modify(
             }
         )
 
-    duplicate_result, idempotency_reserved = _begin_trade_idempotency(
-        idempotency_store=idempotency_store,
-        key=idempotency_key,
-        request_signature=idempotency_signature,
-    )
+    duplicate_result = idempotency.begin()
     if duplicate_result is not None:
-        idempotency_consumed = True
         return _finish(duplicate_result)
 
     try:
@@ -267,13 +244,4 @@ def run_trade_modify(
             return _finish(pending_result, pending=True)
         return _finish(position_result, pending=False)
     finally:
-        if (
-            idempotency_reserved
-            and not idempotency_consumed
-            and idempotency_store is not None
-            and idempotency_key is not None
-        ):
-            idempotency_store.release(
-                idempotency_key,
-                request_signature=idempotency_signature,
-            )
+        idempotency.release()

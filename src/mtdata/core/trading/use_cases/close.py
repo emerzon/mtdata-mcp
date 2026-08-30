@@ -16,15 +16,11 @@ from mtdata.core.trading.requests import TradeCloseRequest
 from mtdata.core.trading.use_cases.common import (
     _TRADE_IDEMPOTENCY_STORE,
     TradeIdempotencyStore,
-    _annotate_idempotency_scope,
     _attach_trade_attempt_markers,
     _attach_trade_correlation,
-    _begin_trade_idempotency,
-    _build_trade_request_signature,
     _compact_close_preview_payload,
     _log_trade_correlation,
-    _normalize_idempotency_key,
-    _record_or_release_idempotency,
+    _TradeIdempotencyLifecycle,
     logger,
 )
 
@@ -795,20 +791,8 @@ def run_trade_close(
     correlation_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Run a close/cancel operation with the shared durable dedupe lifecycle."""
-    idempotency_key = _normalize_idempotency_key(
-        getattr(request, "idempotency_key", None)
-    )
-    idempotency_signature = (
-        _build_trade_request_signature(request)
-        if idempotency_key is not None
-        else None
-    )
-    duplicate_result, idempotency_reserved = _begin_trade_idempotency(
-        idempotency_store=idempotency_store,
-        key=idempotency_key,
-        request_signature=idempotency_signature,
-    )
-    idempotency_consumed = False
+    idempotency = _TradeIdempotencyLifecycle(request, idempotency_store)
+    duplicate_result = idempotency.begin()
     if duplicate_result is not None:
         started_at = time.perf_counter()
         log_operation_start(
@@ -818,11 +802,7 @@ def run_trade_close(
             ticket=request.ticket,
             duplicate=True,
         )
-        result = _annotate_idempotency_scope(
-            duplicate_result,
-            idempotency_key,
-            idempotency_store,
-        )
+        result = idempotency.annotate(duplicate_result)
         result = _attach_trade_correlation(result, correlation_id=correlation_id)
         _log_trade_correlation(operation="trade_close", result=result)
         log_operation_finish(
@@ -845,28 +825,9 @@ def run_trade_close(
             resolve_close_target=resolve_close_target,
             correlation_id=correlation_id,
         )
-        result = _annotate_idempotency_scope(
-            result,
-            idempotency_key,
-            idempotency_store,
-        )
-        if _record_or_release_idempotency(
-            idempotency_store,
-            idempotency_key,
-            result,
-            request_signature=idempotency_signature,
-        ):
-            idempotency_consumed = True
+        result = idempotency.annotate(result)
+        idempotency.settle(result)
         _log_trade_correlation(operation="trade_close", result=result)
         return result
     finally:
-        if (
-            idempotency_reserved
-            and not idempotency_consumed
-            and idempotency_store is not None
-            and idempotency_key is not None
-        ):
-            idempotency_store.release(
-                idempotency_key,
-                request_signature=idempotency_signature,
-            )
+        idempotency.release()

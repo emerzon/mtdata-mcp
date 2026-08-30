@@ -24,14 +24,11 @@ from mtdata.core.trading.safety import (
 from mtdata.core.trading.use_cases.common import (
     _TRADE_IDEMPOTENCY_STORE,
     TradeIdempotencyStore,
-    _annotate_idempotency_scope,
     _attach_live_guardrail_status,
     _attach_trade_correlation,
-    _begin_trade_idempotency,
     _best_effort_trade_guardrail_account_info,
     _best_effort_trade_guardrail_pending_orders,
     _best_effort_trade_guardrail_positions,
-    _build_trade_request_signature,
     _coerce_warning_list,
     _dry_run_blocker_error,
     _guardrail_order_side,
@@ -40,12 +37,11 @@ from mtdata.core.trading.use_cases.common import (
     _log_trade_correlation,
     _market_closure_blocker,
     _next_market_open,
-    _normalize_idempotency_key,
-    _record_or_release_idempotency,
     _resolve_trade_place_preview_detail,
     _shape_trade_place_preview,
     _sl_tp_result_details,
     _standardize_trade_operation_payload,
+    _TradeIdempotencyLifecycle,
     logger,
 )
 from mtdata.utils.mt5 import mt5_adapter
@@ -68,13 +64,7 @@ def run_trade_place(  # noqa: C901
     started_at = time.perf_counter()
     missing: List[str] = []
     symbol_norm = str(request.symbol).strip() if request.symbol is not None else ""
-    idempotency_key = _normalize_idempotency_key(getattr(request, "idempotency_key", None))
-    idempotency_signature = (
-        _build_trade_request_signature(request)
-        if idempotency_key is not None
-        else None
-    )
-    idempotency_consumed = False
+    idempotency = _TradeIdempotencyLifecycle(request, idempotency_store)
     log_operation_start(
         logger,
         operation="trade_place",
@@ -89,7 +79,6 @@ def run_trade_place(  # noqa: C901
         order_type: Optional[str] = None,
         pending: Optional[bool] = None,
     ) -> Dict[str, Any]:
-        nonlocal idempotency_consumed
         result = _standardize_trade_operation_payload(
             result,
             operation="trade_place",
@@ -98,16 +87,9 @@ def run_trade_place(  # noqa: C901
             dry_run=request.dry_run,
         )
         result = _attach_live_guardrail_status(result, dry_run=request.dry_run)
-        result = _annotate_idempotency_scope(result, idempotency_key, idempotency_store)
+        result = idempotency.annotate(result)
         result = _attach_trade_correlation(result, correlation_id=correlation_id)
-        if not idempotency_consumed:
-            if _record_or_release_idempotency(
-                idempotency_store,
-                idempotency_key,
-                result,
-                request_signature=idempotency_signature,
-            ):
-                idempotency_consumed = True
+        idempotency.settle(result)
         _log_trade_correlation(operation="trade_place", result=result)
         log_operation_finish(
             logger,
@@ -121,13 +103,8 @@ def run_trade_place(  # noqa: C901
         )
         return result
 
-    duplicate_result, idempotency_reserved = _begin_trade_idempotency(
-        idempotency_store=idempotency_store,
-        key=idempotency_key,
-        request_signature=idempotency_signature,
-    )
+    duplicate_result = idempotency.begin()
     if duplicate_result is not None:
-        idempotency_consumed = True
         return _finish(duplicate_result)
 
     try:
@@ -1185,13 +1162,4 @@ def run_trade_place(  # noqa: C901
             pending=is_pending,
         )
     finally:
-        if (
-            idempotency_reserved
-            and not idempotency_consumed
-            and idempotency_store is not None
-            and idempotency_key is not None
-        ):
-            idempotency_store.release(
-                idempotency_key,
-                request_signature=idempotency_signature,
-            )
+        idempotency.release()
