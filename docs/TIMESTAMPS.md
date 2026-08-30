@@ -58,6 +58,15 @@ measured lead in `timestamp_skew_seconds`. A lead of 10 seconds or more is unsaf
 `symbol_info_tick` snapshot with the latest tick stream before applying this
 single policy.
 
+The trading send path adds one bounded exception for a synchronously acquired
+broker tick. When the workstation clock trails that tick by 10–30 seconds,
+freshness is evaluated against the broker tick at acquisition and the quote
+reports `clock_reconciled=true`, `local_clock_lag_seconds`, and
+`data_age_anchor=broker_tick_reconciled_clock`. This avoids blocking an order
+solely for modest workstation clock lag. Leads above 30 seconds still fail
+closed as future timestamps; stale ticks and invalid quotes are never repaired
+by this reconciliation.
+
 ---
 
 ## Broker session configuration

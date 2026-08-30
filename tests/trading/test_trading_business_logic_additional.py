@@ -791,7 +791,7 @@ def test_run_trade_place_preview_blocks_market_when_raw_send_tick_is_skewed():
                 "send_path_tick_fresh": False,
                 "send_path_tick_age_status": "future",
                 "send_path_freshness_error": (
-                    "Tick for BTCUSD is 26.3s ahead of the wall clock "
+                    "Tick for BTCUSD is 45.0s ahead of the wall clock "
                     "and is not safe for live trading."
                 ),
             },
@@ -911,7 +911,7 @@ def test_build_trade_place_dry_run_preview_uses_live_quote_and_margin():
     adapter.order_calc_margin.assert_called_once_with(0, "EURUSD", 0.1, 1.1001)
 
 
-def test_build_trade_place_dry_run_preview_marks_raw_tick_clock_skew():
+def test_build_trade_place_dry_run_preview_reconciles_bounded_broker_clock_lead():
     adapter = SimpleNamespace(
         ORDER_TYPE_BUY=0,
         order_calc_margin=MagicMock(return_value=123.45),
@@ -933,8 +933,8 @@ def test_build_trade_place_dry_run_preview_marks_raw_tick_clock_skew():
     gateway.symbol_info_tick.return_value = SimpleNamespace(
         bid=1.0999,
         ask=1.1001,
-        time=fixed_now.timestamp() + 26.3,
-        time_msc=(fixed_now.timestamp() + 26.3) * 1000.0,
+        time=fixed_now.timestamp() + 13.9,
+        time_msc=(fixed_now.timestamp() + 13.9) * 1000.0,
     )
     gateway.account_info.return_value = SimpleNamespace(margin_free=1000.0)
 
@@ -955,8 +955,19 @@ def test_build_trade_place_dry_run_preview_marks_raw_tick_clock_skew():
             gateway=gateway,
         )
 
-    assert result["quote_context"]["send_path_tick_fresh"] is False
-    assert result["quote_context"]["send_path_tick_age_status"] == "future"
+    assert result["quote_context"]["send_path_tick_fresh"] is True
+    assert result["quote_context"]["usable_for_live_trading"] is True
+    assert result["quote_context"]["clock_reconciled"] is True
+    assert result["quote_context"]["quote_clock_reference"] == (
+        "broker_tick_at_acquisition"
+    )
+    assert result["quote_context"]["local_clock_lag_seconds"] == pytest.approx(
+        13.9,
+        abs=0.01,
+    )
+    assert result["quote_context"]["data_age_anchor"] == (
+        "broker_tick_reconciled_clock"
+    )
 
 
 @pytest.mark.parametrize(

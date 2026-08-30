@@ -1230,8 +1230,13 @@ def build_trade_place_dry_run_preview(  # noqa: C901
             "preview_error_code": "invalid_stop_limit_price",
         }
 
-    quote_now = _stdlib_time.time()
+    wall_clock_now = _stdlib_time.time()
     raw_tick = mt5.symbol_info_tick(symbol)
+    raw_tick_clock = validation._tick_clock_reference(
+        raw_tick,
+        wall_clock_epoch=wall_clock_now,
+    )
+    quote_now = float(raw_tick_clock["reference_epoch"])
     tick, quote_source = resolve_quote_tick(
         mt5,
         symbol,
@@ -1289,6 +1294,25 @@ def build_trade_place_dry_run_preview(  # noqa: C901
         now_epoch=quote_now,
         source_metadata=quote_source,
     )
+    if raw_tick_clock.get("clock_reconciled") is True:
+        quote_context.update(
+            {
+                "clock_reconciled": True,
+                "quote_clock_reference": raw_tick_clock["clock_reference"],
+                "local_clock_lag_seconds": raw_tick_clock[
+                    "local_clock_lag_seconds"
+                ],
+                "clock_reconciliation_limit_seconds": raw_tick_clock[
+                    "clock_reconciliation_limit_seconds"
+                ],
+                "data_age_anchor": "broker_tick_reconciled_clock",
+                "clock_reconciliation_note": (
+                    "The workstation clock trails the synchronously acquired "
+                    "broker tick; quote age was evaluated on the bounded broker "
+                    "clock reference."
+                ),
+            }
+        )
     quote_context["send_path_tick_fresh"] = send_path_freshness_error is None
     if send_path_freshness_error is not None:
         quote_context["send_path_freshness_error"] = send_path_freshness_error.get(

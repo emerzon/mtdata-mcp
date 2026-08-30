@@ -1279,6 +1279,66 @@ def _safe_int_magic(value: Any) -> Optional[int]:
 import time as _time_module
 
 _DEFAULT_TICK_MAX_AGE_SECONDS = float(QUOTE_LIVE_SECONDS)
+_MAX_BROKER_TICK_CLOCK_RECONCILIATION_SECONDS = 30.0
+
+
+def _tick_timestamp_epoch(tick: Any) -> Optional[float]:
+    """Return the preferred positive epoch carried by an MT5 tick."""
+    for field, scale in (("time_msc", 1000.0), ("time", 1.0)):
+        try:
+            raw = tick_value(tick, field)
+            value = float(raw)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        if math.isfinite(value) and value > 0.0:
+            return value / scale
+    return None
+
+
+def _tick_clock_reference(
+    tick: Any,
+    *,
+    wall_clock_epoch: Optional[float] = None,
+) -> Dict[str, Any]:
+    """Choose the clock used for a synchronously acquired trading tick.
+
+    A modest positive lead is normally workstation clock lag, not a forecast
+    from the broker. Reconcile that bounded case to the acquired broker tick;
+    larger leads remain invalid and continue to fail closed.
+    """
+    from ...utils.market_metadata import TICK_FUTURE_TOLERANCE_SECONDS
+
+    wall_epoch = (
+        float(wall_clock_epoch)
+        if wall_clock_epoch is not None
+        else float(_time_module.time())
+    )
+    out: Dict[str, Any] = {
+        "reference_epoch": wall_epoch,
+        "clock_reference": "wall_clock",
+        "clock_reconciled": False,
+    }
+    tick_epoch = _tick_timestamp_epoch(tick)
+    if tick_epoch is None:
+        return out
+    lead_seconds = float(tick_epoch - wall_epoch)
+    if (
+        lead_seconds >= float(TICK_FUTURE_TOLERANCE_SECONDS)
+        and lead_seconds
+        <= float(_MAX_BROKER_TICK_CLOCK_RECONCILIATION_SECONDS)
+    ):
+        out.update(
+            {
+                "reference_epoch": tick_epoch,
+                "clock_reference": "broker_tick_at_acquisition",
+                "clock_reconciled": True,
+                "local_clock_lag_seconds": round(lead_seconds, 3),
+                "clock_reconciliation_limit_seconds": int(
+                    _MAX_BROKER_TICK_CLOCK_RECONCILIATION_SECONDS
+                ),
+            }
+        )
+    return out
 
 
 def _tick_age_seconds(tick: Any) -> Optional[float]:
@@ -1290,26 +1350,11 @@ def _tick_age_seconds(tick: Any) -> Optional[float]:
     Assumes tick timestamps retain the MT5 API's native UTC epoch basis before
     comparing them to system time.
     """
-    now_utc = _time_module.time()
-
-    for field in ("time_msc", "time"):
-        try:
-            raw = getattr(tick, field, None)
-            if raw is None:
-                continue
-            val = float(raw)
-            if not math.isfinite(val) or val <= 0:
-                continue
-
-            if field == "time_msc":
-                tick_utc = val / 1000.0
-            else:
-                tick_utc = val
-
-            return now_utc - tick_utc
-        except Exception:
-            continue
-    return None
+    tick_utc = _tick_timestamp_epoch(tick)
+    if tick_utc is None:
+        return None
+    clock = _tick_clock_reference(tick)
+    return float(clock["reference_epoch"]) - tick_utc
 
 
 def _validate_tick_freshness(

@@ -53,11 +53,16 @@ def build_trade_quote_context(
             quote_source_conflict=out.get("quote_source_conflict"),
         )
 
-    current_epoch = (
+    wall_clock_epoch = (
         float(now_epoch)
         if now_epoch is not None
         else datetime.now(timezone.utc).timestamp()
     )
+    clock_context = validation._tick_clock_reference(
+        tick,
+        wall_clock_epoch=wall_clock_epoch,
+    )
+    current_epoch = float(clock_context["reference_epoch"])
     freshness = build_tick_freshness_context(
         symbol,
         tick_epoch=epoch_value,
@@ -93,6 +98,25 @@ def build_trade_quote_context(
         if freshness.get(key) is not None:
             out[key] = freshness[key]
     out.update(source_metadata or {})
+    if clock_context.get("clock_reconciled") is True:
+        out.update(
+            {
+                "clock_reconciled": True,
+                "quote_clock_reference": clock_context["clock_reference"],
+                "local_clock_lag_seconds": clock_context[
+                    "local_clock_lag_seconds"
+                ],
+                "clock_reconciliation_limit_seconds": clock_context[
+                    "clock_reconciliation_limit_seconds"
+                ],
+                "data_age_anchor": "broker_tick_reconciled_clock",
+                "clock_reconciliation_note": (
+                    "The workstation clock trails the synchronously acquired "
+                    "broker tick; quote age was evaluated on the bounded broker "
+                    "clock reference."
+                ),
+            }
+        )
     return enforce_quote_execution_readiness(
         out,
         bid=tick_value(tick, "bid"),

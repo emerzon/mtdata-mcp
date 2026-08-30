@@ -146,6 +146,12 @@ mtdata-cli trade_place EURUSD --volume 0.10 --order-type BUY --stop-loss 1.0850 
 mtdata-cli trade_place EURUSD --volume 0.10 --order-type BUY --stop-loss 1.0850 --take-profit 1.0950 --dry-run false
 ```
 
+For a synchronously acquired send-path tick, mtdata tolerates a broker clock up
+to 30 seconds ahead of the workstation clock by evaluating freshness on that
+bounded broker reference. The preview discloses `clock_reconciled` and
+`local_clock_lag_seconds`. Larger leads, stale ticks, and invalid two-sided
+quotes remain hard blockers.
+
 ### Order types
 
 `order_type` accepts these **canonical strings** (case-insensitive; `-` or space becomes `_`):

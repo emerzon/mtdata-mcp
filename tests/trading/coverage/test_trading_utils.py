@@ -52,6 +52,7 @@ from mtdata.core.trading.validation import (
     _SUPPORTED_ORDER_TYPES,
     _normalize_order_type_input,
     _tick_age_seconds,
+    _tick_clock_reference,
     _validate_tick_freshness,
     _validate_volume,
 )
@@ -183,6 +184,18 @@ class TestTickUtils:
         assert result is not None
         assert result["tick_age_status"] == "future"
         assert result["timestamp_in_future"] is True
+
+    def test_validate_tick_freshness_reconciles_bounded_broker_clock_lead(self):
+        import time as _time_module
+
+        now_s = _time_module.time()
+        tick = SimpleNamespace(time_msc=(now_s + 13.9) * 1000.0)
+
+        clock = _tick_clock_reference(tick, wall_clock_epoch=now_s)
+        assert clock["clock_reconciled"] is True
+        assert clock["clock_reference"] == "broker_tick_at_acquisition"
+        assert clock["local_clock_lag_seconds"] == pytest.approx(13.9, abs=0.01)
+        assert _validate_tick_freshness(tick, symbol="BTCUSD") is None
 
     def test_validate_tick_freshness_optional_for_risk_reducing_actions(self):
         import time as _time_module
