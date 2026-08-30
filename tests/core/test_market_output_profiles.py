@@ -51,6 +51,8 @@ def test_compact_ticker_keeps_quote_and_one_execution_gate() -> None:
         "mid": 1.1001,
         "spread": 0.0002,
         "spread_points": 2,
+        "quote_as_of": "2026-08-29T11:00:00Z",
+        "data_age_seconds": 0.1,
         "usable_for_live_trading": True,
         "source": {"provider": "mt5"},
     }

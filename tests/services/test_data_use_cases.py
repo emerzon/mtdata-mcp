@@ -2268,7 +2268,7 @@ def test_compact_server_clock_candles_collapse_implied_utc_metadata():
     assert "public_timestamp_mode" not in result
     assert "raw_timestamp_mode" not in result
     assert "time_basis" not in result
-    assert "time_normalization" not in result
+    assert result["time_normalization"] == "server_clock_to_utc"
 
 
 def test_full_server_clock_candles_disclose_raw_and_public_modes():

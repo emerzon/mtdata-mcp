@@ -324,6 +324,9 @@ def _shape_trading(
     out = dict(payload)
     source = SourceContext.from_payload(payload)
     freshness = FreshnessObservation.from_payload(payload, scope=tool_name)
+    snapshot_as_of = None
+    if tool_name in {"trade_account_info", "trade_get_open", "trade_get_pending"}:
+        snapshot_as_of = payload.get("as_of") or payload.get("retrieved_at")
     protected_freshness_fields = {
         "market_status",
         "market_status_reason",
@@ -344,6 +347,8 @@ def _shape_trading(
         out.pop(key, None)
     if source:
         out["source"] = source.compact()
+    if snapshot_as_of not in (None, ""):
+        out["as_of"] = snapshot_as_of
 
     for quote_key in ("quote", "quote_context"):
         quote = out.get(quote_key)
@@ -840,6 +845,17 @@ def _compact_seasonality(payload: MutableMapping[str, Any]) -> None:
 
 
 def _compact_volatility_term_structure(payload: MutableMapping[str, Any]) -> None:
+    analysis_window = payload.get("analysis_window")
+    if isinstance(analysis_window, Mapping):
+        requested_as_of = analysis_window.get("requested_as_of")
+        data_as_of = analysis_window.get("period_end")
+        timezone = analysis_window.get("timezone")
+        if requested_as_of not in (None, ""):
+            payload["requested_as_of"] = requested_as_of
+        if data_as_of not in (None, ""):
+            payload["data_as_of"] = data_as_of
+        if timezone not in (None, ""):
+            payload["timezone"] = timezone
     _drop_keys(
         payload,
         {
@@ -849,7 +865,6 @@ def _compact_volatility_term_structure(payload: MutableMapping[str, Any]) -> Non
             "cone_methodology",
             "count",
             "forming_candle_status",
-            "history_policy",
             "sessions_per_year",
             "unit_note",
             "units",
@@ -1606,6 +1621,7 @@ def _compact_trade_account(payload: MutableMapping[str, Any]) -> None:
         "margin_level_note",
         "new_exposure_allowed",
         "profit",
+        "as_of",
         "readiness_scope",
         "session_note",
         "source",
@@ -2021,6 +2037,11 @@ def _compact_trade_session_context(payload: MutableMapping[str, Any]) -> None:
 
 def _compact_market_status_payload(payload: MutableMapping[str, Any]) -> None:
     """Keep calendar outcomes and exceptions, not repeated clock telemetry."""
+    if payload.get("as_of") in (None, "") and payload.get("data_fetched_at") not in (
+        None,
+        "",
+    ):
+        payload["as_of"] = payload["data_fetched_at"]
     mode = str(payload.get("mode") or "")
     if mode.startswith("equity_"):
         _drop_keys(
@@ -2212,15 +2233,12 @@ def _compact_market_mapping(
         )
     )
     for key, value in payload.items():
-        if quote_like and key in LEGACY_TIME_FIELDS:
+        if quote_like and key in LEGACY_TIME_FIELDS and key != "quote_as_of":
             continue
         if (
             freshness
             and key in LEGACY_FRESHNESS_FIELDS
-            and key
-            not in {
-                "usable_for_live_trading",
-            }
+            and key not in {"data_age_seconds", "usable_for_live_trading"}
         ):
             continue
         if (quote_like and key in _MARKET_COMPACT_OMIT) or key == "meta":
@@ -2368,8 +2386,26 @@ def _shape_candles(payload: Mapping[str, Any], *, detail: str) -> Dict[str, Any]
         if isinstance(rows, list) and rows:
             forming_index = len(rows) - 1
 
-    for key in LEGACY_FRESHNESS_FIELDS | LEGACY_TIME_FIELDS | _CANDLE_COMPACT_OMIT:
+    compact_contract_fields = {
+        "data_as_of",
+        "data_as_of_basis",
+        "forming_candle_status",
+        "hint",
+        "limit_reached",
+        "limit_satisfied",
+        "public_timestamp_mode",
+        "time_basis",
+        "time_normalization",
+        "timestamp_format",
+        "timestamp_mode",
+        "timestamp_timezone",
+    }
+    for key in (
+        LEGACY_FRESHNESS_FIELDS | LEGACY_TIME_FIELDS | _CANDLE_COMPACT_OMIT
+    ) - compact_contract_fields:
         out.pop(key, None)
+    if payload.get("forming_candle_status") != "skipped":
+        out.pop("hint", None)
     out.pop("meta", None)
     out.pop("source", None)
     if source:

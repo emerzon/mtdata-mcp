@@ -90,7 +90,19 @@ def test_compact_candle_output_stays_within_metadata_size_budget() -> None:
     raw_size = _json_size(raw)
     compact_size = _json_size(compact)
     assert compact_size <= raw_size * 0.75
-    assert set(compact) == {"success", "symbol", "timeframe", "data", "source"}
+    assert set(compact) == {
+        "success",
+        "symbol",
+        "timeframe",
+        "data",
+        "data_as_of",
+        "data_as_of_basis",
+        "forming_candle_status",
+        "hint",
+        "limit_satisfied",
+        "timestamp_format",
+        "source",
+    }
     assert all("bar_state" not in row and "gap_before" not in row for row in compact["data"])
 
 
@@ -294,6 +306,7 @@ def test_compact_market_status_keeps_calendar_outcomes_not_clock_echoes() -> Non
     )
 
     assert compact["global_status"] == "weekend"
+    assert compact["as_of"] == "2026-08-29T12:00:00Z"
     assert compact["markets"][0] == {
         "venue": "NYSE",
         "name": "New York Stock Exchange",
@@ -317,6 +330,7 @@ def test_targeted_rich_selection_does_not_restore_full_metadata() -> None:
         "success": True,
         "symbol": "BTCUSD",
         "timeframe": "M15",
+        "data_as_of": "2026-08-29T04:15:00Z",
         "indicator_engine": {
             "effective_backend": "pandas-ta-classic+talib"
         },

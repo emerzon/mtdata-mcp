@@ -76,9 +76,19 @@ def test_compact_candles_omit_nominal_metadata_and_row_diagnostics() -> None:
         "symbol",
         "timeframe",
         "data",
+        "data_as_of",
+        "data_as_of_basis",
+        "forming_candle_status",
+        "limit_satisfied",
+        "timestamp_format",
         "source",
         "warnings",
     }
+    assert result["forming_candle_status"] == "skipped"
+    assert result["limit_satisfied"] is True
+    assert result["data_as_of"] == "2026-08-29T04:15:00Z"
+    assert result["data_as_of_basis"] == "completed_bar_close"
+    assert result["timestamp_format"] == "iso_utc"
     assert result["source"] == {"provider": "mt5"}
     assert all("bar_state" not in row and "gap_before" not in row for row in result["data"])
     assert result["warnings"] == [
@@ -119,6 +129,23 @@ def test_compact_candles_emit_one_actionable_stale_warning() -> None:
             "age_seconds": 540,
         }
     ]
+
+
+def test_compact_candles_keep_skipped_forming_bar_hint() -> None:
+    payload = _candle_payload()
+    payload["session_gaps"] = []
+    payload["hint"] = "Set include_incomplete=true to include the forming candle."
+
+    result = shape_public_tool_output(
+        payload,
+        tool_name="data_fetch_candles",
+        detail="compact",
+    )
+
+    assert result["forming_candle_status"] == "skipped"
+    assert result["hint"] == (
+        "Set include_incomplete=true to include the forming candle."
+    )
 
 
 def test_full_candles_consolidate_metadata_sections() -> None:

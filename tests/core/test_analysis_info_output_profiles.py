@@ -183,6 +183,36 @@ def test_compact_warnings_deduplicate_same_message_across_scopes() -> None:
     ]
 
 
+def test_compact_volatility_term_structure_keeps_replay_anchor() -> None:
+    payload = {
+        "success": True,
+        "symbol": "EURUSD",
+        "timeframe": "H1",
+        "history_policy": "completed_bars_only",
+        "analysis_window": {
+            "requested_as_of": "2026-08-28T12:00:00Z",
+            "resolved_as_of": "2026-08-28T12:00:00Z",
+            "period_start": "2026-08-18T04:00:00Z",
+            "period_end": "2026-08-28T11:00:00Z",
+            "timezone": "UTC",
+            "bars_used": 200,
+        },
+        "items": [{"horizon": 1, "volatility": 0.1}],
+    }
+
+    result = shape_public_tool_output(
+        payload,
+        tool_name="volatility_term_structure",
+        detail="compact",
+    )
+
+    assert result["requested_as_of"] == "2026-08-28T12:00:00Z"
+    assert result["data_as_of"] == "2026-08-28T11:00:00Z"
+    assert result["timezone"] == "UTC"
+    assert result["history_policy"] == "completed_bars_only"
+    assert "analysis_window" not in result
+
+
 def test_compact_error_drops_empty_success_shape_and_duplicate_symbol() -> None:
     payload = {
         "success": False,

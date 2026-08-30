@@ -1473,7 +1473,6 @@ def _compact_candles_payload(
         "tick_volume_event_basis",
         "tick_volume_tape_equivalent",
         "tick_volume_comparison_note",
-        "time_normalization",
     ):
         compact.pop(key, None)
     return compact

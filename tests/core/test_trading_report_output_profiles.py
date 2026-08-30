@@ -53,6 +53,7 @@ def test_trade_preview_compact_preserves_every_execution_safety_gate() -> None:
 def test_open_positions_compact_replaces_per_row_freshness_with_one_warning() -> None:
     payload = {
         "success": True,
+        "as_of": "2026-08-29T12:00:00Z",
         "count": 2,
         "row_key": "items",
         "items": [
@@ -91,6 +92,7 @@ def test_open_positions_compact_replaces_per_row_freshness_with_one_warning() ->
 
     assert "count" not in result
     assert "row_key" not in result
+    assert result["as_of"] == "2026-08-29T12:00:00Z"
     assert all("data_stale" not in row for row in result["items"])
     assert result["warnings"] == [
         {
@@ -106,6 +108,7 @@ def test_open_positions_compact_replaces_per_row_freshness_with_one_warning() ->
 def test_trade_account_compact_keeps_distinct_safety_gates_once() -> None:
     payload = {
         "success": True,
+        "retrieved_at": "2026-08-29T12:00:00Z",
         "source": {"provider": "mt5", "server": "Demo"},
         "account_context_id": "context-123",
         "account_type": "demo",
@@ -144,6 +147,7 @@ def test_trade_account_compact_keeps_distinct_safety_gates_once() -> None:
     )
 
     assert result["new_exposure_allowed"] is False
+    assert result["as_of"] == "2026-08-29T12:00:00Z"
     assert result["execution_ready"] is False
     assert result["execution_hard_blockers"] == [
         "terminal_auto_trading_disabled"

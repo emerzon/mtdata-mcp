@@ -67,6 +67,19 @@ def test_output_fields_keeps_quote_trust_core() -> None:
     assert "diagnostics" not in result
 
 
+def test_output_fields_keeps_snapshot_observation_time() -> None:
+    payload = {
+        "success": True,
+        "balance": 1000.0,
+        "as_of": "2026-08-29T12:00:00Z",
+        "source": {"provider": "mt5"},
+    }
+
+    result = _select_output_fields(payload, "balance")
+
+    assert result == payload
+
+
 def test_output_fields_keeps_trade_preview_safety_envelope() -> None:
     payload = {
         "success": True,

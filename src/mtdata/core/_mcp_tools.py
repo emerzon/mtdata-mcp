@@ -1046,6 +1046,7 @@ _FIELD_SELECTION_META_KEYS = frozenset(
         "history_window_limit_days",
         "history_window_floor",
         "effective_start",
+        "as_of",
         "quote_as_of",
         "time",
         "data_as_of",
