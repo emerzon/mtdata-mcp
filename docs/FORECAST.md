@@ -439,8 +439,10 @@ the apply scope, while `--offset` selects the same model-ID page in either
 mode. Re-run the preview with identical filters before setting
 `--dry-run false`.
 
-The compact listing defaults to ten models and reports total pagination plus
-counts by method. Increase `--limit` explicitly when browsing a larger store.
+The compact listing defaults to ten models and returns reusable model IDs plus
+pagination when another page exists. Incompatibility status and its reason are
+retained only for affected rows. Use `--detail full` for method counts, dates,
+sizes, and store diagnostics, or increase `--limit` when browsing a larger store.
 Concrete library aliases such as `sf_naive` and `skt_naive` remain the public
 method identity in tasks, model IDs, listings, and cleanup. Use `--method` for
 that exact identity or `--adapter statsforecast` / `--adapter sktime` for an

@@ -321,13 +321,14 @@ Look at the account **without** placing an order. None of these send
 | How did closed trades perform? | `trade_journal_analyze` |
 | Session + quote + exposure in one bundle | `trade_session_context` |
 
-`trade_account_info` compact output keeps several similarly named gates.
+`trade_account_info` compact output keeps the two distinct gates without their
+derivable aliases.
 `execution_ready` is terminal/account enablement only
 (`execution_ready_scope=account_and_terminal_enablement`); it does **not**
-include margin policy. `trade_allowed` and the canonical
-`new_exposure_allowed` combine broker permission, non-critical margin, and
-strict execution readiness (`trade_allowed_basis`). Prefer
-`new_exposure_allowed` before adding risk. `trade_session_context` still adds
+include margin policy. The canonical `new_exposure_allowed` combines broker
+permission, non-critical margin, and strict execution readiness. Use it before
+adding risk. Full detail retains the component aliases and basis diagnostics.
+`trade_session_context` still adds
 symbol/session checks on top of that account gate. Its
 `execution_preconditions_allow_open` flag is that scoped execution gate; it
 does not imply portfolio-risk approval (`trade_ready.portfolio_risk_assessed`

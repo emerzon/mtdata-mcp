@@ -102,10 +102,17 @@ values for tools that expose the complete detail contract are:
 | `full` | Consolidates source, time, freshness, processing, quality, request, units, and diagnostics under `meta`. |
 
 Notes:
-- `detail` changes verbosity **within** the sections a tool already returns; it does **not** add new analysis. (For example, `market_snapshot` uses a separate `sections` parameter to choose analysis modules. Its compact/summary envelope reports `sections_summarized`, while standard/full reports `sections_embedded`.)
+- `detail` changes verbosity **within** the sections a tool already returns; it does **not** add new analysis. For example, `market_snapshot` uses a separate `sections` parameter to choose analysis modules. Compact output exposes the selected structured results directly and reports only failed sections; full output retains the section-selection metadata.
 - The shared output layer has two retention modes: `full`, and the compact strip used by `compact`, `standard`, and `summary`. Tools can independently distinguish the accepted values in their own payloads.
 - Use `detail=full` when you need several metadata sections. For one field,
   prefer `output_fields` so the rest remains compact.
+
+Compact catalogs and analyses also omit default filter echoes, static formula or
+unit legends, repeated counts, and instructional prose when the structured
+result already carries the same information. Model inventory rows normally
+contain just the reusable `model_id`; an incompatible row retains its status
+and reason. Empty task or trading collections return the collection without a
+second prose explanation.
 
 ### Anomaly-first warnings
 
@@ -127,7 +134,9 @@ threshold, reason, or policy fields. A non-nominal condition appears once:
 ```
 
 `code`, `scope`, and `message` are stable warning fields. Additional keys are
-small condition-specific context. Candle rows do not repeat `bar_state` or
+small condition-specific context. Identical warning messages are emitted once,
+even when nested components discovered the same condition under different
+scopes; the most specific code and available context are retained. Candle rows do not repeat `bar_state` or
 `gap_before`: a forming row is identified once by `forming_candle_index`, and
 session gaps produce one `session_gap` warning. Full output retains the
 complete gap and forming-bar diagnostics under `meta.quality`.
@@ -268,7 +277,9 @@ Tools that accept a one-based `page` input convert it to the zero-based
 history time/ticket key. Reuse that cursor with unchanged history filters and
 time controls. This avoids skips or duplicates when relative windows move or
 the account history changes between calls. Trade-history cursors expire after
-one hour; `offset` and `page` are not accepted by that tool.
+one hour; `offset` and `page` are not accepted by that tool. Cursors are opaque:
+store and return the exact string rather than decoding it or depending on its
+representation.
 
 Page through results with `--offset` and `--limit`:
 

@@ -5,14 +5,24 @@ from __future__ import annotations
 import base64
 import json
 import time
+import zlib
 from collections.abc import Collection, Mapping
 from typing import Any, Union
+
+_COMPRESSED_PREFIX = "z."
+_MAX_CURSOR_CHARS = 32_768
+_MAX_CURSOR_PAYLOAD_BYTES = 16_384
 
 
 def encode_continuation_cursor(payload: Mapping[str, Any]) -> str:
     """Encode a JSON object as a URL-safe continuation token."""
     raw = json.dumps(dict(payload), separators=(",", ":"), sort_keys=True).encode()
-    return base64.urlsafe_b64encode(raw).decode().rstrip("=")
+    plain = base64.urlsafe_b64encode(raw).decode().rstrip("=")
+    compressed = (
+        base64.urlsafe_b64encode(zlib.compress(raw, level=9)).decode().rstrip("=")
+    )
+    compressed = _COMPRESSED_PREFIX + compressed
+    return compressed if len(compressed) < len(plain) else plain
 
 
 def decode_continuation_cursor(
@@ -24,8 +34,25 @@ def decode_continuation_cursor(
 ) -> dict[str, Any]:
     """Decode a continuation token and require a supported version."""
     try:
-        padding = "=" * (-len(cursor) % 4)
-        payload = json.loads(base64.urlsafe_b64decode(cursor + padding).decode())
+        if not isinstance(cursor, str) or len(cursor) > _MAX_CURSOR_CHARS:
+            raise ValueError("cursor exceeds the accepted size")
+        compressed = cursor.startswith(_COMPRESSED_PREFIX)
+        encoded = cursor[len(_COMPRESSED_PREFIX) :] if compressed else cursor
+        padding = "=" * (-len(encoded) % 4)
+        raw = base64.urlsafe_b64decode(encoded + padding)
+        if compressed:
+            decoder = zlib.decompressobj()
+            raw = decoder.decompress(raw, _MAX_CURSOR_PAYLOAD_BYTES + 1)
+            if (
+                len(raw) > _MAX_CURSOR_PAYLOAD_BYTES
+                or decoder.unconsumed_tail
+                or decoder.unused_data
+                or not decoder.eof
+            ):
+                raise ValueError("cursor payload exceeds the accepted size")
+        elif len(raw) > _MAX_CURSOR_PAYLOAD_BYTES:
+            raise ValueError("cursor payload exceeds the accepted size")
+        payload = json.loads(raw.decode())
     except Exception as exc:
         raise ValueError(invalid_message) from exc
     versions = (

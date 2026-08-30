@@ -103,6 +103,131 @@ def test_open_positions_compact_replaces_per_row_freshness_with_one_warning() ->
     ]
 
 
+def test_trade_account_compact_keeps_distinct_safety_gates_once() -> None:
+    payload = {
+        "success": True,
+        "source": {"provider": "mt5", "server": "Demo"},
+        "account_context_id": "context-123",
+        "account_type": "demo",
+        "is_demo": True,
+        "is_live": False,
+        "balance": 10000.0,
+        "equity": 9900.0,
+        "profit": -100.0,
+        "floating_pnl": -100.0,
+        "pnl_basis": "floating_open_positions",
+        "equity_balance_delta": -100.0,
+        "margin": 500.0,
+        "margin_free": 9400.0,
+        "margin_level": 1980.0,
+        "currency": "USD",
+        "leverage": 100,
+        "trade_allowed": False,
+        "trade_allowed_basis": "strict_execution_and_margin",
+        "broker_trade_allowed": True,
+        "new_exposure_allowed": False,
+        "readiness_scope": "account_and_terminal_not_symbol_session",
+        "execution_ready": False,
+        "execution_ready_scope": "account_and_terminal_enablement",
+        "execution_hard_blockers": ["terminal_auto_trading_disabled"],
+        "account_risk_status": "ok",
+        "account_risk_reasons": [],
+        "symbol_sessions_evaluated": False,
+        "now_tradable": False,
+        "now_tradable_means": "requires_symbol_session",
+    }
+
+    result = shape_public_tool_output(
+        payload,
+        tool_name="trade_account_info",
+        detail="compact",
+    )
+
+    assert result["new_exposure_allowed"] is False
+    assert result["execution_ready"] is False
+    assert result["execution_hard_blockers"] == [
+        "terminal_auto_trading_disabled"
+    ]
+    assert result["account_risk_status"] == "ok"
+    assert "trade_allowed" not in result
+    assert "floating_pnl" not in result
+    assert "now_tradable" not in result
+
+
+def test_trade_history_compact_hoists_uniform_basis_and_drops_request_prose() -> None:
+    payload = {
+        "success": True,
+        "kind": "trade_history",
+        "history_kind": "deals",
+        "scope": "account_history",
+        "currency": "USD",
+        "period_source": "default_lookback",
+        "minutes_back_effective": 10080,
+        "broker_server_tz": "America/New_York",
+        "broker_utc_offset_seconds": -14400,
+        "defaults_applied": ["last_7_days"],
+        "note": "Defaulted to the last seven days.",
+        "items": [
+            {
+                "deal_ticket": 101,
+                "order_ticket": 55,
+                "position_ticket": 55,
+                "symbol": "EURUSD",
+                "fill_time": "2026-08-29T10:00:00Z",
+                "position_action": "close_long",
+                "deal_effect": "close",
+                "fill_side": "sell",
+                "position_side": "long",
+                "volume": 0.1,
+                "price": 1.1,
+                "price_basis": "executed_fill",
+                "price_currency": "USD",
+                "profit": 25.0,
+                "commission": 0.0,
+                "swap": 0.0,
+                "fee": 0.0,
+            }
+        ],
+        "units": {
+            "volume": "broker_lot",
+            "profit": "account_currency",
+            "price": "absolute_price",
+        },
+        "pagination": {
+            "has_more": True,
+            "next_cursor": "opaque-token",
+            "returned": 1,
+            "total": 20,
+        },
+    }
+
+    result = shape_public_tool_output(
+        payload,
+        tool_name="trade_history",
+        detail="compact",
+    )
+
+    assert result["price_basis"] == "executed_fill"
+    assert result["pagination"] == {
+        "has_more": True,
+        "next_cursor": "opaque-token",
+    }
+    assert result["units"] == {"volume": "broker_lot"}
+    assert result["items"] == [
+        {
+            "deal_ticket": 101,
+            "position_ticket": 55,
+            "symbol": "EURUSD",
+            "fill_time": "2026-08-29T10:00:00Z",
+            "position_action": "close_long",
+            "volume": 0.1,
+            "price": 1.1,
+            "profit": 25.0,
+        }
+    ]
+    assert "note" not in result
+
+
 def test_trade_full_moves_sampling_request_and_quote_quality_to_meta() -> None:
     payload = {
         "success": True,

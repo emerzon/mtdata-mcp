@@ -110,6 +110,107 @@ def test_catalog_compact_uses_exception_list_and_minimal_pagination() -> None:
     }
 
 
+def test_denoise_catalog_omits_default_filters_and_derived_flags() -> None:
+    payload = {
+        "success": True,
+        "detail": "compact",
+        "available_only": False,
+        "causality": None,
+        "core_only": False,
+        "columns": [
+            "method",
+            "available",
+            "causality",
+            "requires_causality_opt_in",
+        ],
+        "methods": [
+            {
+                "method": "kalman",
+                "available": True,
+                "causality": ["causal", "zero_phase"],
+                "requires_causality_opt_in": False,
+            }
+        ],
+        "describe_hint": "Use denoise_describe(method) for defaults.",
+        "list_all_hint": "Pass limit=20 to list every method.",
+    }
+
+    result = shape_public_tool_output(
+        payload,
+        tool_name="denoise_list_methods",
+        detail="compact",
+    )
+
+    assert result == {
+        "success": True,
+        "methods": [
+            {
+                "method": "kalman",
+                "causality": ["causal", "zero_phase"],
+            }
+        ],
+    }
+
+
+def test_compact_warnings_deduplicate_same_message_across_scopes() -> None:
+    payload = {
+        "success": True,
+        "items": [],
+        "warnings": [
+            "The sample is too small for a reliable estimate.",
+            {
+                "code": "low_sample",
+                "scope": "seasonality_detect",
+                "message": "  The sample is too small for a reliable estimate. ",
+                "samples": 12,
+            },
+        ],
+    }
+
+    result = shape_public_tool_output(
+        payload,
+        tool_name="seasonality_detect",
+        detail="compact",
+    )
+
+    assert result["warnings"] == [
+        {
+            "code": "low_sample",
+            "scope": "seasonality_detect",
+            "message": "The sample is too small for a reliable estimate.",
+            "samples": 12,
+        }
+    ]
+
+
+def test_compact_error_drops_empty_success_shape_and_duplicate_symbol() -> None:
+    payload = {
+        "success": False,
+        "error": "Unknown symbol NOTREAL.",
+        "error_code": "invalid_symbol",
+        "details": {
+            "symbol": "NOTREAL",
+            "search_hint": "Use symbols_list to find the broker symbol.",
+        },
+        "remediation": "Use symbols_list to find the broker symbol.",
+        "items": [],
+        "forming_candle_status": "none",
+    }
+
+    result = shape_public_tool_output(
+        payload,
+        tool_name="symbols_describe",
+        detail="compact",
+    )
+
+    assert result == {
+        "success": False,
+        "error": "Unknown symbol NOTREAL.",
+        "error_code": "invalid_symbol",
+        "remediation": "Use symbols_list to find the broker symbol.",
+    }
+
+
 def test_task_list_compact_keeps_actionable_task_state() -> None:
     payload = {
         "success": True,
