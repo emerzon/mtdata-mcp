@@ -49,12 +49,15 @@ class TestProcessIncludeSpecification:
         cols = _process_include_specification(df, {"include": ["open", "high"]})
         assert cols == ["open", "high"]
 
-    def test_excludes_time_and_close(self):
+    def test_explicit_close_is_selected(self):
         df = _make_ohlcv_df()
-        cols = _process_include_specification(df, {"include": ["time", "close", "open"]})
-        assert "time" not in cols
-        assert "close" not in cols
-        assert "open" in cols
+        cols = _process_include_specification(df, {"include": ["close", "open"]})
+        assert cols == ["close", "open"]
+
+    def test_time_is_rejected_instead_of_silently_discarded(self):
+        df = _make_ohlcv_df()
+        with pytest.raises(ValueError, match="time.*cannot be used"):
+            _process_include_specification(df, {"include": ["time", "open"]})
 
     def test_nonexistent_columns_are_rejected(self):
         df = _make_ohlcv_df()
@@ -90,11 +93,11 @@ class TestCreateFourierFeatures:
         assert "fx_sin_24" in col_names
         assert "fx_cos_24" in col_names
 
-    def test_default_period_on_bad_spec(self):
+    def test_bad_period_is_rejected(self):
         t_train = np.arange(10, dtype=float)
         t_future = np.arange(5, dtype=float)
-        tr_feats, tf_feats, col_names = _create_fourier_features("fourier:abc", t_train, t_future)
-        assert "fx_sin_24" in col_names  # defaults to period 24
+        with pytest.raises(ValueError, match="positive integer period"):
+            _create_fourier_features("fourier:abc", t_train, t_future)
 
 
 class TestCreateHourFeatures:
@@ -202,3 +205,29 @@ def test_prepare_features_rejects_unknown_explicit_include():
             parse_kv_or_json=lambda value: value,
         )
     assert "rsi_14" in exc_info.value.unknown_columns
+
+
+def test_prepare_features_uses_explicit_close_with_causal_lag():
+    df = pd.DataFrame(
+        {
+            "time": [1.0, 2.0, 3.0],
+            "close": [100.0, 101.0, 102.0],
+        }
+    )
+
+    training, future, info = prepare_features(
+        df,
+        {
+            "include": ["close"],
+            "observed_future_policy": "carry_forward",
+        },
+        [4.0, 5.0],
+        2,
+        parse_kv_or_json=lambda value: value,
+    )
+
+    assert training[:, 0].tolist() == [0.0, 100.0, 101.0]
+    assert future[:, 0].tolist() == [102.0, 102.0]
+    assert info["include_columns"] == ["close"]
+    assert info["selected_columns"] == ["close"]
+    assert info["observed_feature_lag_bars"] == 1

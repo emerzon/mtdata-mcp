@@ -169,8 +169,17 @@ Supported dimred methods in the forecasting pipeline:
 
 Examples:
 ```bash
-mtdata-cli forecast_generate EURUSD --horizon 12 --method mlf_lightgbm --features '{"include":["close","volume"]}' --dimred '{"method":"pca","params":{"n_components":5}}'
+mtdata-cli forecast_generate EURUSD --horizon 12 --method mlf_lightgbm --features '{"include":["close","volume"],"observed_future_policy":"carry_forward"}' --dimred '{"method":"pca","params":{"n_components":2}}'
 ```
+
+Explicit observed columns, including `close`, are shifted by one bar before
+training. For multi-bar forecasts, `observed_future_policy=carry_forward` uses
+the latest observed values throughout the requested horizon.
+
+Known-future calendar tokens are `hour`, `dow`, `month`, `day`, `doy`, `week`,
+`minute`, `mod`, `is_weekend`, `is_holiday`, and `fourier:<positive integer>`.
+Aliases such as `hr`, `weekday`, and `holiday` are accepted. Unsupported tokens
+or a calendar that cannot be built reject the feature request.
 
 Tip: `GET /api/dimred/methods` lists additional reducers (for example `svd` (TruncatedSVD), `umap`, `isomap`) depending on what is installed (see [../WEB_API.md](../WEB_API.md)). The focused Web UI forecast panel is univariate and does not apply dimred; use CLI, MCP, or the Tools runner when you need features plus reduction.
 

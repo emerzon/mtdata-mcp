@@ -180,16 +180,23 @@ class TestAddTechnicalIndicators:
         )
         assert "rsi_14" in cols
 
-    def test_specs_exception_graceful(self):
-        """Indicator parse/apply failures should be surfaced through attrs."""
+    def test_specs_parse_failure_is_rejected(self):
         df = _make_df(10)
-        cols = _add_technical_indicators(
-            df, {"indicators": "bad"},
-            parse_ti_specs=MagicMock(side_effect=RuntimeError),
-            apply_ta_indicators=MagicMock(),
-        )
-        assert isinstance(cols, list)
-        assert any("Technical indicator request could not be applied" in str(v) for v in df.attrs.values())
+        with pytest.raises(ValueError, match="could not be parsed"):
+            _add_technical_indicators(
+                df, {"indicators": "bad"},
+                parse_ti_specs=MagicMock(side_effect=RuntimeError("boom")),
+                apply_ta_indicators=MagicMock(),
+            )
+
+    def test_specs_apply_failure_is_rejected(self):
+        df = _make_df(10)
+        with pytest.raises(ValueError, match="could not be applied.*boom"):
+            _add_technical_indicators(
+                df, {"indicators": "rsi"},
+                parse_ti_specs=MagicMock(return_value=[("rsi", [], {})]),
+                apply_ta_indicators=MagicMock(side_effect=RuntimeError("boom")),
+            )
 
     def test_fourier_future_continues_phase(self):
         tr, tf, cols = _create_fourier_features("fourier:4", np.arange(4), np.arange(2))
@@ -422,13 +429,43 @@ class TestBuildCalendarFeatures:
         assert "is_weekend" in cols
 
     def test_is_holiday_token_no_holidays_lib(self):
-        """Lines 413-426: is_holiday with missing holidays library."""
+        """An explicitly requested holiday feature must fail if unavailable."""
         df = self._df_with_time()
         ft = [float(df["time"].iloc[-1]) + 3600 * i for i in range(1, 6)]
         with patch.dict("sys.modules", {"holidays": None}):
-            cal, fut, cols = _build_calendar_features(df, {"future_covariates": "is_holiday"}, ft)
-        # Should gracefully handle missing holidays lib
-        assert isinstance(cols, list)
+            with pytest.raises(ValueError, match="is_holiday.*could not be built"):
+                _build_calendar_features(
+                    df,
+                    {"future_covariates": "is_holiday"},
+                    ft,
+                )
+
+    def test_unknown_token_is_rejected(self):
+        df = self._df_with_time()
+        ft = [float(df["time"].iloc[-1]) + 3600]
+        with pytest.raises(ValueError, match="Unknown future covariate.*hours"):
+            _build_calendar_features(df, {"future_covariates": "hours"}, ft)
+
+    def test_malformed_fourier_token_is_rejected(self):
+        df = self._df_with_time()
+        ft = [float(df["time"].iloc[-1]) + 3600]
+        with pytest.raises(ValueError, match="Unknown future covariate.*fourier:daily"):
+            _build_calendar_features(
+                df,
+                {"future_covariates": "fourier:daily"},
+                ft,
+            )
+
+    def test_holiday_country_failure_is_rejected(self):
+        df = self._df_with_time()
+        ft = [float(df["time"].iloc[-1]) + 3600]
+        with patch("holidays.country_holidays", side_effect=ValueError("unknown country")):
+            with pytest.raises(ValueError, match="country 'XX'.*unknown country"):
+                _build_calendar_features(
+                    df,
+                    {"future_covariates": "is_holiday", "country": "XX"},
+                    ft,
+                )
 
     def test_list_tokens(self):
         """Lines 311-312: list/tuple future_covariates."""
@@ -662,19 +699,66 @@ class TestPrepareFeatures:
         )
         assert tr.shape[1] > 2
 
-    def test_indicator_warning_surfaced_in_feature_info(self):
+    def test_indicator_failure_rejects_feature_preparation(self):
         df = _make_df(20)
         ft = [float(df["time"].iloc[-1]) + 3600 * i for i in range(1, 3)]
-        _, _, info = prepare_features(
+        with pytest.raises(ValueError, match="could not be parsed.*boom"):
+            prepare_features(
+                df,
+                {"indicators": "bad"},
+                ft,
+                2,
+                parse_kv_or_json=lambda x: x,
+                parse_ti_specs=MagicMock(side_effect=RuntimeError("boom")),
+            )
+
+    def test_future_covariate_attestation_records_requested_and_built(self):
+        df = _make_df(20)
+        ft = [float(df["time"].iloc[-1]) + 3600 * i for i in range(1, 3)]
+        training, future, info = prepare_features(
             df,
-            {"indicators": "bad"},
+            {"future_covariates": ["hr", "dow"]},
             ft,
             2,
             parse_kv_or_json=lambda x: x,
-            parse_ti_specs=MagicMock(side_effect=RuntimeError("boom")),
         )
-        assert "warnings" in info
-        assert "Technical indicator request could not be applied" in info["warnings"][0]
+
+        assert training.shape == (20, 4)
+        assert future.shape == (2, 4)
+        assert info["requested_future_covariates"] == ["hour", "dow"]
+        assert info["built_future_covariates"] == ["hour", "dow"]
+        assert info["failed_future_covariates"] == []
+
+
+@pytest.mark.parametrize(
+    ("features", "message"),
+    [
+        (
+            {"indicators": "definitely_not_an_indicator"},
+            "Requested technical indicators could not be applied",
+        ),
+        (
+            {"future_covariates": ["definitely_not_a_covariate"]},
+            "Unknown future covariate token",
+        ),
+    ],
+)
+def test_forecast_engine_rejects_unbuilt_requested_features(features, message):
+    from mtdata.forecast.forecast_engine import forecast_engine
+
+    result = forecast_engine(
+        symbol="EURUSD",
+        timeframe="H1",
+        method="theta",
+        horizon=2,
+        features=features,
+        prefetched_df=_make_df(40),
+        ci_alpha=None,
+    )
+
+    assert result["error_code"] == "feature_build_error"
+    assert message in result["error"]
+    assert result.get("success") is not True
 
 
 # ===== apply_preprocessing (lines 612-623) ================================

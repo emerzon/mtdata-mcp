@@ -41,7 +41,6 @@ _BASE_EXCLUDE_COLUMNS = {
     "tick_volume",
     "real_volume",
 }
-_TECHNICAL_INDICATOR_WARNING_ATTR = "_mtdata_technical_indicator_warning"
 
 
 def _safe_log_return_series(values: pd.Series) -> pd.Series:
@@ -132,7 +131,36 @@ _INCLUDE_SHORTHAND_COLUMNS = (
     "tick_volume",
     "real_volume",
 )
-_INCLUDE_EXCLUDED_COLUMNS = ("time", "close")
+_INCLUDE_FORBIDDEN_COLUMNS = {"time"}
+
+_FUTURE_COVARIATE_ALIASES = {
+    "hour": "hour",
+    "hr": "hour",
+    "dow": "dow",
+    "wday": "dow",
+    "weekday": "dow",
+    "dayofweek": "dow",
+    "month": "month",
+    "mo": "month",
+    "day": "day",
+    "dom": "day",
+    "doy": "doy",
+    "dayofyear": "doy",
+    "week": "week",
+    "woy": "week",
+    "minute": "minute",
+    "min": "minute",
+    "mod": "mod",
+    "minute_of_day": "mod",
+    "is_weekend": "is_weekend",
+    "weekend": "is_weekend",
+    "is_holiday": "is_holiday",
+    "holiday": "is_holiday",
+}
+_FUTURE_COVARIATE_HELP = (
+    "hour, dow, month, day, doy, week, minute, mod, is_weekend, "
+    "is_holiday, or fourier:<positive integer>"
+)
 
 
 def _explicit_include_tokens(include: Any) -> Optional[List[str]]:
@@ -159,6 +187,11 @@ def _process_include_specification(df: pd.DataFrame, fcfg: Dict[str, Any]) -> Li
     include = fcfg.get("include", fcfg.get("exog"))
     if not include:
         return []
+    if not isinstance(include, (str, list, tuple)):
+        raise ValueError(
+            "features.include/exog must be 'ohlcv', a column-name string, "
+            "or a list of column names."
+        )
 
     tokens = _explicit_include_tokens(include)
     if tokens is None:
@@ -171,8 +204,11 @@ def _process_include_specification(df: pd.DataFrame, fcfg: Dict[str, Any]) -> Li
     include_cols: List[str] = []
     unknown: List[str] = []
     for tok in tokens:
-        if tok in _INCLUDE_EXCLUDED_COLUMNS:
-            continue
+        if tok in _INCLUDE_FORBIDDEN_COLUMNS:
+            raise ValueError(
+                "Feature column 'time' cannot be used as an observed regressor; "
+                "request calendar values through features.future_covariates instead."
+            )
         if tok in df.columns:
             include_cols.append(tok)
         else:
@@ -213,19 +249,42 @@ def _add_technical_indicators(
     if not ind_specs:
         return []
 
-    df.attrs.pop(_TECHNICAL_INDICATOR_WARNING_ATTR, None)
     try:
         specs = parse_ti_specs(str(ind_specs)) if isinstance(ind_specs, str) else ind_specs
-        try:
-            apply_ta_indicators(df, ind_specs if isinstance(ind_specs, str) else specs)
-        except TypeError:
-            apply_ta_indicators(df, specs)
     except Exception as ex:
-        df.attrs[_TECHNICAL_INDICATOR_WARNING_ATTR] = (
-            f"Technical indicator request could not be applied: {ex}"
+        raise ValueError(
+            f"Requested technical indicators could not be parsed: {ex}"
+        ) from ex
+    if not specs:
+        raise ValueError(
+            "Requested technical indicators did not contain any valid specifications."
         )
 
-    return _collect_indicator_columns(df)
+    try:
+        applied_cols = apply_ta_indicators(
+            df,
+            ind_specs if isinstance(ind_specs, str) else specs,
+        )
+    except Exception as ex:
+        raise ValueError(
+            f"Requested technical indicators could not be applied: {ex}"
+        ) from ex
+
+    reported_cols = [
+        str(col)
+        for col in (applied_cols or [])
+        if str(col) in df.columns
+    ]
+    if reported_cols:
+        return list(dict.fromkeys(reported_cols))
+
+    indicator_cols = _collect_indicator_columns(df)
+    if not indicator_cols:
+        raise ValueError(
+            "Requested technical indicators produced no numeric feature columns."
+        )
+
+    return indicator_cols
 
 
 def _apply_features_and_target_spec(
@@ -299,10 +358,16 @@ def _create_fourier_features(
     """Create Fourier terms for a token like fourier:24."""
     try:
         period = int(str(token).split(":", 1)[1])
-    except Exception:
-        period = 24
+    except (IndexError, TypeError, ValueError) as exc:
+        raise ValueError(
+            f"Future covariate {token!r} requires a positive integer period."
+        ) from exc
+    if period <= 0:
+        raise ValueError(
+            f"Future covariate {token!r} requires a positive integer period."
+        )
 
-    w = 2.0 * math.pi / float(max(1, period))
+    w = 2.0 * math.pi / float(period)
     idx_tr = np.arange(np.asarray(t_train).size, dtype=float)
     idx_tf = float(idx_tr.size) + np.arange(np.asarray(t_future).size, dtype=float)
     return (
@@ -338,6 +403,55 @@ def _create_dow_features(
         return None, None
 
 
+def _normalize_future_covariates(value: Any) -> List[str]:
+    """Return canonical future-covariate tokens or reject the whole request."""
+    if not value:
+        return []
+    if isinstance(value, str):
+        raw_tokens = [
+            token.strip()
+            for token in value.replace(",", " ").split()
+            if token.strip()
+        ]
+    elif isinstance(value, (list, tuple)):
+        raw_tokens = [str(token).strip() for token in value if str(token).strip()]
+    else:
+        raise ValueError(
+            "features.future_covariates must be a token string or a list of tokens."
+        )
+
+    if not raw_tokens:
+        raise ValueError(
+            "features.future_covariates was provided but contained no covariate tokens."
+        )
+
+    normalized: List[str] = []
+    unknown: List[str] = []
+    for raw_token in raw_tokens:
+        token = raw_token.lower()
+        canonical = _FUTURE_COVARIATE_ALIASES.get(token)
+        if canonical is not None:
+            normalized.append(canonical)
+            continue
+        if token.startswith("fourier:"):
+            try:
+                period = int(token.split(":", 1)[1])
+            except (IndexError, TypeError, ValueError):
+                period = 0
+            if period > 0:
+                normalized.append(f"fourier:{period}")
+                continue
+        unknown.append(raw_token)
+
+    if unknown:
+        raise ValueError(
+            "Unknown future covariate token(s): "
+            f"{', '.join(dict.fromkeys(unknown))}. Supported values: "
+            f"{_FUTURE_COVARIATE_HELP}."
+        )
+    return list(dict.fromkeys(normalized))
+
+
 def _build_calendar_features(  # noqa: C901
     df: pd.DataFrame,
     fcfg: Dict[str, Any],
@@ -347,13 +461,7 @@ def _build_calendar_features(  # noqa: C901
     if not fut_cov:
         return None, None, []
 
-    tokens: List[str] = []
-    if isinstance(fut_cov, str):
-        tokens = [tok.strip() for tok in fut_cov.replace(",", " ").split() if tok.strip()]
-    elif isinstance(fut_cov, (list, tuple)):
-        tokens = [str(tok).strip() for tok in fut_cov if str(tok).strip()]
-    if not tokens:
-        return None, None, []
+    tokens = _normalize_future_covariates(fut_cov)
 
     dt_train = None
     dt_future = None
@@ -363,22 +471,43 @@ def _build_calendar_features(  # noqa: C901
         if dt_train is None:
             try:
                 dt_train = pd.to_datetime(df["time"].astype(float).to_numpy(), unit="s", utc=True)
-            except Exception:
-                dt_train = pd.Index([])
+            except Exception as exc:
+                raise ValueError(
+                    "Requested future covariates could not be built from the "
+                    f"training time column: {exc}"
+                ) from exc
         if dt_future is None:
             try:
                 dt_future = pd.to_datetime(np.asarray(future_times, dtype=float), unit="s", utc=True)
-            except Exception:
-                dt_future = pd.Index([])
+            except Exception as exc:
+                raise ValueError(
+                    "Requested future covariates could not be built from future "
+                    f"timestamps: {exc}"
+                ) from exc
+        if bool(pd.isna(dt_train).any()) or bool(pd.isna(dt_future).any()):
+            raise ValueError(
+                "Requested future covariates require finite training and future timestamps."
+            )
 
     tr_list: List[np.ndarray] = []
     tf_list: List[np.ndarray] = []
     cal_cols: List[str] = []
-    t_train = df["time"].astype(float).to_numpy()
-    t_future = np.asarray(future_times, dtype=float)
+    try:
+        t_train = df["time"].astype(float).to_numpy()
+    except Exception as exc:
+        raise ValueError(
+            "Requested future covariates could not be built from the training "
+            f"time column: {exc}"
+        ) from exc
+    try:
+        t_future = np.asarray(future_times, dtype=float)
+    except Exception as exc:
+        raise ValueError(
+            "Requested future covariates could not be built from future "
+            f"timestamps: {exc}"
+        ) from exc
 
-    for tok in tokens:
-        token = tok.lower()
+    for token in tokens:
         if token.startswith("fourier:"):
             tr_feats, tf_feats, cols = _create_fourier_features(token, t_train, t_future)
             tr_list.extend(tr_feats)
@@ -387,85 +516,96 @@ def _build_calendar_features(  # noqa: C901
             continue
 
         _ensure_dt()
-        if dt_train is None or dt_future is None:
-            continue
 
-        if token in ("hour", "hr"):
+        if token == "hour":
             vals_tr, vals_tf = _create_hour_features(t_train, t_future)
             if vals_tr is None or vals_tf is None:
-                continue
+                raise ValueError("Requested future covariate 'hour' could not be built.")
             w = 2.0 * math.pi / 24.0
             tr_list.extend([np.sin(w * vals_tr), np.cos(w * vals_tr)])
             tf_list.extend([np.sin(w * vals_tf), np.cos(w * vals_tf)])
             cal_cols.extend(["hr_sin", "hr_cos"])
-        elif token in ("dow", "wday", "weekday", "dayofweek"):
+        elif token == "dow":
             vals_tr, vals_tf = _create_dow_features(t_train, t_future)
             if vals_tr is None or vals_tf is None:
-                continue
+                raise ValueError("Requested future covariate 'dow' could not be built.")
             w = 2.0 * math.pi / 7.0
             tr_list.extend([np.sin(w * vals_tr), np.cos(w * vals_tr)])
             tf_list.extend([np.sin(w * vals_tf), np.cos(w * vals_tf)])
             cal_cols.extend(["dow_sin", "dow_cos"])
-        elif token in ("month", "mo"):
+        elif token == "month":
             vals_tr = dt_train.month.to_numpy() - 1
             vals_tf = dt_future.month.to_numpy() - 1
             w = 2.0 * math.pi / 12.0
             tr_list.extend([np.sin(w * vals_tr), np.cos(w * vals_tr)])
             tf_list.extend([np.sin(w * vals_tf), np.cos(w * vals_tf)])
             cal_cols.extend(["mo_sin", "mo_cos"])
-        elif token in ("day", "dom"):
+        elif token == "day":
             vals_tr = dt_train.day.to_numpy() - 1
             vals_tf = dt_future.day.to_numpy() - 1
             w = 2.0 * math.pi / 31.0
             tr_list.extend([np.sin(w * vals_tr), np.cos(w * vals_tr)])
             tf_list.extend([np.sin(w * vals_tf), np.cos(w * vals_tf)])
             cal_cols.extend(["dom_sin", "dom_cos"])
-        elif token in ("doy", "dayofyear"):
+        elif token == "doy":
             vals_tr = dt_train.dayofyear.to_numpy() - 1
             vals_tf = dt_future.dayofyear.to_numpy() - 1
             w = 2.0 * math.pi / 365.25
             tr_list.extend([np.sin(w * vals_tr), np.cos(w * vals_tr)])
             tf_list.extend([np.sin(w * vals_tf), np.cos(w * vals_tf)])
             cal_cols.extend(["doy_sin", "doy_cos"])
-        elif token in ("week", "woy"):
+        elif token == "week":
             vals_tr = dt_train.isocalendar().week.to_numpy().astype(float) - 1
             vals_tf = dt_future.isocalendar().week.to_numpy().astype(float) - 1
             w = 2.0 * math.pi / 52.143
             tr_list.extend([np.sin(w * vals_tr), np.cos(w * vals_tr)])
             tf_list.extend([np.sin(w * vals_tf), np.cos(w * vals_tf)])
             cal_cols.extend(["woy_sin", "woy_cos"])
-        elif token in ("minute", "min"):
+        elif token == "minute":
             vals_tr = dt_train.minute.to_numpy()
             vals_tf = dt_future.minute.to_numpy()
             w = 2.0 * math.pi / 60.0
             tr_list.extend([np.sin(w * vals_tr), np.cos(w * vals_tr)])
             tf_list.extend([np.sin(w * vals_tf), np.cos(w * vals_tf)])
             cal_cols.extend(["min_sin", "min_cos"])
-        elif token in ("mod", "minute_of_day"):
+        elif token == "mod":
             vals_tr = dt_train.hour.to_numpy() * 60 + dt_train.minute.to_numpy()
             vals_tf = dt_future.hour.to_numpy() * 60 + dt_future.minute.to_numpy()
             w = 2.0 * math.pi / 1440.0
             tr_list.extend([np.sin(w * vals_tr), np.cos(w * vals_tr)])
             tf_list.extend([np.sin(w * vals_tf), np.cos(w * vals_tf)])
             cal_cols.extend(["mod_sin", "mod_cos"])
-        elif token in ("is_weekend", "weekend"):
+        elif token == "is_weekend":
             tr_list.append((dt_train.weekday >= 5).astype(float))
             tf_list.append((dt_future.weekday >= 5).astype(float))
             cal_cols.append("is_weekend")
-        elif token in ("is_holiday", "holiday"):
+        elif token == "is_holiday":
+            country = str(fcfg.get("country", "US") or "US").strip()
             try:
                 import holidays
 
-                country = fcfg.get("country", "US")
                 years_tr = dt_train.year.unique()
                 years_tf = dt_future.year.unique()
                 all_years = np.unique(np.concatenate([years_tr, years_tf]))
-                hol_cal = holidays.CountryHoliday(country, years=all_years)
-                tr_list.append(np.array([1.0 if d in hol_cal else 0.0 for d in dt_train], dtype=float))
-                tf_list.append(np.array([1.0 if d in hol_cal else 0.0 for d in dt_future], dtype=float))
+                hol_cal = holidays.country_holidays(country, years=all_years)
+                tr_list.append(
+                    np.array(
+                        [1.0 if value.date() in hol_cal else 0.0 for value in dt_train],
+                        dtype=float,
+                    )
+                )
+                tf_list.append(
+                    np.array(
+                        [1.0 if value.date() in hol_cal else 0.0 for value in dt_future],
+                        dtype=float,
+                    )
+                )
                 cal_cols.append("is_holiday")
-            except Exception:
-                pass
+            except Exception as exc:
+                raise ValueError(
+                    "Requested future covariate 'is_holiday' could not be built "
+                    f"for country {country!r}: {exc}"
+                ) from exc
 
     if not tr_list:
         return None, None, []
@@ -647,9 +787,6 @@ def prepare_features(
         parse_ti_specs=parse_ti_specs,
         apply_ta_indicators=apply_ta_indicators,
     )
-    indicator_warning = df.attrs.pop(_TECHNICAL_INDICATOR_WARNING_ATTR, None)
-    if indicator_warning:
-        feat_info.setdefault("warnings", []).append(str(indicator_warning))
     cal_train_df, cal_future, cal_cols = _build_calendar_features(df, fcfg, future_times)
 
     train_index = training_index if training_index is not None else df.index
@@ -711,6 +848,13 @@ def prepare_features(
     feat_info["include_columns"] = list(include_cols)
     feat_info["indicator_columns"] = list(ti_cols)
     feat_info["calendar_columns"] = list(cal_cols)
+    requested_covariates = _normalize_future_covariates(
+        fcfg.get("future_covariates")
+    )
+    if requested_covariates:
+        feat_info["requested_future_covariates"] = requested_covariates
+        feat_info["built_future_covariates"] = list(requested_covariates)
+        feat_info["failed_future_covariates"] = []
     feat_info["selected_columns"] = selected_feature_names + cal_cols
     feat_info["n_features"] = int(exog_train_arr.shape[1]) if exog_train_arr is not None else 0
     return exog_train_arr, exog_future_arr, feat_info

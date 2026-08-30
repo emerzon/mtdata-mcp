@@ -1035,10 +1035,10 @@ class TestProcessIncludeSpecification:
             _process_include_specification(df, {"include": "open nonexistent"})
         assert exc_info.value.unknown_columns == ["nonexistent"]
 
-    def test_close_excluded_from_include(self):
+    def test_close_selected_when_explicitly_included(self):
         df = self._make_df()
         cols = _process_include_specification(df, {"include": "close"})
-        assert "close" not in cols
+        assert cols == ["close"]
 
     def test_comma_separated(self):
         df = self._make_df()
@@ -1123,10 +1123,10 @@ class TestCreateFourierFeatures:
         assert np.all(np.abs(tr[0]) <= 1.0 + 1e-10)
         assert np.all(np.abs(tr[1]) <= 1.0 + 1e-10)
 
-    def test_invalid_token_uses_default_24(self):
+    def test_invalid_token_is_rejected(self):
         t = np.arange(5, dtype=float)
-        _, _, cols = _create_fourier_features("fourier:bad", t, t)
-        assert cols == ["fx_sin_24", "fx_cos_24"]
+        with pytest.raises(ValueError, match="positive integer period"):
+            _create_fourier_features("fourier:bad", t, t)
 
     def test_sin_cos_orthogonality(self):
         t = np.arange(48, dtype=float)
