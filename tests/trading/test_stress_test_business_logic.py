@@ -82,6 +82,37 @@ def test_trade_stress_test_offsets_long_and_short_positions():
     assert {item["symbol"] for item in result["mark_freshness"]} == {"EURUSD"}
 
 
+def test_trade_stress_test_preserves_broker_symbol_case():
+    gateway = _Gateway()
+    gateway.positions_get = lambda: [
+        SimpleNamespace(
+            ticket=3,
+            symbol="EURUSD.pro",
+            type=0,
+            volume=1.0,
+            price_current=1.1,
+            price_open=1.09,
+        )
+    ]
+    looked_up = []
+    original_symbol_info = gateway.symbol_info
+
+    def symbol_info(symbol):
+        looked_up.append(symbol)
+        return original_symbol_info(symbol)
+
+    gateway.symbol_info = symbol_info
+
+    result = run_trade_stress_test(
+        TradeStressTestRequest(shocks={"eurusd.PRO": -1.0}),
+        gateway=gateway,
+    )
+
+    assert result["success"] is True
+    assert result["items"][0]["symbol"] == "EURUSD.pro"
+    assert looked_up == ["EURUSD.pro"]
+
+
 def test_trade_stress_test_labels_entry_price_fallback_as_non_live():
     gateway = _Gateway()
     gateway.positions_get = lambda: [

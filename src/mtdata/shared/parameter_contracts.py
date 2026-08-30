@@ -30,6 +30,7 @@ PARAMETER_HELP: Final[dict[str, str]] = {
     "significance": "p-value threshold for statistical significance.",
     "confidence": "Confidence level as a fraction such as 0.90, 0.95, or 0.99.",
     "min_observations": "Minimum observations required before computing the statistic.",
+    "ewma_decay": "Exponential decay for EWMA tail weighting; must be between zero and one.",
     "normalize": "Normalize input price series before analysis.",
     "trend": "Cointegration trend term to include in the test model.",
     "tp_ticks": "Take-profit barrier distance in ticks.",

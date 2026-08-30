@@ -981,6 +981,7 @@ def _calculate_var_cvar_from_pnl(
     *,
     confidence: float,
     method: str,
+    ewma_decay: float = 0.94,
 ) -> tuple[float, float, float]:
     if method == "historical":
         return _historical_var_cvar_tail(pnl_values, confidence)
@@ -989,7 +990,7 @@ def _calculate_var_cvar_from_pnl(
     if method == "cornish_fisher":
         return _cornish_fisher_var_cvar_tail(pnl_values, confidence)
     if method == "ewma":
-        return _ewma_var_cvar_tail(pnl_values, confidence)
+        return _ewma_var_cvar_tail(pnl_values, confidence, decay=ewma_decay)
     raise ValueError(f"Unsupported VaR/CVaR method: {method}")
 
 
@@ -2881,8 +2882,8 @@ def run_trade_stress_test(
     total_pnl = 0.0
     shocked_positions = 0
     for position in positions:
-        symbol = str(getattr(position, "symbol", "") or "").strip().upper()
-        shock = request.shocks.get(symbol, request.shocks.get("*"))
+        symbol = str(getattr(position, "symbol", "") or "").strip()
+        shock = request.shocks.get(symbol.upper(), request.shocks.get("*"))
         if shock is None and not request.include_unshocked:
             continue
         shock_value = float(shock or 0.0)
@@ -3237,6 +3238,7 @@ def run_trade_var_cvar_calculate(  # noqa: C901
     lookback = int(request.lookback)
     horizon_bars = int(request.horizon_bars)
     min_observations = int(request.min_observations)
+    ewma_decay = float(request.ewma_decay)
     history_policy = (
         "includes_current_forming_bar"
         if request.include_incomplete
@@ -3668,6 +3670,7 @@ def run_trade_var_cvar_calculate(  # noqa: C901
             pnl_values,
             confidence=confidence_value,
             method=method_value,
+            ewma_decay=ewma_decay,
         )
     except Exception as exc:
         return _finish({"error": str(exc)})
@@ -3719,6 +3722,8 @@ def run_trade_var_cvar_calculate(  # noqa: C901
     data_end = _format_var_cvar_timestamp(portfolio_pnl.index[-1])
     as_of = data_end
     tail_observations = sum(1 for value in pnl_values if value <= threshold)
+    ewma_effective_observations: Optional[float] = None
+    ewma_effective_tail_observations: Optional[float] = None
     if method_value == "historical":
         tail_observations = _historical_tail_observations(
             len(pnl_values), confidence_value
@@ -3730,6 +3735,25 @@ def run_trade_var_cvar_calculate(  # noqa: C901
             len(pnl_values) >= required_for_confidence and tail_observations >= 2
         )
         scenario_generation = "empirical_observed_pnl"
+    elif method_value == "ewma":
+        ages = np.arange(len(pnl_values) - 1, -1, -1, dtype=float)
+        ewma_weights = (1.0 - ewma_decay) * np.power(ewma_decay, ages)
+        ewma_weights = ewma_weights / float(np.sum(ewma_weights))
+        ewma_effective_observations = float(
+            np.sum(ewma_weights) ** 2 / np.sum(ewma_weights**2)
+        )
+        ewma_effective_tail_observations = float(
+            ewma_effective_observations * (1.0 - confidence_value)
+        )
+        required_for_confidence = max(
+            int(min_observations),
+            int(math.ceil(2.0 / (1.0 - confidence_value))),
+        )
+        sample_sufficient = (
+            ewma_effective_observations >= float(required_for_confidence)
+            and ewma_effective_tail_observations >= 2.0
+        )
+        scenario_generation = "ewma_weighted_empirical"
     else:
         required_for_confidence = max(int(min_observations), 10)
         sample_sufficient = len(pnl_values) >= required_for_confidence
@@ -3747,6 +3771,20 @@ def run_trade_var_cvar_calculate(  # noqa: C901
         "tail_observations": int(tail_observations),
         "min_tail_observations": 2 if method_value == "historical" else 1,
     }
+    if method_value == "ewma":
+        sample_quality.update(
+            {
+                "effective_observations": round(
+                    float(ewma_effective_observations or 0.0),
+                    4,
+                ),
+                "effective_tail_observations": round(
+                    float(ewma_effective_tail_observations or 0.0),
+                    4,
+                ),
+                "min_tail_observations": 2,
+            }
+        )
     var_warnings: List[str] = []
     if not sample_sufficient:
         var_warnings.append(
@@ -3757,7 +3795,11 @@ def run_trade_var_cvar_calculate(  # noqa: C901
             + (
                 " and 2 tail points."
                 if method_value == "historical"
-                else "."
+                else (
+                    " on an effective-weight basis and 2 effective tail points."
+                    if method_value == "ewma"
+                    else "."
+                )
             )
         )
 
@@ -3823,6 +3865,12 @@ def run_trade_var_cvar_calculate(  # noqa: C901
         summary["cvar_pct_of_equity"] = round((float(cvar_value) / equity) * 100.0, 4)
     if currency:
         summary["currency"] = currency
+    if method_value == "ewma":
+        summary["ewma_decay"] = round(ewma_decay, 6)
+        summary["ewma_half_life_bars"] = round(
+            math.log(0.5) / math.log(ewma_decay),
+            4,
+        )
 
     result = {
         "success": True,

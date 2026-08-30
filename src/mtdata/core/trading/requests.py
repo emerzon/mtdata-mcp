@@ -683,6 +683,15 @@ class TradeVarCvarRequest(BaseModel):
             "as portfolio_risk_decompose method=bootstrap_historical."
         ),
     )
+    ewma_decay: float = Field(
+        0.94,
+        gt=0.0,
+        lt=1.0,
+        description=(
+            "Exponential decay used by method=ewma. Higher values retain more "
+            "history; the response reports the resulting half-life and effective sample."
+        ),
+    )
     transform: Literal["log_return", "pct"] = Field(
         default="log_return",
         description=(

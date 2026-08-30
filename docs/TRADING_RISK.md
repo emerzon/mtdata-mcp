@@ -182,7 +182,9 @@ Method notes:
   skewness and excess kurtosis. It is most useful when the return sample is
   clearly non-normal; small samples make the adjustment noisy.
 - `ewma` reweights the same historical returns with exponential decay so recent
-  observations dominate. The payload reports the effective decay/half-life used.
+  observations dominate. Configure the decay with `ewma_decay` (default `0.94`).
+  The payload reports the decay, half-life, effective observations, and effective
+  tail observations used to grade sample quality.
 - `--horizon-bars N` treats the holding period as N times the selected
   timeframe. It does not simulate intra-horizon barrier hits or path dependence.
 - `--include-incomplete` adds the in-progress bar to the return series. That can

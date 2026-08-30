@@ -159,6 +159,56 @@ def test_calculate_var_cvar_from_pnl_ewma_emphasizes_recent_losses() -> None:
     assert ewma_cvar == 10.0
 
 
+def test_trade_var_cvar_ewma_reports_effective_sample_and_decay() -> None:
+    position = SimpleNamespace(
+        ticket=11,
+        symbol="EURUSD",
+        type=0,
+        volume=1.0,
+        price_current=100.0,
+        price_open=99.0,
+        profit=1.0,
+    )
+    gateway = SimpleNamespace(
+        ensure_connection=lambda: None,
+        account_info=lambda: SimpleNamespace(equity=1000.0, currency="USD"),
+        positions_get=lambda symbol=None: [position],
+        symbol_info=lambda symbol: _symbol_info(),
+        symbol_info_tick=lambda symbol: SimpleNamespace(
+            bid=99.0,
+            ask=101.0,
+            time=1_700_000_000,
+        ),
+        copy_rates_from_pos=lambda symbol, timeframe, start, count: [
+            {"time": index + 1, "close": 100.0 + index * 0.1}
+            for index in range(101)
+        ],
+        POSITION_TYPE_BUY=0,
+        POSITION_TYPE_SELL=1,
+        ORDER_TYPE_BUY=0,
+        ORDER_TYPE_SELL=1,
+    )
+
+    out = run_trade_var_cvar_calculate(
+        TradeVarCvarRequest(
+            lookback=100,
+            min_observations=20,
+            confidence=0.95,
+            method="ewma",
+            ewma_decay=0.94,
+        ),
+        gateway=gateway,
+    )
+
+    quality = out["summary"]["sample_quality"]
+    assert out["success"] is True
+    assert out["summary"]["ewma_decay"] == 0.94
+    assert out["summary"]["ewma_half_life_bars"] == pytest.approx(11.2023)
+    assert quality["effective_observations"] < quality["observations"]
+    assert quality["effective_tail_observations"] < 2.0
+    assert quality["status"] == "insufficient"
+
+
 def test_run_trade_var_cvar_calculate_summarizes_open_position_portfolio() -> None:
     position = SimpleNamespace(
         ticket=11,
