@@ -155,7 +155,7 @@ Analyze trading activity and participation.
 ### Additional Categories
 
 The indicator engine (via pandas_ta) supports additional categories beyond the four above:
-- **candles** — candlestick pattern indicators (e.g. `cdl_doji`, `cdl_hammer`)
+- **candles** — candlestick pattern indicators (e.g. `cdl_doji`, `cdl_inside`)
 - **performance** — return and cumulative performance metrics
 - **statistics** — statistical measures (e.g. `zscore`, `variance`, `kurtosis`)
 

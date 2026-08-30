@@ -149,12 +149,14 @@ mtdata-cli symbols_list --limit 5
 
 TOON includes a quick schema hint:
 ```
-data[5]{symbol,group,description,currency_base,currency_profit,digits,spread_is_floating}:
-    EURUSD,Forex\Majors,Euro vs US Dollar,EUR,USD,5,true
+data[5]{symbol,group,description,currency_base,currency_profit,digits}:
+    EURUSD,Forex\Majors,Euro vs US Dollar,EUR,USD,5
     ...
 ```
 - `data[5]` is the number of rows returned
-- `{symbol,...,spread_is_floating}` lists the columns/keys in each row
+- `{symbol,...,digits}` lists the columns/keys in each row. Compact collection
+  output may omit a column when every returned row carries the same default
+  value; use `--detail full` when you need a guaranteed field set.
 
 ### JSON
 Structured output for programmatic use:
