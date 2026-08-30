@@ -195,3 +195,54 @@ def test_compact_ticks_omit_healthy_freshness_and_keep_provider_only() -> None:
         "data": payload["data"],
         "source": {"provider": "mt5"},
     }
+
+
+def test_compact_symbol_description_does_not_mislabel_quote_conflict_as_stale() -> None:
+    payload = {
+        "success": True,
+        "symbol": "EURUSD",
+        "details": {
+            "time": "2026-08-30T22:00:00Z",
+            "data_stale": False,
+            "usable_for_live_trading": False,
+            "quote_source_conflict": {
+                "reason": "equal_timestamp_bid_ask_disagreement"
+            },
+            "warning": "Quote sources conflict.",
+        },
+    }
+
+    result = shape_public_tool_output(
+        payload,
+        tool_name="symbols_describe",
+        detail="compact",
+    )
+
+    assert result["warnings"] == [
+        {
+            "code": "quote_source_conflict",
+            "scope": "symbols_describe",
+            "message": "Quote sources conflict.",
+            "data_as_of": "2026-08-30T22:00:00Z",
+        }
+    ]
+
+
+def test_compact_symbol_description_uses_general_code_for_unknown_live_blocker() -> None:
+    payload = {
+        "success": True,
+        "symbol": "EURUSD",
+        "details": {
+            "data_stale": False,
+            "usable_for_live_trading": False,
+            "warning": "Quote cannot be used for live execution.",
+        },
+    }
+
+    result = shape_public_tool_output(
+        payload,
+        tool_name="symbols_describe",
+        detail="compact",
+    )
+
+    assert result["warnings"][0]["code"] == "quote_not_live"

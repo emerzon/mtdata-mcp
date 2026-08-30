@@ -178,6 +178,7 @@ _SYMBOL_DESCRIBE_COMPACT_DIRECT_FIELDS: tuple[str, ...] = (
     "quote_status",
     "quote_source",
     "quote_source_state",
+    "quote_source_conflict",
     "data_stale",
     "data_age_seconds",
     "stale_after_seconds",

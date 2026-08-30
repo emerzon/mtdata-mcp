@@ -1012,12 +1012,18 @@ def _compact_symbol_description(payload: MutableMapping[str, Any]) -> None:
     if not isinstance(details, Mapping):
         return
     warning_text = str(details.get("warning") or "").strip()
-    if (
-        details.get("data_stale") is True
-        or details.get("usable_for_live_trading") is False
-    ):
+    warning_code = None
+    if details.get("data_stale") is True:
+        warning_code = "data_stale"
+    elif isinstance(details.get("quote_source_conflict"), Mapping):
+        warning_code = "quote_source_conflict"
+    elif details.get("spread_valid") is False:
+        warning_code = "invalid_spread"
+    elif details.get("usable_for_live_trading") is False:
+        warning_code = "quote_not_live"
+    if warning_code is not None:
         warning = {
-            "code": "data_stale",
+            "code": warning_code,
             "scope": "symbols_describe",
             "message": warning_text
             or "The current quote is not suitable for live execution.",
@@ -1657,15 +1663,10 @@ def _compact_trade_history(payload: MutableMapping[str, Any]) -> None:
         item = dict(row)
         if item.get("position_action"):
             _drop_keys(item, {"deal_effect", "fill_side", "position_side"})
-        if item.get("order_ticket") == item.get("position_ticket"):
-            item.pop("order_ticket", None)
         if currency and item.get("price_currency") == currency:
             item.pop("price_currency", None)
         if len(price_bases) == 1:
             item.pop("price_basis", None)
-        for key in ("commission", "fee", "profit", "swap"):
-            if item.get(key) == 0:
-                item.pop(key, None)
         compact_rows.append(item)
     payload["items"] = compact_rows
     _drop_keys(
@@ -1686,8 +1687,16 @@ def _compact_trade_history(payload: MutableMapping[str, Any]) -> None:
         },
     )
     units = payload.get("units")
-    if isinstance(units, Mapping) and units.get("volume"):
-        payload["units"] = {"volume": units["volume"]}
+    if isinstance(units, Mapping):
+        compact_units = {
+            key: units[key]
+            for key in ("volume", "net_pnl")
+            if units.get(key) not in (None, "")
+        }
+        if compact_units:
+            payload["units"] = compact_units
+        else:
+            payload.pop("units", None)
     else:
         payload.pop("units", None)
 
