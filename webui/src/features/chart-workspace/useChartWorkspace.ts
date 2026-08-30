@@ -18,6 +18,7 @@ import { loadJSON, saveJSON } from '../../lib/storage'
 import { mapCompactForecastToSeries } from '../../lib/compactForecast'
 import { toUtcSec } from '../../lib/time'
 import { chartWorkspaceLivePollMs } from '../../lib/timeframes'
+import { liveQuotePriceLines } from '../../lib/chartPriceLines'
 import { formatDateTime } from '../../lib/utils'
 import {
   confluencePriceLines,
@@ -115,7 +116,7 @@ export function useChartWorkspace() {
         indicators: indicatorsQuery,
         ohlcv: indicatorsOhlcv,
       }, signal),
-    enabled: !!symbol,
+    enabled: isLive && !!symbol,
   })
 
   const { data: liveDataResponse, error: liveHistoryError } = useQuery({
@@ -427,21 +428,9 @@ export function useChartWorkspace() {
   )
 
   const priceLines: PriceLineSpec[] = useMemo(() => {
-    if (!tickData) return []
-
-    const lines: PriceLineSpec[] = []
-    if (showBid) lines.push({ price: tickData.bid, color: '#ef4444', title: 'Bid' })
-    if (showAsk) lines.push({ price: tickData.ask, color: '#22c55e', title: 'Ask' })
-
-    if (showLast) {
-      let lastPrice = tickData.last
-      if (!lastPrice && bars.length > 0) {
-        lastPrice = bars[bars.length - 1].close
-      }
-      if (lastPrice && lastPrice > 0) {
-        lines.push({ price: lastPrice, color: '#facc15', title: 'Last' })
-      }
-    }
+    const lines = isLive
+      ? liveQuotePriceLines(tickData, { showBid, showAsk, showLast })
+      : []
 
     return [
       ...lines,
@@ -453,10 +442,10 @@ export function useChartWorkspace() {
       ...exposurePriceLines(exposureState.data?.positions, exposureState.data?.pending),
     ]
   }, [
-    bars,
     confluenceState.data,
     exposureState.data,
     ideaGeometry,
+    isLive,
     pivotState.levels,
     showAsk,
     showBid,
