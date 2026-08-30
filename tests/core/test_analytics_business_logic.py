@@ -25,6 +25,7 @@ from mtdata.analytics.execution_quality import (
 )
 from mtdata.analytics.microstructure import _classify_trade_sides
 from mtdata.analytics.portfolio_risk import (
+    _bootstrap_window_sums,
     _filtered_historical_returns,
     _portfolio_mark_context,
 )
@@ -2896,6 +2897,93 @@ def test_portfolio_risk_resolves_and_accepts_valid_proposed_broker_volume() -> N
     assert proposed["mark_price"] == pytest.approx(1.1001)
     assert proposed["mark_price_basis"] == "ask"
     assert proposed["quote_time"]
+
+
+def test_portfolio_risk_same_symbol_proposal_keeps_base_exposure() -> None:
+    gateway = FakeGateway()
+    gateway.positions = [
+        {
+            "ticket": 1,
+            "symbol": "EURUSD",
+            "type": 0,
+            "volume": 1.0,
+            "price_current": 1.1,
+        }
+    ]
+    common = {
+        "lookback": 300,
+        "horizon_bars": [1],
+        "confidence": [0.95],
+        "method": "bootstrap_historical",
+        "simulations": 500,
+        "seed": 42,
+    }
+
+    baseline = decompose_portfolio_risk(
+        PortfolioRiskDecomposeRequest(**common),
+        gateway,
+    )["risk"][0]
+    proposed = decompose_portfolio_risk(
+        PortfolioRiskDecomposeRequest(
+            **common,
+            proposed_trade={
+                "symbol": "EURUSD",
+                "side": "buy",
+                "volume": 0.01,
+            },
+        ),
+        gateway,
+    )["risk"][0]
+
+    assert proposed["before_cvar"] == pytest.approx(baseline["cvar"])
+    assert proposed["incremental_cvar"] == pytest.approx(
+        proposed["cvar"] - baseline["cvar"]
+    )
+
+
+def test_portfolio_risk_rejects_unknown_position_side() -> None:
+    gateway = FakeGateway()
+    gateway.positions = [
+        {
+            "ticket": 1,
+            "symbol": "EURUSD",
+            "type": 99,
+            "volume": 1.0,
+            "price_current": 1.1,
+        }
+    ]
+
+    result = decompose_portfolio_risk(
+        PortfolioRiskDecomposeRequest(
+            lookback=300,
+            horizon_bars=[1],
+            confidence=[0.95],
+            simulations=500,
+        ),
+        gateway,
+    )
+
+    assert result["success"] is False
+    assert result["error_code"] == "portfolio_pricing_incomplete"
+    assert result["failures"] == [
+        {
+            "symbol": "EURUSD",
+            "ticket": 1,
+            "reason": "unknown position side: 99",
+        }
+    ]
+
+
+def test_bootstrap_window_sums_match_contiguous_slice_sums() -> None:
+    values = np.arange(36, dtype=float).reshape(12, 3) / 10.0
+    starts = np.asarray([0, 4, 4, 7], dtype=int)
+
+    actual = _bootstrap_window_sums(values, starts, 3)
+    expected = np.stack(
+        [values[start : start + 3].sum(axis=0) for start in starts]
+    )
+
+    assert actual == pytest.approx(expected)
 
 
 def test_portfolio_mark_freshness_is_aggregated_by_symbol() -> None:

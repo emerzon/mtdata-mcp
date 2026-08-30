@@ -181,9 +181,26 @@ def _filtered_historical_returns(
 
 
 
-def _position_side(row: Dict[str, Any], gateway: Any) -> str:
+def _position_side(row: Dict[str, Any], gateway: Any) -> Optional[str]:
     value = row.get("type")
-    return "buy" if str(value).lower() in {"buy", "0", str(getattr(gateway, "POSITION_TYPE_BUY", 0))} else "sell"
+    normalized = str(value).strip().lower()
+    buy_values = {
+        "buy",
+        "long",
+        "0",
+        str(getattr(gateway, "POSITION_TYPE_BUY", 0)).strip().lower(),
+    }
+    sell_values = {
+        "sell",
+        "short",
+        "1",
+        str(getattr(gateway, "POSITION_TYPE_SELL", 1)).strip().lower(),
+    }
+    if normalized in buy_values:
+        return "buy"
+    if normalized in sell_values:
+        return "sell"
+    return None
 
 
 
@@ -192,6 +209,8 @@ def _position_sensitivity(gateway: Any, row: Dict[str, Any]) -> Tuple[Optional[f
         symbol = str(row.get("symbol") or "")
         volume = float(row.get("volume") or 0.0)
         side = _position_side(row, gateway)
+        if side is None:
+            return None, f"unknown position side: {row.get('type')!r}"
         raw_tick = gateway.symbol_info_tick(symbol)
         tick, _ = resolve_quote_tick(
             gateway,
@@ -215,6 +234,22 @@ def _position_sensitivity(gateway: Any, row: Dict[str, Any]) -> Tuple[Optional[f
         return float((up_sens + down_sens) / 2.0), None
     except Exception as exc:
         return None, str(exc)
+
+
+def _bootstrap_window_sums(
+    values: np.ndarray,
+    starts: np.ndarray,
+    horizon: int,
+) -> np.ndarray:
+    """Return contiguous sampled window sums without per-sample slicing."""
+    matrix = np.ascontiguousarray(values, dtype=float)
+    prefix = np.vstack(
+        (
+            np.zeros((1, matrix.shape[1]), dtype=float),
+            np.cumsum(matrix, axis=0),
+        )
+    )
+    return prefix[starts + int(horizon)] - prefix[starts]
 
 
 
@@ -593,21 +628,30 @@ def decompose_portfolio_risk(  # noqa: C901
     rng = np.random.default_rng(request.seed)
     risk_rows = []
     scenario_details: Dict[int, np.ndarray] = {}
-    sensitivity_vec = np.asarray([sensitivities[column] for column in standardized.columns], dtype=float)
+    standardized_values = standardized.to_numpy(dtype=float)
+    sensitivity_vec = np.asarray(
+        [sensitivities[column] for column in standardized.columns],
+        dtype=float,
+    )
+    base_sensitivity_vec = sensitivity_vec.copy()
+    if proposed_sensitivity and proposed_sensitivity[0] in standardized.columns:
+        proposed_idx = standardized.columns.get_loc(proposed_sensitivity[0])
+        base_sensitivity_vec[proposed_idx] -= proposed_sensitivity[1]
     for horizon in request.horizon_bars:
         max_start = len(standardized) - horizon
         if max_start < 1:
             continue
         starts = rng.integers(0, max_start + 1, size=request.simulations)
-        scenario_returns = np.stack([standardized.iloc[start : start + horizon].sum(axis=0).to_numpy(dtype=float) for start in starts])
+        scenario_returns = _bootstrap_window_sums(
+            standardized_values,
+            starts,
+            horizon,
+        )
         scenario_returns = scenario_returns * current_vol.to_numpy(dtype=float)
         scenario_simple_returns = np.expm1(scenario_returns)
         component_pnl = scenario_simple_returns * sensitivity_vec
         pnl = component_pnl.sum(axis=1)
-        base_pnl = pnl.copy()
-        if proposed_sensitivity and proposed_sensitivity[0] in list(standardized.columns):
-            proposed_idx = list(standardized.columns).index(proposed_sensitivity[0])
-            base_pnl = pnl - component_pnl[:, proposed_idx]
+        base_pnl = (scenario_simple_returns * base_sensitivity_vec).sum(axis=1)
         scenario_details[horizon] = pnl
         for confidence in request.confidence:
             cutoff = float(np.quantile(pnl, 1.0 - confidence))
