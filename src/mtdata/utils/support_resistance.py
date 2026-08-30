@@ -380,13 +380,15 @@ def _build_test(
     future_stop = min(len(highs), future_start + int(reaction_bars))
     if future_start >= future_stop:
         return None
+    reaction_complete = future_stop - future_start >= int(reaction_bars)
 
     if test_type == "support":
         favorable = float(np.nanmax(highs[future_start:future_stop]) - level_value)
     else:
         favorable = float(level_value - np.nanmin(lows[future_start:future_stop]))
-    if not math.isfinite(favorable) or favorable <= 0.0:
-        return None
+    if not math.isfinite(favorable):
+        favorable = 0.0
+    favorable = max(0.0, favorable)
 
     atr_value = float(atr[index]) if index < len(atr) and math.isfinite(float(atr[index])) else float("nan")
     if not math.isfinite(atr_value) or atr_value <= 0.0:
@@ -435,6 +437,7 @@ def _build_test(
         "age_bars": int(age_bars),
         "decay_weight": float(decay_weight),
         "bounce_atr": float(bounce_atr),
+        "reaction_complete": bool(reaction_complete),
         "pretest_adx": float(pretest_adx),
         "retest_component": float(retest_component),
         "bounce_component": float(bounce_component),

@@ -9,6 +9,7 @@ from mtdata.utils.support_resistance import (
     _annotate_proximity_ranks,
     _annotate_strength_metrics,
     _build_fibonacci_level,
+    _build_test,
     _build_zone_overlap,
     _collect_support_resistance_warnings,
     _compute_fibonacci_payload,
@@ -24,6 +25,48 @@ from mtdata.utils.support_resistance import (
     merge_support_resistance_results,
     standard_support_resistance_payload,
 )
+
+
+def test_completed_failed_level_test_is_retained_with_zero_bounce() -> None:
+    test = _build_test(
+        test_type="support",
+        index=2,
+        level_value=9.5,
+        highs=np.asarray([10.0, 10.2, 10.1, 9.4, 9.4, 10.4]),
+        lows=np.asarray([9.8, 10.0, 9.5, 9.3, 9.2, 10.2]),
+        atr=np.full(6, 0.3),
+        adx=np.full(6, 20.0),
+        volume=None,
+        volume_baseline=None,
+        epochs=[float(index) for index in range(6)],
+        reaction_bars=2,
+        decay_half_life_bars=20,
+    )
+
+    assert test is not None
+    assert test["reaction_complete"] is True
+    assert test["bounce_atr"] == 0.0
+    assert test["bounce_component"] == 0.0
+
+
+def test_incomplete_level_reaction_window_is_disclosed() -> None:
+    test = _build_test(
+        test_type="support",
+        index=4,
+        level_value=9.5,
+        highs=np.asarray([10.0, 10.2, 10.1, 9.4, 9.4, 10.4]),
+        lows=np.asarray([9.8, 10.0, 9.5, 9.3, 9.2, 10.2]),
+        atr=np.full(6, 0.3),
+        adx=np.full(6, 20.0),
+        volume=None,
+        volume_baseline=None,
+        epochs=[float(index) for index in range(6)],
+        reaction_bars=2,
+        decay_half_life_bars=20,
+    )
+
+    assert test is not None
+    assert test["reaction_complete"] is False
 
 
 def test_format_time_uses_rfc3339_utc():
