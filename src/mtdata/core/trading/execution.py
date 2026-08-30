@@ -16,6 +16,7 @@ from .gateway import MT5TradingGateway, create_trading_gateway, trading_connecti
 from .positions import _resolve_open_position, _resolve_pending_order
 from .safety import (
     _build_guardrail_block,
+    _guardrail_snapshot,
     _guardrails_ignored_for_demo,
     _normalize_stop_loss_value,
     _resolve_pending_order_side,
@@ -191,7 +192,7 @@ def _evaluate_position_modify_guardrails(
     current_stop_loss: Optional[float],
     candidate_stop_loss: Optional[float],
 ) -> Optional[Dict[str, Any]]:
-    guardrail_config = trade_guardrails_config.snapshot()
+    guardrail_config = _guardrail_snapshot(trade_guardrails_config)
     position_volume = validation._safe_float_attr(position, "volume")
     entry_price = validation._safe_float_attr(position, "price_current")
     if entry_price is None or not math.isfinite(float(entry_price)) or entry_price <= 0.0:
@@ -1031,7 +1032,7 @@ def _modify_pending_order(  # noqa: C901
                 _normalize_stop_loss_value(current_stop_loss) is None
                 and _normalize_stop_loss_value(candidate_stop_loss) is None
             )
-            guardrail_config = trade_guardrails_config.snapshot()
+            guardrail_config = _guardrail_snapshot(trade_guardrails_config)
             if (
                 guardrail_config.is_enabled()
                 and order_volume is not None

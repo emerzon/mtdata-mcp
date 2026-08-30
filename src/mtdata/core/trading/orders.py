@@ -25,6 +25,7 @@ from .positions import _resolve_open_position
 from .safety import (
     _account_uses_netting,
     _estimate_order_risk_currency,
+    _guardrail_snapshot,
     _resolve_existing_symbol_net,
     assess_margin_stress,
     assess_new_exposure_allowed,
@@ -846,7 +847,7 @@ def _evaluate_live_trade_guardrails(
     entry_price: float,
     symbol_info: Any,
 ) -> Optional[Dict[str, Any]]:
-    guardrail_config = trade_guardrails_config.snapshot()
+    guardrail_config = _guardrail_snapshot(trade_guardrails_config)
     if not guardrail_config.is_enabled():
         return None
     try:

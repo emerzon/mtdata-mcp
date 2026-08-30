@@ -221,8 +221,10 @@ def _model_has_values(model: Any) -> bool:
 def _guardrail_snapshot(config: Optional[Any]) -> Optional[Any]:
     if config is None:
         return None
-    snapshot = getattr(config, "snapshot", None)
-    return snapshot() if callable(snapshot) else config
+    # Look up the method on the class so test/integration doubles that expose
+    # arbitrary attributes (for example MagicMock) remain valid configs.
+    snapshot = getattr(type(config), "snapshot", None)
+    return snapshot(config) if callable(snapshot) else config
 
 
 def _guardrails_active(config: Optional[Any]) -> bool:
