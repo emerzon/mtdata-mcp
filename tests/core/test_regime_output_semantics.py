@@ -789,6 +789,41 @@ def test_rule_based_ranging_confidence_uses_ranging_evidence() -> None:
     assert out["reliability"]["confidence"] == 1.0
 
 
+def test_rule_based_trending_confidence_tracks_threshold_margin() -> None:
+    raw = _unwrap(regime_detect)
+
+    def detect_with(params: dict) -> dict:
+        with (
+            patch("mtdata.core.regime.api._fetch_history", return_value=_downtrend_df(160)),
+            patch("mtdata.core.regime.api.resolve_denoise_base_col", return_value="close"),
+            patch("mtdata.core.regime.api._format_time_minimal", side_effect=lambda x: f"T{x}"),
+            patch("mtdata.core.regime.detect._format_time_minimal", side_effect=lambda x: f"T{x}"),
+        ):
+            return raw(
+                symbol="TEST",
+                timeframe="H1",
+                method="rule_based",
+                params={"window_bars": 160, **params},
+                detail="full",
+            )
+
+    marginal = detect_with(
+        {"efficiency_threshold": 0.95, "trend_strength_threshold": 3.3}
+    )
+    strong = detect_with(
+        {"efficiency_threshold": 0.35, "trend_strength_threshold": 1.25}
+    )
+
+    assert marginal["regime"]["state"] == "trending"
+    assert strong["regime"]["state"] == "trending"
+    assert 0.0 <= marginal["current_regime"]["regime_confidence"] < 1.0
+    assert (
+        marginal["current_regime"]["regime_confidence"]
+        < strong["current_regime"]["regime_confidence"]
+        < 1.0
+    )
+
+
 def test_rule_based_explains_ranging_direction_bias() -> None:
     raw = _unwrap(regime_detect)
 
@@ -848,7 +883,7 @@ def test_rule_based_compact_explains_direction_bias() -> None:
     assert "headline" not in current_regime
     assert "state_label_native" not in current_regime
     assert "state_label_canonical" not in current_regime
-    assert current_regime["regime_confidence"] == pytest.approx(0.8029)
+    assert current_regime["regime_confidence"] == pytest.approx(0.8793)
     assert "state" not in current_regime
     assert "efficiency_ratio" in current_regime
     assert "trend_strength" in current_regime
@@ -1248,4 +1283,3 @@ def test_wavelet_rejects_non_positive_energy_window() -> None:
         )
 
     assert out["error"] == "params.energy_window must be a positive integer."
-

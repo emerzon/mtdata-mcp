@@ -2105,8 +2105,13 @@ def _detect_rule_based(  # noqa: C901
     direction = str(regime_metrics["direction"])
     trend_strength = float(regime_metrics["trend_strength"])
     efficiency_ratio = float(regime_metrics["efficiency_ratio"])
+    effective_efficiency_threshold = float(
+        regime_metrics["effective_efficiency_threshold"]
+    )
     window_move_pct_raw = float(regime_metrics["window_move_pct"])
-    ranging_efficiency_threshold = max(0.1, 0.55 * efficiency_threshold)
+    ranging_efficiency_threshold = float(
+        regime_metrics["ranging_efficiency_threshold"]
+    )
 
     direction_bias = {
         "bullish": "upward",
@@ -2173,13 +2178,17 @@ def _detect_rule_based(  # noqa: C901
     confidence = 0.0
     try:
         if regime_state == "trending":
-            confidence = (
-                min(1.0, efficiency_ratio / max(float(efficiency_threshold), 1e-9))
-                + min(
-                    1.0,
-                    trend_strength / max(float(trend_strength_threshold), 1e-9),
-                )
-            ) / 2.0
+            efficiency_margin = max(
+                0.0,
+                efficiency_ratio / max(effective_efficiency_threshold, 1e-9) - 1.0,
+            )
+            strength_margin = max(
+                0.0,
+                trend_strength / max(float(trend_strength_threshold), 1e-9) - 1.0,
+            )
+            confidence = 1.0 - math.exp(
+                -0.5 * (efficiency_margin + strength_margin)
+            )
         elif regime_state == "ranging":
             confidence = (
                 max(0.0, ranging_efficiency_threshold - efficiency_ratio)
@@ -2187,12 +2196,12 @@ def _detect_rule_based(  # noqa: C901
             )
         else:
             transition_span = max(
-                float(efficiency_threshold - ranging_efficiency_threshold),
+                float(effective_efficiency_threshold - ranging_efficiency_threshold),
                 1e-9,
             )
             distance_from_boundary = min(
                 max(0.0, efficiency_ratio - ranging_efficiency_threshold),
-                max(0.0, efficiency_threshold - efficiency_ratio),
+                max(0.0, effective_efficiency_threshold - efficiency_ratio),
             )
             confidence = min(1.0, (distance_from_boundary / transition_span) * 2.0)
         confidence = min(1.0, max(0.0, float(confidence)))
@@ -2283,6 +2292,10 @@ def _detect_rule_based(  # noqa: C901
         "reliability": reliability,
         "params_used": {
             "efficiency_threshold": float(efficiency_threshold),
+            "effective_efficiency_threshold": round(
+                effective_efficiency_threshold,
+                6,
+            ),
             "trend_strength_threshold": float(trend_strength_threshold),
             "window_bars": int(window_bars),
             "signal_source": "price",

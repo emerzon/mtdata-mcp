@@ -329,6 +329,10 @@ For `rule_based`, use `params.window_bars` to choose the analysis window. The
 method classifies the aggregate window; it does not detect when that label began,
 how long it has persisted, historical segments, or a per-bar state series. Read
 the bounds from `classification_window`, not as regime onset/duration.
+`params.efficiency_threshold` is calibrated to a 160-bar reference window. The
+detector scales the effective threshold by the square root of the actual window
+length and reports it as `params_used.effective_efficiency_threshold`, keeping
+the rule comparable when less or more history is analyzed.
 `lookback`, `min_regime_bars`, `max_regimes`, and `include_series` do not add
 segmentation semantics; inapplicable uses are reported in `warnings`.
 
