@@ -52,7 +52,12 @@ def atomic_write_bytes(target: PathLike, data: bytes) -> None:
     destination.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(dir=str(destination.parent), suffix=".tmp")
     try:
-        os.write(fd, data)
+        remaining = memoryview(data)
+        while remaining:
+            written = os.write(fd, remaining)
+            if written <= 0:
+                raise OSError(errno.EIO, "Atomic temporary-file write made no progress")
+            remaining = remaining[written:]
         os.fsync(fd)
         os.close(fd)
         fd = -1
