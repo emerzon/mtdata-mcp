@@ -388,6 +388,20 @@ class TestCandlestickSpanBars:
     def test_known_multi_bar_pattern(self):
         assert _candlestick_span_bars("cdl_morning_star") == 3
 
+    @pytest.mark.parametrize(
+        ("name", "span"),
+        [
+            ("CDL_ABANDONEDBABY", 3),
+            ("CDL_MORNINGDOJISTAR", 3),
+            ("CDL_3LINESTRIKE", 4),
+            ("CDL_CONCEALBABYSWALL", 4),
+            ("CDL_MATCHINGLOW", 2),
+            ("CDL_TASUKIGAP", 3),
+        ],
+    )
+    def test_multibar_catalog_spans(self, name, span):
+        assert _candlestick_span_bars(name) == span
+
 
 class TestDiscoverCandlestickPatternMethods:
     def test_with_mock_accessor(self):

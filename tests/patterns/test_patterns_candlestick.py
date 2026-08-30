@@ -1082,6 +1082,7 @@ def test_detect_candlestick_patterns_adds_volume_and_regime_enrichment(monkeypat
     assert row["regime_context"]["status"] == "aligned"
     assert row["end_index"] == 24
     assert res["candles"] == 20
+    assert res["min_strength_stage"] == "post_confirmation"
 
 
 def test_detect_candlestick_patterns_reapplies_min_strength_after_enrichment(
