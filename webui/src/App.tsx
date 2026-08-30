@@ -141,13 +141,15 @@ export default function App() {
             <MetricBadge label="RMSE" value={workspace.metrics.rmse.toFixed(4)} />
             <MetricBadge
               label="Dir"
-              value={`${workspace.metrics.dirAcc.toFixed(0)}%`}
+              value={workspace.metrics.dirAcc == null ? '—' : `${workspace.metrics.dirAcc.toFixed(0)}%`}
               variant={
-                workspace.metrics.dirAcc >= 60
-                  ? 'success'
-                  : workspace.metrics.dirAcc >= 50
-                    ? 'warning'
-                    : 'error'
+                workspace.metrics.dirAcc == null
+                  ? 'default'
+                  : workspace.metrics.dirAcc >= 60
+                    ? 'success'
+                    : workspace.metrics.dirAcc >= 50
+                      ? 'warning'
+                      : 'error'
               }
             />
           </div>

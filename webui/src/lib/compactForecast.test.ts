@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   backtestDisplayRows,
+  backtestMethodStatus,
+  backtestResultFeedback,
   chartPriceFromCompactRow,
+  computeAnchorForecastMetrics,
+  forecastResultFeedback,
   mapCompactForecastToSeries,
   rowIntervalBounds,
 } from './compactForecast'
@@ -71,6 +75,56 @@ describe('mapCompactForecastToSeries', () => {
   })
 })
 
+describe('computeAnchorForecastMetrics', () => {
+  it('scores terminal direction from the anchor without future actual baselines', () => {
+    const metrics = computeAnchorForecastMetrics([110, 109], [90, 95], 100)
+    expect(metrics?.overlap).toBe(2)
+    expect(metrics?.dirAcc).toBe(0)
+  })
+
+  it('matches a correct terminal call even when intermediate path directions differ', () => {
+    const metrics = computeAnchorForecastMetrics([90, 110], [110, 105], 100)
+    expect(metrics?.dirAcc).toBe(100)
+  })
+
+  it('marks a flat terminal forecast as no directional call', () => {
+    expect(computeAnchorForecastMetrics([100], [101], 100)?.dirAcc).toBeNull()
+  })
+})
+
+describe('forecastResultFeedback', () => {
+  it('surfaces low-trust successful output, blockers, and warnings', () => {
+    const feedback = forecastResultFeedback({
+      forecast_status: 'non_informative',
+      signal_status: 'not_actionable',
+      trust_level: 'low',
+      trust_blockers: ['insufficient_history_sample'],
+      ci_status: 'unavailable',
+      forecast_mode: 'point_only',
+      warnings: ['Low-history forecast.'],
+      uncertainty: { reason: 'Requested intervals were not produced.' },
+    })
+    expect(feedback.tone).toBe('warning')
+    expect(feedback.summary).toContain('Forecast: non informative')
+    expect(feedback.summary).toContain('Trust: low')
+    expect(feedback.summary).toContain('Mode: point only')
+    expect(feedback.details).toContain('Low-history forecast.')
+    expect(feedback.details).toContain('Trust blocker: insufficient history sample')
+    expect(feedback.details).toContain('Requested intervals were not produced.')
+  })
+
+  it('reports an ordinary successful forecast without a warning tone', () => {
+    expect(
+      forecastResultFeedback({
+        forecast_status: 'informative',
+        signal_status: 'actionable',
+        trust_level: 'adequate',
+        ci_status: 'available',
+      }).tone
+    ).toBe('success')
+  })
+})
+
 describe('backtestDisplayRows', () => {
   it('uses full results ordered by ranked_methods', () => {
     const result: BacktestResult = {
@@ -123,5 +177,60 @@ describe('backtestDisplayRows', () => {
       },
     }
     expect(backtestDisplayRows(result)).toEqual([{ method: 'theta', avg_mae: 0.2 }])
+  })
+
+  it('keeps ranking eligibility metadata while using full result metrics', () => {
+    const result: BacktestResult = {
+      symbol: 'EURUSD',
+      timeframe: 'H1',
+      horizon: 12,
+      steps: 2,
+      spacing: 20,
+      ranked_methods: [{ method: 'theta', ranking_status: 'unranked' }],
+      results: {
+        theta: {
+          status: 'partial',
+          avg_mae: 0.2,
+          successful_tests: 1,
+          failed_tests: 1,
+          num_tests: 2,
+        },
+      },
+    }
+    expect(backtestDisplayRows(result)[0]).toMatchObject({
+      method: 'theta',
+      ranking_status: 'unranked',
+      status: 'partial',
+      avg_mae: 0.2,
+    })
+  })
+})
+
+describe('backtest status feedback', () => {
+  it('marks partial and failed method rows from compact diagnostics', () => {
+    expect(backtestMethodStatus({ complete_success: false, failed_tests: 1 })).toBe('partial')
+    expect(backtestMethodStatus({ success: false })).toBe('failed')
+  })
+
+  it('summarizes root partial status and anchor failures', () => {
+    const feedback = backtestResultFeedback({
+      symbol: 'EURUSD',
+      timeframe: 'H1',
+      horizon: 12,
+      steps: 2,
+      spacing: 20,
+      status: 'partial',
+      methods_partial: 1,
+      methods_failed: 1,
+      anchor_tests_planned: 4,
+      anchor_tests_succeeded: 2,
+      anchor_tests_failed: 2,
+      warnings: ['2 of 4 planned anchor tests failed.'],
+    })
+    expect(feedback.tone).toBe('warning')
+    expect(feedback.summary).toBe('Backtest: partial')
+    expect(feedback.details).toContain('1 method(s) completed only partially.')
+    expect(feedback.details).toContain('1 method(s) failed.')
+    expect(feedback.details).toContain('2/4 anchor tests succeeded; 2 failed.')
   })
 })

@@ -10,15 +10,21 @@ import {
 import type {
   HistoryBar,
   ForecastPayload,
-  DenoiseSpecUI,
   PivotLevel,
   SupportResistanceLevel,
   ChartOverlay,
   ForecastPriceBody,
+  ParamDef,
 } from '../types'
 import { mapCompactForecastToSeries } from '../lib/compactForecast'
 import { loadJSON, saveJSON } from '../lib/storage'
 import { formatDateTime } from '../lib/utils'
+import {
+  forecastMethodParams,
+  normalizeForecastSettings,
+  type ForecastSettings,
+  type StoredForecastSettings,
+} from '../lib/forecastContracts'
 import {
   DEFAULT_PIVOT_METHOD,
   DEFAULT_SR_CONTROLS,
@@ -186,51 +192,16 @@ export function useSupportResistance(symbol: string, timeframe: string) {
 // Forecast State Hook
 // ============================================================================
 
-export type ForecastSettings = {
-  method: string
-  horizon: number
-  lookback: number | ''
-  quantity: 'price' | 'return'
-  ci_alpha: number
-  params: Record<string, unknown>
-  denoise?: DenoiseSpecUI
-}
-
-const DEFAULT_FORECAST_SETTINGS: ForecastSettings = {
-  method: 'theta',
-  horizon: 12,
-  lookback: '',
-  quantity: 'price',
-  ci_alpha: 0.1,
-  params: {},
-}
+export type { ForecastSettings } from '../lib/forecastContracts'
 
 export function loadForecastSettings(symbol: string, timeframe: string): ForecastSettings {
-  if (!symbol || !timeframe) return { ...DEFAULT_FORECAST_SETTINGS, params: {} }
+  if (!symbol || !timeframe) return normalizeForecastSettings()
   const storageKey = `fc:${symbol}:${timeframe}`
   const legacyStorageKey = `fc2:${symbol}:${timeframe}`
   const saved =
-    loadJSON<
-      Partial<ForecastSettings> & {
-        methodParams?: Record<string, unknown>
-      }
-    >(storageKey) ??
-    loadJSON<
-      Partial<ForecastSettings> & {
-        methodParams?: Record<string, unknown>
-      }
-    >(legacyStorageKey)
-  if (!saved) return { ...DEFAULT_FORECAST_SETTINGS, params: {} }
-  return {
-    ...DEFAULT_FORECAST_SETTINGS,
-    method: saved.method ?? DEFAULT_FORECAST_SETTINGS.method,
-    horizon: saved.horizon ?? DEFAULT_FORECAST_SETTINGS.horizon,
-    lookback: saved.lookback ?? DEFAULT_FORECAST_SETTINGS.lookback,
-    quantity: saved.quantity ?? DEFAULT_FORECAST_SETTINGS.quantity,
-    ci_alpha: saved.ci_alpha ?? DEFAULT_FORECAST_SETTINGS.ci_alpha,
-    params: saved.params ?? saved.methodParams ?? {},
-    denoise: saved.denoise,
-  }
+    loadJSON<StoredForecastSettings>(storageKey) ??
+    loadJSON<StoredForecastSettings>(legacyStorageKey)
+  return normalizeForecastSettings(saved)
 }
 
 export function useForecastSettings(symbol: string, timeframe: string) {
@@ -257,13 +228,21 @@ export function useForecast(
   timeframe: string,
   settings: ForecastSettings,
   onResult: (payload: ForecastPayload | null) => void,
-  anchor?: number
+  anchor?: number,
+  methodParamDefs: ParamDef[] = []
 ) {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [result, setResult] = useState<ForecastPayload | null>(null)
   const runId = useRef(0)
   const onResultRef = useRef(onResult)
-  const requestKey = JSON.stringify({ symbol, timeframe, settings, anchor })
+  const requestKey = JSON.stringify({
+    symbol,
+    timeframe,
+    settings,
+    anchor,
+    methodParamDefs: methodParamDefs.map(({ name, type }) => ({ name, type })),
+  })
   const requestKeyRef = useRef(requestKey)
   requestKeyRef.current = requestKey
 
@@ -275,6 +254,7 @@ export function useForecast(
     runId.current += 1
     setIsLoading(false)
     setError(null)
+    setResult(null)
     onResultRef.current(null)
   }, [requestKey])
 
@@ -286,6 +266,7 @@ export function useForecast(
       const currentRunId = ++runId.current
       setIsLoading(true)
       setError(null)
+      setResult(null)
       onResultRef.current(null)
 
       try {
@@ -298,7 +279,7 @@ export function useForecast(
           ci_alpha: settings.ci_alpha,
           quantity: settings.quantity,
           as_of: kind === 'full' ? undefined : anchor ? formatDateTime(anchor) : undefined,
-          params: Object.keys(settings.params).length ? settings.params : undefined,
+          params: forecastMethodParams(settings, methodParamDefs),
           denoise: settings.denoise,
         }
 
@@ -323,6 +304,7 @@ export function useForecast(
           )
           return
         }
+        setResult(payload)
         onResultRef.current(payload)
       } catch (err) {
         if (currentRunId === runId.current && runRequestKey === requestKeyRef.current) {
@@ -334,10 +316,10 @@ export function useForecast(
         }
       }
     },
-    [requestKey, settings, symbol, timeframe]
+    [methodParamDefs, requestKey, settings, symbol, timeframe]
   )
 
-  return { run, isLoading, error }
+  return { run, isLoading, error, result }
 }
 
 // ============================================================================

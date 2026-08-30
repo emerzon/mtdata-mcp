@@ -7,9 +7,27 @@ import {
   getErrorMessage,
 } from '../api/client'
 import { useForecast, useForecastMethods, useForecastSettings } from '../hooks/useForecast'
-import type { BacktestResult, ForecastPayload, VolatilityPayload } from '../types'
-import { backtestDisplayRows } from '../lib/compactForecast'
-import { coerceParamValue } from '../lib/toolCatalog'
+import type {
+  BacktestResult,
+  DenoiseSpecUI,
+  ForecastPayload,
+  ParamDef,
+  VolatilityPayload,
+} from '../types'
+import {
+  backtestDisplayRows,
+  backtestMethodStatus,
+  backtestResultFeedback,
+  forecastResultFeedback,
+  outputWarningMessage,
+  type ResultFeedback,
+} from '../lib/compactForecast'
+import {
+  scopedBacktestParams,
+  sharedBacktestParamDefs,
+  updateMethodParameter,
+  updateParameterValue,
+} from '../lib/forecastContracts'
 import { formatDateTime } from '../lib/utils'
 import type { LayoutBreakpoint } from '../lib/layout'
 import { DenoiseModal } from './DenoiseModal'
@@ -84,7 +102,14 @@ export function ForecastPanel({
         />
       )}
       {tab === 'volatility' && <VolatilityTab symbol={symbol} timeframe={timeframe} anchor={anchor} />}
-      {tab === 'backtest' && <BacktestTab symbol={symbol} timeframe={timeframe} />}
+      {tab === 'backtest' && (
+        <BacktestTab
+          symbol={symbol}
+          timeframe={timeframe}
+          denoiseOpen={denoiseOpen}
+          onDenoiseOpenChange={setDenoiseOpen}
+        />
+      )}
     </WorkspacePanelShell>
   )
 }
@@ -107,11 +132,17 @@ function ForecastTab({
   const { methods, error: methodsError } = useForecastMethods()
   const { settings, setSettings } = useForecastSettings(symbol, timeframe)
   const [showAdvanced, setShowAdvanced] = useState(false)
-  const { run, isLoading, error } = useForecast(symbol, timeframe, settings, onResult, anchor)
-
   const selectedMeta = useMemo(
     () => methods.find((method) => method.method === settings.method),
     [methods, settings.method]
+  )
+  const { run, isLoading, error, result } = useForecast(
+    symbol,
+    timeframe,
+    settings,
+    onResult,
+    anchor,
+    selectedMeta?.params ?? []
   )
 
   return (
@@ -242,14 +273,17 @@ function ForecastTab({
                     <label className="text-xs text-slate-500 mb-0.5 block">{param.name}</label>
                     <input
                       className="w-full bg-slate-800 text-slate-200 text-xs rounded px-2 py-1.5 border border-slate-700"
-                      value={String(settings.params[param.name] ?? '')}
+                      value={String(settings.paramsByMethod[settings.method]?.[param.name] ?? '')}
                       onChange={(event) =>
                         setSettings((previous) => ({
                           ...previous,
-                          params: {
-                            ...previous.params,
-                            [param.name]: coerceParamValue(event.target.value, param.type),
-                          },
+                          paramsByMethod: updateMethodParameter(
+                            previous.paramsByMethod,
+                            previous.method,
+                            param.name,
+                            event.target.value,
+                            param.type
+                          ),
                         }))
                       }
                       placeholder={String(param.default ?? '')}
@@ -273,6 +307,8 @@ function ForecastTab({
           Forecast methods: {methodsError}
         </div>
       )}
+
+      {result && <ResultFeedbackPanel feedback={forecastResultFeedback(result)} />}
 
       <div className="flex gap-2">
         <button
@@ -442,17 +478,37 @@ function VolatilityTab({ symbol, timeframe, anchor }: { symbol: string; timefram
   )
 }
 
-function BacktestTab({ symbol, timeframe }: { symbol: string; timeframe: string }) {
+function BacktestTab({
+  symbol,
+  timeframe,
+  denoiseOpen,
+  onDenoiseOpenChange,
+}: {
+  symbol: string
+  timeframe: string
+  denoiseOpen: boolean
+  onDenoiseOpenChange: (open: boolean) => void
+}) {
   const { methods, error: methodsError } = useForecastMethods()
 
   const [selectedMethods, setSelectedMethods] = useState<string[]>(['theta'])
   const [horizon, setHorizon] = useState(12)
   const [steps, setSteps] = useState(5)
   const [spacing, setSpacing] = useState(20)
+  const [showAdvanced, setShowAdvanced] = useState(false)
+  const [denoise, setDenoise] = useState<DenoiseSpecUI | undefined>()
+  const [sharedParams, setSharedParams] = useState<Record<string, unknown>>({})
+  const [paramsByMethod, setParamsByMethod] = useState<
+    Record<string, Record<string, unknown>>
+  >({})
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<BacktestResult | null>(null)
   const runId = useRef(0)
+  const scopedParams = useMemo(
+    () => scopedBacktestParams(selectedMethods, methods, sharedParams, paramsByMethod),
+    [methods, paramsByMethod, selectedMethods, sharedParams]
+  )
   const requestContract = JSON.stringify({
     symbol,
     timeframe,
@@ -460,19 +516,27 @@ function BacktestTab({ symbol, timeframe }: { symbol: string; timeframe: string 
     horizon,
     steps,
     spacing,
+    denoise,
+    scopedParams,
   })
   const requestContractRef = useRef(requestContract)
   requestContractRef.current = requestContract
 
   const availableMethods = useMemo(() => methods.filter((method) => method.available), [methods])
   const resultRows = useMemo(() => backtestDisplayRows(result), [result])
+  const sharedParamDefs = useMemo(
+    () => sharedBacktestParamDefs(selectedMethods, methods),
+    [methods, selectedMethods]
+  )
+  const configuredMethodOverrides = Object.values(scopedParams.params_per_method ?? {})
+    .reduce((total, values) => total + Object.keys(values).length, 0)
 
   useEffect(() => {
     runId.current += 1
     setIsLoading(false)
     setError(null)
     setResult(null)
-  }, [horizon, selectedMethods, spacing, steps, symbol, timeframe])
+  }, [requestContract])
 
   const toggleMethod = (method: string) => {
     setSelectedMethods((previous) =>
@@ -488,7 +552,16 @@ function BacktestTab({ symbol, timeframe }: { symbol: string; timeframe: string 
     setError(null)
     setResult(null)
     try {
-      const response = await runBacktest({ symbol, timeframe, horizon, steps, spacing, methods: selectedMethods })
+      const response = await runBacktest({
+        symbol,
+        timeframe,
+        horizon,
+        steps,
+        spacing,
+        methods: selectedMethods,
+        denoise,
+        ...scopedParams,
+      })
       if (currentRunId === runId.current && runContract === requestContractRef.current) {
         setResult(response)
       }
@@ -557,6 +630,106 @@ function BacktestTab({ symbol, timeframe }: { symbol: string; timeframe: string 
         </div>
       </div>
 
+      <button
+        type="button"
+        className="w-full text-left text-xs text-slate-400 hover:text-slate-300 flex items-center justify-between py-2 border-t border-slate-800"
+        onClick={() => setShowAdvanced((value) => !value)}
+      >
+        <span>Advanced Options</span>
+        <span>{showAdvanced ? '−' : '+'}</span>
+      </button>
+
+      <div className="space-y-1 rounded-lg border border-slate-800 bg-slate-900/40 px-3 py-2 text-xs text-slate-400">
+        <div>
+          Request configuration · {Object.keys(scopedParams.params ?? {}).length} shared ·{' '}
+          {configuredMethodOverrides} override(s)
+        </div>
+        <div className="break-all font-mono text-[10px] text-slate-300">
+          denoise={denoise ? JSON.stringify(denoise) : 'off'}
+        </div>
+        <div className="break-all font-mono text-[10px] text-slate-300">
+          params={JSON.stringify(scopedParams.params ?? {})}
+        </div>
+        <div className="break-all font-mono text-[10px] text-slate-300">
+          params_per_method={JSON.stringify(scopedParams.params_per_method ?? {})}
+        </div>
+      </div>
+
+      {showAdvanced && (
+        <div className="space-y-4 pb-3 border-b border-slate-800">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-slate-400">
+              Backtest Denoise: <span className="text-slate-300">{denoise?.method || 'None'}</span>
+            </span>
+            <button
+              type="button"
+              className="text-xs text-sky-400 hover:text-sky-300"
+              onClick={() => onDenoiseOpenChange(true)}
+            >
+              Configure
+            </button>
+          </div>
+
+          <div>
+            <div className="text-xs text-slate-300 mb-1">Shared Parameters</div>
+            <p className="text-xs text-slate-500 mb-2">
+              Applied to every selected method. Per-method values below take precedence.
+            </p>
+            {sharedParamDefs.length ? (
+              <ParameterInputs
+                definitions={sharedParamDefs}
+                values={sharedParams}
+                onChange={(definition, rawValue) =>
+                  setSharedParams((previous) =>
+                    updateParameterValue(
+                      previous,
+                      definition.name,
+                      rawValue,
+                      definition.type
+                    )
+                  )
+                }
+              />
+            ) : (
+              <p className="text-xs text-slate-500">
+                No parameter is supported by every selected method.
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-3">
+            <div className="text-xs text-slate-300">Per-method Parameters</div>
+            {selectedMethods.map((methodName) => {
+              const method = methods.find((item) => item.method === methodName)
+              if (!method?.params.length) return null
+              return (
+                <div key={methodName} className="rounded-lg border border-slate-800 p-2">
+                  <div className="text-xs font-medium text-slate-300 mb-2">{methodName}</div>
+                  <ParameterInputs
+                    definitions={method.params}
+                    values={paramsByMethod[methodName] ?? {}}
+                    onChange={(definition, rawValue) =>
+                      setParamsByMethod((previous) =>
+                        updateMethodParameter(
+                          previous,
+                          methodName,
+                          definition.name,
+                          rawValue,
+                          definition.type
+                        )
+                      )
+                    }
+                  />
+                </div>
+              )
+            })}
+            {!selectedMethods.some(
+              (methodName) => methods.find((item) => item.method === methodName)?.params.length
+            ) && <p className="text-xs text-slate-500">Selected methods have no parameters.</p>}
+          </div>
+        </div>
+      )}
+
       {error && (
         <div className="text-sm text-rose-400 bg-rose-950/50 border border-rose-800 rounded-lg px-3 py-2">
           {error}
@@ -577,12 +750,15 @@ function BacktestTab({ symbol, timeframe }: { symbol: string; timeframe: string 
         {isLoading ? 'Running Backtest...' : 'Run Backtest'}
       </button>
 
+      {result && <ResultFeedbackPanel feedback={backtestResultFeedback(result)} />}
+
       {result && (
         <div className="bg-slate-800/50 rounded-lg overflow-hidden">
           <table className="w-full text-xs">
             <thead>
               <tr className="text-slate-400 border-b border-slate-700">
                 <th className="text-left px-2 py-2">Method</th>
+                <th className="text-right px-2 py-2">Anchors</th>
                 <th className="text-right px-2 py-2">MAE</th>
                 <th className="text-right px-2 py-2">Dir%</th>
               </tr>
@@ -593,19 +769,63 @@ function BacktestTab({ symbol, timeframe }: { symbol: string; timeframe: string 
                 const directionPercent = item.avg_directional_accuracy == null
                   ? null
                   : item.avg_directional_accuracy * 100
+                const status = backtestMethodStatus(item)
+                const warningMessages = (item.warnings ?? []).map(outputWarningMessage)
                 return (
                 <tr key={method} className="border-b border-slate-700/50">
-                  <td className="px-2 py-1.5 text-slate-200">{method}</td>
+                  <td className="px-2 py-1.5 text-slate-200 align-top">
+                    <div className="flex flex-wrap items-center gap-1">
+                      <span>{method}</span>
+                      <span
+                        className={`rounded px-1 py-0.5 text-[10px] uppercase tracking-wide ${
+                          status === 'complete'
+                            ? 'bg-emerald-950 text-emerald-300'
+                            : status === 'partial'
+                              ? 'bg-amber-950 text-amber-300'
+                              : 'bg-rose-950 text-rose-300'
+                        }`}
+                      >
+                        {status}
+                      </span>
+                      {item.ranking_status && item.ranking_status !== 'ranked' && (
+                        <span className="text-[10px] text-slate-500">
+                          {item.ranking_status.replace(/_/g, ' ')}
+                        </span>
+                      )}
+                    </div>
+                    {status === 'partial' && (
+                      <div className="mt-0.5 text-[10px] text-amber-400">Metrics use an incomplete sample.</div>
+                    )}
+                    {item.error && (
+                      <div className="mt-0.5 max-w-48 truncate text-[10px] text-rose-300" title={item.error}>
+                        {item.error}
+                      </div>
+                    )}
+                    {warningMessages.map((message) => (
+                      <div key={message} className="mt-0.5 max-w-48 truncate text-[10px] text-amber-300" title={message}>
+                        {message}
+                      </div>
+                    ))}
+                  </td>
+                  <td className="text-right px-2 py-1.5 text-slate-400 font-mono align-top">
+                    {item.successful_tests ?? '-'}
+                    {item.num_tests != null ? `/${item.num_tests}` : ''}
+                    {(item.failed_tests ?? 0) > 0 && (
+                      <div className="text-[10px] text-rose-400">{item.failed_tests} failed</div>
+                    )}
+                  </td>
                   <td className="text-right px-2 py-1.5 text-slate-300 font-mono">
                     {item.avg_mae?.toFixed(4) ?? '-'}
                   </td>
                   <td
                     className={`text-right px-2 py-1.5 font-mono ${
-                      (directionPercent ?? 0) >= 60
-                        ? 'text-emerald-400'
-                        : (directionPercent ?? 0) >= 50
-                          ? 'text-amber-400'
-                          : 'text-rose-400'
+                      directionPercent == null
+                        ? 'text-slate-500'
+                        : directionPercent >= 60
+                          ? 'text-emerald-400'
+                          : directionPercent >= 50
+                            ? 'text-amber-400'
+                            : 'text-rose-400'
                     }`}
                   >
                     {directionPercent?.toFixed(0) ?? '-'}
@@ -617,6 +837,64 @@ function BacktestTab({ symbol, timeframe }: { symbol: string; timeframe: string 
           </table>
         </div>
       )}
+
+      <DenoiseModal
+        open={denoiseOpen}
+        title="Backtest Denoising"
+        value={denoise}
+        onClose={() => onDenoiseOpenChange(false)}
+        onApply={(value) => {
+          setDenoise(value)
+          onDenoiseOpenChange(false)
+        }}
+      />
+    </div>
+  )
+}
+
+function ResultFeedbackPanel({ feedback }: { feedback: ResultFeedback }) {
+  const colors = {
+    success: 'border-emerald-800 bg-emerald-950/50 text-emerald-200',
+    warning: 'border-amber-800 bg-amber-950/50 text-amber-100',
+    error: 'border-rose-800 bg-rose-950/50 text-rose-200',
+  }
+  return (
+    <div
+      className={`rounded-lg border px-3 py-2 text-xs ${colors[feedback.tone]}`}
+      role={feedback.tone === 'error' ? 'alert' : 'status'}
+    >
+      <div className="font-medium">{feedback.summary}</div>
+      {feedback.details.length > 0 && (
+        <ul className="mt-1 list-disc space-y-0.5 pl-4">
+          {feedback.details.map((detail) => <li key={detail}>{detail}</li>)}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+function ParameterInputs({
+  definitions,
+  values,
+  onChange,
+}: {
+  definitions: ParamDef[]
+  values: Record<string, unknown>
+  onChange: (definition: ParamDef, rawValue: string) => void
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-2">
+      {definitions.map((definition) => (
+        <label key={definition.name} className="block" title={definition.description || ''}>
+          <span className="text-xs text-slate-500 mb-0.5 block">{definition.name}</span>
+          <input
+            className="w-full bg-slate-800 text-slate-200 text-xs rounded px-2 py-1.5 border border-slate-700"
+            value={String(values[definition.name] ?? '')}
+            onChange={(event) => onChange(definition, event.target.value)}
+            placeholder={String(definition.default ?? '')}
+          />
+        </label>
+      ))}
     </div>
   )
 }

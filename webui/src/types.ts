@@ -222,6 +222,20 @@ export type CompactForecastRow = {
 export type ForecastPayload = {
   forecast?: CompactForecastRow[]
   quantity?: 'price' | 'return' | 'volatility'
+  forecast_status?: string
+  signal_status?: string
+  trust_level?: string
+  trust_blockers?: string[]
+  ci_status?: string
+  forecast_mode?: string
+  warnings?: OutputWarningLike[]
+  uncertainty?: {
+    status?: string
+    mode?: string
+    reason?: string
+    recommended_tool?: string
+    [key: string]: unknown
+  }
   data_window?: {
     last_observation?: string | number
     forecast_start?: string | number
@@ -402,7 +416,7 @@ export type BacktestBody = {
   steps?: number
   spacing?: number
   methods?: string[]
-  params_per_method?: Record<string, unknown>
+  params_per_method?: Record<string, Record<string, unknown>>
   quantity?: 'price' | 'return' | 'volatility'
   denoise?: DenoiseSpecUI
   params?: Record<string, unknown>
@@ -419,17 +433,40 @@ export type BacktestResult = {
   horizon: number
   steps: number
   spacing: number
+  success?: boolean
+  complete_success?: boolean
+  status?: string
+  methods_total?: number
+  methods_succeeded?: number
+  methods_complete?: number
+  methods_partial?: number
+  methods_failed?: number
+  complete_methods?: string[]
+  partial_methods?: string[]
+  failed_methods?: string[]
+  anchor_tests_planned?: number
+  anchor_tests_succeeded?: number
+  anchor_tests_failed?: number
+  warnings?: OutputWarningLike[]
   results?: Record<string, BacktestMethodResult>
   ranked_methods?: Array<BacktestMethodResult & { method: string }>
 }
 
 export type BacktestMethodResult = {
-    success?: boolean
-    avg_mae?: number
-    avg_rmse?: number
-    avg_directional_accuracy?: number
-    successful_tests?: number
-    num_tests?: number
+  success?: boolean
+  complete_success?: boolean
+  status?: string
+  ranking_status?: string
+  rank?: number
+  avg_mae?: number
+  avg_rmse?: number
+  avg_directional_accuracy?: number
+  successful_tests?: number
+  failed_tests?: number
+  num_tests?: number
+  error?: string
+  error_code?: string
+  warnings?: OutputWarningLike[]
 }
 
 // ============================================================================
@@ -595,7 +632,7 @@ export type AnchorMetrics = {
   mae: number
   mape: number
   rmse: number
-  dirAcc: number
+  dirAcc: number | null
 }
 
 export type Tick = {

@@ -39,7 +39,7 @@ React + Vite + Tailwind single-page app for chart visualization and forecast int
 | **Lib (pure + tests)** | |
 | `src/lib/workspaceStatus.ts` | Chart surface status resolution |
 | `src/lib/connectionStatus.ts` | `/ready` chip resolution |
-| `src/lib/compactForecast.ts` | Compact forecast/backtest adapters for dedicated panels |
+| `src/lib/compactForecast.ts` / `forecastContracts.ts` | Compact result adapters, disclosures, and method-scoped request contracts |
 | `src/lib/overlayParams.ts` | Pivot / S/R query builders and clamps |
 | `src/lib/indicatorSpec.ts` | Chart indicator presets, history query, overlay mapping |
 | `src/lib/layout.ts` | Breakpoints + panel placement class helpers |

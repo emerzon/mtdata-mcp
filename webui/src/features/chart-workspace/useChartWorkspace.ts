@@ -15,7 +15,11 @@ import {
   type ChartIndicatorSelection,
 } from '../../lib/indicatorSpec'
 import { loadJSON, saveJSON } from '../../lib/storage'
-import { mapCompactForecastToSeries } from '../../lib/compactForecast'
+import {
+  computeAnchorForecastMetrics,
+  forecastResultFeedback,
+  mapCompactForecastToSeries,
+} from '../../lib/compactForecast'
 import { toUtcSec } from '../../lib/time'
 import { chartWorkspaceLivePollMs } from '../../lib/timeframes'
 import { liveQuotePriceLines } from '../../lib/chartPriceLines'
@@ -75,6 +79,7 @@ export function useChartWorkspace() {
   const [isLive, setIsLive] = useState(true)
   const [timezoneMode, setTimezoneMode] = useState<TimezoneMode>('local')
   const [forecastOverlays, setForecastOverlays] = useState<ChartOverlay[]>([])
+  const [forecastWarnings, setForecastWarnings] = useState<string[]>([])
   const [chartDenoise, setChartDenoise] = useState<DenoiseSpecUI | undefined>(() =>
     loadChartDenoise(symbol, timeframe)
   )
@@ -191,6 +196,7 @@ export function useChartWorkspace() {
     (utcTime: number) => {
       setAnchor(utcTime)
       setForecastOverlays([])
+      setForecastWarnings([])
       setMetrics(null)
     },
     []
@@ -200,6 +206,7 @@ export function useChartWorkspace() {
     setExtraHistory([])
     setLiveHistory([])
     setForecastOverlays([])
+    setForecastWarnings([])
     setAnchor(undefined)
     setMetrics(null)
     setHistoryPageError(null)
@@ -278,6 +285,7 @@ export function useChartWorkspace() {
       setLiveHistory([])
       setHistoryPageError(null)
       setForecastOverlays([])
+      setForecastWarnings([])
       setMetrics(null)
       if (symbol && timeframe) {
         saveJSON(`chart_dn:${symbol}:${timeframe}`, normalized)
@@ -304,6 +312,7 @@ export function useChartWorkspace() {
     (result: ForecastPayload | null) => {
       if (!result) {
         setForecastOverlays([])
+        setForecastWarnings([])
         setMetrics(null)
         return
       }
@@ -312,12 +321,20 @@ export function useChartWorkspace() {
         series = mapCompactForecastToSeries(result.forecast ?? [])
       } catch {
         setForecastOverlays([])
+        setForecastWarnings([])
         setMetrics(null)
         return
       }
+      const feedback = forecastResultFeedback(result)
+      setForecastWarnings(
+        feedback.tone === 'success'
+          ? []
+          : [`Forecast: ${feedback.summary}`, ...feedback.details.map((detail) => `Forecast: ${detail}`)]
+      )
       const { times, values: main, lower, upper } = series
       if (!main.length) {
         setForecastOverlays([])
+        setForecastWarnings([])
         setMetrics(null)
         return
       }
@@ -364,17 +381,6 @@ export function useChartWorkspace() {
         }
 
         if (yPred.length) {
-          const n = yPred.length
-          const diffs = yPred.map((prediction, index) => prediction - yAct[index])
-          const mae = diffs.reduce((total, diff) => total + Math.abs(diff), 0) / n
-          const mape =
-            (yPred.reduce((total, _, index) => {
-              const denom = Math.abs(yAct[index]) || 1
-              return total + Math.abs((yPred[index] - yAct[index]) / denom)
-            }, 0) /
-              n) *
-            100
-          const rmse = Math.sqrt(diffs.reduce((total, diff) => total + diff * diff, 0) / n)
           const firstForecastTime = alignedTimes[0]
           const backendBaselineTime = result.data_window?.last_observation
           let baselineClose: number | undefined
@@ -395,15 +401,7 @@ export function useChartWorkspace() {
             setMetrics(null)
             return
           }
-
-          let correct = 0
-          for (let index = 0; index < n; index += 1) {
-            const previous = index === 0 ? baselineClose : yAct[index - 1]
-            if (Math.sign(yPred[index] - previous) === Math.sign(yAct[index] - previous)) {
-              correct += 1
-            }
-          }
-          setMetrics({ overlap: n, mae, mape, rmse, dirAcc: (correct / n) * 100 })
+          setMetrics(computeAnchorForecastMetrics(yPred, yAct, baselineClose))
         } else {
           setMetrics(null)
         }
@@ -487,12 +485,13 @@ export function useChartWorkspace() {
         : []),
       ...(isLive ? responseWarningMessages('Quote', tickData) : []),
       denoiseFeedback.warning ?? null,
+      ...forecastWarnings,
       isLive && tickData && tickData.usable_for_live_trading !== true
         ? 'Quote: Live price lines are hidden because this snapshot is not verified as usable for live trading.'
         : null,
     ].filter((value): value is string => Boolean(value))
     return Array.from(new Set(warnings))
-  }, [denoiseFeedback.warning, histDataResponse, isLive, liveDataResponse, tickData])
+  }, [denoiseFeedback.warning, forecastWarnings, histDataResponse, isLive, liveDataResponse, tickData])
 
   const workspaceErrors = useMemo(() => {
     const errors = [
@@ -603,6 +602,7 @@ export function useChartWorkspace() {
     clearAnchor: () => {
       setAnchor(undefined)
       setForecastOverlays([])
+      setForecastWarnings([])
       setMetrics(null)
     },
   }
