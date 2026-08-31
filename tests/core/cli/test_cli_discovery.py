@@ -692,6 +692,42 @@ class TestCreateCommandFunction:
         assert request.watch_for[0].level == 1.0
         assert request.end_on[0].type == "candle_close"
 
+    def test_wait_event_quote_stripped_json_has_shell_quoting_hint(self, capsys):
+        mock_fn = MagicMock(return_value={"ok": True})
+        func_info = {
+            "func": mock_fn,
+            "params": [
+                {
+                    "name": "watch_for",
+                    "type": Optional[List[Dict[str, Any]]],
+                    "required": False,
+                    "default": None,
+                },
+            ],
+        }
+        cmd_fn = create_command_function(func_info, cmd_name="wait_event")
+        args = argparse.Namespace(
+            watch_for="{type: price_touch_level, symbol: EURUSD, level: 9.99}",
+            json=False,
+            verbose=False,
+        )
+
+        assert cmd_fn(args) == 2
+        output = capsys.readouterr().out
+        assert "quotes stripped by the shell" in output
+        assert "type=price_touch_level" in output
+        mock_fn.assert_not_called()
+
+    def test_wait_event_help_example_parses_as_valid_spec(self):
+        from mtdata.core.cli.api import _wait_event_help_description
+
+        description = _wait_event_help_description("Wait.")
+        start = description.index("{\"type\":")
+        end = description.index("}'", start) + 1
+        example = json.loads(description[start:end])
+        request = WaitEventRequest(watch_for=[example], max_wait_seconds=1)
+        assert request.watch_for[0].type == "price_touch_level"
+
     def test_wait_event_key_value_event_specs_are_wrapped(self, capsys):
         mock_fn = MagicMock(return_value={"ok": True})
         func_info = {
@@ -1144,7 +1180,7 @@ class TestCreateCommandFunction:
         args = argparse.Namespace(shocks="-1,-2", json=False, verbose=False)
 
         assert cmd_fn(args) == 2
-        assert "shocks must be a JSON object mapping symbols" in capsys.readouterr().out
+        assert "shocks must be a mapping of symbols to percentage shocks" in capsys.readouterr().out
         mock_fn.assert_not_called()
 
     def test_trade_stress_test_preserves_shock_bound_error(self, capsys):
@@ -1172,8 +1208,34 @@ class TestCreateCommandFunction:
         assert cmd_fn(args) == 2
         output = capsys.readouterr().out
         assert "greater than -100" in output
-        assert "must be a JSON object mapping symbols" not in output
+        assert "must be a mapping of symbols to percentage shocks" not in output
         mock_fn.assert_not_called()
+
+    def test_trade_stress_test_accepts_percent_suffix_shocks(self, capsys):
+        mock_fn = MagicMock(return_value={"ok": True})
+        func_info = {
+            "func": mock_fn,
+            "request_model": TradeStressTestRequest,
+            "request_param_name": "request",
+            "params": [
+                {
+                    "name": "shocks",
+                    "type": Dict[str, float],
+                    "required": True,
+                    "default": None,
+                },
+            ],
+        }
+        cmd_fn = create_command_function(func_info, cmd_name="trade_stress_test")
+        args = argparse.Namespace(
+            shocks="EURUSD=-2%",
+            json=False,
+            verbose=False,
+        )
+
+        assert cmd_fn(args) == 0
+        request = mock_fn.call_args.kwargs["request"]
+        assert request.shocks == {"EURUSD": -2.0}
 
     def test_labels_invalid_barrier_has_json_remediation(self, capsys):
         mock_fn = MagicMock(return_value={"ok": True})

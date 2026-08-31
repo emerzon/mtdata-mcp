@@ -852,6 +852,21 @@ class TestAddDynamicArguments:
         assert "volume" in help_text and "(required)" in help_text
         assert "--side" in help_text
 
+    def test_trade_close_accepts_long_short_side_aliases(self):
+        parser = argparse.ArgumentParser()
+
+        def tool(request: TradeCloseRequest):
+            pass
+
+        func_info = get_function_info(tool)
+        add_dynamic_arguments(parser, func_info, cmd_name="trade_close")
+
+        assert parser.parse_args(["--side", "LONG"]).side == "LONG"
+        assert parser.parse_args(["--side", "short"]).side == "SHORT"
+        assert parser.parse_args(["--side", "BUY"]).side == "BUY"
+        assert TradeCloseRequest(side="LONG").side == "BUY"
+        assert TradeCloseRequest(side="SHORT").side == "SELL"
+
     def test_bool_param(self):
         parser = argparse.ArgumentParser()
         func_info = {
@@ -1501,7 +1516,8 @@ class TestAddDynamicArguments:
         assert examples_at != -1
         assert "wait_event --max-wait-seconds 10" in compact_help
         assert "wait_event EURUSD --timeframe H1" in compact_help
-        assert "price_above" in compact_help
+        assert "price_touch_level" in compact_help
+        assert "price_above" not in compact_help
         assert watch_for_at == -1 or examples_at < watch_for_at
 
     def test_calendar_prefers_start_end_and_hides_legacy_date_flags(self):
@@ -3174,6 +3190,10 @@ class TestNormalizeCliListValue:
     def test_list_with_none_items(self):
         result = _normalize_cli_list_value(["a", None, "b"])
         assert result == ["a", "b"]
+
+    def test_json_object_with_spaces_stays_one_token(self):
+        payload = '{type: price_touch_level, symbol: EURUSD, level: 9.99}'
+        assert _normalize_cli_list_value(payload) == [payload]
 
 
 # ========================================================================

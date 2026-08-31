@@ -756,17 +756,28 @@ class TradeStressTestRequest(BaseModel):
     include_unshocked: bool = False
     detail: DetailLiteral = "compact"
 
-    @field_validator("shocks")
+    @field_validator("shocks", mode="before")
     @classmethod
     def _validate_shocks(cls, value: Dict[str, float]) -> Dict[str, float]:
-        if not value:
+        if not isinstance(value, dict) or not value:
             raise ValueError("shocks must contain at least one symbol or '*' fallback.")
         normalized: Dict[str, float] = {}
         for raw_symbol, raw_shock in value.items():
             symbol = str(raw_symbol or "").strip().upper()
             if not symbol:
                 raise ValueError("shock symbols must be non-empty strings.")
-            shock = float(raw_shock)
+            if isinstance(raw_shock, str):
+                text = raw_shock.strip()
+                if text.endswith("%"):
+                    text = text[:-1].strip()
+                raw_shock = text
+            try:
+                shock = float(raw_shock)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"Invalid shock value {raw_shock!r} for symbol {symbol}. "
+                    "Use a numeric percent like -2 or -2%."
+                ) from exc
             if not math.isfinite(shock) or shock <= -100.0:
                 raise ValueError("shock percentages must be finite and greater than -100.")
             normalized[symbol] = shock

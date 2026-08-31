@@ -601,8 +601,8 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
     ),
     ("cointegration_test", "symbols"): (
         "Comma- or space-separated MT5 symbols (e.g. EURUSD,GBPUSD or EURUSD GBPUSD); one symbol auto-expands "
-        "to its MT5 group. Optional with --group. The first symbol in each pair is the "
-        "Engle-Granger dependent; reverse the pair for the other hedge."
+        "to its MT5 group. Optional with --group. Pair order is ignored: each unordered pair uses the "
+        "alphabetically first symbol as the Engle-Granger dependent (orientation_policy=canonical_symbol_order)."
     ),
     ("cointegration_test", "limit"): (
         "Max ranked pair rows to return. Omitted compact/summary output uses 10; "

@@ -949,6 +949,28 @@ See [CAUSAL_DISCOVERY.md](CAUSAL_DISCOVERY.md) for interpretation and caveats.
 
 ## Tips
 
+### Quoting JSON on Windows PowerShell
+
+PowerShell 5.1 strips embedded double quotes from native arguments. A documented
+JSON value such as `--watch-for '{"type":"price_touch_level","symbol":"EURUSD","level":1.16}'`
+arrives as `{type: price_touch_level, ...}` and fails to parse.
+
+Use one of these forms instead:
+
+```powershell
+# Escaped inner quotes (PowerShell 5.1)
+mtdata-cli wait_event --max-wait-seconds 2 --watch-for '{\"type\":\"price_touch_level\",\"symbol\":\"EURUSD\",\"level\":1.16}'
+
+# KV form (no JSON quotes)
+mtdata-cli wait_event --max-wait-seconds 2 --watch-for type=price_touch_level,symbol=EURUSD,level=1.16
+
+# PowerShell 7+ / stop-parsing
+mtdata-cli wait_event --max-wait-seconds 2 --% --watch-for {"type":"price_touch_level","symbol":"EURUSD","level":1.16}
+```
+
+The same quoting applies to other JSON-or-KV parameters (`--kv-args`, `--shocks`,
+`--sizing`, `--barriers`).
+
 ### Pipe Output to jq for JSON Processing
 ```bash
 mtdata-cli forecast_generate EURUSD --json | jq '.forecast'

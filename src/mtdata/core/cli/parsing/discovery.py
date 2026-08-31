@@ -43,6 +43,9 @@ _COMMAND_PARAM_CHOICE_OVERRIDES: Dict[tuple[str, str], list[str]] = {
         "session",
         "all",
     ],
+    ("trade_close", "side"): ["BUY", "SELL", "LONG", "SHORT"],
+    ("trade_get_open", "side"): ["BUY", "SELL", "LONG", "SHORT"],
+    ("trade_get_pending", "side"): ["BUY", "SELL", "LONG", "SHORT"],
 }
 
 _POSITIONAL_ONLY_OPTIONAL_PARAMS: set[tuple[str, str]] = set()

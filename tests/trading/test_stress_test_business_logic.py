@@ -58,6 +58,16 @@ def test_trade_stress_test_rejects_total_loss_shock() -> None:
         TradeStressTestRequest(shocks={"EURUSD": -100.0})
 
 
+def test_trade_stress_test_accepts_percent_suffix() -> None:
+    request = TradeStressTestRequest(shocks={"EURUSD": "-2%"})
+    assert request.shocks == {"EURUSD": -2.0}
+
+
+def test_trade_stress_test_rejects_non_numeric_shock_with_value() -> None:
+    with pytest.raises(ValidationError, match="Invalid shock value"):
+        TradeStressTestRequest(shocks={"EURUSD": "two"})
+
+
 def test_trade_stress_test_schema_publishes_exclusive_minimum() -> None:
     schema = TradeStressTestRequest.model_json_schema()
     additional = schema["properties"]["shocks"]["additionalProperties"]

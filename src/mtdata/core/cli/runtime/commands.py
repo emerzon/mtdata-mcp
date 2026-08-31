@@ -82,6 +82,32 @@ def parse_kv_string(s: str, *, debug: Callable[[str], None]) -> Optional[Dict[st
         return None
 
 
+def _looks_like_json_structured_text(text: str) -> bool:
+    s = str(text or "").strip()
+    return (s.startswith("{") and s.endswith("}")) or (
+        s.startswith("[") and s.endswith("]")
+    )
+
+
+def _looks_like_quote_stripped_json(text: str) -> bool:
+    """Detect `{type: price_touch_level, ...}` after a shell stripped quotes."""
+    s = str(text or "").strip()
+    if not (s.startswith("{") and s.endswith("}")):
+        return False
+    return '"' not in s and "'" not in s
+
+
+WAIT_EVENT_SHELL_QUOTING_HINT = (
+    "watch_for looks like JSON with quotes stripped by the shell. "
+    "On Windows PowerShell use escaped quotes "
+    "('{\\\"type\\\":\\\"price_touch_level\\\",\\\"symbol\\\":\\\"EURUSD\\\","
+    "\\\"level\\\":1.16}') "
+    "or KV form without spaces: "
+    "type=price_touch_level,symbol=EURUSD,level=1.16. "
+    "See docs/CLI.md."
+)
+
+
 def normalize_cli_list_value(value: Any) -> Any:  # noqa: C901
     """Normalize CLI list values from comma, whitespace, or JSON input."""
     if value is None:
@@ -93,6 +119,8 @@ def normalize_cli_list_value(value: Any) -> Any:  # noqa: C901
         s = str(text or "").strip()
         if not s:
             return []
+        if _looks_like_json_structured_text(s):
+            return [s]
         parts = split_top_level_csv(s)
         if len(parts) > 1:
             return parts
@@ -313,9 +341,12 @@ def friendly_validation_error(exc: ValidationError, *, cmd_name: str) -> str:
                 "finite" in lowered and "-100" in lowered
             ):
                 return cleaned
+            if "invalid shock value" in lowered:
+                return cleaned
             return (
-                "shocks must be a JSON object mapping symbols to percentage shocks. "
-                "Examples: '{\"*\":-2}' or '{\"EURUSD\":-1,\"XAUUSD\":-3}'."
+                "shocks must be a mapping of symbols to percentage shocks "
+                "(JSON object or KV like EURUSD=-2). "
+                "Examples: '{\"*\":-2}', '{\"EURUSD\":-1,\"XAUUSD\":-3}', or 'EURUSD=-2%'."
             )
         if cmd_name == "strategy_validate" and (
             loc == "candidates"
@@ -446,6 +477,12 @@ def create_command_function(  # noqa: C901
                 return [parsed]
             if isinstance(parsed, list):
                 return parsed
+            if _looks_like_quote_stripped_json(s):
+                raise ValueError(WAIT_EVENT_SHELL_QUOTING_HINT)
+            raise ValueError(
+                "watch_for JSON could not be parsed. Use double-quoted keys, "
+                "or KV form: type=price_touch_level,symbol=EURUSD,level=1.16."
+            )
         if "=" in s:
             parsed_map = parse_kv_string(s)
             if parsed_map is not None:
@@ -467,8 +504,16 @@ def create_command_function(  # noqa: C901
         if isinstance(value, str):
             return _parse_wait_event_spec_text(value)
         if isinstance(value, (list, tuple)):
+            items = list(value)
+            if (
+                items
+                and all(isinstance(item, str) for item in items)
+                and str(items[0]).lstrip().startswith("{")
+                and str(items[-1]).rstrip().endswith("}")
+            ):
+                return _parse_wait_event_spec_text(" ".join(str(item) for item in items))
             out: List[Any] = []
-            for item in value:
+            for item in items:
                 if isinstance(item, str):
                     parsed = _parse_wait_event_spec_text(item)
                     if isinstance(parsed, list):
@@ -594,7 +639,15 @@ def create_command_function(  # noqa: C901
                         render_cli_result(_build_cli_error(str(exc)), args=args, cmd_name=cmd_name)
                         return 2
                 elif cmd_name == "wait_event" and param_name in {"watch_for", "end_on"}:
-                    arg_value = _normalize_wait_event_specs(arg_value)
+                    try:
+                        arg_value = _normalize_wait_event_specs(arg_value)
+                    except ValueError as exc:
+                        render_cli_result(
+                            _build_cli_error(str(exc)),
+                            args=args,
+                            cmd_name=cmd_name,
+                        )
+                        return 2
                 else:
                     arg_value = normalize_cli_list_value(arg_value)
             if is_mapping:
@@ -632,6 +685,18 @@ def create_command_function(  # noqa: C901
                         ):
                             # Preserve request-model shortcuts for its BeforeValidator.
                             arg_value = arg_value.strip()
+                        elif param_name == "shocks":
+                            render_cli_result(
+                                _build_cli_error(
+                                    "shocks must be a mapping of symbols to percentage shocks "
+                                    "(JSON object or KV like EURUSD=-2). "
+                                    "Examples: '{\"*\":-2}', '{\"EURUSD\":-1,\"XAUUSD\":-3}', "
+                                    "or 'EURUSD=-2%'."
+                                ),
+                                args=args,
+                                cmd_name=cmd_name,
+                            )
+                            return 2
                         else:
                             arg_value = {"method": arg_value.strip()}
 
