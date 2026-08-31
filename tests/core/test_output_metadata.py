@@ -121,6 +121,21 @@ def test_freshness_observation_positive_policy_overrides_generic_unknown_state()
     assert observation.to_warning() is None
 
 
+def test_freshness_observation_treats_scan_fresh_label_as_verified() -> None:
+    observation = FreshnessObservation.from_payload(
+        {
+            "freshness": "fresh",
+            "stale_rows": 0,
+            "unsafe_quote_rows": 0,
+        },
+        scope="symbols_top_markets",
+    )
+
+    assert observation is not None
+    assert observation.status == "fresh"
+    assert observation.to_warning() is None
+
+
 def test_freshness_observation_keeps_failed_or_missing_verification_non_nominal() -> None:
     stale = FreshnessObservation.from_payload(
         {"history_policy_ok": False},

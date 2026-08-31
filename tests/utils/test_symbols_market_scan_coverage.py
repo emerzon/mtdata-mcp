@@ -1815,7 +1815,9 @@ class TestSymbolsTopMarkets:
         assert result == {
             "error": (
                 "rank_by must be one of: all, spread/spread_pct, tick_volume, "
-                "price_change/price_change_pct, abs_price_change/abs_price_change_pct."
+                "price_change/price_change_pct, abs_price_change/abs_price_change_pct, "
+                "live_price_change/live_price_change_pct, "
+                "abs_live_price_change/abs_live_price_change_pct."
             )
         }
 

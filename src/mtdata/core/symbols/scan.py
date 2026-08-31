@@ -1807,6 +1807,8 @@ _RANK_BY_ALIASES = {
 _SYMBOLS_TOP_MARKETS_INTERNAL_RANK_BY = {
     "abs_price_change_pct": "abs_price_change",
     "price_change_pct": "price_change",
+    "live_price_change_pct": "live_price_change",
+    "abs_live_price_change_pct": "abs_live_price_change",
     "tick_volume": "volume",
     "spread_pct": "spread",
 }
@@ -1906,6 +1908,10 @@ def symbols_top_markets(  # noqa: C901
         "price_change_pct",
         "abs_price_change",
         "abs_price_change_pct",
+        "live_price_change",
+        "live_price_change_pct",
+        "abs_live_price_change",
+        "abs_live_price_change_pct",
     ] = "abs_price_change_pct",  # type: ignore
     limit: Annotated[int, Field(ge=1)] = 10,
     universe: Literal["visible", "all"] = "visible",  # type: ignore
@@ -1987,12 +1993,16 @@ def symbols_top_markets(  # noqa: C901
                 "volume",
                 "price_change",
                 "abs_price_change",
+                "live_price_change",
+                "abs_live_price_change",
             }:
                 return {
                     "error": (
                         "rank_by must be one of: all, spread/spread_pct, "
                         "tick_volume, price_change/price_change_pct, "
-                        "abs_price_change/abs_price_change_pct."
+                        "abs_price_change/abs_price_change_pct, "
+                        "live_price_change/live_price_change_pct, "
+                        "abs_live_price_change/abs_live_price_change_pct."
                     )
                 }
 
@@ -2013,6 +2023,8 @@ def symbols_top_markets(  # noqa: C901
                 "volume",
                 "price_change",
                 "abs_price_change",
+                "live_price_change",
+                "abs_live_price_change",
             }
             if needs_bar_data and timeframe_value not in TIMEFRAME_MAP:
                 return {"error": invalid_timeframe_error(timeframe_value, TIMEFRAME_MAP)}
@@ -2159,6 +2171,8 @@ def symbols_top_markets(  # noqa: C901
                             "all",
                             "price_change",
                             "abs_price_change",
+                            "live_price_change",
+                            "abs_live_price_change",
                         }:
                             _record_issue("price_change", symbol_name, bar_error)
                     elif bar_row is not None:
@@ -2171,6 +2185,8 @@ def symbols_top_markets(  # noqa: C901
                             "all",
                             "price_change",
                             "abs_price_change",
+                            "live_price_change",
+                            "abs_live_price_change",
                         }:
                             price_change_rows.append(dict(combined_bar_row))
 
@@ -2198,6 +2214,8 @@ def symbols_top_markets(  # noqa: C901
                                 "all",
                                 "price_change",
                                 "abs_price_change",
+                                "live_price_change",
+                                "abs_live_price_change",
                             }:
                                 _record_issue("price_change", symbol_name, err)
                             continue
@@ -2225,14 +2243,24 @@ def symbols_top_markets(  # noqa: C901
                     row.get("symbol") or "",
                 )
             )
+            live_rank = rank_kind in {"live_price_change", "abs_live_price_change"}
+            if live_rank:
+                price_change_rows = [
+                    row
+                    for row in price_change_rows
+                    if row.get("quote_usable_for_live_trading") is not False
+                    and row.get("live_price_change_pct") is not None
+                ]
+            change_key = "live_price_change_pct" if live_rank else "price_change_pct"
+            abs_rank = rank_kind in {"abs_price_change", "abs_live_price_change"}
             price_change_rows.sort(
                 key=lambda row: (
                     bool(row.get("data_stale")) or bool(row.get("bar_stale")),
-                    row.get("price_change_pct") is None,
+                    row.get(change_key) is None,
                     (
-                        -abs(float(row.get("price_change_pct") or 0.0))
-                        if rank_kind == "abs_price_change"
-                        else -(row.get("price_change_pct") or 0.0)
+                        -abs(float(row.get(change_key) or 0.0))
+                        if abs_rank
+                        else -(float(row.get(change_key) or 0.0))
                     ),
                     row.get("symbol") or "",
                 )
@@ -2459,7 +2487,12 @@ def symbols_top_markets(  # noqa: C901
                     out["skipped_examples"] = metric_issues["volume"]
                 return out
 
-            if rank_kind in {"price_change", "abs_price_change"}:
+            if rank_kind in {
+                "price_change",
+                "abs_price_change",
+                "live_price_change",
+                "abs_live_price_change",
+            }:
                 price_change_headers = _top_markets_headers(
                     "price_change", detail_mode=detail_mode
                 )
@@ -2470,7 +2503,11 @@ def symbols_top_markets(  # noqa: C901
                 )
                 out.update(scan_meta)
                 out["ranking"] = (
-                    "largest_abs_price_change_pct"
+                    "largest_abs_live_price_change_pct"
+                    if rank_kind == "abs_live_price_change"
+                    else "highest_live_price_change_pct"
+                    if rank_kind == "live_price_change"
+                    else "largest_abs_price_change_pct"
                     if rank_kind == "abs_price_change"
                     else "highest_price_change_pct"
                 )

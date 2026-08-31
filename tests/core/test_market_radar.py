@@ -113,6 +113,22 @@ def test_market_radar_keeps_watchlist_order() -> None:
     assert result["rows"][1]["quote_not_live_ready"] is False
 
 
+def test_compact_radar_row_keeps_tradability_flags_consistent() -> None:
+    compact = compact_radar_row(
+        {
+            "symbol": "USDCHF",
+            "bid": 0.8,
+            "ask": 0.81,
+            "quote_usable_for_live_trading": True,
+            "quote_not_live_ready": True,
+            "quote_source_state": "reconciled_equal_timestamp_conflict",
+        }
+    )
+    assert compact is not None
+    assert compact["quote_usable_for_live_trading"] is False
+    assert compact["quote_not_live_ready"] is True
+
+
 def test_market_radar_marks_unusable_quotes() -> None:
     result = run_market_radar(
         MarketRadarRequest(symbols="USDJPY"),

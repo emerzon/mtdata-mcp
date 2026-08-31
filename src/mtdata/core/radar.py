@@ -175,6 +175,7 @@ def compact_radar_row(row: Any) -> Optional[Dict[str, Any]]:
         or row.get("quote_not_live_ready") is True
         or (isinstance(blockers, list) and bool(blockers))
     )
+    compact["quote_usable_for_live_trading"] = not bool(not_live)
     compact["quote_not_live_ready"] = bool(not_live)
     if isinstance(blockers, list) and blockers:
         compact["execution_blockers"] = blockers
@@ -316,6 +317,12 @@ def assemble_radar_payload(
         ):
             if scan.get(key) is not None:
                 payload[key] = scan[key]
+    payload["unsafe_quote_rows"] = sum(
+        1
+        for row in ordered
+        if row.get("quote_not_live_ready") is True
+        or row.get("quote_usable_for_live_trading") is not True
+    )
     if missing:
         payload["missing_symbols"] = missing
     if seeded:

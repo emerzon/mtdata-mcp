@@ -235,10 +235,17 @@ class FreshnessObservation:
 
         reason = _clean_text(payload.get("freshness_reason"))
         state = _clean_text(payload.get("freshness_state"))
+        freshness_label = _clean_text(payload.get("freshness"))
         market_status = _clean_text(payload.get("market_status"))
         stale = payload.get("data_stale")
         history_ok = payload.get("history_policy_ok")
         usable = payload.get("usable_for_live_trading")
+        stale_rows = payload.get("stale_rows")
+        freshness_token = (
+            freshness_label.split(",", 1)[0].strip().lower()
+            if freshness_label
+            else None
+        )
 
         if payload.get("timestamp_in_future") is True or reason == "future_timestamp":
             status = "clock_skew"
@@ -248,7 +255,16 @@ class FreshnessObservation:
             status = "stale"
         elif state in {"live", "fresh", "recent", "delayed", "stale"}:
             status = state
+        elif freshness_token in {"live", "fresh", "recent"}:
+            status = freshness_token
         elif stale is False or history_ok is True:
+            status = "fresh"
+        elif isinstance(stale_rows, int) and stale_rows == 0:
+            status = "fresh"
+        elif freshness_token == "stale":
+            status = "stale"
+        elif freshness_token == "mixed":
+            # Row-level stale flags already describe a verified mixed sample.
             status = "fresh"
         else:
             status = "unknown"
