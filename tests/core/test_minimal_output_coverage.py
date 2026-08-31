@@ -10,6 +10,7 @@ from mtdata.utils.minimal_output import (
     _normalize_forecast_payload,
     _normalize_market_status_payload,
     _normalize_market_ticker_payload,
+    _normalize_support_resistance_payload,
     _normalize_trade_payload,
     _normalize_trade_table_payload,
     _normalize_triple_barrier_payload,
@@ -646,7 +647,14 @@ class TestNormalizeTradePayload:
             "margin_required": 123.45,
             "margin_sufficient": True,
             "candidate_risk": candidate_risk,
-            "units": {"sl_distance_pips": "pip_count"},
+            "units": {"sl_distance_pips": "pip_count", "risk_currency": "account_currency"},
+            "quote_context": {
+                "quote_time": "2026-08-31T17:59:23Z",
+                "data_age_seconds": 0.0,
+                "usable_for_live_trading": True,
+                "freshness_state": "live",
+                "send_path_tick_fresh": True,
+            },
         }
 
         result = _normalize_trade_payload(
@@ -669,7 +677,53 @@ class TestNormalizeTradePayload:
             "units",
         ):
             assert result[key] == payload[key]
+        assert result["quote_context"] == {
+            "quote_time": "2026-08-31T17:59:23Z",
+            "data_age_seconds": 0.0,
+            "usable_for_live_trading": True,
+        }
         assert result["blockers"] == []
+
+    def test_trade_place_preview_keeps_stale_quote_context_gate(self):
+        result = _normalize_trade_payload(
+            {
+                "success": True,
+                "dry_run": True,
+                "preview_ok": True,
+                "quote_context": {
+                    "quote_time": "2026-08-29T12:00:00Z",
+                    "data_age_seconds": 3600,
+                    "usable_for_live_trading": False,
+                    "freshness_state": "stale",
+                },
+            },
+            verbose=False,
+            tool_name="trade_place",
+        )
+
+        assert result["quote_context"] == {
+            "quote_time": "2026-08-29T12:00:00Z",
+            "data_age_seconds": 3600,
+            "usable_for_live_trading": False,
+        }
+
+    def test_trade_place_compact_keeps_protection_validation_errors(self):
+        result = _normalize_trade_payload(
+            {
+                "success": True,
+                "dry_run": True,
+                "preview_ok": True,
+                "sl_tp_error": "stop_loss must be below the live bid for BUY orders.",
+                "validation_error": "stop_loss must be below the live bid for BUY orders.",
+            },
+            verbose=False,
+            tool_name="trade_place",
+        )
+
+        assert result["sl_tp_error"] == (
+            "stop_loss must be below the live bid for BUY orders."
+        )
+        assert result["validation_error"] == result["sl_tp_error"]
 
     def test_trade_place_preview_uses_public_protection_names(self):
         result = _normalize_trade_payload(
@@ -744,6 +798,25 @@ class TestNormalizeTradePayload:
         assert result["blockers"] == ["invalid_stop_loss"]
         assert result["remediation"] == "Move stop_loss below the entry price."
         assert result["validation"] == validation
+
+
+class TestNormalizeSupportResistancePayload:
+    def test_compact_keeps_lookback_bars(self):
+        result = _normalize_support_resistance_payload(
+            {
+                "success": True,
+                "symbol": "EURUSD",
+                "timeframe": "H1",
+                "lookback_bars": 200,
+                "supports": [],
+                "resistances": [],
+            },
+            verbose=False,
+            tool_name="support_resistance_levels",
+        )
+
+        assert result is not None
+        assert result["lookback_bars"] == 200
 
 
 class TestNormalizeTradeTablePayload:

@@ -724,6 +724,17 @@ def _maybe_add_trade_key(
     out[key] = value
 
 
+def _compact_trade_quote_context(quote_context: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(quote_context, dict):
+        return None
+    quote_out: Dict[str, Any] = {}
+    for key in ("quote_time", "data_age_seconds", "usable_for_live_trading"):
+        value = quote_context.get(key)
+        if not _is_empty_value(value):
+            quote_out[key] = value
+    return quote_out or None
+
+
 def _compact_trade_row(
     row: Dict[str, Any], *, verbose: bool
 ) -> Optional[Dict[str, Any]]:
@@ -907,6 +918,11 @@ def _normalize_trade_payload(  # noqa: C901
             out["blockers"] = blockers
         _maybe_add_trade_key(out, "dry_run_note", payload.get("dry_run_note"))
         _maybe_add_trade_key(out, "remediation", payload.get("remediation"))
+        _maybe_add_trade_key(out, "sl_tp_error", payload.get("sl_tp_error"))
+        _maybe_add_trade_key(out, "validation_error", payload.get("validation_error"))
+        quote_out = _compact_trade_quote_context(payload.get("quote_context"))
+        if quote_out:
+            out["quote_context"] = quote_out
         warnings_out = _compact_trade_warnings(payload.get("warnings"), verbose=verbose)
         if warnings_out:
             out["warnings"] = warnings_out
@@ -1038,6 +1054,13 @@ def _normalize_trade_payload(  # noqa: C901
             "units",
         ):
             _maybe_add_trade_key(out, key, payload.get(key))
+        quote_out = _compact_trade_quote_context(payload.get("quote_context"))
+        if quote_out:
+            out["quote_context"] = quote_out
+    elif "quote_context" not in out:
+        quote_out = _compact_trade_quote_context(payload.get("quote_context"))
+        if quote_out:
+            out["quote_context"] = quote_out
 
     requested_sl = payload.get("stop_loss", payload.get("requested_sl"))
     requested_tp = payload.get("take_profit", payload.get("requested_tp"))
@@ -1075,6 +1098,8 @@ def _normalize_trade_payload(  # noqa: C901
     _maybe_add_trade_key(out, "applied_expiration", payload.get("applied_expiration"))
     _maybe_add_trade_key(out, "protection_status", payload.get("protection_status"))
     _maybe_add_trade_key(out, "protection_error", protection_error)
+    _maybe_add_trade_key(out, "sl_tp_error", payload.get("sl_tp_error"))
+    _maybe_add_trade_key(out, "validation_error", payload.get("validation_error"))
     _maybe_add_trade_key(out, "validation_scope", payload.get("validation_scope"))
     for key in (
         "preview_checks_performed",
@@ -2379,6 +2404,7 @@ def _normalize_support_resistance_payload(  # noqa: C901
         "data_as_of",
         "structure_as_of",
         "level_counts",
+        "lookback_bars",
         "role_note",
         "level_scan_note",
         "units",

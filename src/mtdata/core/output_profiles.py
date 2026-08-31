@@ -847,6 +847,8 @@ _COMPACT_ERROR_QUOTE_FIELDS = (
     "market_status",
     "market_status_reason",
     "next_market_open",
+    "quote_time",
+    "data_age_seconds",
     "usable_for_live_trading",
     "live_quote_usable",
     "execution_readiness",
@@ -1116,7 +1118,6 @@ def _compact_volatility_term_structure(payload: MutableMapping[str, Any]) -> Non
             "count",
             "forming_candle_status",
             "sessions_per_year",
-            "unit_note",
             "units",
         },
     )

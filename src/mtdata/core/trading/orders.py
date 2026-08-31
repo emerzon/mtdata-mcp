@@ -1395,6 +1395,7 @@ def build_trade_place_dry_run_preview(  # noqa: C901
         "tp_distance_points": UNIT_BROKER_POINTS,
         "tp_distance_pips": UNIT_PIPS,
         "tp_distance_pct": UNIT_PERCENT,
+        "risk_currency": "account_currency",
     }
 
     validation_error: Optional[Dict[str, Any]] = None
