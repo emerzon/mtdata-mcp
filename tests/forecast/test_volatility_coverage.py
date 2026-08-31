@@ -1010,7 +1010,10 @@ class TestForecastVolatilityDenoise:
 class TestForecastVolatilityTimeframes:
     @pytest.mark.parametrize("tf", ["M1", "M5", "M15", "H1", "H4", "D1"])
     def test_various_timeframes(self, tf):
-        with _mock_vol_env():
+        rates = _make_rates(2000)
+        interval = vol_mod.TIMEFRAME_SECONDS[tf]
+        rates["time"] = int(rates["time"][0]) + np.arange(len(rates)) * interval
+        with _mock_vol_env(rates_return=rates):
             result = forecast_volatility(
                 "EURUSD", tf, 1, method="ewma")
             assert result.get("success") is True

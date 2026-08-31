@@ -273,15 +273,37 @@ def test_direct_method_evidence_matches_exact_effective_tail(
     assert "_mtdata_volatility_raw" not in str(evidence)
     if returns:
         assert evidence["returns"]["timestamp_policy"] == (
-            "adjacent_observed_rows_no_time_gap_filter"
+            "exact_requested_timeframe_interval_only"
         )
-        assert "no_exact_timeframe_requirement" in evidence["returns"]["operation"]
+        assert "exactly_one_requested_timeframe" in evidence["returns"]["operation"]
         assert len(evidence["returns"]["pair_sha256"]) == 64
     if method == "yang_zhang":
         assert evidence["returns"]["timestamp_policy"] == (
             "yang_zhang_overnight_component_uses_adjacent_observed_rows_"
             "no_time_gap_filter"
         )
+
+
+def test_ewma_excludes_returns_that_bridge_missing_h1_candles() -> None:
+    frame = _h1_frame(30).drop(index=10).reset_index(drop=True)
+
+    result = _forecast_with_frame(
+        frame,
+        method="ewma",
+        params={"lookback": 50},
+    )
+
+    assert result["success"] is True
+    assert result["return_interval_filter"] == {
+        "policy": "exact_requested_timeframe_interval_only",
+        "expected_interval_seconds": 3600.0,
+        "excluded_gap_returns": 1,
+    }
+    evidence = result["input_evidence"]["returns"]
+    assert evidence["count"] == 27
+    assert evidence["timestamp_policy"] == (
+        "exact_requested_timeframe_interval_only"
+    )
 
 
 def test_proxy_evidence_hashes_the_exact_model_series(monkeypatch) -> None:

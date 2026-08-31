@@ -687,22 +687,73 @@ def _finite_log_return_inputs(
     frame: pd.DataFrame,
     *,
     close_col: str,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Return finite log returns, their diff positions, and end timestamps."""
+    expected_interval_seconds: Optional[float] = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, int]:
+    """Return finite, cadence-valid log returns and their paired timestamps."""
     prices = pd.to_numeric(frame[close_col], errors="coerce").to_numpy(dtype=float)
     raw_returns = _log_returns_from_prices(prices)
-    finite_mask = np.isfinite(raw_returns)
-    positions = np.flatnonzero(finite_mask).astype(np.int64)
     all_timestamps = pd.to_numeric(
         frame["time"],
         errors="coerce",
     ).to_numpy(dtype=float)
+    timestamp_deltas = np.diff(all_timestamps)
+    finite_mask = (
+        np.isfinite(raw_returns)
+        & np.isfinite(all_timestamps[:-1])
+        & np.isfinite(all_timestamps[1:])
+        & (timestamp_deltas > 0.0)
+    )
+    price_finite_count = int(np.count_nonzero(finite_mask))
+    if expected_interval_seconds is not None:
+        expected = float(expected_interval_seconds)
+        finite_mask &= np.isclose(
+            timestamp_deltas,
+            expected,
+            rtol=0.0,
+            atol=max(1e-6, expected * 1e-9),
+        )
+    excluded_interval_returns = price_finite_count - int(np.count_nonzero(finite_mask))
+    positions = np.flatnonzero(finite_mask).astype(np.int64)
     return (
         raw_returns[finite_mask],
         positions,
         all_timestamps[positions],
         all_timestamps[positions + 1],
+        excluded_interval_returns,
     )
+
+
+def _requested_timeframe_return_policy(
+    timeframe: str,
+) -> tuple[Optional[float], str, str]:
+    """Describe the interval accepted by requested-timeframe return models."""
+    if str(timeframe).upper() in CALENDAR_TIMEFRAMES:
+        return (
+            None,
+            "adjacent_completed_session_bars_log_return",
+            "adjacent_completed_session_bars",
+        )
+    expected = float(TIMEFRAME_SECONDS.get(timeframe, 0) or 0)
+    if expected <= 0.0:
+        return None, "adjacent_observed_rows_log_return", "adjacent_observed_rows"
+    return (
+        expected,
+        "adjacent_rows_log_return_exactly_one_requested_timeframe_apart",
+        "exact_requested_timeframe_interval_only",
+    )
+
+
+def _return_interval_filter_metadata(
+    *,
+    expected_interval_seconds: Optional[float],
+    excluded_returns: int,
+    timestamp_policy: str,
+) -> Dict[str, Any]:
+    return {
+        "policy": timestamp_policy,
+        "expected_interval_seconds": expected_interval_seconds,
+        "excluded_gap_returns": int(excluded_returns),
+    }
 
 
 def _snapshot_volatility_raw_columns(
@@ -2933,16 +2984,33 @@ def forecast_volatility(  # noqa: C901
                 apply_denoise(df, denoise)
             close_col = _volatility_price_column(df, denoise, "close")
             (
+                expected_return_interval,
+                return_operation,
+                return_timestamp_policy,
+            ) = _requested_timeframe_return_policy(timeframe)
+            (
                 r,
                 r_positions,
                 r_start_timestamps,
                 r_timestamps,
+                excluded_gap_returns,
             ) = _finite_log_return_inputs(
                 df,
                 close_col=close_col,
+                expected_interval_seconds=expected_return_interval,
             )
             if r.size < 10:
-                return {"error": "Insufficient returns to estimate volatility proxy"}
+                return {
+                    "error": (
+                        "Insufficient returns: too few cadence-valid pairs to "
+                        "estimate volatility proxy"
+                    ),
+                    "return_interval_filter": _return_interval_filter_metadata(
+                        expected_interval_seconds=expected_return_interval,
+                        excluded_returns=excluded_gap_returns,
+                        timestamp_policy=return_timestamp_policy,
+                    ),
+                }
             # Build proxy
             if not proxy:
                 return _volatility_proxy_required_error(method_l)
@@ -2993,10 +3061,8 @@ def forecast_volatility(  # noqa: C901
                 returns=proxy_returns,
                 return_start_timestamps=proxy_return_start_timestamps,
                 return_timestamps=proxy_return_timestamps,
-                return_operation=(
-                    "adjacent_observed_rows_log_return_no_exact_timeframe_requirement"
-                ),
-                return_timestamp_policy=("adjacent_observed_rows_no_time_gap_filter"),
+                return_operation=return_operation,
+                return_timestamp_policy=return_timestamp_policy,
                 transformed_input=y,
                 transformed_fields=[proxy_l],
                 transformed_operation=(
@@ -3024,6 +3090,11 @@ def forecast_volatility(  # noqa: C901
                         "proxy": proxy_l,
                         "horizon": fh,
                         "input_evidence": input_evidence,
+                        "return_interval_filter": _return_interval_filter_metadata(
+                            expected_interval_seconds=expected_return_interval,
+                            excluded_returns=excluded_gap_returns,
+                            timestamp_policy=return_timestamp_policy,
+                        ),
                         "fit_diagnostics": diagnostics,
                         "params_used": params_used
                         or {
@@ -3240,6 +3311,11 @@ def forecast_volatility(  # noqa: C901
                     ),
                 },
                 "input_evidence": input_evidence,
+                "return_interval_filter": _return_interval_filter_metadata(
+                    expected_interval_seconds=expected_return_interval,
+                    excluded_returns=excluded_gap_returns,
+                    timestamp_policy=return_timestamp_policy,
+                ),
                 "fit_diagnostics": proxy_output_diagnostics,
                 "denoise_used": denoise,
             }
@@ -4167,16 +4243,33 @@ def forecast_volatility(  # noqa: C901
         # Compute returns and helpers
         close_col = _volatility_price_column(df, dn_spec_used, "close")
         (
+            expected_return_interval,
+            return_operation,
+            return_timestamp_policy,
+        ) = _requested_timeframe_return_policy(timeframe)
+        (
             r,
             r_positions,
             r_start_timestamps,
             r_timestamps,
+            excluded_gap_returns,
         ) = _finite_log_return_inputs(
             df,
             close_col=close_col,
+            expected_interval_seconds=expected_return_interval,
         )
         if r.size < 5:
-            return {"error": "Insufficient returns to estimate volatility"}
+            return {
+                "error": (
+                    "Insufficient returns: too few cadence-valid pairs to "
+                    "estimate volatility"
+                ),
+                "return_interval_filter": _return_interval_filter_metadata(
+                    expected_interval_seconds=expected_return_interval,
+                    excluded_returns=excluded_gap_returns,
+                    timestamp_policy=return_timestamp_policy,
+                ),
+            }
         if method_l == 'ewma':
             lb = int(p.get('lookback', 1500))
             halflife = p.get('halflife')
@@ -4221,10 +4314,8 @@ def forecast_volatility(  # noqa: C901
                 returns=tail,
                 return_start_timestamps=r_start_timestamps[-tail_count:],
                 return_timestamps=r_timestamps[-tail_count:],
-                return_operation=(
-                    "adjacent_observed_rows_log_return_no_exact_timeframe_requirement"
-                ),
-                return_timestamp_policy=("adjacent_observed_rows_no_time_gap_filter"),
+                return_operation=return_operation,
+                return_timestamp_policy=return_timestamp_policy,
                 transformed_input=np.column_stack((tail, w)),
                 transformed_fields=["log_return", "normalized_ewma_weight"],
                 transformed_operation=(
@@ -4247,6 +4338,11 @@ def forecast_volatility(  # noqa: C901
                     "params_used": params_used,
                     "params_explained": _ewma_param_explanations(lambda_source),
                     "input_evidence": input_evidence,
+                    "return_interval_filter": _return_interval_filter_metadata(
+                        expected_interval_seconds=expected_return_interval,
+                        excluded_returns=excluded_gap_returns,
+                        timestamp_policy=return_timestamp_policy,
+                    ),
                     "denoise_used": dn_spec_used,
                 },
                 df=df,
@@ -4297,6 +4393,13 @@ def forecast_volatility(  # noqa: C901
             else:
                 with np.errstate(divide='ignore', invalid='ignore'):
                     simple_returns = np.diff(c) / c[:-1]
+                cadence_valid = np.zeros(simple_returns.size, dtype=bool)
+                cadence_valid[r_positions] = True
+                simple_returns = np.where(
+                    cadence_valid,
+                    simple_returns,
+                    np.nan,
+                )
                 v = (
                     pd.Series(simple_returns)
                     .rolling(window=window, min_periods=window)
@@ -4451,13 +4554,11 @@ def forecast_volatility(  # noqa: C901
                         returns=simple_tail,
                         return_start_timestamps=simple_return_start_times,
                         return_timestamps=simple_return_times,
-                        return_operation=(
-                            "adjacent_observed_rows_simple_return_no_exact_"
-                            "timeframe_requirement"
+                        return_operation=return_operation.replace(
+                            "log_return",
+                            "simple_return",
                         ),
-                        return_timestamp_policy=(
-                            "adjacent_observed_rows_no_time_gap_filter"
-                        ),
+                        return_timestamp_policy=return_timestamp_policy,
                         transformed_input=centered_tail,
                         transformed_fields=["mean_centered_simple_return"],
                         transformed_operation="subtract_window_mean",
@@ -4481,6 +4582,17 @@ def forecast_volatility(  # noqa: C901
                     ),
                     "params_used": {"window": int(window)},
                     "input_evidence": input_evidence,
+                    **(
+                        {
+                            "return_interval_filter": _return_interval_filter_metadata(
+                                expected_interval_seconds=expected_return_interval,
+                                excluded_returns=excluded_gap_returns,
+                                timestamp_policy=return_timestamp_policy,
+                            )
+                        }
+                        if method_l == "rolling_std"
+                        else {}
+                    ),
                     "denoise_used": dn_spec_used,
                 },
                 df=df,
@@ -4526,10 +4638,8 @@ def forecast_volatility(  # noqa: C901
                 returns=tail,
                 return_start_timestamps=r_start_timestamps[-tail_count:],
                 return_timestamps=r_timestamps[-tail_count:],
-                return_operation=(
-                    "adjacent_observed_rows_log_return_no_exact_timeframe_requirement"
-                ),
-                return_timestamp_policy=("adjacent_observed_rows_no_time_gap_filter"),
+                return_operation=return_operation,
+                return_timestamp_policy=return_timestamp_policy,
                 transformed_input=centered_tail,
                 transformed_fields=["mean_centered_log_return"],
                 transformed_operation="subtract_effective_window_mean",
@@ -4554,6 +4664,11 @@ def forecast_volatility(  # noqa: C901
                         "effective_bandwidth": effective_bandwidth,
                     },
                     "input_evidence": input_evidence,
+                    "return_interval_filter": _return_interval_filter_metadata(
+                        expected_interval_seconds=expected_return_interval,
+                        excluded_returns=excluded_gap_returns,
+                        timestamp_policy=return_timestamp_policy,
+                    ),
                     "denoise_used": dn_spec_used,
                 },
                 df=df,
@@ -4605,10 +4720,8 @@ def forecast_volatility(  # noqa: C901
                 returns=r[-fit_count:],
                 return_start_timestamps=r_start_timestamps[-fit_count:],
                 return_timestamps=r_timestamps[-fit_count:],
-                return_operation=(
-                    "adjacent_observed_rows_log_return_no_exact_timeframe_requirement"
-                ),
-                return_timestamp_policy=("adjacent_observed_rows_no_time_gap_filter"),
+                return_operation=return_operation,
+                return_timestamp_policy=return_timestamp_policy,
                 transformed_input=r_fit,
                 transformed_fields=["percent_log_return"],
                 transformed_operation="multiply_log_return_by_100",
@@ -4639,6 +4752,11 @@ def forecast_volatility(  # noqa: C901
                             else {}
                         ),
                         "input_evidence": input_evidence,
+                        "return_interval_filter": _return_interval_filter_metadata(
+                            expected_interval_seconds=expected_return_interval,
+                            excluded_returns=excluded_gap_returns,
+                            timestamp_policy=return_timestamp_policy,
+                        ),
                         "params_used": params_used,
                         "denoise_used": dn_spec_used,
                         **(
@@ -4736,6 +4854,11 @@ def forecast_volatility(  # noqa: C901
                     ),
                     "params_used": params_used,
                     "input_evidence": input_evidence,
+                    "return_interval_filter": _return_interval_filter_metadata(
+                        expected_interval_seconds=expected_return_interval,
+                        excluded_returns=excluded_gap_returns,
+                        timestamp_policy=return_timestamp_policy,
+                    ),
                     "fit_diagnostics": fit_diagnostics,
                     "denoise_used": dn_spec_used,
                 },

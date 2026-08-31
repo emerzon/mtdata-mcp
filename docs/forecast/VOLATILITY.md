@@ -58,23 +58,24 @@ filter and whether it added or overwrote columns.
 
 `input_evidence.source` identifies the exact source rows.
 `input_evidence.returns` identifies each return value and its paired previous
-and current timestamps. Most requested-timeframe methods intentionally use
-adjacent **observed** rows and can bridge a missing candle; their operation and
-`timestamp_policy=adjacent_observed_rows_no_time_gap_filter` say so explicitly.
-HAR-RV is different: it accepts only same-UTC-day returns exactly one
-`rv_timeframe` interval apart. `input_evidence.transformed_input` identifies
-the final estimator vector or matrix.
+and current timestamps. Intraday requested-timeframe methods accept a return
+only when its endpoints are exactly one requested interval apart, so a missing
+candle is not treated as a one-bar move. Calendar timeframes use adjacent
+completed session bars. HAR-RV applies the stricter same-UTC-day rule and
+accepts only returns exactly one `rv_timeframe` interval apart.
+`input_evidence.transformed_input` identifies the final estimator vector or
+matrix.
 
 The effective input sizes depend on the method:
 
 | Method family | Exact full-detail input |
 |---------------|-------------------------|
-| EWMA | Selected source closes, trailing adjacent-observed log returns capped by `lookback`, and normalized return/weight pairs |
+| EWMA | Selected source closes, trailing cadence-valid log returns capped by `lookback`, and normalized return/weight pairs |
 | Parkinson, Garman-Klass, Rogers-Satchell | The selected `window` high/low rows for Parkinson or OHLC rows for Garman-Klass/Rogers-Satchell, plus one variance contribution per row |
 | Yang-Zhang | `window + 1` OHLC rows and `window` overnight, open-to-close, and Rogers-Satchell components |
-| Rolling standard deviation | `window + 1` closes, `window` adjacent-observed simple returns, and the centered return vector |
+| Rolling standard deviation | `window + 1` closes, `window` cadence-valid simple returns, and the centered return vector |
 | Realized kernel | Up to `window` selected finite log-return pairs, their source-row union, centered returns, kernel, and effective bandwidth; contiguous pairs use `window + 1` closes |
-| ARIMA, SARIMA, ETS, Theta proxy | The selected close rows, adjacent-observed log returns, and exact proxy series passed to the forecaster |
+| ARIMA, SARIMA, ETS, Theta proxy | The selected close rows, cadence-valid log returns, and exact proxy series passed to the forecaster |
 | GARCH family | Up to `fit_bars` selected finite log-return pairs, their source-row union, and the percent-log-return fit vector; contiguous pairs use `fit_bars + 1` closes |
 | HAR-RV | Sorted post-filter intraday rows, all accepted exact-step returns, eligible-return subset, daily RV vector, aligned regression matrix/target, and final lag vector |
 | Ensemble | Ordered component outputs, survivor-normalized weights, and each component's full evidence |

@@ -284,7 +284,7 @@ def test_ewma_evidence_binds_the_exact_trailing_rows_and_return_pairs() -> None:
         context={**source_context, "fields": ["time"]},
     )
     return_operation = (
-        "adjacent_observed_rows_log_return_no_exact_timeframe_requirement"
+        "adjacent_rows_log_return_exactly_one_requested_timeframe_apart"
     )
     assert evidence["returns"]["pair_sha256"] == volatility_array_sha256(
         np.column_stack((timestamps[:-1], timestamps[1:], returns)),
@@ -293,7 +293,7 @@ def test_ewma_evidence_binds_the_exact_trailing_rows_and_return_pairs() -> None:
             "method": "ewma",
             "timeframe": "H1",
             "operation": return_operation,
-            "timestamp_policy": ("adjacent_observed_rows_no_time_gap_filter"),
+            "timestamp_policy": ("exact_requested_timeframe_interval_only"),
             "fields": ["previous_time", "current_time", "return"],
         },
     )
