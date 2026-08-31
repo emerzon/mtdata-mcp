@@ -89,6 +89,58 @@ def test_freshness_observation_builds_one_stale_warning() -> None:
     )
 
 
+def test_freshness_observation_maps_verified_history_to_fresh() -> None:
+    observation = FreshnessObservation.from_payload(
+        {
+            "data_as_of": "2026-08-30T22:00:00Z",
+            "data_age_seconds": 567,
+            "stale_after_seconds": 2700,
+            "freshness_basis": "last_completed_bar_close",
+            "history_policy_ok": True,
+        },
+        scope="forecast_generate",
+    )
+
+    assert observation is not None
+    assert observation.status == "fresh"
+    assert observation.nominal is True
+    assert observation.to_warning() is None
+
+
+def test_freshness_observation_positive_policy_overrides_generic_unknown_state() -> None:
+    observation = FreshnessObservation.from_payload(
+        {
+            "freshness_state": "unknown",
+            "history_policy_ok": True,
+        },
+        scope="market_scan",
+    )
+
+    assert observation is not None
+    assert observation.status == "fresh"
+    assert observation.to_warning() is None
+
+
+def test_freshness_observation_keeps_failed_or_missing_verification_non_nominal() -> None:
+    stale = FreshnessObservation.from_payload(
+        {"history_policy_ok": False},
+        scope="forecast_generate",
+    )
+    unknown = FreshnessObservation.from_payload(
+        {"freshness_state": "unknown"},
+        scope="forecast_generate",
+    )
+
+    assert stale is not None
+    assert stale.status == "stale"
+    assert stale.to_warning() is not None
+    assert stale.to_warning().code == "data_stale"
+    assert unknown is not None
+    assert unknown.status == "unknown"
+    assert unknown.to_warning() is not None
+    assert unknown.to_warning().code == "freshness_unverified"
+
+
 def test_append_output_warning_deduplicates_by_condition() -> None:
     payload = {}
     warning = OutputWarning(
