@@ -113,7 +113,12 @@ def calendar(
     detail: DetailLiteral = "compact",
     source: Annotated[
         ResearchSourcePin,
-        Field(description="Adapter pin. auto uses every source that can serve this query."),
+        Field(
+            description=(
+                "Adapter pin. auto uses Finviz; mt5 is not a calendar provider "
+                "and returns a capability error."
+            )
+        ),
     ] = "auto",
 ) -> Dict[str, Any]:
     """Fetch a structured event calendar from available research sources.
@@ -141,7 +146,8 @@ def calendar(
         Economic range filters. Same contract as the former finviz_calendar
         tool.
     source : {"auto", "finviz", "mt5"}
-        Adapter pin. ``auto`` uses every source that can serve this query.
+        Adapter pin. ``auto`` uses Finviz. ``mt5`` is not a calendar provider
+        and returns a capability error instead of a fake table.
     """
 
     def _run() -> Dict[str, Any]:

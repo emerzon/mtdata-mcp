@@ -50,6 +50,19 @@ def test_calendar_mt5_pin_is_capability_unsupported() -> None:
     assert "finviz" in result["valid_values"]["source"]
 
 
+def test_calendar_source_help_says_mt5_is_not_a_provider() -> None:
+    from typing import get_args, get_type_hints
+
+    from mtdata.core.param_help import COMMAND_PARAM_HELP_OVERRIDES
+
+    hints = get_type_hints(_unwrap(calendar), include_extras=True)
+    field_info = get_args(hints["source"])[-1]
+    description = str(getattr(field_info, "description", ""))
+    help_text = COMMAND_PARAM_HELP_OVERRIDES[("calendar", "source")]
+    assert "mt5 is not a calendar provider" in description
+    assert "mt5 is not a calendar provider" in help_text
+
+
 def test_calendar_period_view_rejects_range_controls(monkeypatch) -> None:
     monkeypatch.setattr(
         "mtdata.core.finviz.finviz_earnings",
