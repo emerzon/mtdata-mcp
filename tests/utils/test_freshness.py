@@ -5,8 +5,10 @@ from mtdata.utils.freshness import (
     closed_session_context,
     completed_bar_freshness_fields,
     format_freshness_label,
+    freshness_hole_explained_by_weekend,
     is_standard_weekend_closure,
     round_age_seconds,
+    standard_weekend_overlap_seconds,
 )
 from mtdata.utils.market_metadata import build_tick_freshness_context
 from mtdata.utils.time import bar_close_epoch
@@ -106,6 +108,30 @@ def test_monthly_bar_close_uses_broker_local_month(monkeypatch) -> None:
     expected = datetime(2026, 3, 31, 21, 0, tzinfo=timezone.utc).timestamp()
 
     assert bar_close_epoch(opened, "MN1") == expected
+
+
+def test_weekend_overlap_covers_friday_close_to_saturday_cutoff() -> None:
+    last_completed = datetime(2026, 8, 28, 21, tzinfo=timezone.utc).timestamp()
+    cutoff = datetime(2026, 8, 29, 21, tzinfo=timezone.utc).timestamp()
+
+    assert standard_weekend_overlap_seconds(last_completed, cutoff) == 24 * 60 * 60
+    assert freshness_hole_explained_by_weekend(
+        last_completed_epoch=last_completed,
+        cutoff_epoch=cutoff,
+        bar_seconds=86400,
+    )
+
+
+def test_weekday_freshness_hole_is_not_explained_by_weekend() -> None:
+    last_completed = datetime(2026, 8, 24, 21, tzinfo=timezone.utc).timestamp()
+    cutoff = datetime(2026, 8, 25, 21, tzinfo=timezone.utc).timestamp()
+
+    assert standard_weekend_overlap_seconds(last_completed, cutoff) == 0.0
+    assert not freshness_hole_explained_by_weekend(
+        last_completed_epoch=last_completed,
+        cutoff_epoch=cutoff,
+        bar_seconds=86400,
+    )
 
 
 def test_standard_weekend_closure_uses_new_york_close_boundaries() -> None:

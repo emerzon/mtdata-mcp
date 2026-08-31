@@ -57,6 +57,87 @@ def is_standard_weekend_closure(now_utc: datetime) -> bool:
     return standard_weekend_window(now_utc) is not None
 
 
+def _friday_session_close_on_or_before(utc_value: datetime) -> datetime:
+    """Return the NY 17:00 Friday close at or before *utc_value*."""
+    new_york = utc_value.astimezone(_NEW_YORK)
+    days_since_friday = (new_york.weekday() - 4) % 7
+    friday = new_york.date() - timedelta(days=days_since_friday)
+    close_local = datetime.combine(friday, time(17), tzinfo=_NEW_YORK)
+    close_utc = close_local.astimezone(timezone.utc)
+    if close_utc > utc_value:
+        previous_friday = friday - timedelta(days=7)
+        close_local = datetime.combine(previous_friday, time(17), tzinfo=_NEW_YORK)
+        close_utc = close_local.astimezone(timezone.utc)
+    return close_utc
+
+
+def standard_weekend_overlap_seconds(start_epoch: float, end_epoch: float) -> float:
+    """Return seconds of ``[start_epoch, end_epoch]`` that fall in FX weekend closures."""
+    try:
+        start_value = float(start_epoch)
+        end_value = float(end_epoch)
+    except (TypeError, ValueError):
+        return 0.0
+    if not (math.isfinite(start_value) and math.isfinite(end_value)):
+        return 0.0
+    if end_value <= start_value:
+        return 0.0
+    start_dt = datetime.fromtimestamp(start_value, tz=timezone.utc)
+    end_dt = datetime.fromtimestamp(end_value, tz=timezone.utc)
+    overlap = 0.0
+    close_utc = _friday_session_close_on_or_before(start_dt)
+    for _ in range(8):
+        close_local = close_utc.astimezone(_NEW_YORK)
+        open_local = datetime.combine(
+            close_local.date() + timedelta(days=2),
+            time(17),
+            tzinfo=_NEW_YORK,
+        )
+        open_utc = open_local.astimezone(timezone.utc)
+        overlap_start = max(start_dt, close_utc)
+        overlap_end = min(end_dt, open_utc)
+        if overlap_end > overlap_start:
+            overlap += (overlap_end - overlap_start).total_seconds()
+        next_friday = close_local.date() + timedelta(days=7)
+        close_utc = datetime.combine(
+            next_friday, time(17), tzinfo=_NEW_YORK
+        ).astimezone(timezone.utc)
+        if close_utc >= end_dt:
+            break
+    return overlap
+
+
+def freshness_hole_explained_by_weekend(
+    *,
+    last_completed_epoch: float,
+    cutoff_epoch: float,
+    bar_seconds: float,
+) -> bool:
+    """True when the latest-N freshness hole is a standard weekend closure."""
+    try:
+        last_epoch = float(last_completed_epoch)
+        cutoff = float(cutoff_epoch)
+        seconds_per_bar = float(bar_seconds)
+    except (TypeError, ValueError):
+        return False
+    if not (
+        math.isfinite(last_epoch)
+        and math.isfinite(cutoff)
+        and math.isfinite(seconds_per_bar)
+        and seconds_per_bar > 0
+    ):
+        return False
+    hole = cutoff - last_epoch
+    if hole <= 0:
+        return False
+    overlap = standard_weekend_overlap_seconds(last_epoch, cutoff)
+    if overlap <= 0:
+        return False
+    unexplained = hole - overlap
+    slack = min(3600.0, max(1.0, seconds_per_bar * 0.25))
+    return unexplained <= slack
+
+
 def closed_session_context(
     symbol: Any,
     *,

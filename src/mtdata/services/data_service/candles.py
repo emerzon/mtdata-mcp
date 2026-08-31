@@ -25,6 +25,7 @@ from ...shared.constants import (
     TIMEFRAME_SECONDS,
 )
 from ...shared.schema import DenoiseSpec, IndicatorSpec, SimplifySpec, TimeframeLiteral
+from ...shared.symbols import is_probably_crypto_symbol
 from ...shared.validators import invalid_timeframe_error
 from ...utils.coercion import coerce_finite_float, round_finite
 from ...utils.denoise import (
@@ -38,7 +39,10 @@ from ...utils.denoise import (
 from ...utils.denoise import (
     normalize_denoise_spec as _normalize_denoise_spec,
 )
-from ...utils.freshness import closed_session_context
+from ...utils.freshness import (
+    closed_session_context,
+    freshness_hole_explained_by_weekend,
+)
 from ...utils.indicators import (
     _apply_ta_indicators,
     _estimate_warmup_bars,
@@ -478,6 +482,65 @@ def _relax_live_completed_bar_freshness(
     return True
 
 
+def _session_break_explains_latest_n_freshness(
+    *,
+    symbol: str,
+    timeframe: TimeframeLiteral,
+    last_completed_epoch: Optional[float],
+    last_completed_open: Optional[float],
+    freshness_cutoff: Optional[float],
+    next_bar_open_epoch: Optional[float],
+    start_datetime: Optional[str],
+    end_datetime: Optional[str],
+    freshness_meta: Dict[str, Any],
+) -> bool:
+    """True when an unbounded latest-N hole is a weekend/session break, not a feed gap."""
+    if start_datetime or end_datetime:
+        return False
+    if is_probably_crypto_symbol(symbol):
+        return False
+    if last_completed_epoch is None or freshness_cutoff is None:
+        return False
+    try:
+        last_epoch = float(last_completed_epoch)
+        cutoff_epoch = float(freshness_cutoff)
+    except (TypeError, ValueError):
+        return False
+    if last_epoch >= cutoff_epoch:
+        return False
+    bar_seconds = float(TIMEFRAME_SECONDS.get(timeframe, 0) or 0)
+    if bar_seconds <= 0:
+        return False
+    if not freshness_hole_explained_by_weekend(
+        last_completed_epoch=last_epoch,
+        cutoff_epoch=cutoff_epoch,
+        bar_seconds=bar_seconds,
+    ):
+        return False
+    previous_open = (
+        float(last_completed_open)
+        if last_completed_open is not None
+        else last_epoch
+    )
+    next_open = (
+        float(next_bar_open_epoch)
+        if next_bar_open_epoch is not None
+        else cutoff_epoch
+    )
+    gap = _describe_session_gap(
+        previous_open,
+        next_open,
+        expected_bar_seconds=bar_seconds,
+        use_client_tz=False,
+    )
+    if gap is None:
+        return False
+    freshness_meta["session_gap_explains_freshness"] = True
+    if gap.get("context"):
+        freshness_meta["session_gap_context"] = gap.get("context")
+    return True
+
+
 def _fetch_rates_with_warmup(  # noqa: C901
     symbol: str,
     mt5_timeframe: int,
@@ -900,6 +963,20 @@ def _fetch_rates_with_warmup(  # noqa: C901
                 rates=rates,
                 timeframe=timeframe,
                 expected_end_ts=expected_end_ts,
+                start_datetime=start_datetime,
+                end_datetime=end_datetime,
+                freshness_meta=freshness_meta,
+            ):
+                stale_last_t = None
+                stale_forming_t = None
+                break
+            if _session_break_explains_latest_n_freshness(
+                symbol=symbol,
+                timeframe=timeframe,
+                last_completed_epoch=last_completed_epoch,
+                last_completed_open=last_completed_open,
+                freshness_cutoff=freshness_cutoff,
+                next_bar_open_epoch=float(last_t) if tail_is_forming else None,
                 start_datetime=start_datetime,
                 end_datetime=end_datetime,
                 freshness_meta=freshness_meta,

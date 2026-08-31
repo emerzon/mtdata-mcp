@@ -924,6 +924,143 @@ class TestFetchRatesWithWarmup(unittest.TestCase):
         self.assertEqual(freshness['market_session_reason'], 'weekend')
 
     @patch(_RATES_FROM)
+    def test_monday_d1_weekend_gap_returns_bars_instead_of_hard_fail(self, mock_from):
+        now = datetime(2026, 8, 31, 17, 44, tzinfo=_UTC)
+        monday_open = datetime(2026, 8, 30, 21, tzinfo=_UTC)
+        friday_open = datetime(2026, 8, 27, 21, tzinfo=_UTC)
+        rates = []
+        for index, opened in enumerate(
+            (
+                friday_open - timedelta(days=2),
+                friday_open - timedelta(days=1),
+                friday_open,
+                monday_open,
+            )
+        ):
+            rates.append(
+                {
+                    "time": opened.timestamp(),
+                    "open": 1.1 + index * 0.001,
+                    "high": 1.2 + index * 0.001,
+                    "low": 1.0 + index * 0.001,
+                    "close": 1.15 + index * 0.001,
+                    "tick_volume": 100,
+                    "real_volume": 0,
+                    "spread": 1,
+                }
+            )
+        mock_from.return_value = rates
+        diagnostics = {}
+
+        with patch(f"{_DS}._utc_epoch_seconds", return_value=now.timestamp()):
+            result, err = _fetch_rates_with_warmup(
+                "EURUSD",
+                16408,
+                "D1",
+                4,
+                0,
+                None,
+                None,
+                retry=False,
+                sanity_check=True,
+                diagnostics=diagnostics,
+            )
+
+        self.assertIsNone(err)
+        self.assertEqual(result, rates)
+        freshness = diagnostics["freshness"]
+        self.assertFalse(freshness["last_bar_within_policy_window"])
+        self.assertTrue(freshness["session_gap_explains_freshness"])
+        self.assertNotIn("freshness_policy_relaxed", freshness)
+
+    @patch(_RATES_FROM)
+    def test_monday_d1_weekend_gap_still_fails_for_crypto(self, mock_from):
+        now = datetime(2026, 8, 31, 17, 44, tzinfo=_UTC)
+        monday_open = datetime(2026, 8, 30, 21, tzinfo=_UTC)
+        friday_open = datetime(2026, 8, 27, 21, tzinfo=_UTC)
+        rates = _make_rates(3, base_ts=friday_open.timestamp(), step=86400)
+        rates.append(
+            {
+                "time": monday_open.timestamp(),
+                "open": 1.13,
+                "high": 1.23,
+                "low": 1.03,
+                "close": 1.18,
+                "tick_volume": 100,
+                "real_volume": 0,
+                "spread": 1,
+            }
+        )
+        mock_from.return_value = rates
+        diagnostics = {}
+
+        with patch(f"{_DS}._utc_epoch_seconds", return_value=now.timestamp()):
+            result, err = _fetch_rates_with_warmup(
+                "BTCUSD",
+                16408,
+                "D1",
+                4,
+                0,
+                None,
+                None,
+                retry=False,
+                sanity_check=True,
+                diagnostics=diagnostics,
+            )
+
+        self.assertIsNone(result)
+        self.assertIn("allow_stale=true", err)
+        self.assertNotIn("session_gap_explains_freshness", diagnostics["freshness"])
+
+    @patch(_RATES_FROM)
+    def test_latest_d1_unexplained_weekday_hole_still_fails(self, mock_from):
+        now = datetime(2026, 8, 27, 17, 0, tzinfo=_UTC)
+        forming_open = datetime(2026, 8, 26, 21, tzinfo=_UTC)
+        last_completed_open = datetime(2026, 8, 23, 21, tzinfo=_UTC)
+        rates = [
+            {
+                "time": last_completed_open.timestamp(),
+                "open": 1.1,
+                "high": 1.2,
+                "low": 1.0,
+                "close": 1.15,
+                "tick_volume": 100,
+                "real_volume": 0,
+                "spread": 1,
+            },
+            {
+                "time": forming_open.timestamp(),
+                "open": 1.12,
+                "high": 1.22,
+                "low": 1.02,
+                "close": 1.16,
+                "tick_volume": 100,
+                "real_volume": 0,
+                "spread": 1,
+            },
+        ]
+        mock_from.return_value = rates
+        diagnostics = {}
+
+        with patch(f"{_DS}._utc_epoch_seconds", return_value=now.timestamp()):
+            result, err = _fetch_rates_with_warmup(
+                "EURUSD",
+                16408,
+                "D1",
+                2,
+                0,
+                None,
+                None,
+                retry=False,
+                sanity_check=True,
+                diagnostics=diagnostics,
+            )
+
+        self.assertIsNone(result)
+        self.assertIn("allow_stale=true", err)
+        self.assertNotIn("session_gap_explains_freshness", diagnostics["freshness"])
+
+    @patch(_RATES_FROM)
     @patch(_PARSE_START)
     def test_sanity_check_accepts_fresh_retry_after_initial_stale_result(self, mock_parse, mock_from):
         """A fresh retry should clear stale state instead of tripping the post-loop guard."""
