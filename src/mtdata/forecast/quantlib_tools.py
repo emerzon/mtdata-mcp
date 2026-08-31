@@ -1484,11 +1484,12 @@ def calibrate_heston_quantlib_from_options(  # noqa: C901
             "pricing_usability_failures": ["unusable_option_contract_inputs"],
             "next_tool": "options_provider_status",
             "remediation": (
-                "Retry during an active session when the provider supplies at "
-                "least five current, timestamped, two-sided contract quotes from "
-                "the spot snapshot, or run options_provider_status to configure "
-                "and verify a real-time provider. Delayed or asynchronous quotes "
-                "are intentionally rejected because calibrated parameters feed "
+                "Anonymous Yahoo last-trade data is delayed about 15 minutes, "
+                "which exceeds the 900s last-trade-vs-spot gate used for "
+                "Heston calibration. Set MTDATA_OPTIONS_PROVIDER=tradier and "
+                "MTDATA_OPTIONS_API_KEY, then run options_provider_status to "
+                "verify a real-time provider. Delayed last-trade timestamps are "
+                "intentionally rejected because calibrated parameters feed "
                 "pricing."
             ),
             "warnings": [

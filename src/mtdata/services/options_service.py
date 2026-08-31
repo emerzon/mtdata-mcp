@@ -459,7 +459,6 @@ def _option_chain_quality_metadata(rows: List[Dict[str, Any]]) -> Dict[str, Any]
         freshness = "current"
     timestamp_capability_missing = (
         count > 0
-        and timestamped_count == 0
         and all(
             row.get("quote_usability_reason") == "quote_timestamp_unavailable"
             for row in rows
@@ -511,17 +510,31 @@ def _option_chain_quality_metadata(rows: List[Dict[str, Any]]) -> Dict[str, Any]
                 "usability requires a provider quote timestamp; last-trade "
                 "recency is reported separately and is not quote freshness."
             ),
-            (
+        ]
+        if quality == "quote_freshness_unavailable":
+            out["warnings"].append(
+                "This provider does not supply option quote timestamps, so "
+                "live quote freshness cannot be verified even when last-trade "
+                "times and two-sided markets are present. Configure a "
+                "real-time provider instead of retrying another expiration."
+            )
+            out["related_tools"] = ["options_provider_status"]
+            out["remediation"] = (
+                "Run options_provider_status, then set "
+                "MTDATA_OPTIONS_PROVIDER=tradier and MTDATA_OPTIONS_API_KEY "
+                "for a real-time chain with quote timestamps."
+            )
+        else:
+            out["warnings"].append(
                 "If this chain is unusable, pass --expiration from "
                 "options_expirations to pick a later listed expiry, or retry "
                 "during regular US cash-session hours."
-            ),
-        ]
-        out["related_tools"] = ["options_expirations"]
-        out["remediation"] = (
-            "Call options_expirations, then retry options_chain with "
-            "--expiration YYYY-MM-DD."
-        )
+            )
+            out["related_tools"] = ["options_expirations"]
+            out["remediation"] = (
+                "Call options_expirations, then retry options_chain with "
+                "--expiration YYYY-MM-DD."
+            )
     return out
 
 

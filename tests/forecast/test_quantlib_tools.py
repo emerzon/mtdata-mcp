@@ -586,7 +586,9 @@ def test_calibrate_heston_rejects_stale_zero_sided_contract_surface(
         "contract_quote_not_live_usable": 5,
     }
     assert out["next_tool"] == "options_provider_status"
-    assert "active session" in out["remediation"]
+    assert "15 minutes" in out["remediation"]
+    assert "MTDATA_OPTIONS_PROVIDER=tradier" in out["remediation"]
+    assert "MTDATA_OPTIONS_API_KEY" in out["remediation"]
     assert "intentionally rejected" in out["remediation"]
     assert fake.HestonModelHelper.created == []
 

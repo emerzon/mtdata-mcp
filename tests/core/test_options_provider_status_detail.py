@@ -91,6 +91,8 @@ def test_provider_status_marks_anonymous_yahoo_as_degraded_but_usable(monkeypatc
     assert out["action_required"] is None
     assert out["degraded"] is True
     assert out["provider_mode"] == "anonymous_fallback"
+    assert out["configured_provider_status"] == "ready_degraded"
+    assert out["configuration_status"] == "ready_degraded"
 
 
 def test_provider_status_cli_preserves_invalid_environment_selection():
