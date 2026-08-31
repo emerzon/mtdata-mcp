@@ -18,7 +18,7 @@ Forecasts are **estimates**, not guarantees. Pair point forecasts with uncertain
 
 | Term | Meaning |
 |------|---------|
-| **Horizon** | How far ahead (in bars). On session-limited equities, closed-session hours do not count. |
+| **Horizon** | How far ahead (in bars), counted from the open of the current forming bar unless you pass `--as-of` or a historical range. On session-limited equities, closed-session hours do not count. |
 | **Lookback** | How much history the model sees. More can help, but costs time. |
 | **Quantity** | Often price, returns, or other targets depending on method and flags. |
 

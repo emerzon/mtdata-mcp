@@ -1477,9 +1477,11 @@ def _add_forecast_generate_args(cmd_parser: argparse.ArgumentParser) -> None:
         type=int,
         default=12,
         help=(
-            "Number of target bar closes. With closed-bar inputs, step 1 is the "
-            "currently forming bar when one is open. forecast_time identifies each "
-            "target bar's open; bar_state distinguishes forming from future targets."
+            "Number of target bar closes, counted from the open of the current "
+            "forming bar unless --as-of or a historical range is set. With "
+            "closed-bar inputs, step 1 is the currently forming bar when one is "
+            "open. forecast_time identifies each target bar's open; bar_state "
+            "distinguishes forming from future targets."
         ),
     )
     group_window.add_argument(

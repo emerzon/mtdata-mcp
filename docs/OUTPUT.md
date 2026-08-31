@@ -102,7 +102,7 @@ values for tools that expose the complete detail contract are:
 | `full` | Consolidates source, time, freshness, processing, quality, request, units, and diagnostics under `meta`. |
 
 Notes:
-- `detail` changes verbosity **within** the sections a tool already returns; it does **not** add new analysis. For example, `market_snapshot` uses a separate `sections` parameter to choose analysis modules. Compact output exposes the selected structured results directly and reports only failed sections; full output retains the section-selection metadata.
+- `detail` changes verbosity **within** the sections a tool already returns; it does **not** add new analysis. For example, `market_snapshot` uses a separate `sections` parameter to choose analysis modules. Compact output exposes the selected structured results directly and reports only failed sections; full output retains the section-selection metadata. Exception: `data_fetch_candles --detail summary` replaces `data` rows with `summary_statistics` and `latest_candle`.
 - The shared output layer has two retention modes: `full`, and the compact strip used by `compact`, `standard`, and `summary`. Tools can independently distinguish the accepted values in their own payloads.
 - Use `detail=full` when you need several metadata sections. For one field,
   prefer `output_fields` so the rest remains compact.

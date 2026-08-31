@@ -119,9 +119,9 @@ A sequence of data points indexed by time. In trading, this is typically OHLCV d
 **Example:** 500 hourly candles of EURUSD form a time series.
 
 ### Horizon
-How many bars into the future a forecast predicts.
+How many bars into the future a forecast predicts. Unless you pass `--as-of` or a historical range, those bars start at the open of the current forming bar — not the next closed bar.
 
-**Example:** `--horizon 12` with H1 timeframe means "predict the next 12 hours."
+**Example:** `--horizon 12` with H1 timeframe means "predict the next 12 hours," including the hour that is still forming.
 
 ### Lookback
 How many historical bars a model uses to make its prediction.

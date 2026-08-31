@@ -113,8 +113,9 @@ ranges expose `range_complete`, `limit_reached`, and a `query_applied` block
 that states whether the limit was anchored at the start or end. An omitted
 range limit returns a 20-bar page and is reported as `default_limit`, not as a
 user-requested count. Use `pagination.next_cursor` to continue the range.
-Latest-N queries also default to 20 rows. Timestamp ends use
-`end_filter=bar_close`; only bars closed by the requested instant are returned.
+Latest-N queries also default to 20 rows. A timestamp start keeps bars whose
+open is at or after start. Timestamp ends use `end_filter=bar_close` and keep
+bars whose close is at or before end — fully contained bars only.
 Request full detail
 to inspect the full normalization contract:
 

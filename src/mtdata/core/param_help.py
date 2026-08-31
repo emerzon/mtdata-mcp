@@ -182,13 +182,14 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "bars are retained. Indicator warmup bars are fetched in addition to returned rows."
     ),
     ("data_fetch_candles", "start"): (
-        "Inclusive range start. Intraday date-only and calendar phrases use UTC. "
+        "Inclusive range start. A timestamp start keeps bars whose open is at "
+        "or after start. Intraday date-only and calendar phrases use UTC. "
         "For D1/W1/MN1 they select broker-session calendar periods and resolve "
         "from broker-local midnight. Adding --limit retains the first N bars."
     ),
     ("data_fetch_candles", "end"): (
-        "Inclusive range end. A timestamp end uses end_filter=bar_close "
-        "(bars whose close is at or before end). Intraday date-only and calendar "
+        "Inclusive range end. A timestamp end keeps bars whose close is at or "
+        "before end (end_filter=bar_close). Intraday date-only and calendar "
         "phrases end in UTC; for D1/W1/MN1 they end at the broker-local "
         "calendar-period boundary."
     ),
@@ -374,6 +375,10 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "Evaluation bars for strategy candidates. Fetch also includes the "
         "barrier outcome tail plus 5 warmup bars; see fetch_bars and "
         "evaluation_bars in the result."
+    ),
+    ("forecast_generate", "horizon"): (
+        "Bars to forecast. Counts from the open of the current forming bar "
+        "unless --as-of or a historical range is set."
     ),
     ("forecast_generate", "lookback"): (
         "Historical bars to train on. Omit for the method default "

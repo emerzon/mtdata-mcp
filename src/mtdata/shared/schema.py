@@ -186,7 +186,10 @@ PARAM_HINTS = {
         "advanced regimes/HAR/conformal, scalping M5, intraday H1, swing H4/D1, "
         "or position D1/W1."
     ),
-    "horizon": "Forecast horizon in bars.",
+    "horizon": (
+        "Forecast horizon in bars, counted from the open of the current forming "
+        "bar unless --as-of or a historical range is set."
+    ),
     "steps": "Number of backtest anchors or steps to run.",
     "spacing": "Spacing between backtest anchors (in bars).",
     "methods": "One or more method names (comma-separated or space-separated).",
