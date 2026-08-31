@@ -1382,8 +1382,9 @@ def forecast_barrier_prob(
     barrier : object (REQUIRED)
         For simulation methods, pass a TP/SL object such as
         {"kind":"tp_sl","unit":"pct","take_profit":0.5,"stop_loss":0.25}.
-        A complete TP/SL object may omit kind. For closed_form, pass
-        {"kind":"single_price","level":1.2700}.
+        A complete TP/SL object may omit kind. ticks uses the broker trade
+        tick/point, not FX pips; use unit=pips for conventional forex pips.
+        For closed_form, pass {"kind":"single_price","level":1.2700}.
     
     Closed Form Parameters (method="closed_form"):
     ----------------------------------------------

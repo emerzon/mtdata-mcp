@@ -52,29 +52,36 @@ class BarrierPairSpec(BaseModel):
             "object can be reused by forecast_barrier_prob and labels_triple_barrier."
         ),
     )
-    unit: Literal["price", "pct", "ticks"] = Field(
+    unit: Literal["price", "pct", "ticks", "pips"] = Field(
         description=(
-            "Barrier unit: price means absolute instrument price levels; pct and "
-            "ticks mean positive distances from the entry price."
+            "Barrier unit: price means absolute instrument price levels; pct, "
+            "ticks, and pips mean positive distances from the entry price. "
+            "ticks uses the broker trade tick/point (0.1 pip on typical 5-digit "
+            "FX), not conventional FX pips. pips uses forex_pip_size."
         )
     )
     take_profit: float = Field(
         gt=0.0,
         description=(
             "Positive absolute take-profit level when unit=price, otherwise a "
-            "positive distance from entry in percent or trade ticks."
+            "positive distance from entry in percent, trade ticks, or FX pips."
         ),
     )
     stop_loss: float = Field(
         gt=0.0,
         description=(
             "Positive absolute stop-loss level when unit=price, otherwise a "
-            "positive distance from entry in percent or trade ticks."
+            "positive distance from entry in percent, trade ticks, or FX pips."
         ),
     )
 
     def as_legacy_kwargs(self) -> Dict[str, float]:
-        suffix = {"price": "abs", "pct": "pct", "ticks": "ticks"}[self.unit]
+        suffix = {
+            "price": "abs",
+            "pct": "pct",
+            "ticks": "ticks",
+            "pips": "pips",
+        }[self.unit]
         return {
             f"tp_{suffix}": float(self.take_profit),
             f"sl_{suffix}": float(self.stop_loss),

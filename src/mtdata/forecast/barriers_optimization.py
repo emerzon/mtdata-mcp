@@ -9,6 +9,7 @@ from ..shared.market_units import forex_pip_size
 from ..shared.schema import DenoiseSpec, TimeframeLiteral
 from ..shared.validators import unknown_mapping_keys_error
 from ..utils import denoise as _denoise_api
+from ..utils.barriers import get_pip_size as _get_pip_size
 from ..utils.barriers import get_tick_size as _get_tick_size
 from ..utils.barriers import (
     normalize_same_bar_policy,
@@ -274,10 +275,12 @@ def _apply_implicit_tick_mode_grid_defaults(
     sl_max_val: float,
     last_price: float,
     tick_size: Optional[float],
+    pip_size: Optional[float] = None,
 ) -> Tuple[float, float, float, float]:
-    if mode_val != "ticks":
-        return tp_min_val, tp_max_val, sl_min_val, sl_max_val
-    if tick_size is None or tick_size <= 0 or last_price <= 0:
+    increment = (
+        pip_size if mode_val == "pips" else tick_size if mode_val == "ticks" else None
+    )
+    if increment is None or increment <= 0 or last_price <= 0:
         return tp_min_val, tp_max_val, sl_min_val, sl_max_val
     converted = {
         "tp_min": float(tp_min_val),
@@ -301,7 +304,7 @@ def _apply_implicit_tick_mode_grid_defaults(
             converted[key] = _pct_points_to_ticks(
                 converted[key],
                 last_price=last_price,
-                tick_size=float(tick_size),
+                tick_size=float(increment),
             )
     return converted["tp_min"], converted["tp_max"], converted["sl_min"], converted["sl_max"]
 
@@ -310,25 +313,27 @@ def _tick_grid_below_min_distance_error(
     *,
     min_barrier_distance: float,
     cost_per_trade: float,
+    mode: str = "ticks",
 ) -> Dict[str, Any]:
     min_distance = float(min_barrier_distance)
     cost = float(cost_per_trade)
+    unit = str(mode)
     return {
         "success": False,
         "error": (
             "No TP/SL candidates remain: every grid point is below "
-            f"min_barrier_distance={min_distance:g} ticks "
-            f"(cost_per_trade={cost:g} ticks). "
-            'Widen the search with --params "tp_min=… sl_min=…" in ticks.'
+            f"min_barrier_distance={min_distance:g} {unit} "
+            f"(cost_per_trade={cost:g} {unit}). "
+            f'Widen the search with --params "tp_min=… sl_min=…" in {unit}.'
         ),
         "error_code": "invalid_input",
         "status": "no_candidates",
         "min_barrier_distance": min_distance,
         "cost_per_trade": cost,
-        "mode": "ticks",
-        "distance_unit": "ticks",
+        "mode": unit,
+        "distance_unit": unit,
         "remediation": (
-            'Pass --params "tp_min=… sl_min=…" in ticks so both bounds exceed '
+            f'Pass --params "tp_min=… sl_min=…" in {unit} so both bounds exceed '
             f"min_barrier_distance={min_distance:g} "
             f"(cost_per_trade={cost:g})."
         ),
@@ -352,6 +357,7 @@ class _BarrierEvaluationContext:
     max_median_time_val: Optional[float]
     same_bar_policy: str = "sl_first"
     gap_aware_stops: bool = False
+    pip_size: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -525,12 +531,15 @@ def _candidate_barrier_prices(
     barrier_kwargs: Dict[str, float]
     if context.mode_val == "pct":
         barrier_kwargs = {"tp_pct": tp_unit, "sl_pct": sl_unit}
+    elif context.mode_val == "pips":
+        barrier_kwargs = {"tp_pips": tp_unit, "sl_pips": sl_unit}
     else:
         barrier_kwargs = {"tp_ticks": tp_unit, "sl_ticks": sl_unit}
     tp_price, sl_price = resolve_barrier_prices(
         price=context.last_price,
         direction="long" if context.dir_long else "short",
         tick_size=context.tick_size,
+        pip_size=context.pip_size,
         **barrier_kwargs,
     )
     if tp_price is None or sl_price is None:
@@ -784,6 +793,13 @@ def _evaluate_barrier_candidate(
 
     if context.mode_val == 'pct':
         unit_to_return = 0.01
+    elif (
+        context.mode_val == "pips"
+        and context.pip_size is not None
+        and context.pip_size > 0.0
+        and context.last_price > 0.0
+    ):
+        unit_to_return = float(context.pip_size) / float(context.last_price)
     elif (
         context.tick_size is not None
         and context.tick_size > 0.0
@@ -1411,9 +1427,9 @@ def forecast_barrier_optimize(  # noqa: C901
     symbol: str,
     timeframe: TimeframeLiteral = "H1",
     horizon: int = 12,
-    method: Literal['mc_gbm','mc_gbm_bb','hmm_mc','garch','bootstrap','heston','jump_diffusion','auto','ensemble'] = 'hmm_mc',
+    method: Literal['mc_gbm','mc_gbm_bb','hmm_mc','garch','bootstrap','heston','jump_diffusion','auto','ensemble'] = 'mc_gbm_bb',
     direction: Literal['long','short'] = 'long',
-    mode: Literal['pct','ticks'] = 'pct',
+    mode: Literal['pct','ticks','pips'] = 'pct',
     tp_min: float = 0.25,
     tp_max: float = 1.5,
     tp_steps: Optional[int] = None,
@@ -1544,8 +1560,8 @@ def forecast_barrier_optimize(  # noqa: C901
             }
         contract_warnings: List[str] = []
         mode_requested = str(mode).lower().strip()
-        if mode_requested not in {'pct', 'ticks'}:
-            return {"error": f"Invalid mode: {mode}. Use 'pct' or 'ticks'."}
+        if mode_requested not in {'pct', 'ticks', 'pips'}:
+            return {"error": f"Invalid mode: {mode}. Use 'pct', 'ticks', or 'pips'."}
         mode_val = mode_requested
         output_mode = str(output_mode).strip().lower()
         if output_mode not in {'full', 'summary'}:
@@ -1981,8 +1997,16 @@ def forecast_barrier_optimize(  # noqa: C901
         price_precision = _symbol_price_precision(symbol)
 
         tick_size = _get_tick_size(symbol)
+        pip_size = _get_pip_size(symbol)
         if mode_val == 'ticks' and (tick_size is None or tick_size <= 0):
-            return {"error": "Tick size unavailable for this symbol; use mode='pct' or provide absolute barriers."}
+            return {"error": "Tick size unavailable for this symbol; use mode='pct' or provide absolute barriers. ticks is the broker trade tick/point, not FX pips."}
+        if mode_val == 'pips' and (pip_size is None or pip_size <= 0):
+            return {
+                "error": (
+                    "Pip size unavailable for this symbol; unit/mode=pips requires "
+                    "an identifiable FX pair. Use mode='pct' or mode='ticks'."
+                )
+            }
 
         base_col = 'close'
         if denoise:
@@ -2106,6 +2130,10 @@ def forecast_barrier_optimize(  # noqa: C901
             cost_spread = effective_spread_pct
             cost_slippage = effective_slippage_pct
             cost_commission = effective_commission_pct
+        elif mode_val == 'pips':
+            cost_spread = _pct_to_pips(effective_spread_pct) or 0.0
+            cost_slippage = _pct_to_pips(effective_slippage_pct) or 0.0
+            cost_commission = _pct_to_pips(effective_commission_pct) or 0.0
         else:
             # Convert all costs to the tick units used by barrier metrics.
             pct_to_ticks = (last_price / float(tick_size) / 100.0) if (tick_size and tick_size > 0 and last_price > 0) else 0.0
@@ -2168,6 +2196,8 @@ def forecast_barrier_optimize(  # noqa: C901
         min_barrier_multiplier = float(params_dict.get('min_barrier_multiplier', 2.0) if params_dict.get('min_barrier_multiplier') is not None else 2.0)
         if mode_val == 'pct':
             min_barrier_absolute = float(params_dict.get('min_barrier_pct', 0.0) or 0.0)
+        elif mode_val == 'pips':
+            min_barrier_absolute = float(params_dict.get('min_barrier_pips', 0.0) or 0.0)
         else:
             min_barrier_absolute = float(params_dict.get('min_barrier_ticks', 0.0) or 0.0)
         # Minimum barrier distance must exceed total round-trip cost (spread +
@@ -2188,6 +2218,7 @@ def forecast_barrier_optimize(  # noqa: C901
                 sl_max_val=sl_max_val,
                 last_price=float(last_price),
                 tick_size=_optional_finite_float(tick_size),
+                pip_size=_optional_finite_float(pip_size),
             )
         )
 
@@ -3013,7 +3044,8 @@ def forecast_barrier_optimize(  # noqa: C901
             if mode_val == 'pct':
                 _add_fixed(base_candidates, cfg['tp_min'], cfg['tp_max'], int(cfg['tp_steps']), cfg['sl_min'], cfg['sl_max'], int(cfg['sl_steps']))
             else:
-                scale = (float(last_price) / float(tick_size)) / 100.0
+                increment = float(pip_size) if mode_val == "pips" else float(tick_size)
+                scale = (float(last_price) / increment) / 100.0
                 _add_fixed(base_candidates, cfg['tp_min'] * scale, cfg['tp_max'] * scale, int(cfg['tp_steps']), cfg['sl_min'] * scale, cfg['sl_max'] * scale, int(cfg['sl_steps']))
 
         elif grid_style_val == 'volatility':
@@ -3034,11 +3066,11 @@ def forecast_barrier_optimize(  # noqa: C901
                 sl_start = max(vol_floor_pct_val, vol_pct * vol_min_mult_val * 0.8)
                 _add_fixed(base_candidates, tp_start, tp_end, vol_steps_val, sl_start, sl_start * vol_sl_multiplier_val, vol_sl_steps_val)
             else:
-                # Convert volatility to ticks and apply the tick floor.
-                vol_ticks = (vol_pct / 100.0) * (last_price / float(tick_size))
-                tp_start = max(vol_floor_ticks_val, vol_ticks * vol_min_mult_val)
-                tp_end = max(tp_start * 1.1, vol_ticks * vol_max_mult_val)
-                sl_start = max(vol_floor_ticks_val, vol_ticks * vol_min_mult_val * 0.8)
+                increment = float(pip_size) if mode_val == "pips" else float(tick_size)
+                vol_distance = (vol_pct / 100.0) * (last_price / increment)
+                tp_start = max(vol_floor_ticks_val, vol_distance * vol_min_mult_val)
+                tp_end = max(tp_start * 1.1, vol_distance * vol_max_mult_val)
+                sl_start = max(vol_floor_ticks_val, vol_distance * vol_min_mult_val * 0.8)
                 _add_fixed(base_candidates, tp_start, tp_end, vol_steps_val, sl_start, sl_start * vol_sl_multiplier_val, vol_sl_steps_val)
 
         elif grid_style_val == 'ratio':
@@ -3052,10 +3084,11 @@ def forecast_barrier_optimize(  # noqa: C901
         else: # fixed
             _add_fixed(base_candidates, tp_min_val, tp_max_val, tp_steps_val, sl_min_val, sl_max_val, sl_steps_val)
 
-        if mode_val == 'ticks' and not base_candidates:
+        if mode_val in {'ticks', 'pips'} and not base_candidates:
             return _tick_grid_below_min_distance_error(
                 min_barrier_distance=min_barrier_distance,
                 cost_per_trade=cost_per_trade,
+                mode=mode_val,
             )
 
         try:
@@ -3099,6 +3132,7 @@ def forecast_barrier_optimize(  # noqa: C901
                 params_dict.get('gap_aware_stops', False),
                 default=False,
             ),
+            pip_size=_optional_finite_float(pip_size),
         )
 
         def _evaluate(

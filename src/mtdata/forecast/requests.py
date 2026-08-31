@@ -762,6 +762,14 @@ class ForecastBarrierProbRequest(_PublicForecastRequest):
         return self._barrier_value("sl_ticks")
 
     @property
+    def tp_pips(self) -> Optional[float]:
+        return self._barrier_value("tp_pips")
+
+    @property
+    def sl_pips(self) -> Optional[float]:
+        return self._barrier_value("sl_pips")
+
+    @property
     def barrier_level(self) -> float:
         return float(self.barrier.level) if isinstance(self.barrier, SinglePriceBarrierSpec) else 0.0
 
@@ -891,17 +899,19 @@ class ForecastBarrierOptimizeRequest(_PublicForecastRequest):
     method: Literal[
         "auto", "bootstrap", "garch", "heston", "hmm_mc", "jump_diffusion",
         "mc_gbm", "mc_gbm_bb", "ensemble"
-    ] = "auto"
+    ] = "mc_gbm_bb"
     direction: Literal["long", "short"] = "long"
     same_bar_policy: Literal["sl_first", "tp_first", "neutral"] = "sl_first"
-    mode: Literal["pct", "ticks"] = "pct"
+    mode: Literal["pct", "ticks", "pips"] = "pct"
     params: Optional[Dict[str, Any]] = Field(
         None,
         description=(
             "Optimizer extras as JSON or k=v. Grid bounds: tp_min, tp_max, sl_min, "
-            "sl_max (percent points when mode=pct, ticks when mode=ticks), plus "
-            "tp_steps and sl_steps. Tick-mode fixed/ratio defaults convert the "
-            "implicit 0.25/1.5/0.25/2.5 percent (intraday) grid into ticks. "
+            "sl_max (percent points when mode=pct, ticks when mode=ticks, pips "
+            "when mode=pips), plus tp_steps and sl_steps. Tick/pips-mode "
+            "fixed/ratio defaults convert the implicit 0.25/1.5/0.25/2.5 percent "
+            "(intraday) grid into that distance unit. ticks is the broker trade "
+            "tick/point, not FX pips. "
             "Example: tp_min=20 tp_max=80 sl_min=20 sl_max=80."
         ),
     )

@@ -228,12 +228,13 @@ def test_attach_schemas_to_tools_patches_barrier_method_enums(monkeypatch) -> No
     assert "closed_form" not in opt_method["enum"]
     assert "auto" in opt_method["enum"]
     assert "ensemble" in opt_method["enum"]
+    assert opt_method["default"] == "mc_gbm_bb"
 
 
 def test_attach_schemas_to_tools_keeps_canonical_barrier_objects(monkeypatch) -> None:
     for tool_name, parameter_name in (
         ("forecast_barrier_prob", "barrier"),
-        ("labels_triple_barrier", "barriers"),
+        ("labels_triple_barrier", "barrier"),
     ):
         tool_obj, _tool_func, _apply_calls = _attach_tool_schema(
             monkeypatch,

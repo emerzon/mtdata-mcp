@@ -969,7 +969,7 @@ mtdata-cli wait_event --max-wait-seconds 2 --% --watch-for {"type":"price_touch_
 ```
 
 The same quoting applies to other JSON-or-KV parameters (`--kv-args`, `--shocks`,
-`--sizing`, `--barriers`).
+`--sizing`, `--barrier`).
 
 ### Pipe Output to jq for JSON Processing
 ```bash

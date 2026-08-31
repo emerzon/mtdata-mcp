@@ -33,8 +33,8 @@ LIVE_TRADE_MUTATION_WARNING = (
 )
 
 CLI_MISSING_ARGUMENT_REMEDIATIONS: Dict[tuple[str, str], str] = {
-    ("labels_triple_barrier", "barriers"): (
-        "Provide --barriers as KV or JSON. Example: "
+    ("labels_triple_barrier", "barrier"): (
+        "Provide --barrier as KV or JSON. Example: "
         "'kind=tp_sl,unit=pct,take_profit=0.5,stop_loss=0.5'."
     ),
     ("forecast_barrier_prob", "barrier"): (
@@ -48,7 +48,7 @@ CLI_MISSING_ARGUMENT_REMEDIATIONS: Dict[tuple[str, str], str] = {
 }
 
 CLI_MISSING_ARGUMENT_EXAMPLES: Dict[tuple[str, str], str] = {
-    ("labels_triple_barrier", "barriers"): (
+    ("labels_triple_barrier", "barrier"): (
         "kind=tp_sl,unit=pct,take_profit=0.5,stop_loss=0.5"
     ),
     ("forecast_barrier_prob", "barrier"): (
@@ -363,16 +363,17 @@ def friendly_validation_error(exc: ValidationError, *, cmd_name: str) -> str:
             )
         if cmd_name == "labels_triple_barrier" and (
             loc.split(".", 1)[0]
-            in {"barriers", "unit", "take_profit", "stop_loss", "method"}
+            in {"barrier", "barriers", "unit", "take_profit", "stop_loss", "method"}
             or "valid dictionary" in msg.lower()
             or "barrierpairspec" in msg.lower()
         ):
             return (
-                "barriers must be a JSON object with optional kind='tp_sl', plus "
+                "barrier must be a JSON object with optional kind='tp_sl', plus "
                 "unit, take_profit, and stop_loss TP/SL fields. Example: "
                 "'{\"kind\":\"tp_sl\",\"unit\":\"pct\",\"take_profit\":0.5,"
-                "\"stop_loss\":0.5}'. unit must be price, pct, or ticks; "
-                "price values are absolute levels and pct/ticks are distances."
+                "\"stop_loss\":0.5}'. unit must be price, pct, ticks, or pips; "
+                "price values are absolute levels and pct/ticks/pips are distances. "
+                "ticks is the broker trade tick/point, not FX pips."
             )
         if "indicators" in loc and "params" in loc and any(
             marker in msg.lower()

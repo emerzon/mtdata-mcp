@@ -111,6 +111,33 @@ def test_forecast_barrier_prob_request_uses_tick_fields_as_canonical_names():
     assert request.model_dump()["barrier"]["unit"] == "ticks"
 
 
+def test_forecast_barrier_prob_request_uses_pips_fields_as_canonical_names():
+    request = ForecastBarrierProbRequest(
+        symbol="EURUSD",
+        barrier=_tp_sl_barrier("pips", 50.0, 30.0),
+    )
+
+    assert request.tp_pips == 50.0
+    assert request.sl_pips == 30.0
+    assert request.model_dump()["barrier"]["unit"] == "pips"
+    assert request.barrier.as_legacy_kwargs() == {
+        "tp_pips": 50.0,
+        "sl_pips": 30.0,
+    }
+
+
+def test_forecast_barrier_optimize_request_defaults_to_mc_gbm_bb():
+    request = ForecastBarrierOptimizeRequest(symbol="EURUSD")
+
+    assert request.method == "mc_gbm_bb"
+
+
+def test_forecast_barrier_optimize_request_keeps_pips_mode_canonical():
+    request = ForecastBarrierOptimizeRequest(symbol="EURUSD", mode="pips")
+
+    assert request.mode == "pips"
+
+
 def test_forecast_barrier_prob_request_rejects_unknown_fields():
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         ForecastBarrierProbRequest(

@@ -378,8 +378,8 @@ def _patch_forecast_barrier_optimize_schema(schema: Dict[str, Any]) -> None:
     params["method"] = {
         "type": "string",
         "enum": list(_BARRIER_OPTIMIZE_METHODS),
-        "default": "auto",
-        "description": "Barrier simulation method.",
+        "default": "mc_gbm_bb",
+        "description": "Barrier simulation method. Default mc_gbm_bb, same as forecast_barrier_prob.",
     }
     _append_schema_rules(
         schema,

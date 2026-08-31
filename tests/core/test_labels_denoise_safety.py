@@ -42,7 +42,7 @@ def _call(frame: pd.DataFrame, **kwargs):
         return labels_triple_barrier.__wrapped__(
             symbol="EURUSD",
             timeframe="H1",
-            barriers=BarrierPairSpec(
+            barrier=BarrierPairSpec(
                 unit="ticks",
                 take_profit=50,
                 stop_loss=50,

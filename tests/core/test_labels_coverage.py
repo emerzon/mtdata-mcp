@@ -75,17 +75,18 @@ def _get_raw_fn():
             "price": ("tp_abs", "sl_abs"),
             "pct": ("tp_pct", "sl_pct"),
             "ticks": ("tp_ticks", "sl_ticks"),
+            "pips": ("tp_pips", "sl_pips"),
         }
         supplied = [
             (unit, tp_name, sl_name)
             for unit, (tp_name, sl_name) in families.items()
             if tp_name in kwargs or sl_name in kwargs
         ]
-        if "barriers" not in kwargs and len(supplied) == 1:
+        if "barrier" not in kwargs and len(supplied) == 1:
             unit, tp_name, sl_name = supplied[0]
             if tp_name in kwargs and sl_name in kwargs:
                 try:
-                    kwargs["barriers"] = BarrierPairSpec(
+                    kwargs["barrier"] = BarrierPairSpec(
                         unit=unit,
                         take_profit=kwargs.pop(tp_name),
                         stop_loss=kwargs.pop(sl_name),
@@ -127,6 +128,21 @@ class TestLabelsTripleBarrier:
             "sl_pct": 0.5,
         }
 
+    @patch(f"{_LABELS_MOD}._get_pip_size", return_value=0.0001)
+    @patch(f"{_LABELS_MOD}._get_tick_size", return_value=0.00001)
+    @patch(f"{_LABELS_MOD}.resolve_denoise_base_col", return_value="close")
+    @patch(f"{_LABELS_MOD}._fetch_history")
+    def test_pips_barriers_use_pip_size(self, mock_hist, mock_den, mock_tick, mock_pip):
+        mock_hist.return_value = _make_df(60)
+        result = _get_raw_fn()("EURUSD", tp_pips=50.0, sl_pips=30.0, horizon=12)
+        assert result["success"] is True
+        assert result["labeling_spec"]["barrier_unit"] == "pips"
+        assert result["labeling_spec"]["requested_barriers"] == {
+            "tp_pips": 50.0,
+            "sl_pips": 30.0,
+        }
+        assert result["labeling_spec"]["pip_size"] == 0.0001
+
     @pytest.mark.parametrize(
         ("field", "value"),
         [
@@ -163,6 +179,7 @@ class TestLabelsTripleBarrier:
             label_on="high_low",
             direction_value="long",
             tick_size=0.0001,
+            pip_size=None,
             barrier_kwargs={"tp_pct": 0.5, "sl_pct": 0.5},
         )
 
@@ -214,6 +231,7 @@ class TestLabelsTripleBarrier:
                 sl_hit_bar_open_times=[None],
                 direction_value="long",
                 tick_size=0.0001,
+                pip_size=None,
                 barrier_kwargs={"tp_pct": 0.5, "sl_pct": 0.5},
                 price_digits=5,
             )
@@ -262,7 +280,7 @@ class TestLabelsTripleBarrier:
     @patch(f"{_LABELS_MOD}._fetch_history")
     def test_no_barriers_gives_error(self, mock_hist, mock_den, mock_pip):
         mock_hist.return_value = _make_df(60)
-        with pytest.raises(TypeError, match="barriers"):
+        with pytest.raises(TypeError, match="barrier"):
             _get_raw_fn()("EURUSD", horizon=12)
 
     def test_rejects_multiple_tp_unit_families(self):
@@ -367,6 +385,7 @@ class TestLabelsTripleBarrier:
             label_on="close",
             direction_value="long",
             tick_size=0.01,
+            pip_size=None,
             barrier_kwargs={"tp_pct": 1.0, "sl_pct": 1.0},
         )
         labels, hold, entries, tp_times, sl_times, same_bar = outputs[:6]
@@ -385,6 +404,7 @@ class TestLabelsTripleBarrier:
             same_bar_flags=same_bar,
             direction_value="long",
             tick_size=0.01,
+            pip_size=None,
             barrier_kwargs={"tp_pct": 1.0, "sl_pct": 1.0},
         )
 

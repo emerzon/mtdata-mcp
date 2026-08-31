@@ -18,11 +18,11 @@ Beginner walkthrough: [SAMPLE-TRADE.md](SAMPLE-TRADE.md) (one pair). Grid search
 
 ### 1) Probability for one TP/SL pair
 
-Percent barriers are expressed in percent (for example, `take_profit: 0.40` with `unit: pct` means **0.40%**, not 40%). The same KV dialect is accepted by `forecast_barrier_prob --barrier` and `labels_triple_barrier --barriers` (commas or spaces between pairs, or JSON):
+Percent barriers are expressed in percent (for example, `take_profit: 0.40` with `unit: pct` means **0.40%**, not 40%). The same KV dialect is accepted by `forecast_barrier_prob --barrier` and `labels_triple_barrier --barrier` (commas or spaces between pairs, or JSON). `ticks` is the broker trade tick/point (0.1 pip on typical 5-digit FX), not conventional FX pips; use `unit=pips` for forex pip distances.
 
 ```bash
 mtdata-cli forecast_barrier_prob EURUSD --timeframe H1 --horizon 12 --direction long --barrier 'kind=tp_sl,unit=pct,take_profit=0.40,stop_loss=0.60' --json
-mtdata-cli labels_triple_barrier EURUSD --timeframe H1 --barriers 'kind=tp_sl,unit=pct,take_profit=0.40,stop_loss=0.60' --json
+mtdata-cli labels_triple_barrier EURUSD --timeframe H1 --barrier 'kind=tp_sl,unit=pct,take_profit=0.40,stop_loss=0.60' --json
 ```
 
 JSON is equivalent:
@@ -1162,7 +1162,7 @@ mtdata-cli regime_detect EURUSD --timeframe H1 --method hmm --params "n_states=3
   The same rule applies to commission and slippage fields. Original user values
   remain under `trading_costs.explicit_inputs`, while live bid/ask fallback is
   identified by `spread_source=live_bid_ask`.
-- `tp_ticks` / `sl_ticks` are `trade_tick_size` distances only. They do **not** subtract spread.
+- `tp_ticks` / `sl_ticks` are `trade_tick_size` distances only (broker tick/point, not FX pips). Use `unit=pips` for conventional forex pips. They do **not** subtract spread.
 
 ```bash
 # Tick distances (no automatic spread adjustment)

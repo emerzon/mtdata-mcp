@@ -1243,7 +1243,7 @@ class TestCreateCommandFunction:
             "func": mock_fn,
             "params": [
                 {
-                    "name": "barriers",
+                    "name": "barrier",
                     "type": BarrierPairSpec,
                     "required": True,
                     "default": None,
@@ -1252,8 +1252,8 @@ class TestCreateCommandFunction:
         }
         cmd_fn = create_command_function(func_info, cmd_name="labels_triple_barrier")
         args = argparse.Namespace(
-            barriers="0.1,0.1",
-            barriers_params=None,
+            barrier="0.1,0.1",
+            barrier_params=None,
             set_overrides=None,
             json=False,
             verbose=False,
@@ -1261,7 +1261,7 @@ class TestCreateCommandFunction:
 
         assert cmd_fn(args) == 2
         output = capsys.readouterr().out
-        assert "barriers must be a JSON object" in output
+        assert "barrier must be a JSON object" in output
         assert "unit" in output and "pct" in output
         mock_fn.assert_not_called()
 
@@ -1274,7 +1274,7 @@ class TestCreateCommandFunction:
             "func": mock_fn,
             "params": [
                 {
-                    "name": "barriers",
+                    "name": "barrier",
                     "type": BarrierPairSpec,
                     "required": True,
                     "default": None,
@@ -1283,8 +1283,8 @@ class TestCreateCommandFunction:
         }
         cmd_fn = create_command_function(func_info, cmd_name="labels_triple_barrier")
         args = argparse.Namespace(
-            barriers=barriers,
-            barriers_params=None,
+            barrier=barriers,
+            barrier_params=None,
             set_overrides=None,
             json=False,
             verbose=False,
@@ -1292,7 +1292,7 @@ class TestCreateCommandFunction:
 
         assert cmd_fn(args) == 2
         output = capsys.readouterr().out
-        assert "barriers must be a JSON object" in output
+        assert "barrier must be a JSON object" in output
         assert "unit" in output and "take_profit" in output and "stop_loss" in output
         mock_fn.assert_not_called()
 
@@ -1302,7 +1302,7 @@ class TestCreateCommandFunction:
             "func": mock_fn,
             "params": [
                 {
-                    "name": "barriers",
+                    "name": "barrier",
                     "type": BarrierPairSpec,
                     "required": True,
                     "default": None,
@@ -1311,8 +1311,8 @@ class TestCreateCommandFunction:
         }
         cmd_fn = create_command_function(func_info, cmd_name="labels_triple_barrier")
         args = argparse.Namespace(
-            barriers="{bad}",
-            barriers_params=None,
+            barrier="{bad}",
+            barrier_params=None,
             set_overrides=None,
             json=False,
             verbose=False,
@@ -1320,7 +1320,7 @@ class TestCreateCommandFunction:
 
         assert cmd_fn(args) == 2
         output = capsys.readouterr().out
-        assert "barriers must be valid JSON structured input" in output
+        assert "barrier must be valid JSON structured input" in output
         assert "as_legacy_kwargs" not in output
         mock_fn.assert_not_called()
 

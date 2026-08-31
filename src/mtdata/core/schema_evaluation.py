@@ -135,7 +135,7 @@ _SIMPLIFIED_PARAMETERS: Mapping[str, tuple[frozenset[str], frozenset[str]]] = {
                 "sl_value",
             }
         ),
-        frozenset({"barriers"}),
+        frozenset({"barrier"}),
     ),
     "patterns_detect": (frozenset({"include_confirmed"}), frozenset()),
     "trade_close": (

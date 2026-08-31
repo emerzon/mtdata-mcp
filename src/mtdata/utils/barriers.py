@@ -1,7 +1,7 @@
 import math
 from typing import Any, Dict, Literal, Optional, Tuple
 
-from ..shared.market_units import snap_to_increment
+from ..shared.market_units import forex_pip_size, snap_to_increment
 from .coercion import coerce_finite_float
 from .mt5 import get_symbol_info_cached
 
@@ -12,9 +12,11 @@ _BARRIER_FAMILY_FIELDS = (
     ("abs", ("tp_abs", "sl_abs")),
     ("pct", ("tp_pct", "sl_pct")),
     ("ticks", ("tp_ticks", "sl_ticks")),
+    ("pips", ("tp_pips", "sl_pips")),
 )
 _BARRIER_FAMILY_ERROR = (
-    "Use one TP/SL barrier unit family: tp_abs/sl_abs, tp_pct/sl_pct, or tp_ticks/sl_ticks."
+    "Use one TP/SL barrier unit family: tp_abs/sl_abs, tp_pct/sl_pct, "
+    "tp_ticks/sl_ticks, or tp_pips/sl_pips."
 )
 
 
@@ -63,7 +65,10 @@ def validate_barrier_unit_family_exclusivity(values: Any) -> Any:
     """Reject ambiguous barrier inputs that mix units on the same side."""
     if not isinstance(values, dict):
         return values
-    for fields in (("tp_abs", "tp_pct", "tp_ticks"), ("sl_abs", "sl_pct", "sl_ticks")):
+    for fields in (
+        ("tp_abs", "tp_pct", "tp_ticks", "tp_pips"),
+        ("sl_abs", "sl_pct", "sl_ticks", "sl_pips"),
+    ):
         provided = [field for field in fields if values.get(field) is not None]
         if len(provided) > 1:
             raise ValueError(_BARRIER_FAMILY_ERROR)
@@ -141,6 +146,25 @@ def get_tick_size(symbol: str, symbol_info: Optional[Any] = None) -> Optional[fl
         return None
 
 
+def get_pip_size(symbol: str, symbol_info: Optional[Any] = None) -> Optional[float]:
+    """Return conventional FX pip size, or None when the symbol is not FX."""
+    try:
+        info = symbol_info or get_symbol_info_cached(symbol)
+        if info is None:
+            return None
+        point = float(getattr(info, "point", 0.0) or 0.0)
+        if not math.isfinite(point) or point <= 0:
+            return None
+        try:
+            digits = int(getattr(info, "digits", 0) or 0)
+        except Exception:
+            digits = 0
+        path = str(getattr(info, "path", "") or "")
+        return forex_pip_size(symbol, path=path, point=point, digits=digits)
+    except Exception:
+        return None
+
+
 def resolve_barrier_prices(  # noqa: C901
     *,
     price: float,
@@ -152,11 +176,15 @@ def resolve_barrier_prices(  # noqa: C901
     tp_ticks: Optional[float] = None,
     sl_ticks: Optional[float] = None,
     tick_size: Optional[float] = None,
+    tp_pips: Optional[float] = None,
+    sl_pips: Optional[float] = None,
+    pip_size: Optional[float] = None,
     adjust_inverted: bool = False,
 ) -> Tuple[Optional[float], Optional[float]]:
-    """Resolve TP/SL barrier prices from absolute, percentage, or tick offsets.
+    """Resolve TP/SL barrier prices from absolute, percentage, tick, or pip offsets.
 
-    ``tick_size`` is the symbol's executable price increment.
+    ``tick_size`` is the symbol's executable price increment (broker tick/point).
+    ``pip_size`` is conventional FX pip size and is not an alias for ticks.
 
     By default, barriers that end up on the wrong side of ``price`` for the
     given direction return ``(None, None)`` so callers can reject invalid
@@ -173,6 +201,9 @@ def resolve_barrier_prices(  # noqa: C901
     r_sl = coerce_finite_float(sl_pct)
     p_tp = coerce_finite_float(tp_ticks)
     p_sl = coerce_finite_float(sl_ticks)
+    pip_tp = coerce_finite_float(tp_pips)
+    pip_sl = coerce_finite_float(sl_pips)
+    pip_increment = coerce_finite_float(pip_size)
 
     direction_norm, _ = normalize_trade_direction(direction)
     if direction_norm is None:
@@ -193,6 +224,12 @@ def resolve_barrier_prices(  # noqa: C901
                 tp_price = price_val + tp_ticks_distance * tick_size
             else:
                 tp_price = price_val - tp_ticks_distance * tick_size
+        elif pip_tp is not None and pip_increment is not None and pip_increment > 0:
+            tp_pips_distance = abs(pip_tp)
+            if dir_long:
+                tp_price = price_val + tp_pips_distance * pip_increment
+            else:
+                tp_price = price_val - tp_pips_distance * pip_increment
 
     if sl_price is None:
         if r_sl is not None:
@@ -207,6 +244,12 @@ def resolve_barrier_prices(  # noqa: C901
                 sl_price = price_val - sl_ticks_distance * tick_size
             else:
                 sl_price = price_val + sl_ticks_distance * tick_size
+        elif pip_sl is not None and pip_increment is not None and pip_increment > 0:
+            sl_pips_distance = abs(pip_sl)
+            if dir_long:
+                sl_price = price_val - sl_pips_distance * pip_increment
+            else:
+                sl_price = price_val + sl_pips_distance * pip_increment
 
     if tp_price is None or sl_price is None:
         return None, None
@@ -273,18 +316,28 @@ def unresolved_barrier_price_error(
     tp_ticks: Optional[float] = None,
     sl_ticks: Optional[float] = None,
     tick_size: Optional[float] = None,
+    tp_pips: Optional[float] = None,
+    sl_pips: Optional[float] = None,
+    pip_size: Optional[float] = None,
 ) -> str:
     """Explain why TP/SL resolution returned no executable prices."""
     has_ticks = tp_ticks is not None or sl_ticks is not None
+    has_pips = tp_pips is not None or sl_pips is not None
     has_pct = tp_pct is not None or sl_pct is not None
     has_abs = tp_abs is not None or sl_abs is not None
     tick_increment = coerce_finite_float(tick_size)
+    pip_increment = coerce_finite_float(pip_size)
     if has_ticks and (tick_increment is None or tick_increment <= 0.0):
         return (
-            "Tick size unavailable for this symbol; use pct or absolute price "
-            "barriers, or provide a symbol with trade_tick_size."
+            "Tick size unavailable for this symbol; use pct, pips, or absolute "
+            "price barriers, or provide a symbol with trade_tick_size."
         )
-    if has_pct or has_ticks or has_abs:
+    if has_pips and (pip_increment is None or pip_increment <= 0.0):
+        return (
+            "Pip size unavailable for this symbol; unit=pips requires an "
+            "identifiable FX pair. Use pct, ticks, or absolute price barriers."
+        )
+    if has_pct or has_ticks or has_pips or has_abs:
         return (
             "Resolved TP/SL barriers are invalid for the current price "
             "(a level may be non-finite, or the distance snapped onto or "
@@ -292,7 +345,7 @@ def unresolved_barrier_price_error(
         )
     return (
         "Missing barriers. Provide either tp_pct and sl_pct, "
-        "tp_abs and sl_abs, or tp_ticks and sl_ticks."
+        "tp_abs and sl_abs, tp_ticks and sl_ticks, or tp_pips and sl_pips."
     )
 
 
@@ -304,6 +357,8 @@ def build_barrier_kwargs(
     sl_pct: Optional[float] = None,
     tp_ticks: Optional[float] = None,
     sl_ticks: Optional[float] = None,
+    tp_pips: Optional[float] = None,
+    sl_pips: Optional[float] = None,
 ) -> Dict[str, Optional[float]]:
     """Collect barrier arguments into a single kwargs dict."""
     return {
@@ -313,6 +368,8 @@ def build_barrier_kwargs(
         "sl_pct": sl_pct,
         "tp_ticks": tp_ticks,
         "sl_ticks": sl_ticks,
+        "tp_pips": tp_pips,
+        "sl_pips": sl_pips,
     }
 
 
@@ -325,4 +382,6 @@ def build_barrier_kwargs_from(values: Dict[str, Any]) -> Dict[str, Optional[floa
         sl_pct=values.get("sl_pct"),
         tp_ticks=values.get("tp_ticks"),
         sl_ticks=values.get("sl_ticks"),
+        tp_pips=values.get("tp_pips"),
+        sl_pips=values.get("sl_pips"),
     )

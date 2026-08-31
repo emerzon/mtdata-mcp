@@ -12,6 +12,7 @@ from ..utils import denoise as _denoise_api
 from ..utils.barriers import (
     barrier_prices_are_valid as _barrier_prices_are_valid,
 )
+from ..utils.barriers import get_pip_size as _get_pip_size
 from ..utils.barriers import get_tick_size as _get_tick_size
 from ..utils.barriers import (
     normalize_same_bar_policy,
@@ -106,8 +107,8 @@ def _abs_barrier_side_error(
     side = "long" if is_long else "short"
     return (
         f"For a {side} position, " + " and ".join(problems)
-        + ". tp_abs/sl_abs are absolute price levels, not offsets; use tp_pct/sl_pct "
-        "or tp_ticks/sl_ticks to specify distances from the reference price."
+        + ". tp_abs/sl_abs are absolute price levels, not offsets; use tp_pct/sl_pct, "
+        "tp_ticks/sl_ticks, or tp_pips/sl_pips to specify distances from the reference price."
     )
 
 
@@ -134,7 +135,8 @@ def forecast_barrier_hit_probabilities(  # noqa: C901
 
     Notes:
     - Barriers are provided via absolute prices (tp_abs/sl_abs), percentages
-      (tp_pct/sl_pct), or ticks (tp_ticks/sl_ticks; uses `trade_tick_size`).
+      (tp_pct/sl_pct), ticks (tp_ticks/sl_ticks; broker trade tick/point), or
+      pips (tp_pips/sl_pips; conventional FX pip size). ticks is not FX pips.
       Use exactly one unit family per request; mixed units are rejected.
     - In discrete time, TP and SL can be hit in the same bar. Resolution is
       controlled explicitly by `same_bar_policy`.
@@ -220,6 +222,12 @@ def forecast_barrier_hit_probabilities(  # noqa: C901
             reference_context=reference_context,
         )
         tick_size = _get_tick_size(symbol)
+        pip_size = (
+            _get_pip_size(symbol)
+            if barrier_values.get("tp_pips") is not None
+            or barrier_values.get("sl_pips") is not None
+            else None
+        )
 
         abs_side_error = _abs_barrier_side_error(
             price=last_price, direction=direction_norm, tp_abs=tp_abs, sl_abs=sl_abs
@@ -239,6 +247,9 @@ def forecast_barrier_hit_probabilities(  # noqa: C901
             tp_ticks=barrier_values.get("tp_ticks"),
             sl_ticks=barrier_values.get("sl_ticks"),
             tick_size=tick_size,
+            tp_pips=barrier_values.get("tp_pips"),
+            sl_pips=barrier_values.get("sl_pips"),
+            pip_size=pip_size,
         )
 
         if tp_price is None or sl_price is None:
@@ -251,6 +262,9 @@ def forecast_barrier_hit_probabilities(  # noqa: C901
                     tp_ticks=barrier_values.get("tp_ticks"),
                     sl_ticks=barrier_values.get("sl_ticks"),
                     tick_size=tick_size,
+                    tp_pips=barrier_values.get("tp_pips"),
+                    sl_pips=barrier_values.get("sl_pips"),
+                    pip_size=pip_size,
                 )
             }
         if not _barrier_prices_are_valid(

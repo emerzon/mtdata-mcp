@@ -19,6 +19,7 @@ from ..utils.barriers import (
 from ..utils.barriers import (
     build_barrier_kwargs_from as _build_barrier_kwargs_from,
 )
+from ..utils.barriers import get_pip_size as _get_pip_size
 from ..utils.barriers import get_tick_size as _get_tick_size
 from ..utils.barriers import (
     normalize_same_bar_policy,
@@ -171,6 +172,7 @@ def _triple_barrier_sample_row(
     tick_size: float,
     barrier_kwargs: Dict[str, Any],
     price_digits: int = 0,
+    pip_size: Optional[float] = None,
     same_bar_flags: Optional[List[bool]] = None,
 ) -> Dict[str, Any]:
     label = int(labels[result_idx])
@@ -195,6 +197,7 @@ def _triple_barrier_sample_row(
                 price=entry_price,
                 direction=direction_value,
                 tick_size=tick_size,
+                pip_size=pip_size,
                 adjust_inverted=False,
                 **barrier_kwargs,
             )
@@ -228,6 +231,7 @@ def _build_triple_barrier_outputs(
     tick_size: float,
     barrier_kwargs: Dict[str, Any],
     same_bar_policy: str = "sl_first",
+    pip_size: Optional[float] = None,
 ) -> tuple[
     List[int],
     List[int],
@@ -258,6 +262,7 @@ def _build_triple_barrier_outputs(
             price=price,
             direction=direction_value,
             tick_size=tick_size,
+            pip_size=pip_size,
             adjust_inverted=False,
             **barrier_kwargs,
         )
@@ -421,7 +426,7 @@ def _denoise_targets_close(spec: Dict[str, Any]) -> bool:
 @mcp.tool()
 def labels_triple_barrier(  # noqa: C901
     symbol: str,
-    barriers: BarrierPairSpec,
+    barrier: BarrierPairSpec,
     timeframe: TimeframeLiteral = "H1",
     limit: Annotated[int, Field(ge=1)] = _DEFAULT_LABEL_LIMIT,
     horizon: Annotated[int, Field(ge=1)] = _DEFAULT_LABEL_HORIZON,
@@ -438,10 +443,12 @@ def labels_triple_barrier(  # noqa: C901
 ) -> Dict[str, Any]:
     """Label each bar with triple-barrier outcomes using future path up to `horizon` bars.
 
-    `barriers` contains a take-profit/stop-loss pair. Pass JSON such as
+    `barrier` contains a take-profit/stop-loss pair. Pass JSON such as
     `{"unit":"pct","take_profit":0.5,"stop_loss":0.5}` for half-percent
-    distances. `pct` and `ticks` are distances from entry; `price` values are
-    absolute instrument price levels (for example TP 1.10 and SL 1.08).
+    distances. `pct`, `ticks`, and `pips` are distances from entry; `price`
+    values are absolute instrument price levels (for example TP 1.10 and SL 1.08).
+    `ticks` uses the broker trade tick/point (0.1 pip on typical 5-digit FX),
+    not conventional FX pips; use `unit=pips` for forex pip distances.
 
     label_on='high_low' considers raw intrabar extremes for barrier hits, even
     when denoise changes the close used to anchor barriers. Real observed price
@@ -470,15 +477,15 @@ def labels_triple_barrier(  # noqa: C901
         try:
             try:
                 normalized_barriers = (
-                    barriers
-                    if isinstance(barriers, BarrierPairSpec)
-                    else BarrierPairSpec.model_validate(barriers)
+                    barrier
+                    if isinstance(barrier, BarrierPairSpec)
+                    else BarrierPairSpec.model_validate(barrier)
                 )
             except Exception as exc:
                 return {
                     "success": False,
-                    "error": f"Invalid barriers specification: {exc}",
-                    "error_code": "barriers_invalid",
+                    "error": f"Invalid barrier specification: {exc}",
+                    "error_code": "barrier_invalid",
                     "remediation": (
                         "Provide a JSON object with unit, take_profit, and stop_loss; "
                         "for example {\"unit\":\"pct\",\"take_profit\":0.5,"
@@ -731,6 +738,12 @@ def labels_triple_barrier(  # noqa: C901
             times = df["time"].astype(float).to_numpy()
 
             tick_size = _get_tick_size(symbol)
+            pip_size = (
+                _get_pip_size(symbol)
+                if barrier_values.get("tp_pips") is not None
+                or barrier_values.get("sl_pips") is not None
+                else None
+            )
 
             N = len(closes)
             barrier_kwargs = _build_barrier_kwargs_from(barrier_values)
@@ -751,6 +764,7 @@ def labels_triple_barrier(  # noqa: C901
                 price=sample_entry_price,
                 direction=direction_value,
                 tick_size=tick_size,
+                pip_size=pip_size,
                 adjust_inverted=False,
                 **barrier_kwargs,
             )
@@ -759,8 +773,8 @@ def labels_triple_barrier(  # noqa: C901
                     return {
                         "error": (
                             "Invalid absolute TP/SL levels for the entry price. "
-                            "tp_abs/sl_abs are price levels; use tp_pct/sl_pct or "
-                            "tp_ticks/sl_ticks for offset-style barriers."
+                            "tp_abs/sl_abs are price levels; use tp_pct/sl_pct, "
+                            "tp_ticks/sl_ticks, or tp_pips/sl_pips for offset-style barriers."
                         )
                     }
                 resolve_error = _unresolved_barrier_price_error(
@@ -771,13 +785,17 @@ def labels_triple_barrier(  # noqa: C901
                     tp_ticks=barrier_values.get("tp_ticks"),
                     sl_ticks=barrier_values.get("sl_ticks"),
                     tick_size=trade_tick_size,
+                    tp_pips=barrier_values.get("tp_pips"),
+                    sl_pips=barrier_values.get("sl_pips"),
+                    pip_size=pip_size,
                 )
                 if not resolve_error.startswith("Missing barriers"):
                     return {"error": resolve_error}
                 return {
                     "error": (
                         "Missing barriers. Provide either tp_pct and sl_pct, "
-                        "tp_abs and sl_abs, or tp_ticks and sl_ticks."
+                        "tp_abs and sl_abs, tp_ticks and sl_ticks, or "
+                        "tp_pips and sl_pips."
                     ),
                     "error_code": "barrier_parameters_missing",
                     "remediation": (
@@ -794,7 +812,7 @@ def labels_triple_barrier(  # noqa: C901
                     ],
                     "examples": [
                         "forecast_volatility_estimate(symbol='EURUSD', timeframe='H1')  # find per-bar sigma first",
-                        "labels_triple_barrier(symbol='EURUSD', barriers={'unit':'ticks','take_profit':50,'stop_loss':50})",
+                        "labels_triple_barrier(symbol='EURUSD', barrier={'unit':'pips','take_profit':50,'stop_loss':50})",
                     ],
                 }
             if not _barrier_prices_are_valid(
@@ -834,7 +852,7 @@ def labels_triple_barrier(  # noqa: C901
                             "Invalid absolute TP/SL levels for the entry price: "
                             f"{constraint}. entry_price≈{sample_entry_price:.8g}, "
                             f"tp_abs={tp_abs}, sl_abs={sl_abs}. "
-                            "Use tp_pct/sl_pct or tp_ticks/sl_ticks for offset-style barriers."
+                            "Use tp_pct/sl_pct, tp_ticks/sl_ticks, or tp_pips/sl_pips for offset-style barriers."
                         ),
                         "direction_hint": direction_hint,
                         **({"offset_hint": offset_hint} if offset_hint else {}),
@@ -864,6 +882,7 @@ def labels_triple_barrier(  # noqa: C901
                 label_on=label_on,
                 direction_value=direction_value,
                 tick_size=tick_size,
+                pip_size=pip_size,
                 barrier_kwargs=barrier_kwargs,
                 same_bar_policy=same_bar_policy_value,
             )
@@ -956,6 +975,7 @@ def labels_triple_barrier(  # noqa: C901
                                 ("absolute_price", ("tp_abs", "sl_abs")),
                                 ("percent", ("tp_pct", "sl_pct")),
                                 ("ticks", ("tp_ticks", "sl_ticks")),
+                                ("pips", ("tp_pips", "sl_pips")),
                             )
                             if any(barrier_values.get(field) is not None for field in fields)
                         ),
@@ -967,6 +987,7 @@ def labels_triple_barrier(  # noqa: C901
                         if value is not None
                     },
                     "trade_tick_size": trade_tick_size,
+                    "pip_size": pip_size,
                     "price_precision": int(price_digits) if price_digits > 0 else None,
                 },
                 "rows_before_labeling": rows_before_labeling,
@@ -1010,6 +1031,7 @@ def labels_triple_barrier(  # noqa: C901
                         same_bar_flags=same_bar_flags,
                         direction_value=direction_value,
                         tick_size=tick_size,
+                        pip_size=pip_size,
                         barrier_kwargs=barrier_kwargs,
                         price_digits=price_digits,
                     )
@@ -1249,6 +1271,7 @@ def labels_triple_barrier(  # noqa: C901
                             same_bar_flags=same_bar_flags,
                             direction_value=direction_value,
                             tick_size=tick_size,
+                            pip_size=pip_size,
                             barrier_kwargs=barrier_kwargs,
                             price_digits=price_digits,
                         )

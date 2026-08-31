@@ -6367,7 +6367,7 @@ def test_forecast_barrier_optimize_keeps_grid_default_path(monkeypatch):
     out = raw_opt(request=ForecastBarrierOptimizeRequest(symbol="BTCUSD"))
     assert out["ok"] is True
     assert out["detail"] == "compact"
-    assert called["method"] == "auto"
+    assert called["method"] == "mc_gbm_bb"
     assert called["search_profile"] == "medium"
     assert called["output_mode"] == "summary"
     assert "format" not in called

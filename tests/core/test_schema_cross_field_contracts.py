@@ -416,10 +416,10 @@ SCHEMA_CONTRACT_CASES = [
     (
         "labels-as-of-range",
         "labels_triple_barrier",
-        {"symbol": "EURUSD", "barriers": _PAIR_BARRIER, "as_of": "2026-01-01"},
+        {"symbol": "EURUSD", "barrier": _PAIR_BARRIER, "as_of": "2026-01-01"},
         {
             "symbol": "EURUSD",
-            "barriers": _PAIR_BARRIER,
+            "barrier": _PAIR_BARRIER,
             "as_of": "2026-01-01",
             "end": "2026-01-01",
         },

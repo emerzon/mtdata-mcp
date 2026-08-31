@@ -378,7 +378,7 @@ def test_missing_barriers_remediation_includes_example(monkeypatch, capsys):
     parser = cli_api._CLIArgumentParser(prog="mtdata-cli labels_triple_barrier")
 
     with pytest.raises(SystemExit, match="2"):
-        parser.error("the following arguments are required: --barriers")
+        parser.error("the following arguments are required: --barrier")
 
     captured = capsys.readouterr()
     assert "error_code: cli_missing_required" in captured.out
@@ -2434,13 +2434,14 @@ class TestResolveParamKwargs:
 
     def test_labels_triple_barrier_barriers_help_documents_json_and_units(self):
         barriers_kwargs, _ = _resolve_param_kwargs(
-            {"name": "barriers", "type": dict, "required": True, "default": None},
+            {"name": "barrier", "type": dict, "required": True, "default": None},
             None,
             cmd_name="labels_triple_barrier",
         )
 
         assert '"unit":"pct"' in barriers_kwargs["help"]
         assert "price values are absolute levels" in barriers_kwargs["help"]
+        assert "broker trade tick/point" in barriers_kwargs["help"]
 
     def test_patterns_engine_help_names_mode_scope(self):
         kwargs, _ = _resolve_param_kwargs(
@@ -2922,7 +2923,7 @@ class TestResolveParamKwargs:
             "name": "method",
             "type": ForecastBarrierOptimizeRequest.model_fields["method"].annotation,
             "required": False,
-            "default": "auto",
+            "default": "mc_gbm_bb",
         }
         kwargs, _ = _resolve_param_kwargs(
             param, None, cmd_name="forecast_barrier_optimize"

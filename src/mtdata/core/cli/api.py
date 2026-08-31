@@ -1977,7 +1977,7 @@ _COMMAND_USAGE_EXAMPLES: Dict[str, Tuple[str, Optional[str]]] = {
         "\"strategy\":\"ema_cross\"}]'",
     ),
     "labels_triple_barrier": (
-        f'{CLI_PROGRAM} labels_triple_barrier EURUSD --barriers '
+        f'{CLI_PROGRAM} labels_triple_barrier EURUSD --barrier '
         '"kind=tp_sl,unit=pct,take_profit=0.1,stop_loss=0.1"',
         None,
     ),

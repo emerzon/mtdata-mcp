@@ -15,12 +15,34 @@ from mtdata.utils.barriers import (
 )
 
 
-def test_barrier_api_exposes_ticks_without_a_misleading_pip_alias():
+def test_barrier_api_keeps_pips_distinct_from_ticks():
     parameters = signature(resolve_barrier_prices).parameters
 
     assert "tick_size" in parameters
-    assert "pip_size" not in parameters
-    assert not hasattr(barrier_utils, "get_pip_size")
+    assert "pip_size" in parameters
+    assert "tp_pips" in parameters
+    assert "tp_ticks" in parameters
+    assert hasattr(barrier_utils, "get_pip_size")
+    tp_ticks, sl_ticks = resolve_barrier_prices(
+        price=1.10000,
+        direction="long",
+        tp_ticks=50.0,
+        sl_ticks=30.0,
+        tick_size=0.00001,
+        pip_size=0.0001,
+    )
+    tp_pips, sl_pips = resolve_barrier_prices(
+        price=1.10000,
+        direction="long",
+        tp_pips=50.0,
+        sl_pips=30.0,
+        tick_size=0.00001,
+        pip_size=0.0001,
+    )
+    assert tp_ticks == pytest.approx(1.10050)
+    assert sl_ticks == pytest.approx(1.09970)
+    assert tp_pips == pytest.approx(1.10500)
+    assert sl_pips == pytest.approx(1.09700)
 
 
 @pytest.mark.parametrize(
@@ -111,6 +133,14 @@ class TestResolveBarrierPrices:
         )
         assert tp == pytest.approx(1.09500)
         assert sl == pytest.approx(1.10300)
+
+    def test_long_pips_use_pip_size_not_tick_size(self):
+        tp, sl = resolve_barrier_prices(
+            price=1.10000, direction="long",
+            tp_pips=50.0, sl_pips=30.0, tick_size=0.00001, pip_size=0.0001,
+        )
+        assert tp == pytest.approx(1.10500)
+        assert sl == pytest.approx(1.09700)
 
     def test_long_ticks_with_explicit_names(self):
         tp, sl = resolve_barrier_prices(
@@ -250,6 +280,7 @@ class TestBuildBarrierKwargs:
             "tp_abs": None, "sl_abs": None,
             "tp_pct": None, "sl_pct": None,
             "tp_ticks": None, "sl_ticks": None,
+            "tp_pips": None, "sl_pips": None,
         }
 
     def test_partial(self):

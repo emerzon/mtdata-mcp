@@ -121,14 +121,14 @@ class TestBarrierOptimizeBasic(_BarrierTestBase):
         self.assertEqual(result["effective_method"], "single_regime_gaussian_mc")
         self.assertTrue(any("state collapse" in item for item in result["warnings"]))
 
-    def test_forecast_barrier_optimize_rejects_legacy_pips_mode(self):
+    def test_forecast_barrier_optimize_accepts_pips_mode(self):
         result = forecast_barrier_optimize(
             symbol="EURUSD",
             timeframe="H1",
             horizon=10,
             method="mc_gbm",
             direction="long",
-            mode="pip" + "s",
+            mode="pips",
             tp_min=5.0,
             tp_max=10.0,
             tp_steps=2,
@@ -137,7 +137,8 @@ class TestBarrierOptimizeBasic(_BarrierTestBase):
             sl_steps=2,
             objective="edge",
         )
-        self.assertEqual(result["error"], "Invalid mode: pips. Use 'pct' or 'ticks'.")
+        self.assertTrue(result["success"])
+        self.assertEqual(result["distance_unit"], "pips")
 
     def test_forecast_barrier_optimize_optuna_backend(self):
         if importlib.util.find_spec("optuna") is None:

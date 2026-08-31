@@ -122,6 +122,8 @@ def run_forecast_barrier_prob(
                     "sl_pct",
                     "tp_ticks",
                     "sl_ticks",
+                    "tp_pips",
+                    "sl_pips",
                 )
             )
             if not has_resolved_barriers:
@@ -133,9 +135,10 @@ def run_forecast_barrier_prob(
                     code="barrier_parameters_missing",
                     operation="forecast_barrier_prob",
                     remediation=(
-                        "Provide tp_pct/sl_pct, tp_abs/sl_abs, or tp_ticks/sl_ticks "
-                        "scaled to the symbol and forecast horizon. Use "
-                        "forecast_barrier_optimize for data-driven candidates."
+                        "Provide tp_pct/sl_pct, tp_abs/sl_abs, tp_ticks/sl_ticks, "
+                        "or tp_pips/sl_pips scaled to the symbol and forecast "
+                        "horizon. Use forecast_barrier_optimize for data-driven "
+                        "candidates."
                     ),
                     related_tools=[
                         "forecast_barrier_optimize",
@@ -274,10 +277,10 @@ def run_forecast_barrier_optimize(
     cpu_count: Any = os.cpu_count,
 ) -> Dict[str, Any]:
     started_at = time.perf_counter()
-    method_val = normalize_barrier_method(request.method or "auto", allow_ensemble=True)
+    method_val = normalize_barrier_method(request.method or "mc_gbm_bb", allow_ensemble=True)
     method_supported = method_val is not None
     if method_val is None:
-        method_val = str(request.method or "auto").lower().strip()
+        method_val = str(request.method or "mc_gbm_bb").lower().strip()
     log_operation_start(
         logger,
         operation="forecast_barrier_optimize",
