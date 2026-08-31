@@ -274,10 +274,10 @@ def test_compact_candles_omit_operator_diagnostics() -> None:
     )
 
     assert result["volume_semantics"] == "tick_volume_is_bid_update_count_not_lots"
+    assert result["time_normalization"] == {"source": "mt5"}
     for key in (
         "bar_spacing",
         "source_bar_spacing",
-        "time_normalization",
         "tick_volume_event_basis",
         "tick_volume_tape_equivalent",
         "tick_volume_comparison_note",
