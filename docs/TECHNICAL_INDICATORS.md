@@ -55,7 +55,7 @@ mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 200 --indicators "em
 
 Indicators add new columns to the output:
 ```
-time,open,high,low,close,volume,ema_20,ema_50,rsi_14,macd_12_26_9,macd_h_12_26_9,macd_s_12_26_9
+time,open,high,low,close,tick_volume,ema_20,ema_50,rsi_14,macd_12_26_9,macd_h_12_26_9,macd_s_12_26_9
 ```
 
 Candle responses normalize indicator columns to lowercase

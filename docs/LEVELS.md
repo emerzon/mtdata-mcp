@@ -122,8 +122,10 @@ The default `min_source_families=2` requires independent agreement. Pass
 Volume-profile computation is opt-in because it can require a much larger M1
 history request than the other level families.
 
-**Output:** `levels` sorted by `score`, each with a `price`, the contributing
-`source_families` and `sources`, and `distance_pct` from current price.
+**Output:** `levels` sorted by `score`, each with a `price`, contributing
+`source_families`, and `distance_pct` from current price. Compact output
+keeps `source_families`; the contributing `sources` list appears at
+`--detail standard` or `full`.
 
 Use `support_resistance_levels` for the structural S/R component on its own.
 

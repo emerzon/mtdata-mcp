@@ -153,16 +153,23 @@ proof that no predictive relationships exist.
 
 ## Output
 
-The tool returns a plain-text table:
+Default output is TOON (or `--json`) with ranked directed pairs in `items`.
+Each row includes:
 
-```
-Effect <- Cause | Lag | p-value | Samples | Conclusion
-```
+- `effect`, `cause`, `lag` — best-performing lag for the pair
+- `p_value` — globally Bonferroni-adjusted p-value (`significance_basis: p_value_global_bonferroni_adjusted`)
+- `p_value_raw`, `p_value_lag_adjusted` — unadjusted and lag-only adjusted values
+- `significant` — `true` when `p_value < significance` (for `log_return` / `pct` / `diff`)
+- `samples`, `period_start`, `period_end`
 
-- **Conclusion** is `granger-predictive-link` when the globally Bonferroni-adjusted `p-value < significance`, otherwise `no-granger-link`. This is evidence of incremental lagged predictability, not structural or economic causality.
-- **Lag** is the best-performing lag for the pair under the selected test statistic.
+Compact detail returns significant links only; standard/full also include
+non-significant rows. Top-level `summary.counts` reports `pairs_tested`,
+`directed_tests`, `undirected_pairs`, and `significant_links`.
+`result` is `links_found` or `no_links_found`. A `significant` flag is
+evidence of incremental lagged predictability, not structural or economic
+causality.
 
-Tip: `--json` returns the structured payload instead of default TOON text.
+Tip: `--json` returns the same structured payload as default TOON text.
 
 ---
 
