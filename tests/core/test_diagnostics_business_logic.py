@@ -708,6 +708,8 @@ def test_volatility_term_structure_returns_requested_horizons(monkeypatch):
     assert result["analysis_kind"] == "historical_realized_volatility_cones"
     assert result["unit"] == "annualized_decimal_volatility"
     assert "0.01 means 1%" in result["unit_note"]
+    assert "labels_triple_barrier" in result["unit_note"]
+    assert "forecast_barrier_prob" in result["unit_note"]
     assert result["units"]["current_volatility"] == "decimal_return_fraction"
     assert result["units"]["cone"] == "decimal_return_fraction"
     assert result["units"]["percentile_rank"] == (

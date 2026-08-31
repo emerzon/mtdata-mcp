@@ -1176,7 +1176,10 @@ def volatility_term_structure(
             "comparable_to_options_iv": False,
             "unit": "annualized_decimal_volatility" if annualize else "per_bar_decimal_volatility",
             "unit_note": (
-                "Volatility values are decimal return fractions; 0.01 means 1%."
+                "Volatility values are decimal return fractions; 0.01 means 1%. "
+                "Multiply by 100 for percent-point tools such as "
+                "labels_triple_barrier and forecast_barrier_prob "
+                "(0.0465 decimal = 4.65 percent-points)."
             ),
             "units": {
                 "current_volatility": "decimal_return_fraction",

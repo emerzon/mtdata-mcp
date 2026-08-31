@@ -118,6 +118,16 @@ A forecast-threshold candidate compares each forecast's expected simple return
 `tp_pct`/`sl_pct` stay in percentage points (`0.5` means 0.5%), so the two
 objects in the same request use different numeric conventions.
 
+`volatility_term_structure` reports decimal fractions (`0.0465` = 4.65%).
+Multiply that decimal by 100 before feeding percent-point barrier tools such as
+`labels_triple_barrier` and `forecast_barrier_prob` (`unit=pct`).
+
+| Source | Example value | Meaning | Convert for `unit=pct` barriers |
+|--------|---------------|---------|----------------------------------|
+| `volatility_term_structure` | `0.0465` | 4.65% annualized decimal vol | `4.65` percent-points |
+| `labels_triple_barrier` / `forecast_barrier_prob` | `0.5` | 0.5% | already percent-points |
+| `strategy_validate` forecast thresholds | `0.005` | 0.5% | already a fraction, not percent-points |
+
 ```bash
 mtdata-cli strategy_validate EURUSD --timeframe H1 --lookback 200 --candidates '[{"id":"drift-half","type":"forecast_threshold","method":"drift","params":{"lookback":30},"horizon":1,"long_above":0.005,"short_below":-0.005}]' --barrier '{"horizon":1,"tp_pct":0.5,"sl_pct":0.5}' --json
 ```
