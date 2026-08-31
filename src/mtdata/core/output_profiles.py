@@ -282,6 +282,11 @@ def apply_public_output_profile(
             return error_result
         if normalized == "wait_event":
             return _compact_wait_event_error_payload(error_result)
+        if normalized in {"trade_place", "trade_risk_analyze"}:
+            return _compact_trading_error_payload(
+                error_result,
+                tool_name=normalized,
+            )
         return _compact_error_payload(error_result)
     if normalized == "data_fetch_candles":
         return _shape_candles(result, detail=detail)
@@ -722,6 +727,194 @@ def _compact_error_payload(payload: Mapping[str, Any]) -> Dict[str, Any]:
         else:
             out.pop("details", None)
     return out
+
+
+_TRADE_PLACE_COMPACT_ERROR_FIELDS = (
+    "success",
+    "error",
+    "error_code",
+    "operation",
+    "status",
+    "symbol",
+    "symbol_input",
+    "order_type",
+    "pending",
+    "action",
+    "volume",
+    "requested_price",
+    "entry_price",
+    "trigger_price",
+    "requested_stop_limit_price",
+    "stop_limit_price",
+    "stop_loss",
+    "take_profit",
+    "expiration",
+    "dry_run",
+    "no_action",
+    "no_action_reason",
+    "would_send_order",
+    "preview_ok",
+    "staging_valid",
+    "validation_passed",
+    "actionability",
+    "actionability_reason",
+    "require_sl_tp",
+    "blockers",
+    "remediation",
+    "related_tools",
+    "market_status",
+    "market_status_reason",
+    "next_market_open",
+    "warnings",
+)
+
+_TRADE_RISK_COMPACT_ERROR_FIELDS = (
+    "success",
+    "error",
+    "error_code",
+    "operation",
+    "candidate_valid",
+    "candidate_status",
+    "geometry_valid",
+    "sizing_eligible",
+    "portfolio_snapshot_status",
+    "missing_fields",
+    "remediation",
+    "related_tools",
+    "warnings",
+)
+
+_COMPACT_ERROR_QUOTE_FIELDS = (
+    "bid",
+    "ask",
+    "spread",
+    "spread_points",
+    "spread_pips",
+    "observed_at",
+    "as_of",
+    "freshness_state",
+    "market_status",
+    "market_status_reason",
+    "next_market_open",
+    "usable_for_live_trading",
+    "live_quote_usable",
+    "execution_readiness",
+    "execution_hard_blockers",
+    "required_quote_side",
+    "quote_side_missing",
+    "sizing_warning",
+    "warning",
+    "reason",
+)
+
+
+def _select_compact_error_fields(
+    payload: Mapping[str, Any],
+    fields: Iterable[str],
+) -> Dict[str, Any]:
+    return {
+        key: payload[key]
+        for key in fields
+        if key in payload and payload[key] not in (None, "", [], {})
+    }
+
+
+def _compact_error_quote_context(value: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(value, Mapping):
+        return None
+    freshness_state = str(value.get("freshness_state") or "").strip().lower()
+    market_status = str(value.get("market_status") or "").strip().lower()
+    non_nominal = (
+        value.get("usable_for_live_trading") is False
+        or value.get("live_quote_usable") is False
+        or value.get("quote_side_missing") is True
+        or bool(value.get("execution_hard_blockers"))
+        or freshness_state not in {"", "fresh", "live", "ok"}
+        or market_status in {"closed", "unknown", "unavailable"}
+        or any(
+            value.get(key) not in (None, "", [], {})
+            for key in ("sizing_warning", "warning", "reason")
+        )
+    )
+    if not non_nominal:
+        return None
+    compact = _select_compact_error_fields(value, _COMPACT_ERROR_QUOTE_FIELDS)
+    return compact or None
+
+
+def _compact_trade_place_error_payload(
+    payload: Mapping[str, Any],
+) -> Dict[str, Any]:
+    is_preview_failure = payload.get("dry_run") is True and (
+        payload.get("preview_ok") is False
+        or payload.get("no_action") is True
+        or str(payload.get("error_code") or "") == "preview_blocked"
+    )
+    if not is_preview_failure:
+        return _compact_error_payload(payload)
+    out = _select_compact_error_fields(payload, _TRADE_PLACE_COMPACT_ERROR_FIELDS)
+    quote_context = _compact_error_quote_context(payload.get("quote_context"))
+    if quote_context:
+        out["quote_context"] = quote_context
+    return out
+
+
+def _compact_trade_risk_error_payload(
+    payload: Mapping[str, Any],
+) -> Dict[str, Any]:
+    sizing_error = payload.get("position_sizing_error")
+    evaluation = payload.get("trade_evaluation")
+    if not isinstance(sizing_error, Mapping) and not isinstance(evaluation, Mapping):
+        return _compact_error_payload(payload)
+
+    out = _select_compact_error_fields(payload, _TRADE_RISK_COMPACT_ERROR_FIELDS)
+    scope = payload.get("scope")
+    if isinstance(scope, Mapping):
+        compact_scope = _select_compact_error_fields(scope, ("mode", "symbol"))
+        if compact_scope:
+            out["scope"] = compact_scope
+
+    if isinstance(evaluation, Mapping):
+        compact_evaluation = _select_compact_error_fields(
+            evaluation,
+            ("status", "symbol", "direction", "direction_source", "entry", "sl", "tp"),
+        )
+        if compact_evaluation:
+            out["trade_evaluation"] = compact_evaluation
+
+    if isinstance(sizing_error, Mapping):
+        compact_sizing_error = {
+            key: value
+            for key, value in sizing_error.items()
+            if key not in {"message", "reason"}
+            and value not in (None, "", [], {})
+            and not isinstance(value, Mapping)
+            and not (
+                key == "remediation"
+                and value == payload.get("remediation")
+            )
+            and not (
+                isinstance(value, list)
+                and any(isinstance(item, Mapping) for item in value)
+            )
+        }
+        if compact_sizing_error:
+            out["position_sizing_error"] = compact_sizing_error
+
+    quote_context = _compact_error_quote_context(payload.get("quote_context"))
+    if quote_context:
+        out["quote_context"] = quote_context
+    return out
+
+
+def _compact_trading_error_payload(
+    payload: Mapping[str, Any],
+    *,
+    tool_name: str,
+) -> Dict[str, Any]:
+    if tool_name == "trade_place":
+        return _compact_trade_place_error_payload(payload)
+    return _compact_trade_risk_error_payload(payload)
 
 
 def _compact_wait_event_error_payload(payload: Mapping[str, Any]) -> Dict[str, Any]:
