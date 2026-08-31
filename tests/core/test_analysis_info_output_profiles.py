@@ -103,11 +103,34 @@ def test_catalog_compact_uses_exception_list_and_minimal_pagination() -> None:
             {"method": "arima", "category": "classical"},
             {"method": "nbeatsx", "category": "neural"},
         ],
-        "pagination": {"has_more": True, "next_offset": 2},
+        "pagination": {"has_more": True, "total": 10, "next_offset": 2},
         "unavailable": [
             {"method": "nbeatsx", "reason": "Requires neuralforecast"}
         ],
     }
+
+
+def test_catalog_compact_keeps_pagination_total_when_complete() -> None:
+    payload = {
+        "success": True,
+        "tools": [{"name": "calendar", "category": "news"}],
+        "pagination": {
+            "total": 2,
+            "returned": 2,
+            "offset": 0,
+            "limit": 20,
+            "has_more": False,
+            "more_available": 0,
+        },
+    }
+
+    result = shape_public_tool_output(
+        payload,
+        tool_name="tools_list",
+        detail="compact",
+    )
+
+    assert result["pagination"] == {"total": 2}
 
 
 def test_denoise_catalog_omits_default_filters_and_derived_flags() -> None:

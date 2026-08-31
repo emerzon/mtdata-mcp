@@ -61,8 +61,10 @@ def test_auto_precision_compacts_large_tables_but_not_trading_tools():
         tool_name="forecast_conformal_intervals",
     )
     strategy_backtest = resolve_output_precision(None, tool_name="strategy_backtest")
+    strategy_validate = resolve_output_precision(None, tool_name="strategy_validate")
 
     assert compact.simplify_numbers is True
+    assert strategy_validate.simplify_numbers is True
     assert trading.simplify_numbers is False
     assert support_resistance.simplify_numbers is False
     assert market_snapshot.simplify_numbers is False

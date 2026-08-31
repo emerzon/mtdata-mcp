@@ -43,6 +43,14 @@ _CATALOG_TOOLS = frozenset(
         "tools_list",
     }
 )
+_CATALOG_KEEP_PAGINATION_TOTAL = frozenset(
+    {
+        "denoise_list_methods",
+        "forecast_list_methods",
+        "indicators_list",
+        "tools_list",
+    }
+)
 _TASK_TOOLS = frozenset(
     {
         "forecast_task_cancel",
@@ -647,7 +655,10 @@ def _compact_catalog_payload(
     if payload.get("catalog_total") == payload.get("filtered_total"):
         payload.pop("catalog_total", None)
     _drop_keys(payload, {"count_by_category", "truncation_reason"})
-    _compact_pagination(payload)
+    _compact_pagination(
+        payload,
+        keep_total=tool_name in _CATALOG_KEEP_PAGINATION_TOTAL,
+    )
 
     if tool_name == "tools_list":
         tools = payload.get("tools")
@@ -2154,14 +2165,24 @@ def _compact_trading_token_payload(
             payload.pop("protection_summary", None)
 
 
-def _compact_pagination(payload: MutableMapping[str, Any]) -> None:
+def _compact_pagination(
+    payload: MutableMapping[str, Any],
+    *,
+    keep_total: bool = False,
+) -> None:
     pagination = payload.get("pagination")
     if not isinstance(pagination, Mapping):
         return
+    total = pagination.get("total")
     if pagination.get("has_more") is not True:
-        payload.pop("pagination", None)
+        if keep_total and total is not None:
+            payload["pagination"] = {"total": total}
+        else:
+            payload.pop("pagination", None)
         return
     compact: Dict[str, Any] = {"has_more": True}
+    if keep_total and total is not None:
+        compact["total"] = total
     if pagination.get("next_cursor") not in (None, ""):
         compact["next_cursor"] = pagination["next_cursor"]
     else:
@@ -2744,6 +2765,21 @@ def _shape_ticks(payload: Mapping[str, Any], *, detail: str) -> Dict[str, Any]:
             out.pop("pagination", None)
     _normalize_warnings(out)
     if freshness and (warning := freshness.to_warning()):
+        empty_result = payload.get("empty") is True
+        pagination = payload.get("pagination")
+        no_rows = (
+            isinstance(pagination, Mapping) and pagination.get("returned") == 0
+        )
+        if freshness.status == "market_closed" and (empty_result or no_rows):
+            warning = OutputWarning(
+                code="market_closed",
+                scope=warning.scope,
+                message=(
+                    "The requested range is entirely within a market closure; "
+                    "no ticks were returned."
+                ),
+                context=warning.context,
+            )
         append_output_warning(out, warning)
     _drop_empty_warnings(out)
     return out

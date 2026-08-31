@@ -31,7 +31,6 @@ _FULL_BY_DEFAULT_TOOLS = {
     "options_expirations",
     "report_generate",
     "strategy_backtest",
-    "strategy_validate",
     "support_resistance_levels",
 }
 
