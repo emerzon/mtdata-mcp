@@ -5,6 +5,7 @@ Automatically discovers function parameters and creates CLI arguments
 
 import argparse
 import difflib
+import errno
 import json
 import logging
 import os
@@ -271,9 +272,7 @@ def _invoke_cli_tool_function(
         if isinstance(category, type) and issubclass(category, ResourceWarning):
             continue
         if isinstance(category, type) and issubclass(category, FutureWarning):
-            filename = os.path.normcase(str(getattr(record, "filename", "") or ""))
-            if "site-packages" in filename or "dist-packages" in filename:
-                continue
+            continue
         # A Python warning's filename, line number, and source snippet are
         # developer diagnostics, not part of the public CLI contract.  Apart
         # from leaking host paths, ``warnings.formatwarning`` produces
@@ -650,6 +649,32 @@ def _should_force_utf8_stream(target: Any) -> bool:
         return False
 
 
+def _is_broken_pipe_error(exc: BaseException, *, stream: Any = None) -> bool:
+    """True when stdout/stderr was closed by a downstream consumer (head, Select-Object)."""
+    if isinstance(exc, BrokenPipeError):
+        return True
+    if not isinstance(exc, OSError):
+        return False
+    winerror = getattr(exc, "winerror", None)
+    if winerror in {109, 232}:
+        return True
+    errno_value = getattr(exc, "errno", None)
+    if errno_value in {errno.EPIPE, errno.ECONNRESET}:
+        return True
+    if errno_value == errno.EINVAL and stream in {sys.stdout, sys.stderr}:
+        return True
+    return False
+
+
+def _silence_broken_pipe() -> None:
+    """Flush stdio after a closed pipe so shutdown does not raise again."""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.flush()
+        except Exception:
+            pass
+
+
 def _write_cli_text(text: str, *, stream: Any = None) -> None:
     target = stream if stream is not None else sys.stdout
     payload = str(text)
@@ -665,8 +690,9 @@ def _write_cli_text(text: str, *, stream: Any = None) -> None:
                     except Exception:
                         pass
                 return
-            except Exception:
-                pass
+            except Exception as exc:
+                if _is_broken_pipe_error(exc, stream=target):
+                    raise BrokenPipeError(*exc.args) from exc
     try:
         target.write(rendered)
     except UnicodeEncodeError:
@@ -679,9 +705,17 @@ def _write_cli_text(text: str, *, stream: Any = None) -> None:
             buffer.write(encoded)
         else:
             target.write(encoded.decode(encoding, errors="replace"))
+    except OSError as exc:
+        if _is_broken_pipe_error(exc, stream=target):
+            raise BrokenPipeError(*exc.args) from exc
+        raise
     if hasattr(target, "flush"):
         try:
             target.flush()
+        except OSError as exc:
+            if _is_broken_pipe_error(exc, stream=target):
+                raise BrokenPipeError(*exc.args) from exc
+            pass
         except Exception:
             pass
 
@@ -2165,7 +2199,7 @@ def _wait_event_help_description(summary: str) -> str:
         f"  {CLI_PROGRAM} wait_event --max-wait-seconds 10\n"
         f"  {CLI_PROGRAM} wait_event EURUSD --timeframe H1\n"
         f"  {CLI_PROGRAM} wait_event --watch-for "
-        "'{\"type\":\"price_above\",\"symbol\":\"EURUSD\",\"price\":1.16}'"
+        "'{\"type\":\"price_touch_level\",\"symbol\":\"EURUSD\",\"level\":1.16}'"
     )
 
 
@@ -2458,6 +2492,17 @@ def _resolve_raw_cli_command(argv: Sequence[str]) -> str:
 
 
 def main():  # noqa: C901
+    """Main CLI entry point with dynamic parameter discovery"""
+    try:
+        return _main()
+    except Exception as exc:
+        if _is_broken_pipe_error(exc):
+            _silence_broken_pipe()
+            return 0
+        raise
+
+
+def _main():  # noqa: C901
     """Main CLI entry point with dynamic parameter discovery"""
     raw_argv = sys.argv[1:]
     if raw_argv in (["--version"], ["-V"]):

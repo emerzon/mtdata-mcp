@@ -2405,6 +2405,17 @@ class TestWriteCliText:
             b"".join(stream.buffer.parts).decode("utf-8") == "Lundi de Pâques 清明节\n"
         )
 
+    def test_broken_pipe_on_stdout_write_raises_broken_pipe(self):
+        class _ClosedStdout:
+            def write(self, text: str) -> int:
+                raise BrokenPipeError()
+
+            def flush(self) -> None:
+                return None
+
+        with pytest.raises(BrokenPipeError):
+            _write_cli_text("hello", stream=_ClosedStdout())
+
 
 # ========================================================================
 # _render_cli_result

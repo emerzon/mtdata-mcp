@@ -1498,17 +1498,16 @@ def _select_output_fields(
             if original_failed:
                 selected["output_fields_remediation"] = projection_remediation
             else:
-                selected.update(
-                    {
-                        "success": False,
-                        "error": (
-                            "Some requested output fields are not available in "
-                            "this response contract."
-                        ),
-                        "error_code": "output_fields_unresolved",
-                        "remediation": projection_remediation,
-                    }
+                selected["success"] = True
+                warning = (
+                    "Some requested output fields are not available in "
+                    "this response contract."
                 )
+                existing = selected.get("warnings")
+                warnings_out = list(existing) if isinstance(existing, list) else []
+                if warning not in warnings_out:
+                    warnings_out.append(warning)
+                selected["warnings"] = warnings_out
         elif value.get("success") is not False and not bool(value.get("error")):
             selected.update(
                 {

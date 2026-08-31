@@ -1412,6 +1412,37 @@ class TestMain:
         assert "site-packages" not in out.out
 
     @patch("mtdata.core.cli.api.discover_tools")
+    def test_cli_ignores_first_party_future_warnings_in_structured_output(
+        self, mock_discover, capsys
+    ):
+        import warnings
+
+        def noisy_tool(**_kwargs):
+            warnings.warn_explicit(
+                "Downcasting behavior in `replace` is deprecated",
+                FutureWarning,
+                filename=r"C:\Users\Admin\Documents\Code\mtdata\src\mtdata\services\data_service\history.py",
+                lineno=1069,
+            )
+            return {"ok": True}
+
+        info = get_function_info(noisy_tool)
+        mock_discover.return_value = {
+            "noisy_tool": {
+                "func": noisy_tool,
+                "meta": {"description": "Noisy tool"},
+                "_cli_func_info": info,
+            },
+        }
+
+        with patch("sys.argv", ["cli.py", "noisy_tool"]):
+            result = main()
+
+        assert result == 0
+        out = capsys.readouterr()
+        assert "Downcasting behavior" not in out.out
+
+    @patch("mtdata.core.cli.api.discover_tools")
     def test_help_hides_irrelevant_timeframe_for_trade_account_info(
         self, mock_discover, capsys
     ):
@@ -2774,6 +2805,33 @@ class TestEdgeCases:
         assert payload["unresolved_output_fields"] == ["missing"]
         assert payload["valid_output_fields"] == ["value"]
         assert "valid_output_fields" in payload["remediation"]
+
+    @patch("mtdata.core.cli.api.discover_tools")
+    def test_partial_output_fields_succeed_with_unresolved_list(
+        self, mock_discover, capsys
+    ):
+        def sample_tool(output_fields=None, **_kwargs):
+            return {"success": True, "symbol": "EURUSD", "value": 1}
+
+        mock_discover.return_value = {
+            "sample_tool": {
+                "func": sample_tool,
+                "meta": {"description": "Sample tool"},
+            }
+        }
+
+        with patch(
+            "sys.argv",
+            ["cli.py", "sample_tool", "--output-fields", "symbol,missing", "--json"],
+        ):
+            status = main()
+
+        assert status == 0
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["success"] is True
+        assert payload["symbol"] == "EURUSD"
+        assert payload["output_fields_status"] == "partial"
+        assert payload["unresolved_output_fields"] == ["missing"]
 
     @patch("mtdata.core.cli.api.discover_tools")
     def test_all_unresolved_output_fields_fail_in_toon(

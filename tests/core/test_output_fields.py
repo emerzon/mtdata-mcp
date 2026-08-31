@@ -121,13 +121,16 @@ def test_output_fields_partial_projection_is_explicit() -> None:
 
     result = _select_output_fields(payload, "symbol,details.missing")
 
-    assert result["success"] is False
-    assert result["error_code"] == "output_fields_unresolved"
+    assert result["success"] is True
+    assert "error_code" not in result
     assert result["symbol"] == "EURUSD"
     assert result["unresolved_output_fields"] == ["details.missing"]
     assert result["valid_output_fields"] == ["details"]
     assert result["output_fields_status"] == "partial"
-    assert "Targeted full-detail paths" in result["remediation"]
+    assert any(
+        "not available in this response contract" in str(item)
+        for item in result.get("warnings", [])
+    )
 
 
 def test_output_fields_total_miss_returns_structured_error() -> None:
@@ -187,10 +190,13 @@ def test_output_fields_does_not_advertise_absent_compact_row_paths() -> None:
     assert "items.magic" in result["valid_output_fields"]
     assert "items.comment" in result["valid_output_fields"]
     assert "items.raw" not in result["valid_output_fields"]
-    assert result["success"] is False
-    assert result["error_code"] == "output_fields_unresolved"
+    assert result["success"] is True
+    assert "error_code" not in result
     assert result["output_fields_status"] == "partial"
-    assert "Targeted full-detail paths" in result["remediation"]
+    assert any(
+        "not available in this response contract" in str(item)
+        for item in result.get("warnings", [])
+    )
 
 
 def test_output_fields_rejects_unknown_path_through_empty_collection() -> None:

@@ -185,6 +185,17 @@ def test_catalog_cache_miss_stores_successful_rendered_output(
     assert stored[0]["output"] == rendered
 
 
+def test_cli_main_returns_zero_on_broken_pipe(monkeypatch):
+    import mtdata.core.cli as cli
+
+    def _raise_pipe(_argv=None):
+        raise BrokenPipeError()
+
+    monkeypatch.setattr(cli, "_main", _raise_pipe)
+    monkeypatch.setattr(cli, "_silence_broken_pipe", lambda: None)
+    assert cli.main(["--help"]) == 0
+
+
 def test_unknown_command_candles_suggests_data_fetch_candles(capsys):
     from mtdata.core.cli import main
 

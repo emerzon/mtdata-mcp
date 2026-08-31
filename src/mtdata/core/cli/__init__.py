@@ -1,5 +1,6 @@
 """Lightweight command-line entry point."""
 
+import errno
 import json
 import sys
 from contextlib import redirect_stdout
@@ -110,7 +111,36 @@ def _leading_command_token(argv: Sequence[str]) -> Optional[str]:
     return None
 
 
+def _is_broken_pipe_error(exc: BaseException) -> bool:
+    if isinstance(exc, BrokenPipeError):
+        return True
+    if not isinstance(exc, OSError):
+        return False
+    if getattr(exc, "winerror", None) in {109, 232}:
+        return True
+    return getattr(exc, "errno", None) in {errno.EPIPE, errno.ECONNRESET}
+
+
+def _silence_broken_pipe() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.flush()
+        except Exception:
+            pass
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    """Handle cheap entry-point modes before importing the full tool graph."""
+    try:
+        return _main(argv)
+    except Exception as exc:
+        if _is_broken_pipe_error(exc):
+            _silence_broken_pipe()
+            return 0
+        raise
+
+
+def _main(argv: Optional[Sequence[str]] = None) -> int:
     """Handle cheap entry-point modes before importing the full tool graph."""
     effective_argv = list(sys.argv[1:] if argv is None else argv)
     program = display_program_name(sys.argv[0])
