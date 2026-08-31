@@ -12,8 +12,13 @@ from ...utils.continuation import (
     decode_continuation_cursor,
     encode_continuation_cursor,
 )
-from ...utils.freshness import format_age_seconds as _format_age_seconds
-from ...utils.freshness import format_freshness_label
+from ...utils.freshness import (
+    QUOTE_STALE_SECONDS,
+    format_freshness_label,
+)
+from ...utils.freshness import (
+    format_age_seconds as _format_age_seconds,
+)
 from ...utils.market_metadata import (
     FRESHNESS_ANCHOR_QUERY_EXPECTED_END,
     FRESHNESS_ANCHOR_WALL_CLOCK,
@@ -542,7 +547,25 @@ def _attach_forming_candle_update_freshness(
         )
     payload["data_age_anchor"] = FRESHNESS_ANCHOR_WALL_CLOCK
     payload["forming_bar_update_verified"] = False
-    payload["data_stale"] = True
+    if update_age > float(QUOTE_STALE_SECONDS):
+        payload["data_stale"] = True
+    warning = {
+        "code": "forming_bar_unverified",
+        "scope": "candles",
+        "message": (
+            "The forming bar is included; its last update time could not be "
+            f"verified, but the market tick is {update_text} old."
+        ),
+        "market_tick_age_seconds": round(update_age, 3),
+    }
+    existing = payload.get("warnings")
+    if isinstance(existing, list):
+        if warning not in existing:
+            payload["warnings"] = [*existing, warning]
+    elif existing:
+        payload["warnings"] = [existing, warning]
+    else:
+        payload["warnings"] = [warning]
 
 
 def _forming_candle_present(payload: Dict[str, Any]) -> bool:

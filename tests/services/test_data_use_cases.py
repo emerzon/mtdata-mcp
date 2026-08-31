@@ -1074,7 +1074,47 @@ def test_run_data_fetch_candles_forming_bar_labels_market_tick_freshness(monkeyp
     assert "forming-bar update time unverified" in result["freshness"]
     assert result["data_age_seconds"] == 900.0
     assert result["data_age_metric"] == "latest_forming_bar_open_age_seconds"
+    assert result["data_stale"] is False
+    assert result["warnings"][0]["code"] == "forming_bar_unverified"
+
+
+def test_run_data_fetch_candles_forming_bar_marks_stale_when_tick_is_old(monkeypatch):
+    monkeypatch.setattr("mtdata.core.data.use_cases.time.time", lambda: 1_700_000_100.0)
+    request = DataFetchCandlesRequest(
+        symbol="EURUSD",
+        timeframe="H1",
+        include_incomplete=True,
+    )
+    gateway = SimpleNamespace(
+        ensure_connection=lambda: None,
+        symbol_info_tick=lambda _symbol: SimpleNamespace(time=1_699_999_700),
+    )
+
+    result = run_data_fetch_candles(
+        request,
+        gateway=gateway,
+        fetch_candles_impl=lambda **_kwargs: {
+            "success": True,
+            "data": [{"time": "2026-01-01T12:00:00Z", "close": 1.2}],
+            "data_window": {
+                "latest_bar_complete": False,
+                "latest_bar_age_seconds": 900.0,
+            },
+            "meta": {
+                "diagnostics": {
+                    "freshness": {
+                        "data_freshness_seconds": 900.0,
+                        "last_bar_within_policy_window": True,
+                    }
+                }
+            },
+        },
+    )
+
+    assert result["market_tick_age_seconds"] == 400.0
+    assert result["forming_bar_update_verified"] is False
     assert result["data_stale"] is True
+    assert result["warnings"][0]["code"] == "forming_bar_unverified"
 
 
 def test_bounded_provider_window_omits_available_count():
