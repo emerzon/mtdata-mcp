@@ -52,8 +52,12 @@ SL-first probability as though unequal exits had equal payoffs.
 
 Auto mode is therefore materially slower than `--direction long` or
 `--direction short`: it fits 50 rolling backtest forecasts before the current
-forecast. Explicit directions use the point forecast only, while all other
-quote, barrier, sizing, and preview safety gates remain in force.
+forecast. Explicit directions use the point forecast only. Their alignment
+gate can pass only when the forecast's terminal move clears its documented
+effect-size threshold and agrees with the requested side; the gate reports
+`basis: point_estimate_effect_size` and `uncertainty: not_available`. This is
+weaker evidence than a calibrated interval, while all other quote, barrier,
+sizing, and preview safety gates remain in force.
 A failed forecast-alignment or barrier gate makes the overall idea ineligible,
 keeps suggested volume at zero, and skips the order preview even when the side
 was explicitly requested.

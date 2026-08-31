@@ -113,6 +113,34 @@ def _forecast(*, trend: str = "up") -> Dict[str, Any]:
     }
 
 
+def _point_forecast(*, trend: str = "up", include_direction: bool = False) -> Dict[str, Any]:
+    forecast = _forecast(trend=trend)
+    if trend == "flat":
+        forecast["forecast_vs_last_price"] = {
+            "direction_actionable": False,
+            "direction_status": "neutral",
+            "direction_threshold_pct": 0.102184,
+            "horizon_delta_pct": 0.0,
+        }
+        return forecast
+    context: Dict[str, Any] = {
+        "direction_actionable": False,
+        "direction_status": "unconfirmed",
+        "direction_suppressed_reason": "forecast_uncertainty_not_available",
+        "direction_interval_excludes_last_price": None,
+        "direction_interval_basis": "not_available",
+        "direction_interpretation": "point_estimate_only",
+        "direction_threshold_pct": 0.102184,
+        "horizon_delta_pct": 0.1171 if trend == "up" else -0.1171,
+    }
+    if include_direction:
+        context["point_estimate_direction"] = (
+            "bullish" if trend == "up" else "bearish"
+        )
+    forecast["forecast_vs_last_price"] = context
+    return forecast
+
+
 def _volatility() -> Dict[str, Any]:
     return {
         "success": True,
@@ -847,7 +875,7 @@ def test_trade_idea_forced_direction_uses_point_forecast_generate(monkeypatch) -
             raise AssertionError("explicit direction must not use conformal calibration")
         if name == "forecast_generate":
             generate_requests.append(kwargs["request"])
-            return _forecast()
+            return _point_forecast()
         if name == "forecast_volatility_estimate":
             return _volatility()
         if name == "forecast_barrier_prob":
@@ -865,8 +893,65 @@ def test_trade_idea_forced_direction_uses_point_forecast_generate(monkeypatch) -
     )
 
     assert len(generate_requests) == 1
+    assert generate_requests[0].effective_ci_alpha is None
     assert idea["direction"] == "long"
     assert idea["direction_basis"] == "requested"
+    assert idea["gates"]["alignment"] == {
+        "status": "pass",
+        "basis": "point_estimate_effect_size",
+        "uncertainty": "not_available",
+    }
+
+
+@pytest.mark.parametrize(
+    ("requested_direction", "forecast_trend", "expected_status"),
+    [
+        ("long", "up", "pass"),
+        ("short", "down", "pass"),
+        ("long", "down", "fail"),
+        ("short", "up", "fail"),
+        ("long", "flat", "fail"),
+    ],
+)
+def test_trade_idea_explicit_direction_applies_point_effect_size_alignment(
+    requested_direction: str,
+    forecast_trend: str,
+    expected_status: str,
+) -> None:
+    barriers = _barriers()
+    if requested_direction == "short":
+        barriers.update(
+            {
+                "direction": "short",
+                "tp_price": 1.0957992,
+                "sl_price": 1.1068012,
+            }
+        )
+    idea = run_trade_idea_compose(
+        TradeIdeaComposeRequest(symbol="EURUSD", direction=requested_direction),
+        call_section=_caller(
+            {
+                "session": _session(),
+                "forecast": _point_forecast(
+                    trend=forecast_trend,
+                    include_direction=True,
+                ),
+                "volatility": _volatility(),
+                "barriers": barriers,
+                "sizing": _sizing(),
+                "preview": _preview(),
+            }
+        ),
+    )
+
+    assert idea["gates"]["alignment"]["status"] == expected_status
+    if expected_status == "pass":
+        assert idea["gates"]["alignment"]["basis"] == (
+            "point_estimate_effect_size"
+        )
+    else:
+        assert idea["direction"] == "stand_down"
+        assert idea["idea_eligible"] is False
 
 
 def test_trade_idea_auto_direction_still_uses_conformal_forecast(monkeypatch) -> None:

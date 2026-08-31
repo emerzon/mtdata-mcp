@@ -144,25 +144,63 @@ def _forecast_trend(values: List[float]) -> Optional[str]:
     return "flat"
 
 
-def _forecast_direction(payload: Any) -> tuple[Optional[str], str]:
+def _forecast_direction(
+    payload: Any,
+    *,
+    allow_point_estimate: bool = False,
+) -> tuple[Optional[str], str, Optional[str]]:
     if not isinstance(payload, dict):
-        return None, "forecast direction metadata is unavailable"
+        return None, "forecast direction metadata is unavailable", None
     context = payload.get("forecast_vs_last_price")
     if not isinstance(context, dict):
-        return None, "forecast direction metadata is unavailable"
+        return None, "forecast direction metadata is unavailable", None
     if context.get("direction_actionable") is not True:
+        suppressed_reason = str(
+            context.get("direction_suppressed_reason") or ""
+        ).strip()
+        direction_status = str(context.get("direction_status") or "").strip()
+        if (
+            allow_point_estimate
+            and direction_status == "unconfirmed"
+            and suppressed_reason == "forecast_uncertainty_not_available"
+        ):
+            horizon_delta_pct = _as_float(context.get("horizon_delta_pct"))
+            threshold_pct = _as_float(context.get("direction_threshold_pct"))
+            point_direction = str(
+                context.get("point_estimate_direction") or ""
+            ).strip().lower()
+            effect_direction = (
+                "bullish"
+                if horizon_delta_pct is not None and horizon_delta_pct > 0.0
+                else "bearish"
+                if horizon_delta_pct is not None and horizon_delta_pct < 0.0
+                else ""
+            )
+            effect_size_confirmed = bool(
+                horizon_delta_pct is not None
+                and threshold_pct is not None
+                and abs(horizon_delta_pct) > abs(threshold_pct)
+            )
+            if point_direction not in {"bullish", "bearish"}:
+                point_direction = effect_direction
+            if point_direction != effect_direction:
+                effect_size_confirmed = False
+            if effect_size_confirmed and point_direction == "bullish":
+                return "long", "", "point_estimate_effect_size"
+            if effect_size_confirmed and point_direction == "bearish":
+                return "short", "", "point_estimate_effect_size"
         reason = str(
-            context.get("direction_suppressed_reason")
+            suppressed_reason
             or context.get("direction_status")
             or "forecast direction is neutral or unconfirmed"
         ).replace("_", " ")
-        return None, reason
+        return None, reason, None
     direction = str(context.get("direction") or "").strip().lower()
     if direction == "bullish":
-        return "long", ""
+        return "long", "", "interval_confirmed"
     if direction == "bearish":
-        return "short", ""
-    return None, "forecast direction is neutral or unconfirmed"
+        return "short", "", "interval_confirmed"
+    return None, "forecast direction is neutral or unconfirmed", None
 
 
 def _forecast_direction_vs_live_quote(
@@ -1196,8 +1234,13 @@ def run_trade_idea_compose(  # noqa: C901
             trend = raw_trend
 
     requested_direction = request.direction
-    suggested_direction, forecast_direction_reason = _forecast_direction(
-        forecast_payload
+    (
+        suggested_direction,
+        forecast_direction_reason,
+        forecast_direction_basis,
+    ) = _forecast_direction(
+        forecast_payload,
+        allow_point_estimate=requested_direction in {"long", "short"},
     )
     live_direction_context: Optional[Dict[str, Any]] = None
     if not historical:
@@ -1209,6 +1252,7 @@ def run_trade_idea_compose(  # noqa: C901
         if live_direction_context is not None:
             suggested_direction = live_suggested_direction
             forecast_direction_reason = live_direction_reason
+            forecast_direction_basis = "calibrated_interval_vs_live_quote"
 
     stand_down_reasons: List[str] = []
     gates: Dict[str, Dict[str, Any]] = {
@@ -1267,6 +1311,10 @@ def run_trade_idea_compose(  # noqa: C901
     else:
         stand_down_reasons.append(forecast_direction_reason)
         gates["alignment"] = _gate("fail", forecast_direction_reason)
+    if forecast_direction_basis:
+        gates["alignment"]["basis"] = forecast_direction_basis
+        if forecast_direction_basis == "point_estimate_effect_size":
+            gates["alignment"]["uncertainty"] = "not_available"
     evaluated_direction = direction if direction in {"long", "short"} else None
 
     barriers_payload: Any = None
