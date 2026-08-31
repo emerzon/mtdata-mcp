@@ -113,10 +113,46 @@ class TestForecastTaskStatus:
         assert result["status"] == "completed"
         assert result["model_id"] == "nhits/EURUSD_H1/abc"
         assert result["model_store_status"] == "present"
+        assert result["model_reusable"] is True
+        assert "can reuse this model" in result["message"]
         assert "produced_model_ids" not in result
         assert "model_stored" not in result
         assert "model_store_path" not in result
         assert "result" not in result
+
+    def test_completed_task_does_not_claim_reuse_when_model_missing(self):
+        from mtdata.core.forecast_tasks import forecast_task_status
+
+        handle = TrainedModelHandle(
+            model_id="nhits/EURUSD_H1/abc",
+            method="nhits",
+            data_scope="EURUSD_H1",
+            params_hash="abc",
+            created_at=1060.0,
+        )
+        mock_tm = MagicMock()
+        mock_tm.get_status.return_value = _make_task(status="completed", result=handle)
+
+        mock_store = MagicMock()
+        mock_store.describe_model.return_value = {
+            "file_count": 0,
+            "expired": False,
+            "model_dir": "C:/models/abc",
+            "ttl_seconds": 604800,
+        }
+
+        with patch(_PATCH_TM, return_value=mock_tm), patch(
+            _PATCH_STORE,
+            return_value=mock_store,
+        ):
+            result = _unwrap(forecast_task_status)(ForecastTaskStatusRequest(task_id="task-abc"))
+
+        assert result["success"] is True
+        assert result["status"] == "completed"
+        assert result["model_store_status"] == "missing"
+        assert result["model_reusable"] is False
+        assert "no longer present" in result["message"]
+        assert "can reuse this model" not in result["message"]
 
     def test_expired_model_is_not_reported_as_stored(self, monkeypatch):
         from mtdata.core import forecast_tasks

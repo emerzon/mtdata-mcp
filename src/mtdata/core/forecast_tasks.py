@@ -761,11 +761,20 @@ def _task_status_payload(
         payload.update(_model_store_state_payload(task.result, detail=detail))
         if detail == "full":
             payload["produced_model_ids"] = [task.result.model_id]
-        payload["message"] = (
-            f"Training complete. Model stored as '{task.result.model_id}'. "
-            "A forecast_generate request with the same method, parameters, and "
-            "training-window identity can reuse this model."
-        )
+        store_status = str(payload.get("model_store_status") or "unknown")
+        model_reusable = store_status == "present"
+        payload["model_reusable"] = model_reusable
+        if model_reusable:
+            payload["message"] = (
+                f"Training complete. Model stored as '{task.result.model_id}'. "
+                "A forecast_generate request with the same method, parameters, and "
+                "training-window identity can reuse this model."
+            )
+        else:
+            payload["message"] = (
+                f"Training completed, but the stored model is no longer present "
+                f"(model_store_status={store_status}); retrain to reuse."
+            )
         if detail == "full":
             payload["result"] = _serialize_model_handle(task.result, detail="full")
 
