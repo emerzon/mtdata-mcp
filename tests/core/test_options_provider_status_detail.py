@@ -126,7 +126,13 @@ def test_provider_status_cli_preserves_invalid_environment_selection():
     assert payload["valid_values"] == {
         "MTDATA_OPTIONS_PROVIDER": ["auto", "tradier", "yahoo"]
     }
-    assert "effective provider fallback is yahoo" in payload["warnings"][0]
+    assert payload["warnings"][0] == {
+        "code": "data_warning",
+        "message": (
+            "Invalid MTDATA_OPTIONS_PROVIDER value 'yahho'; "
+            "effective provider fallback is yahoo."
+        ),
+    }
     assert "configured_provider" not in completed.stderr
 
 
