@@ -582,6 +582,39 @@ class TestHandleSegmentMode:
         out, meta = _handle_segment_mode(df, ["time", "close"], {})
         assert meta["mode"] == "segment"
 
+    def test_zigzag_emits_each_threshold_reversal(self):
+        df = pd.DataFrame(
+            {
+                "time": np.arange(5),
+                "close": [100.0, 110.0, 90.0, 120.0, 80.0],
+            }
+        )
+
+        out, meta = _handle_segment_mode(
+            df,
+            ["time", "close"],
+            {"threshold_pct": 0.05},
+        )
+
+        assert out.index.tolist() == [0, 1, 2, 3, 4]
+        assert meta["points"] == 5
+
+    def test_zigzag_ignores_subthreshold_noise(self):
+        df = pd.DataFrame(
+            {
+                "time": np.arange(6),
+                "close": [100.0, 102.0, 101.0, 110.0, 108.0, 90.0],
+            }
+        )
+
+        out, _meta = _handle_segment_mode(
+            df,
+            ["time", "close"],
+            {"threshold_pct": 0.05},
+        )
+
+        assert out.index.tolist() == [0, 3, 5]
+
 
 # ===== _handle_symbolic_mode =====
 

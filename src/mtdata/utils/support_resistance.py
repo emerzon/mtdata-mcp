@@ -660,6 +660,7 @@ def _cluster_tests(tests: List[Dict[str, Any]], *, tolerance_fraction: float) ->
 
 
 def _apply_episode_metrics(cluster: Dict[str, Any], *, episode_gap_bars: int) -> None:
+    cluster["_episode_gap_bars"] = max(1, int(episode_gap_bars))
     tests = sorted(cluster.get("tests", []), key=lambda item: (int(item.get("index", -1)), str(item.get("type", ""))))
     if not tests:
         cluster["episodes"] = 0
@@ -812,18 +813,90 @@ def _recompute_touches_after_zone_cap(
         if price is None:
             continue
         if float(zone_low) - 1e-12 <= price <= float(zone_high) + 1e-12:
-            in_zone.append(test)
+            in_zone.append(dict(test))
             if str(test.get("type") or "") == "support":
                 support_tests += 1
             elif str(test.get("type") or "") == "resistance":
                 resistance_tests += 1
+    cluster["tests"] = in_zone
     cluster["touches"] = len(in_zone)
     cluster["support_tests"] = support_tests
     cluster["resistance_tests"] = resistance_tests
     if in_zone:
         prices = [float(test["value"]) for test in in_zone]
+        weights = [max(float(test.get("score", 0.0)), 1e-9) for test in in_zone]
+        weight_sum = float(sum(weights))
+        cluster["value"] = float(
+            sum(price * weight for price, weight in zip(prices, weights))
+            / weight_sum
+        )
+        cluster["weight_sum"] = weight_sum
+        cluster["value_sq_sum"] = float(
+            sum(price * price * weight for price, weight in zip(prices, weights))
+        )
         cluster["touch_min"] = min(prices)
         cluster["touch_max"] = max(prices)
+        indexes = [int(test.get("index", -1)) for test in in_zone]
+        cluster["first_index"] = min(indexes)
+        cluster["last_index"] = max(indexes)
+        timestamps = [
+            float(timestamp)
+            for timestamp in (test.get("timestamp") for test in in_zone)
+            if _as_finite_float(timestamp) is not None
+        ]
+        cluster["first_time"] = min(timestamps) if timestamps else None
+        cluster["last_time"] = max(timestamps) if timestamps else None
+        cluster["atr_metric_sum"] = float(
+            sum(
+                float(test.get("atr_value", 0.0) or 0.0) * weight
+                for test, weight in zip(in_zone, weights)
+            )
+        )
+        cluster["atr_weight_sum"] = weight_sum
+        cluster["bounce_metric_sum"] = float(
+            sum(
+                float(test.get("bounce_atr", 0.0) or 0.0) * weight
+                for test, weight in zip(in_zone, weights)
+            )
+        )
+        cluster["adx_metric_sum"] = float(
+            sum(
+                float(test.get("pretest_adx", 0.0) or 0.0) * weight
+                for test, weight in zip(in_zone, weights)
+            )
+        )
+        cluster["metric_weight_sum"] = weight_sum
+        volume_pairs = [
+            (float(volume_ratio), weight)
+            for test, weight in zip(in_zone, weights)
+            if (volume_ratio := _as_finite_float(test.get("volume_ratio")))
+            is not None
+        ]
+        cluster["volume_metric_sum"] = float(
+            sum(value * weight for value, weight in volume_pairs)
+        )
+        cluster["volume_metric_weight_sum"] = float(
+            sum(weight for _value, weight in volume_pairs)
+        )
+    else:
+        for key in (
+            "weight_sum",
+            "value_sq_sum",
+            "atr_metric_sum",
+            "atr_weight_sum",
+            "bounce_metric_sum",
+            "adx_metric_sum",
+            "metric_weight_sum",
+            "volume_metric_sum",
+            "volume_metric_weight_sum",
+        ):
+            cluster[key] = 0.0
+        cluster["first_time"] = None
+        cluster["last_time"] = None
+    _apply_episode_metrics(
+        cluster,
+        episode_gap_bars=int(cluster.get("_episode_gap_bars", 1) or 1),
+    )
 
 
 def _resolve_zone(
@@ -947,7 +1020,6 @@ def _analyze_cluster_state(
     window_low: Optional[float] = None,
     window_high: Optional[float] = None,
 ) -> None:
-    dominant_source = _dominant_source(cluster)
     zone = _resolve_zone(
         cluster,
         tolerance_fraction=tolerance_fraction,
@@ -958,13 +1030,16 @@ def _analyze_cluster_state(
     cluster["zone_high"] = zone["zone_high"]
     cluster["zone_width"] = zone["zone_width"]
     cluster["zone_width_atr"] = zone["zone_width_atr"]
-    cluster["zone_width_capped"] = bool(zone["zone_width_capped"])
+    cluster["zone_width_capped"] = bool(
+        cluster.get("zone_width_capped") or zone["zone_width_capped"]
+    )
     if zone["zone_width_capped"]:
         _recompute_touches_after_zone_cap(
             cluster,
             zone_low=zone["zone_low"],
             zone_high=zone["zone_high"],
         )
+    dominant_source = _dominant_source(cluster)
 
     cluster["decisive_break_count"] = 0
     cluster["avg_breach_atr"] = None
@@ -1142,7 +1217,9 @@ def _format_level(
         "zone_high": None if zone["zone_high"] is None else float(round(float(zone["zone_high"]), 6)),
         "zone_width": None if zone["zone_width"] is None else float(round(float(zone["zone_width"]), 6)),
         "zone_width_atr": None if zone["zone_width_atr"] is None else float(round(float(zone["zone_width_atr"]), 4)),
-        "zone_width_capped": bool(zone["zone_width_capped"]),
+        "zone_width_capped": bool(
+            cluster.get("zone_width_capped") or zone["zone_width_capped"]
+        ),
         "contains_current_price": contains_current_price,
         "first_touch": _format_time(cluster.get("first_time")),
         "last_touch": _format_time(cluster.get("last_time")),

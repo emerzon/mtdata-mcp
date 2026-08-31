@@ -179,13 +179,19 @@ def compute_volume_profile(
         cfg.value_area_fraction,
     )
     levels = _build_level_rows(poc_bucket, value_area, cfg.price_digits)
-    bucket_count = len(buckets)
+    populated_bucket_count = len(buckets)
+    bucket_count = (
+        max(int(bucket["index"]) for bucket in buckets)
+        - min(int(bucket["index"]) for bucket in buckets)
+        + 1
+    )
     diagnostics: Dict[str, Any] = {
         "input_rows": len(source_rows),
         "valid_price_rows": len(price_values),
         "dropped_price_rows": dropped_price,
         "dropped_volume_rows": dropped_volume,
         "bucket_count": bucket_count,
+        "populated_bucket_count": populated_bucket_count,
     }
     explicit_bucket_cap = (
         cfg.bucket_count is not None
@@ -450,9 +456,16 @@ def _cap_bucket_count(
     capped_size = float(bucket_size)
     capped_buckets = buckets
     capped = False
-    while len(capped_buckets) > max_buckets:
+    def _grid_bucket_count(values: Dict[int, Dict[str, float]]) -> int:
+        if not values:
+            return 0
+        return max(values) - min(values) + 1
+
+    while _grid_bucket_count(capped_buckets) > max_buckets:
         capped = True
-        factor = int(math.ceil(len(capped_buckets) / float(max_buckets)))
+        factor = int(
+            math.ceil(_grid_bucket_count(capped_buckets) / float(max_buckets))
+        )
         capped_size *= max(2, factor)
         capped_buckets = _bucket_prices(prices, weights, capped_size)
     return capped_size, capped_buckets, capped

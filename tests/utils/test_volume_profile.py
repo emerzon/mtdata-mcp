@@ -218,6 +218,26 @@ def test_compute_volume_profile_caps_tiny_explicit_buckets():
     assert any("requested_bucket_size" in warning for warning in result["warnings"])
 
 
+def test_compute_volume_profile_caps_sparse_price_grid():
+    result = compute_volume_profile(
+        [
+            {"last": 1.0, "tick_volume": 1},
+            {"last": 100.0, "tick_volume": 1},
+        ],
+        VolumeProfileConfig(
+            price_source="last",
+            bucket_size=0.01,
+            max_buckets=10,
+        ),
+    )
+
+    assert result["success"] is True
+    assert result["diagnostics"]["populated_bucket_count"] == 2
+    assert result["diagnostics"]["bucket_count"] <= 10
+    assert result["diagnostics"]["max_buckets_reached"] is True
+    assert len(result["value_area"]["bucket_indexes"]) <= 10
+
+
 def test_compute_volume_profile_discloses_explicit_bucket_count_cap():
     rows = [{"last": float(price), "tick_volume": 1} for price in range(100)]
 

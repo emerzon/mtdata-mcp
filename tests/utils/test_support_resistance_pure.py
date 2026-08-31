@@ -8,6 +8,7 @@ from mtdata.utils.support_resistance import (
     _analyze_cluster_state,
     _annotate_proximity_ranks,
     _annotate_strength_metrics,
+    _apply_episode_metrics,
     _build_fibonacci_level,
     _build_test,
     _build_zone_overlap,
@@ -1373,3 +1374,61 @@ def test_capped_support_zone_keeps_window_low_and_recomputes_touches() -> None:
     assert level["zone_low"] <= 1.15701 + 1e-12
     assert level["touches"] == 2
     assert cluster["touches"] == 2
+
+
+def test_zone_cap_rebuilds_episode_evidence_and_preserves_disclosure() -> None:
+    tests = [
+        {
+            "type": "support",
+            "value": value,
+            "index": index,
+            "timestamp": float(index),
+            "score": 1.0,
+            "retest_component": 0.4,
+            "bounce_component": 0.3,
+            "adx_component": 0.2,
+            "volume_component": 0.1,
+            "atr_value": 1.0,
+            "bounce_atr": 0.5,
+            "pretest_adx": 20.0,
+        }
+        for index, value in ((0, 0.1), (10, 5.0), (20, 9.0))
+    ]
+    cluster = {
+        "value": 5.0,
+        "weight_sum": 3.0,
+        "touches": 3,
+        "support_tests": 3,
+        "resistance_tests": 0,
+        "zone_low": 0.0,
+        "zone_high": 10.0,
+        "zone_width_atr": 10.0,
+        "atr_metric_sum": 3.0,
+        "atr_weight_sum": 3.0,
+        "tests": tests,
+    }
+    _apply_episode_metrics(cluster, episode_gap_bars=2)
+
+    _analyze_cluster_state(
+        cluster,
+        closes=np.full(25, 1.0),
+        epochs=[float(index) for index in range(25)],
+        tolerance_fraction=0.001,
+        window_low=0.0,
+        window_high=10.0,
+    )
+    level = _format_level(
+        cluster,
+        current_price=2.0,
+        tolerance_fraction=0.001,
+        window_low=0.0,
+        window_high=10.0,
+    )
+
+    assert cluster["touches"] == 1
+    assert cluster["episodes"] == 1
+    assert cluster["score_base"] == pytest.approx(1.0)
+    assert cluster["tests"] == [tests[0]]
+    assert level["touches"] == level["episodes"] == 1
+    assert level["source_episodes"]["support"] == 1
+    assert level["zone_width_capped"] is True

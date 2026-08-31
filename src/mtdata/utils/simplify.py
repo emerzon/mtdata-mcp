@@ -883,26 +883,51 @@ def _handle_segment_mode(df: pd.DataFrame, headers: List[str], spec: Dict[str, A
         return _handle_select_mode(df, headers, spec)
 
     idxs: List[int] = [0]
-    anchor_val = float(vals[0])
+    initial_val = float(vals[0])
+    extreme_idx = 0
+    extreme_val = initial_val
     trend = 0
     for i in range(1, len(vals)):
         cur = float(vals[i])
-        denom = max(abs(anchor_val), 1e-12)
-        move = (cur - anchor_val) / denom
-        if trend >= 0 and cur >= anchor_val:
-            anchor_val = cur
-            if idxs:
-                idxs[-1] = i
+        if not np.isfinite(cur):
             continue
-        if trend <= 0 and cur <= anchor_val:
-            anchor_val = cur
-            if idxs:
-                idxs[-1] = i
+
+        if trend == 0:
+            denom = max(abs(initial_val), 1e-12)
+            move = (cur - initial_val) / denom
+            if move >= threshold_pct:
+                trend = 1
+                extreme_idx = i
+                extreme_val = cur
+            elif move <= -threshold_pct:
+                trend = -1
+                extreme_idx = i
+                extreme_val = cur
             continue
-        if abs(move) >= threshold_pct:
-            trend = 1 if move > 0 else -1
-            idxs.append(i)
-            anchor_val = cur
+
+        if trend > 0:
+            if cur >= extreme_val:
+                extreme_idx = i
+                extreme_val = cur
+                continue
+            reversal = (extreme_val - cur) / max(abs(extreme_val), 1e-12)
+            if reversal >= threshold_pct:
+                idxs.append(extreme_idx)
+                trend = -1
+                extreme_idx = i
+                extreme_val = cur
+            continue
+
+        if cur <= extreme_val:
+            extreme_idx = i
+            extreme_val = cur
+            continue
+        reversal = (cur - extreme_val) / max(abs(extreme_val), 1e-12)
+        if reversal >= threshold_pct:
+            idxs.append(extreme_idx)
+            trend = 1
+            extreme_idx = i
+            extreme_val = cur
 
     if idxs[-1] != len(vals) - 1:
         idxs.append(len(vals) - 1)
