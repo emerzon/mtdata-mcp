@@ -2613,6 +2613,7 @@ def run_trade_risk_analyze(  # noqa: C901
                         symbol_info=sym_info,
                     )
                     margin_impact = None
+                    margin_blocked = False
                     order_calc_margin = getattr(
                         getattr(gateway, "adapter", None),
                         "order_calc_margin",
@@ -2640,23 +2641,55 @@ def run_trade_risk_analyze(  # noqa: C901
                                 "margin_required": round(margin_raw, 2),
                                 "margin_currency": currency or "account_currency",
                             }
-                            margin_free = validation._safe_float_attr(account, "margin_free")
+                            margin_free = validation._safe_float_attr(
+                                account, "margin_free", None
+                            )
                             if margin_free is not None and math.isfinite(margin_free):
                                 margin_impact["margin_free"] = round(float(margin_free), 2)
                                 margin_impact["margin_sufficient"] = (
                                     float(margin_free) >= float(margin_raw)
                                 )
+                                if not margin_impact["margin_sufficient"]:
+                                    margin_blocked = True
+                                    result["position_sizing_error"] = (
+                                        _build_position_sizing_error(
+                                            code="insufficient_free_margin",
+                                            reason=(
+                                                "The proposed volume requires more margin "
+                                                "than the account has available."
+                                            ),
+                                            remediation=(
+                                                "Reduce the requested risk or free account "
+                                                "margin, then rerun trade_risk_analyze."
+                                            ),
+                                            details={
+                                                "suggested_volume": suggested_volume,
+                                                "margin_required": round(margin_raw, 2),
+                                                "margin_free": round(float(margin_free), 2),
+                                                "margin_currency": currency
+                                                or "account_currency",
+                                            },
+                                        )
+                                    )
+                                    sizing_notes.append(
+                                        "The calculated volume is diagnostic only: free "
+                                        "margin is insufficient, so it must not be submitted."
+                                    )
 
                     risk_compliance = (
-                        "blocked_min_volume_exceeds_requested_risk"
-                        if strict_risk_blocked
+                        "blocked_insufficient_free_margin"
+                        if margin_blocked
                         else (
-                            "capped_below_requested_risk"
-                            if guardrail_capped_volume is not None
+                            "blocked_min_volume_exceeds_requested_risk"
+                            if strict_risk_blocked
                             else (
-                                "exceeds_requested_risk"
-                                if risk_over_target
-                                else "within_requested_risk"
+                                "capped_below_requested_risk"
+                                if guardrail_capped_volume is not None
+                                else (
+                                    "exceeds_requested_risk"
+                                    if risk_over_target
+                                    else "within_requested_risk"
+                                )
                             )
                         )
                     )
@@ -2677,7 +2710,7 @@ def run_trade_risk_analyze(  # noqa: C901
                         ),
                         "recommendation_status": (
                             "blocked"
-                            if strict_risk_blocked or guardrail_blocked
+                            if strict_risk_blocked or guardrail_blocked or margin_blocked
                             else "proposed"
                         ),
                         **(

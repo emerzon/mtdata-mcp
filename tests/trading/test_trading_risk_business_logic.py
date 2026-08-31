@@ -185,6 +185,96 @@ def test_trade_risk_analyze_blocks_sizing_and_escalates_critical_margin() -> Non
     assert out["error_code"] == "portfolio_safety_block"
 
 
+def test_trade_risk_analyze_blocks_unfundable_candidate_volume() -> None:
+    mt5 = MagicMock()
+    mt5.ORDER_TYPE_BUY = 0
+    mt5.account_info.return_value = SimpleNamespace(
+        equity=1000.0,
+        currency="USD",
+        margin=100.0,
+        margin_free=600.0,
+        margin_level=1000.0,
+        leverage=100,
+    )
+    mt5.positions_get.return_value = []
+    mt5.orders_get.return_value = []
+    mt5.symbol_info.return_value = _make_symbol_info()
+    mt5.order_calc_margin.return_value = 1000.0
+
+    with _patched_mt5_module(mt5):
+        out = trade_risk_analyze(
+            symbol="EURUSD",
+            detail="full",
+            sizing=_fixed_sizing(1.0),
+            direction="long",
+            entry=100.0,
+            stop_loss=90.0,
+        )
+
+    sizing = out["position_sizing"]
+    assert out["success"] is False
+    assert out["candidate_valid"] is False
+    assert out["candidate_status"] == "blocked"
+    assert out["geometry_valid"] is True
+    assert out["sizing_eligible"] is False
+    assert out["error_code"] == "insufficient_free_margin"
+    assert out["position_sizing_error"] == {
+        "code": "insufficient_free_margin",
+        "reason": "The proposed volume requires more margin than the account has available.",
+        "message": "The proposed volume requires more margin than the account has available.",
+        "remediation": (
+            "Reduce the requested risk or free account margin, then rerun "
+            "trade_risk_analyze."
+        ),
+        "suggested_volume": 1.0,
+        "margin_required": 1000.0,
+        "margin_free": 600.0,
+        "margin_currency": "USD",
+    }
+    assert sizing["recommendation_status"] == "blocked"
+    assert sizing["risk_compliance"] == "blocked_insufficient_free_margin"
+    assert sizing["margin_impact"] == {
+        "margin_required": 1000.0,
+        "margin_currency": "USD",
+        "margin_free": 600.0,
+        "margin_sufficient": False,
+    }
+    assert "diagnostic only" in sizing["sizing_notes"][-1]
+
+
+def test_trade_risk_analyze_allows_candidate_with_sufficient_free_margin() -> None:
+    mt5 = MagicMock()
+    mt5.ORDER_TYPE_BUY = 0
+    mt5.account_info.return_value = SimpleNamespace(
+        equity=1000.0,
+        currency="USD",
+        margin=100.0,
+        margin_free=1200.0,
+        margin_level=1000.0,
+        leverage=100,
+    )
+    mt5.positions_get.return_value = []
+    mt5.orders_get.return_value = []
+    mt5.symbol_info.return_value = _make_symbol_info()
+    mt5.order_calc_margin.return_value = 1000.0
+
+    with _patched_mt5_module(mt5):
+        out = trade_risk_analyze(
+            symbol="EURUSD",
+            detail="full",
+            sizing=_fixed_sizing(1.0),
+            direction="long",
+            entry=100.0,
+            stop_loss=90.0,
+        )
+
+    assert out["success"] is True
+    assert out["candidate_valid"] is True
+    assert out["sizing_eligible"] is True
+    assert out["position_sizing"]["recommendation_status"] == "proposed"
+    assert out["position_sizing"]["margin_impact"]["margin_sufficient"] is True
+
+
 def test_trade_risk_analyze_removes_stop_distance_tick_residue() -> None:
     mt5 = MagicMock()
     mt5.account_info.return_value = SimpleNamespace(equity=1000.0, currency="USD")
