@@ -4270,6 +4270,24 @@ def forecast_volatility(  # noqa: C901
                     timestamp_policy=return_timestamp_policy,
                 ),
             }
+        if method_l in garch_family:
+            min_garch_returns = 100
+            if int(r.size) < min_garch_returns:
+                return {
+                    "success": False,
+                    "error": (
+                        f"{method_l} requires at least {min_garch_returns} returns; "
+                        f"got {int(r.size)}. Increase --lookback to at least "
+                        f"{min_garch_returns + 1} or use --method ewma."
+                    ),
+                    "error_code": "insufficient_history",
+                    "details": {
+                        "parameter": "lookback",
+                        "method": method_l,
+                        "returns_used": int(r.size),
+                        "required_minimum_returns": min_garch_returns,
+                    },
+                }
         if method_l == 'ewma':
             lb = int(p.get('lookback', 1500))
             halflife = p.get('halflife')

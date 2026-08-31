@@ -740,7 +740,7 @@ def test_volatility_term_structure_reports_usable_horizon_minimum(monkeypatch):
     assert rejected["details"]["required_minimum"] == 61
     assert "Increase lookback" in rejected["remediation"]
     assert accepted["success"] is True
-    assert [row["horizon_bars"] for row in accepted["items"]] == [1, 5, 10, 20, 60]
+    assert [row["horizon_bars"] for row in accepted["items"]] == [5, 10, 20, 60]
 
 
 def test_stationarity_rejects_invalid_significance_with_guidance() -> None:

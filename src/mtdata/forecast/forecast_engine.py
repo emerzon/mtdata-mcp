@@ -2125,7 +2125,10 @@ def forecast_engine(  # noqa: C901
             resolution_error = forecast_method_resolution_error(method)
             if resolution_error is not None:
                 return resolution_error
-            return {"error": format_invalid_method_error(method, list(available_methods))}
+            return {
+                "error": format_invalid_method_error(method, list(available_methods)),
+                "error_code": "invalid_method",
+            }
 
         # Volatility models have a dedicated endpoint
         if quantity_l == 'volatility' or method_l.startswith('vol_'):

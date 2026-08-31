@@ -1013,7 +1013,7 @@ def volatility_term_structure(
     symbol: str,
     timeframe: TimeframeLiteral = "H1",
     lookback: Annotated[int, Field(ge=1)] = 1000,
-    horizons: str = "1,5,10,20,60",
+    horizons: str = "5,10,20,60",
     percentiles: str = "10,25,50,75,90",
     annualize: bool = True,
     include_incomplete: bool = False,
@@ -1133,6 +1133,11 @@ def volatility_term_structure(
                 {
                     "horizon_bars": int(horizon),
                     "current_volatility": round(current, 8),
+                    "current_volatility_basis": (
+                        "latest_bar_abs_log_return"
+                        if int(horizon) == 1
+                        else f"rolling_rms_{int(horizon)}_bar"
+                    ),
                     "per_bar_volatility": round(current / factor, 8),
                     "stability": (
                         "insufficient_sample"

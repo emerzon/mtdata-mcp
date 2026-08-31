@@ -221,7 +221,6 @@ _GENERIC_ERROR_CODES = {
     "internal_error",
     "tool_error",
     "unknown_error",
-    "forecast_generate_error",
 }
 _METHOD_ERROR_CODES = frozenset(
     {"invalid_method", "unsupported_method", "method_unavailable"}
