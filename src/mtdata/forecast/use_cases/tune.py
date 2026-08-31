@@ -14,7 +14,10 @@ from mtdata.core.execution_logging import (
 from mtdata.forecast.backtest import forecast_cost_assumptions
 from mtdata.forecast.forecast_methods import get_forecast_method_names
 from mtdata.forecast.forecast_registry import ForecastRegistry
-from mtdata.forecast.forecast_validation import canonicalize_forecast_methods
+from mtdata.forecast.forecast_validation import (
+    attach_denoise_causality_disclosure,
+    canonicalize_forecast_methods,
+)
 from mtdata.forecast.requests import (
     ForecastOptimizeHintsRequest,
     ForecastTuneGeneticRequest,
@@ -37,6 +40,11 @@ from mtdata.utils.security import redact_url_credentials
 logger = logging.getLogger("mtdata.forecast.use_cases")
 
 _TUNING_METRICS = frozenset(TUNING_METRIC_DIRECTIONS)
+_MIN_RELIABLE_TUNING_ANCHORS = MIN_ANNUALIZED_TUNING_TRADES
+_LOW_SAMPLE_SELECTION_WARNING = (
+    "Tuning evaluated fewer than 30 rolling-origin anchors per candidate; "
+    "treat the selected parameters as exploratory, not deployment-ready."
+)
 
 
 def _resolve_tuning_search_space(
@@ -187,6 +195,68 @@ def _attach_tuning_assumptions(
         commission_bps_per_side=commission_bps_per_side,
         trade_threshold=float(trade_threshold),
     )
+    return out
+
+
+def _append_tuning_warning(payload: Dict[str, Any], warning: str) -> None:
+    warnings = payload.get("warnings")
+    if not isinstance(warnings, list):
+        warnings = []
+    if warning not in warnings:
+        warnings.append(warning)
+    payload["warnings"] = warnings
+
+
+def _attach_tuning_selection_safety(
+    result: Dict[str, Any],
+    request: (
+        ForecastTuneGeneticRequest
+        | ForecastTuneOptunaRequest
+        | ForecastOptimizeHintsRequest
+    ),
+) -> Dict[str, Any]:
+    """Disclose whether a tuning winner is suitable for deployment selection."""
+    out = dict(result)
+    attach_denoise_causality_disclosure(out, request.denoise)
+    if out.get("success") is False:
+        return out
+
+    blockers: List[str] = []
+    steps = int(request.steps)
+    if steps < _MIN_RELIABLE_TUNING_ANCHORS:
+        blockers.append("low_anchor_sample")
+        out["selection_sample"] = {
+            "anchors_evaluated_per_candidate": steps,
+            "minimum_recommended_anchors": _MIN_RELIABLE_TUNING_ANCHORS,
+        }
+        _append_tuning_warning(out, _LOW_SAMPLE_SELECTION_WARNING)
+
+    noncausal = out.get("denoise_live_safe") is False
+    if noncausal:
+        blockers.append(
+            str(out.get("history_policy_reason") or "noncausal_preprocessing")
+        )
+
+    if blockers:
+        out["selection_reliability"] = "low"
+        out["selection_reliability_reasons"] = blockers
+        out["selection_status"] = "research_only" if noncausal else "exploratory"
+        out["deployment_eligible"] = False
+
+        hints = out.get("hints")
+        if isinstance(hints, list):
+            annotated_hints: List[Any] = []
+            for hint in hints:
+                if not isinstance(hint, dict):
+                    annotated_hints.append(hint)
+                    continue
+                annotated = dict(hint)
+                annotated["selection_reliability"] = "low"
+                annotated["selection_reliability_reasons"] = list(blockers)
+                annotated["selection_status"] = out["selection_status"]
+                annotated["deployment_eligible"] = False
+                annotated_hints.append(annotated)
+            out["hints"] = annotated_hints
     return out
 
 
@@ -609,6 +679,7 @@ def run_forecast_tune_genetic(
     )
     result = _attach_analysis_time_window(result, request)
     result = _attach_tuning_context(result, request)
+    result = _attach_tuning_selection_safety(result, request)
     result = _apply_tuning_detail(result, request.detail)
     log_operation_finish(
         logger,
@@ -778,6 +849,7 @@ def run_forecast_tune_optuna(
     )
     result = _attach_analysis_time_window(result, request)
     result = _attach_tuning_context(result, request)
+    result = _attach_tuning_selection_safety(result, request)
     result = _apply_tuning_detail(result, request.detail)
     log_operation_finish(
         logger,
@@ -876,6 +948,7 @@ def run_forecast_optimize_hints(
         trade_threshold=request.trade_threshold,
     )
     result = _attach_analysis_time_window(result, request)
+    result = _attach_tuning_selection_safety(result, request)
     result = _apply_tuning_detail(result, request.detail)
     log_operation_finish(
         logger,

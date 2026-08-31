@@ -294,6 +294,11 @@ All three accept `--lookback` as the fixed training bars available at every
 rolling-origin anchor. When it is omitted, candidate backtests use the
 expanding roughly 400-bar default.
 
+The default five-anchor accuracy searches are inexpensive exploratory runs.
+Results below 30 anchors are explicitly low-reliability and deployment-ineligible;
+use `--steps 30` or more for model-selection evidence. Zero-phase denoising is
+always labeled research-only throughout tuning and configuration hints.
+
 ### Genetic Algorithm (`forecast_tune_genetic`)
 
 Evolutionary search through parameter space. Good for discrete/mixed search spaces.

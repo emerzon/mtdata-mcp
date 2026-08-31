@@ -411,7 +411,7 @@ mtdata-cli forecast_backtest_run EURUSD --horizon 24 --methods "chronos2 chronos
 Automatically find optimal parameters for a forecasting method:
 
 ```bash
-mtdata-cli forecast_tune_genetic EURUSD --timeframe H1 --methods fourier_ols --horizon 12 --steps 20 --spacing 12 --metric avg_rmse --mode auto --population 20 --generations 10
+mtdata-cli forecast_tune_genetic EURUSD --timeframe H1 --methods fourier_ols --horizon 12 --steps 30 --spacing 12 --metric avg_rmse --mode auto --population 20 --generations 10
 ```
 
 ### Genetic Parameters
@@ -455,6 +455,12 @@ mtdata-cli forecast_tune_genetic EURUSD --timeframe H1 --methods fourier_ols --h
 `sharpe_ratio`, `calmar_ratio`, and `annual_return` require at least 30
 rolling-origin anchors. Requests with fewer steps fail before the search starts
 instead of producing an annualized score from an undersized sample.
+
+Accuracy searches may use fewer than 30 anchors for cheap smoke tests, but the
+winner is labeled `selection_status: exploratory`, `selection_reliability: low`,
+and `deployment_eligible: false`. Use at least 30 anchors before treating tuned
+parameters as selection evidence. A zero-phase denoiser always makes every
+winner and configuration hint research-only because it uses future observations.
 
 ### Custom Search Space
 

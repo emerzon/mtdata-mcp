@@ -2398,6 +2398,135 @@ def test_forecast_tune_optuna_and_optimize_hints_accept_detail():
     assert hints["history_tail_count"] == 1
 
 
+def test_forecast_tuners_mark_zero_phase_winners_research_only():
+    denoise = {"method": "wavelet", "causality": "zero_phase"}
+    genetic = forecast_use_cases.run_forecast_tune_genetic(
+        ForecastTuneGeneticRequest(
+            symbol="EURUSD",
+            methods=["fourier_ols"],
+            steps=30,
+            denoise=denoise,
+        ),
+        genetic_search_impl=lambda **kwargs: {
+            "success": True,
+            "best_score": 0.1,
+            "best_params": {"terms": 2},
+        },
+    )
+    optuna = forecast_use_cases.run_forecast_tune_optuna(
+        ForecastTuneOptunaRequest(
+            symbol="EURUSD",
+            methods=["fourier_ols"],
+            steps=30,
+            denoise=denoise,
+        ),
+        optuna_search_impl=lambda **kwargs: {
+            "success": True,
+            "best_score": 0.1,
+            "best_params": {"terms": 2},
+        },
+    )
+    hints = forecast_use_cases.run_forecast_optimize_hints(
+        ForecastOptimizeHintsRequest(
+            symbol="EURUSD",
+            timeframes=["H1"],
+            methods=["theta"],
+            steps=30,
+            denoise=denoise,
+        ),
+        optimize_hints_impl=lambda **kwargs: {
+            "success": True,
+            "hints": [{"method": "theta", "fitness_score": 0.1}],
+        },
+    )
+
+    for result in (genetic, optuna, hints):
+        assert result["denoise_causality"] == "zero_phase"
+        assert result["denoise_live_safe"] is False
+        assert result["denoise_usage"] == "research_only"
+        assert result["selection_status"] == "research_only"
+        assert result["deployment_eligible"] is False
+        assert result["selection_reliability_reasons"] == [
+            "zero_phase_denoise_uses_future_observations"
+        ]
+        assert any("future observations" in warning for warning in result["warnings"])
+    assert hints["hints"][0]["deployment_eligible"] is False
+    assert hints["hints"][0]["selection_status"] == "research_only"
+
+
+@pytest.mark.parametrize("steps", [1, 29])
+def test_forecast_tuners_label_small_anchor_searches_exploratory(steps):
+    genetic = forecast_use_cases.run_forecast_tune_genetic(
+        ForecastTuneGeneticRequest(
+            symbol="EURUSD",
+            methods=["fourier_ols"],
+            steps=steps,
+        ),
+        genetic_search_impl=lambda **kwargs: {
+            "success": True,
+            "best_score": 0.1,
+            "best_params": {"terms": 2},
+        },
+    )
+    optuna = forecast_use_cases.run_forecast_tune_optuna(
+        ForecastTuneOptunaRequest(
+            symbol="EURUSD",
+            methods=["fourier_ols"],
+            steps=steps,
+        ),
+        optuna_search_impl=lambda **kwargs: {
+            "success": True,
+            "best_score": 0.1,
+            "best_params": {"terms": 2},
+        },
+    )
+    hints = forecast_use_cases.run_forecast_optimize_hints(
+        ForecastOptimizeHintsRequest(
+            symbol="EURUSD",
+            timeframes=["H1"],
+            methods=["theta"],
+            steps=steps,
+        ),
+        optimize_hints_impl=lambda **kwargs: {
+            "success": True,
+            "hints": [{"method": "theta", "fitness_score": 0.1}],
+        },
+    )
+
+    for result in (genetic, optuna, hints):
+        assert result["selection_reliability"] == "low"
+        assert result["selection_reliability_reasons"] == ["low_anchor_sample"]
+        assert result["selection_status"] == "exploratory"
+        assert result["deployment_eligible"] is False
+        assert result["selection_sample"] == {
+            "anchors_evaluated_per_candidate": steps,
+            "minimum_recommended_anchors": 30,
+        }
+        assert any("exploratory" in warning for warning in result["warnings"])
+    assert hints["hints"][0]["selection_status"] == "exploratory"
+
+
+def test_forecast_tuning_thirty_causal_anchors_has_no_selection_blocker():
+    result = forecast_use_cases.run_forecast_tune_genetic(
+        ForecastTuneGeneticRequest(
+            symbol="EURUSD",
+            methods=["fourier_ols"],
+            steps=30,
+            denoise={"method": "ema", "causality": "causal"},
+        ),
+        genetic_search_impl=lambda **kwargs: {
+            "success": True,
+            "best_score": 0.1,
+            "best_params": {"terms": 2},
+        },
+    )
+
+    assert result["denoise_causality"] == "causal"
+    assert result["denoise_live_safe"] is True
+    assert "selection_reliability" not in result
+    assert "deployment_eligible" not in result
+
+
 def test_forecast_optimize_hints_rejects_unknown_method_before_search():
     result = forecast_use_cases.run_forecast_optimize_hints(
         ForecastOptimizeHintsRequest(
