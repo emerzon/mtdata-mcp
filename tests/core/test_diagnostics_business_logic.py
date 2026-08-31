@@ -499,6 +499,7 @@ def test_seasonality_detect_does_not_inflate_noise_spectral_score(monkeypatch):
         for row in result["items"]
     ):
         assert result["detection_status"] == "not_detected"
+        assert result["dominant_period_bars"] is None
     else:
         assert result["detection_status"] == "candidate"
 
@@ -949,6 +950,7 @@ def test_seasonality_detect_short_lookback_stays_weak(monkeypatch):
     assert result["samples"] < 100
     assert result["signal_quality"] in {"very_weak", "weak"}
     assert result["detection_status"] == "not_detected"
+    assert result["dominant_period_bars"] is None
     assert result["small_sample"] is True
 
 

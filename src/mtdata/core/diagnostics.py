@@ -738,6 +738,7 @@ def seasonality_detect(
             out["signal_quality"] = rows[0].get("signal_quality")
             if all(quality in {"very_weak", "weak"} for quality in qualities):
                 out["detection_status"] = "not_detected"
+                out["dominant_period_bars"] = None
                 out["quality_note"] = (
                     "Returned periods are weak statistical candidates; treat as exploratory, not confirmed seasonality."
                 )
@@ -757,6 +758,7 @@ def seasonality_detect(
                 )
         else:
             out["detection_status"] = "not_detected"
+            out["dominant_period_bars"] = None
         if normalize_output_verbosity_detail(detail, default="compact") == "full":
             out["method"] = {
                 "acf_weight": 0.55,
