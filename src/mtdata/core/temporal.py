@@ -231,15 +231,15 @@ def _temporal_row_is_reliable(row: Dict[str, Any]) -> bool:
 
 
 def _reliable_best(rows: Any) -> Optional[Dict[str, Any]]:
-    materialized = [
+    candidates = [
         row
         for row in rows
         if (
             isinstance(row, dict)
             and row.get("avg_return_pct") is not None
-            and _temporal_row_is_reliable(row)
         )
     ]
+    materialized = [row for row in candidates if _temporal_row_is_reliable(row)]
     best = max(
         materialized,
         key=lambda row: float(row.get("avg_return_pct") or 0.0),
@@ -248,7 +248,18 @@ def _reliable_best(rows: Any) -> Optional[Dict[str, Any]]:
     if best is None:
         return None
     annotated = dict(best)
-    annotated["rank_basis"] = "highest_sample_mean"
+    annotated["rank_basis"] = "highest_sample_mean_among_reliable_groups"
+    annotated["ranking_filter"] = {
+        "minimum_bars": _TEMPORAL_RELIABLE_GROUP_BARS,
+        "eligible_groups": [
+            row.get("group_label", row.get("group")) for row in materialized
+        ],
+        "excluded_groups": [
+            row.get("group_label", row.get("group"))
+            for row in candidates
+            if row not in materialized
+        ],
+    }
     annotated["edge_status"] = _temporal_edge_status(materialized, annotated)
     return annotated
 
@@ -743,6 +754,7 @@ def _base_temporal_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
             "groups_analyzed",
             "groups_excluded",
             "min_bars_applied",
+            "analysis_window",
             "overall_basis",
             "analysis_status",
             "message",
@@ -801,6 +813,7 @@ def _compact_temporal_payload(
                     "complete_period_instances",
                     "partial_bucket",
                     "minimum_period_instances",
+                    "ranking_filter",
                 ),
             )
             out["groups"] = compact_groups
@@ -819,6 +832,7 @@ def _compact_temporal_payload(
                     "complete_period_instances",
                     "partial_bucket",
                     "minimum_period_instances",
+                    "ranking_filter",
                 ),
             )
             if best_rows:
@@ -853,6 +867,7 @@ def _compact_temporal_payload(
                         "complete_period_instances",
                         "partial_bucket",
                         "minimum_period_instances",
+                        "ranking_filter",
                     )
                     if key in best
                 }
@@ -976,6 +991,7 @@ def _standard_temporal_payload(
                     "complete_period_instances",
                     "partial_bucket",
                     "minimum_period_instances",
+                    "ranking_filter",
                 ),
             )
             out["groups"] = standard_groups
@@ -993,6 +1009,7 @@ def _standard_temporal_payload(
                     "complete_period_instances",
                     "partial_bucket",
                     "minimum_period_instances",
+                    "ranking_filter",
                 ),
             )
             if best_rows:
@@ -1024,6 +1041,7 @@ def _standard_temporal_payload(
                     "complete_period_instances",
                     "partial_bucket",
                     "minimum_period_instances",
+                    "ranking_filter",
                 )
                 if key in best
             }
@@ -1809,6 +1827,8 @@ def temporal_analyze(  # noqa: C901
             )
 
             window_df = df if no_qualifying_groups else analysis_df
+            source_start_epoch = float(df["__epoch"].iloc[0])
+            source_end_epoch = float(df["__epoch"].iloc[-1])
             start_epoch = float(window_df["__epoch"].iloc[0])
             end_epoch = float(window_df["__epoch"].iloc[-1])
             start_str = _format_epoch_in_timezone(start_epoch, analysis_tz)
@@ -1852,6 +1872,13 @@ def temporal_analyze(  # noqa: C901
                 ),
                 "volume_source": volume_col,
             }
+            if start_epoch != source_start_epoch or end_epoch != source_end_epoch:
+                payload["analysis_window"] = {
+                    "start": start_str,
+                    "end": end_str,
+                    "bars": int(len(analysis_df)),
+                    "basis": "sample_after_group_exclusions",
+                }
             if symbol_input is not None:
                 payload["symbol_input"] = symbol_input
             if start and end:
@@ -1958,7 +1985,7 @@ def temporal_analyze(  # noqa: C901
             freshness = completed_bar_freshness_fields(
                 resolved_symbol,
                 timeframe,
-                end_epoch,
+                source_end_epoch,
                 now_epoch=now_epoch,
                 item="bar",
             )

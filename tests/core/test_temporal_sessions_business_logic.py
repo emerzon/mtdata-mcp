@@ -100,6 +100,47 @@ def test_temporal_analyze_attaches_shared_freshness_block() -> None:
     assert "market_status" in result or result["data_stale"] is True
 
 
+def test_temporal_group_exclusion_does_not_move_freshness_anchor() -> None:
+    start = datetime(2026, 7, 14, 0, 0, tzinfo=timezone.utc)
+    times = [
+        int((start + timedelta(hours=offset)).timestamp())
+        for offset in [*range(24), *range(24, 48), *range(48, 51)]
+    ]
+    rates = _make_rates_from_epochs(times)
+    captured: dict[str, float] = {}
+
+    def _freshness(_symbol, _timeframe, last_bar_epoch, **_kwargs):
+        captured["last_bar_epoch"] = float(last_bar_epoch)
+        return {"data_as_of": "source-latest", "data_stale": False}
+
+    with patch(_P + "_fetch_rates", return_value=(rates, None)), patch(
+        _P + "_symbol_ready_guard",
+        new=_guard_stub,
+    ), patch(
+        _P + "ensure_mt5_connection_or_raise",
+        new=lambda: None,
+    ), patch(
+        _P + "get_symbol_info_cached",
+        new=_info_stub,
+    ), patch(
+        _P + "completed_bar_freshness_fields",
+        side_effect=_freshness,
+    ):
+        result = _raw_temporal_analyze(
+            symbol="EURUSD",
+            timeframe="H1",
+            lookback=100,
+            group_by="dow",
+            min_bars=10,
+            detail="full",
+        )
+
+    assert result["groups_excluded"] == 1
+    assert result["analysis_window"]["end"] == result["end"]
+    assert captured["last_bar_epoch"] == float(times[-1])
+    assert result["data_as_of"] == "source-latest"
+
+
 def test_temporal_analyze_session_groups_use_analysis_timezone_clock() -> None:
     rates = _make_rates_from_epochs(
         [

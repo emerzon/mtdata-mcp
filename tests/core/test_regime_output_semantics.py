@@ -291,6 +291,61 @@ def test_regime_detect_all_reports_runtime_diagnostics_for_partial_results(monke
     assert result["runtime"]["ensemble_voters"]["excluded_voters"] == ["ms_ar"]
 
 
+def test_regime_detect_all_excludes_unidentifiable_voter(monkeypatch) -> None:
+    real = _unwrap(regime_api.regime_detect)
+    monkeypatch.setattr(
+        regime_api,
+        "_fetch_history",
+        lambda *args, **kwargs: _downtrend_df(120),
+    )
+    monkeypatch.setattr(regime_api, "mt5_connection_error", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        regime_detect_mod,
+        "_build_all_method_comparison",
+        lambda results: {"methods_run": sorted(results.keys())},
+    )
+
+    def fake_recursive(*args, **kwargs):
+        method_name = str(kwargs.get("method") or "")
+        result = {
+            "success": True,
+            "symbol": kwargs.get("symbol"),
+            "timeframe": kwargs.get("timeframe"),
+            "method": method_name,
+            "target": kwargs.get("target"),
+            "current_regime": {"label": "neutral"},
+        }
+        if method_name in regime_api._ENSEMBLE_STATE_METHODS:
+            result["series"] = {
+                "state": [0] * 119,
+                "state_probabilities": [[1.0, 0.0]] * 119,
+            }
+        if method_name == "hmm":
+            result.update(
+                {
+                    "status": "unidentifiable",
+                    "effective_n_states": 1,
+                    "current_regime": {
+                        "label": "unidentifiable",
+                        "regime_confidence": 0.0,
+                        "label_quality": "unidentifiable_state_collapse",
+                    },
+                }
+            )
+        return result
+
+    monkeypatch.setattr(regime_detect_mod, "_run_regime_method", fake_recursive)
+
+    result = real("EURUSD", method="all", detail="full")
+
+    assert "hmm" not in result["ensemble_health"]["used_voters"]
+    assert "hmm" in result["ensemble_health"]["excluded_voters"]
+    assert "unidentifiable state collapse" in result["ensemble_health"][
+        "voter_errors"
+    ]["hmm"]
+    assert result["ensemble_health"]["degraded"] is True
+
+
 def test_regime_detect_all_pads_short_ms_ar_voter(monkeypatch) -> None:
     real = _unwrap(regime_api.regime_detect)
     monkeypatch.setattr(

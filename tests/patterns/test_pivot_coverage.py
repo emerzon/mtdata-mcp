@@ -187,6 +187,8 @@ def test_pivot_compute_points_historical_cutoff_selects_bar_without_lookahead():
     assert res["historical_cutoff"]["requested"] == "1970-01-02T01:00:00Z"
     assert res["historical_cutoff"]["effective"] == "T87400"
     assert res["analysis_as_of"] == "T87400"
+    assert res["freshness_reference"] == "historical_cutoff"
+    assert res["data_age_seconds"] == pytest.approx(2600.0)
 
 
 def test_pivot_compute_points_as_of_alias_matches_end():

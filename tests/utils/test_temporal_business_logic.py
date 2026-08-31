@@ -7,6 +7,7 @@ from mtdata.core.temporal import (
     _compact_temporal_payload,
     _compact_temporal_stats,
     _parse_weekday,
+    _reliable_best,
 )
 
 
@@ -28,6 +29,24 @@ def test_parse_weekday_numeric_modes_and_aliases() -> None:
     assert _parse_weekday("0") == 0
     assert _parse_weekday("6") == 6
     assert _parse_weekday("7") is None
+
+
+def test_reliable_best_discloses_ranking_filter() -> None:
+    result = _reliable_best(
+        [
+            {"group": "asia", "group_label": "asia", "bars": 56, "avg_return_pct": 0.001},
+            {"group": "off", "group_label": "off session", "bars": 25, "avg_return_pct": 0.008},
+        ]
+    )
+
+    assert result is not None
+    assert result["group"] == "asia"
+    assert result["rank_basis"] == "highest_sample_mean_among_reliable_groups"
+    assert result["ranking_filter"] == {
+        "minimum_bars": 30,
+        "eligible_groups": ["asia"],
+        "excluded_groups": ["off session"],
+    }
     assert _parse_weekday("1") == 1
     assert _parse_weekday("Mon") == 0
 

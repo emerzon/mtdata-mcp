@@ -802,7 +802,12 @@ def pivot_compute_points(  # noqa: C901
                 symbol=symbol,
                 timeframe=timeframe,
                 last_bar_epoch=period_start,
-                now_epoch=system_now_ts,
+                now_epoch=cutoff_ts,
+            )
+            payload["freshness_reference"] = (
+                "historical_cutoff"
+                if historical_cutoff is not None
+                else "retrieval_time"
             )
             if detail_value == "compact":
                 compact_method_name = method_filter or "classic"
@@ -852,8 +857,11 @@ def pivot_compute_points(  # noqa: C901
                     symbol=symbol,
                     timeframe=timeframe,
                     last_bar_epoch=period_start,
-                    now_epoch=system_now_ts,
+                    now_epoch=cutoff_ts,
                 )
+                compact_payload["freshness_reference"] = payload[
+                    "freshness_reference"
+                ]
                 degenerate_info = _degenerate_levels_info(compact_payload["levels"])
                 if degenerate_info:
                     compact_payload.update(degenerate_info)

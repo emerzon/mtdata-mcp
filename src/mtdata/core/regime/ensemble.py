@@ -192,6 +192,28 @@ def _aggregate_precomputed_ensemble(  # noqa: C901
     for sr_info in sub_results:
         sm_name = sr_info["method"]
         sr = sr_info["result"]
+        status = str(sr.get("status") or "").strip().lower()
+        current_regime = sr.get("current_regime")
+        if not isinstance(current_regime, dict):
+            current_regime = {}
+        label = str(current_regime.get("label") or "").strip().lower()
+        label_quality = str(
+            current_regime.get("label_quality") or ""
+        ).strip().lower()
+        try:
+            effective_n_states = int(sr.get("effective_n_states"))
+        except (TypeError, ValueError):
+            effective_n_states = None
+        if (
+            status == "unidentifiable"
+            or label == "unidentifiable"
+            or label_quality == "unidentifiable_state_collapse"
+            or effective_n_states == 1
+        ):
+            sub_errors.append(
+                f"{sm_name}: unidentifiable state collapse is not an eligible ensemble vote"
+            )
+            continue
         series = sr.get("series", {})
 
         raw_state = series.get("state", sr.get("state", []))
