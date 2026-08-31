@@ -104,6 +104,7 @@ export function DenoiseModal({ open, title = 'Configure Denoising', value, onClo
 
   return createPortal(
     <div
+      data-dismissible-panel-portal=""
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-slate-950/80 backdrop-blur-sm p-0 sm:p-4"
       role="presentation"
       onClick={(event) => {

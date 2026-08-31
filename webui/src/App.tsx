@@ -90,6 +90,7 @@ export default function App() {
           hasExposure={!!workspace.exposure}
           onToggleExposure={workspace.handleExposureToggle}
           exposureLoading={workspace.exposureLoading}
+          exposureUpdatedAt={workspace.exposureUpdatedAt}
         />
 
         <div className="absolute inset-0" data-chart-surface>

@@ -27,6 +27,7 @@ type Props = {
   hasExposure?: boolean
   onToggleExposure?: () => void
   exposureLoading?: boolean
+  exposureUpdatedAt?: number
 }
 
 /**
@@ -53,6 +54,7 @@ export function OverlayControls({
   hasExposure,
   onToggleExposure,
   exposureLoading,
+  exposureUpdatedAt,
 }: Props) {
   const [open, setOpen] = useState(false)
   const panelRef = useDismissiblePanel(() => setOpen(false), open)
@@ -238,7 +240,14 @@ export function OverlayControls({
                 {exposureLoading ? '…' : hasExposure ? 'On' : 'Off'}
               </button>
             </div>
-            <p className="text-[11px] text-slate-500">Exposure lines are read-only.</p>
+            <p className="text-[11px] text-slate-500">
+              Exposure lines are read-only.
+              {hasExposure && exposureUpdatedAt != null && (
+                <span className="block">
+                  Updated {new Date(exposureUpdatedAt).toLocaleTimeString()}
+                </span>
+              )}
+            </p>
           </div>
 
           <button

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getErrorMessage, getTool, invokeTool, listTools } from '../api/client'
 import {
   defaultParamValues,
@@ -9,6 +9,7 @@ import {
   invocationNeedsConfirmation,
   shapeInvokeArguments,
   schemaToToolFields,
+  toolChangesTradingState,
   toolIsRunnable,
   uniqueCategories,
   type ToolCatalogEntry,
@@ -48,6 +49,7 @@ export function ToolsRunnerPanel({
   symbol = '',
   timeframe = 'H1',
 }: Props) {
+  const queryClient = useQueryClient()
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState('')
   const [selectedName, setSelectedName] = useState<string | null>(null)
@@ -135,6 +137,13 @@ export function ToolsRunnerPanel({
         confirm,
       })
       if (!runGateRef.current.isCurrent(runIdentity, selectedNameRef.current)) return
+      if (toolChangesTradingState(selected)) {
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ['exposure'], refetchType: 'active' }),
+          queryClient.invalidateQueries({ queryKey: ['session-strip'], refetchType: 'active' }),
+        ])
+      }
+      if (!runGateRef.current.isCurrent(runIdentity, selectedNameRef.current)) return
       setResultText(formatToolResult(response.result ?? response))
     } catch (error) {
       if (!runGateRef.current.isCurrent(runIdentity, selectedNameRef.current)) return
@@ -145,7 +154,7 @@ export function ToolsRunnerPanel({
         setConfirm(false)
       }
     }
-  }, [selected, fields, values, confirm])
+  }, [selected, fields, values, confirm, queryClient])
 
   const onFieldChange = useCallback((name: string, value: string) => {
     setValues((prev) => ({ ...prev, [name]: value }))

@@ -61,4 +61,17 @@ describe('geometryOverlays', () => {
     expect(lines).toHaveLength(4)
     expect(lines.some((row) => row.title === 'Pend 22')).toBe(true)
   })
+
+  it('uses exact ticket strings for unsafe JSON identifiers', () => {
+    const unsafeTicket = '9007199254740993'
+    const lines = exposurePriceLines(
+      [{ ticket: 9007199254740992, ticket_exact: unsafeTicket, price: 1.1 }],
+      [{ ticket: 9007199254740992, ticket_exact: unsafeTicket, price: 1.08 }]
+    )
+
+    expect(lines.map((row) => row.title)).toEqual([
+      `Pos ${unsafeTicket}`,
+      `Pend ${unsafeTicket}`,
+    ])
+  })
 })

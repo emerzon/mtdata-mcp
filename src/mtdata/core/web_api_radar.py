@@ -194,8 +194,6 @@ def get_session_strip_response(
         exposure=exposure,
         market_status=status,
     )
-    return shape_public_tool_output(
-        payload,
-        detail="compact",
-        tool_name="trade_account_info",
-    )
+    # This route is an aggregate DTO, not a trade_account_info response. Applying
+    # that tool's compact allowlist erases the independently composed sections.
+    return payload

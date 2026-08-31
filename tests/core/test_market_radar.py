@@ -14,7 +14,7 @@ from mtdata.core.radar import (
     run_market_radar,
 )
 from mtdata.core.web_api import app
-from mtdata.core.web_api_radar import compact_session_strip
+from mtdata.core.web_api_radar import compact_session_strip, get_session_strip_response
 
 _client = TestClient(app)
 
@@ -430,3 +430,30 @@ def test_compact_session_strip_survives_partial_failures() -> None:
     assert payload["partial_failure"] is True
     assert "news" in payload["failed_sections"]
     assert "news" not in payload
+
+
+def test_session_strip_response_preserves_composed_sections() -> None:
+    payload = get_session_strip_response(
+        symbol="EURUSD",
+        account_tool=lambda **_: {
+            "login": 1,
+            "server": "Demo",
+            "equity": 10_000,
+            "currency": "USD",
+        },
+        news_tool=lambda **_: {
+            "general_news": [{"title": "CPI tomorrow", "time": "2026-08-31T12:00:00Z"}]
+        },
+        open_tool=lambda **_: {"count": 2, "items": []},
+        status_tool=lambda **_: {
+            "status": "open",
+            "is_tradable": True,
+            "can_open_new_positions": True,
+        },
+    )
+
+    assert payload["account"]["equity"] == 10_000
+    assert payload["news"][0]["title"] == "CPI tomorrow"
+    assert payload["exposure_count"] == 2
+    assert payload["market_status"]["status"] == "open"
+    assert "warnings" not in payload

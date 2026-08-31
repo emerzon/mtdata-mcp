@@ -25,6 +25,7 @@ from mtdata.core.web_api_tools import (
     invoke_tool_for_webapi,
     list_tools_for_webapi,
     tool_requires_confirmation,
+    tool_safety_meta,
 )
 from mtdata.forecast.exceptions import ForecastError
 from mtdata.utils.denoise import DenoiseCausalityError
@@ -83,9 +84,17 @@ class TestToolClassification:
         assert classify_tool_surface("forecast_tune_optuna") == "intentional_omit"
         assert classify_tool_surface("wait_event") == "intentional_omit"
         assert tool_requires_confirmation("trade_place") is True
+        assert tool_requires_confirmation("forecast_train") is True
         assert tool_requires_confirmation("tools_list") is False
         assert "trade_place" in MUTATING_TOOLS
         assert "forecast_generate" in DEDICATED_UI_TOOLS
+
+    def test_forecast_training_is_catalogued_as_confirmed_mutation(self):
+        safety = tool_safety_meta("forecast_train")
+
+        assert safety["requires_confirmation"] is True
+        assert safety["is_live_trade_mutation"] is False
+        assert "stored state" in safety["warning"]
 
     def test_inventory_covers_registry(self):
         rows = coverage_inventory_rows()
@@ -322,6 +331,21 @@ class TestListAndInvoke:
         assert details["requires_confirmation"] is True
         assert "safety" in details
         assert "hint" in details
+
+    def test_forecast_training_requires_confirm(self):
+        with pytest.raises(HTTPException) as exc:
+            invoke_tool_for_webapi(
+                "forecast_train",
+                arguments={"symbol": "EURUSD", "method": "theta"},
+                confirm=False,
+            )
+
+        assert exc.value.status_code == 400
+        _assert_error_envelope(
+            exc.value.detail,
+            error_code="confirmation_required",
+            operation="forecast_train",
+        )
 
     @pytest.mark.parametrize("payload, status_code", _DOMAIN_FAILURES)
     def test_invoke_maps_domain_failure_to_http_error(self, payload, status_code):

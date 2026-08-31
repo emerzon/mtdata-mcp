@@ -7,6 +7,7 @@ import {
   humanizeIdentifier,
   invocationNeedsConfirmation,
   shapeInvokeArguments,
+  toolChangesTradingState,
   toolIsRunnable,
   uniqueCategories,
   type ToolCatalogEntry,
@@ -40,6 +41,14 @@ describe('humanizeIdentifier', () => {
   it('turns snake_case into title words', () => {
     expect(humanizeIdentifier('trade_place')).toBe('Trade Place')
     expect(humanizeIdentifier('ci_alpha')).toBe('Ci Alpha')
+  })
+})
+
+describe('toolChangesTradingState', () => {
+  it('identifies successful tool runs that must refresh trading queries', () => {
+    expect(toolChangesTradingState(SAMPLE[1])).toBe(true)
+    expect(toolChangesTradingState(SAMPLE[0])).toBe(false)
+    expect(toolChangesTradingState(null)).toBe(false)
   })
 })
 

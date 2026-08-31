@@ -91,6 +91,39 @@ def test_compact_exposure_payload_maps_open_and_pending() -> None:
     assert payload["pending"][0]["price"] == pytest.approx(1.095)
 
 
+def test_compact_exposure_payload_preserves_exact_ticket_encoding() -> None:
+    unsafe_ticket = (1 << 53) + 1
+    payload = compact_exposure_payload(
+        symbol="EURUSD",
+        positions={
+            "items": [
+                {
+                    "ticket": unsafe_ticket,
+                    "ticket_exact": str(unsafe_ticket),
+                    "identifier_encoding": "decimal_string_in_exact_fields",
+                    "price_open": 1.1,
+                }
+            ]
+        },
+        pending={
+            "items": [
+                {
+                    "order": unsafe_ticket + 2,
+                    "order_exact": str(unsafe_ticket + 2),
+                    "identifier_encoding": "decimal_string_in_exact_fields",
+                    "price": 1.095,
+                }
+            ]
+        },
+    )
+
+    assert payload["positions"][0]["ticket_exact"] == str(unsafe_ticket)
+    assert payload["positions"][0]["identifier_encoding"] == (
+        "decimal_string_in_exact_fields"
+    )
+    assert payload["pending"][0]["ticket_exact"] == str(unsafe_ticket + 2)
+
+
 def test_get_confluence_route_returns_compact_levels() -> None:
     with patch(
         "mtdata.core.web_api_geometry.call_tool_sync_structured",
@@ -157,3 +190,30 @@ def test_get_exposure_route_returns_both_legs() -> None:
     body = response.json()
     assert body["positions"][0]["ticket"] == 1
     assert body["pending"] == []
+
+
+def test_get_exposure_route_preserves_unsafe_ticket_as_exact_string() -> None:
+    unsafe_ticket = (1 << 53) + 1
+
+    def _fake(tool, **kwargs):
+        name = getattr(tool, "__name__", "")
+        if "open" in name:
+            return {
+                "items": [
+                    {
+                        "ticket": unsafe_ticket,
+                        "ticket_exact": str(unsafe_ticket),
+                        "identifier_encoding": "decimal_string_in_exact_fields",
+                        "price_open": 1.1,
+                    }
+                ]
+            }
+        return {"items": []}
+
+    with patch(
+        "mtdata.core.web_api_geometry.call_tool_sync_structured", side_effect=_fake
+    ):
+        response = _client.get("/api/v1/exposure", params={"symbol": "EURUSD"})
+
+    assert response.status_code == 200
+    assert response.json()["positions"][0]["ticket_exact"] == str(unsafe_ticket)

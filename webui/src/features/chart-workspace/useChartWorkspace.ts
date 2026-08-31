@@ -590,6 +590,7 @@ export function useChartWorkspace() {
     volumeProfileLoading: volumeProfileState.isLoading,
     exposure: exposureState.data,
     exposureLoading: exposureState.isLoading,
+    exposureUpdatedAt: exposureState.updatedAt,
     reload: () => {
       setExtraHistory([])
       setLiveHistory([])

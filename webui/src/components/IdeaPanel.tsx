@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { composeTradeIdea, getErrorMessage } from '../api/client'
 import type { LayoutBreakpoint } from '../lib/layout'
+import { tradeIdeaSectionFailures } from '../lib/ideaFeedback'
 import type { TradeIdeaPayload } from '../types'
 import { WorkspacePanelShell } from './WorkspacePanelShell'
 
@@ -97,6 +98,7 @@ export function IdeaPanel({
   }, [autoComposeKey, open, run])
 
   const gates = Object.entries(idea?.gates ?? {})
+  const sectionFailures = tradeIdeaSectionFailures(idea)
 
   return (
     <WorkspacePanelShell
@@ -176,6 +178,28 @@ export function IdeaPanel({
 
           {idea && (
             <div className="space-y-2 text-xs text-slate-300">
+              {idea.partial_failure && (
+                <div
+                  className="rounded-lg border border-amber-800 bg-amber-950/50 px-3 py-2 text-amber-100"
+                  role="status"
+                >
+                  <div className="font-medium">Partial idea — some research sections failed.</div>
+                  <ul className="mt-1 list-disc space-y-1 pl-4">
+                    {sectionFailures.map((failure) => (
+                      <li key={failure.section}>
+                        <span className="font-medium">{failure.section}</span>: {failure.reason}
+                        {failure.remediation ? ` ${failure.remediation}` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="mt-1 text-amber-200">
+                    Do not infer missing sections from the remaining values.
+                    {idea.failed_sections?.includes('volatility')
+                      ? ' Exit geometry may use fallback barrier percentages.'
+                      : ''}
+                  </div>
+                </div>
+              )}
               <div className="flex flex-wrap gap-2">
                 <span className="rounded border border-slate-700 px-2 py-0.5">{idea.direction ?? 'n/a'}</span>
                 <span className="rounded border border-slate-700 px-2 py-0.5">{idea.actionability ?? 'research'}</span>

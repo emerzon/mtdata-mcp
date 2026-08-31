@@ -44,6 +44,7 @@ TOOLS_CATALOG_MAX_LIMIT = 1000
 MUTATING_TOOLS: frozenset[str] = frozenset(
     {
         *LIVE_TRADE_MUTATION_TOOLS,
+        "forecast_train",
         "forecast_models_delete",
         "forecast_models_cleanup",
         "forecast_task_cancel",

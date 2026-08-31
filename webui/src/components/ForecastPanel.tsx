@@ -28,6 +28,11 @@ import {
   updateMethodParameter,
   updateParameterValue,
 } from '../lib/forecastContracts'
+import {
+  buildVolatilityRequest,
+  volatilityProxyForMethod,
+  volatilityResultMetrics,
+} from '../lib/volatilityContracts'
 import { formatDateTime } from '../lib/utils'
 import type { LayoutBreakpoint } from '../lib/layout'
 import { DenoiseModal } from './DenoiseModal'
@@ -357,16 +362,34 @@ function VolatilityTab({ symbol, timeframe, anchor }: { symbol: string; timefram
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<VolatilityPayload | null>(null)
   const runId = useRef(0)
-  const requestContract = JSON.stringify({ symbol, timeframe, anchor, method, horizon, proxy })
+  const selectedMethod = useMemo(
+    () => methods?.methods?.find((item) => item.method === method),
+    [method, methods?.methods]
+  )
+  const effectiveProxy = volatilityProxyForMethod(selectedMethod, proxy)
+  const requestBody = buildVolatilityRequest({
+    symbol,
+    timeframe,
+    method,
+    horizon,
+    proxy,
+    asOf: anchor ? formatDateTime(anchor) : undefined,
+    methodInfo: selectedMethod,
+  })
+  const requestContract = JSON.stringify(requestBody)
   const requestContractRef = useRef(requestContract)
   requestContractRef.current = requestContract
+  const resultMetrics = useMemo(
+    () => result ? volatilityResultMetrics(result, horizon) : [],
+    [horizon, result]
+  )
 
   useEffect(() => {
     runId.current += 1
     setIsLoading(false)
     setError(null)
     setResult(null)
-  }, [anchor, horizon, method, proxy, symbol, timeframe])
+  }, [requestContract])
 
   const run = async () => {
     if (!symbol) return
@@ -376,14 +399,7 @@ function VolatilityTab({ symbol, timeframe, anchor }: { symbol: string; timefram
     setError(null)
     setResult(null)
     try {
-      const response = await forecastVolatility({
-        symbol,
-        timeframe,
-        method,
-        horizon,
-        proxy,
-        as_of: anchor ? formatDateTime(anchor) : undefined,
-      })
+      const response = await forecastVolatility(requestBody)
       if (currentRunId === runId.current && runContract === requestContractRef.current) {
         setResult(response)
       }
@@ -416,7 +432,7 @@ function VolatilityTab({ symbol, timeframe, anchor }: { symbol: string; timefram
         </select>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className={`grid gap-3 ${selectedMethod?.requires_proxy ? 'grid-cols-2' : 'grid-cols-1'}`}>
         <div>
           <label className="text-xs text-slate-400 mb-1 block">Horizon</label>
           <input
@@ -427,18 +443,20 @@ function VolatilityTab({ symbol, timeframe, anchor }: { symbol: string; timefram
             min={1}
           />
         </div>
-        <div>
-          <label className="text-xs text-slate-400 mb-1 block">Proxy</label>
-          <select
-            className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2 border border-slate-700"
-            value={proxy}
-            onChange={(event) => setProxy(event.target.value)}
-          >
-            <option value="squared_return">Squared Return</option>
-            <option value="abs_return">Abs Return</option>
-            <option value="log_r2">Log R²</option>
-          </select>
-        </div>
+        {selectedMethod?.requires_proxy && (
+          <div>
+            <label className="text-xs text-slate-400 mb-1 block">Proxy</label>
+            <select
+              className="w-full bg-slate-800 text-slate-200 text-sm rounded-lg px-3 py-2 border border-slate-700"
+              value={effectiveProxy ?? ''}
+              onChange={(event) => setProxy(event.target.value)}
+            >
+              {(selectedMethod.valid_proxies ?? []).map((value) => (
+                <option key={value} value={value}>{value.replace(/_/g, ' ')}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {error && (
@@ -456,22 +474,23 @@ function VolatilityTab({ symbol, timeframe, anchor }: { symbol: string; timefram
       <button
         className="w-full bg-sky-600 hover:bg-sky-500 text-white text-sm font-medium py-2 rounded-lg disabled:opacity-50"
         onClick={run}
-        disabled={!symbol || isLoading}
+        disabled={!symbol || !selectedMethod?.available || isLoading || (selectedMethod.requires_proxy && !effectiveProxy)}
       >
         {isLoading ? 'Running...' : 'Run Volatility Forecast'}
       </button>
 
       {result && (
-        <div className="bg-slate-800/50 rounded-lg p-3 text-sm">
+        <div className="bg-slate-800/50 rounded-lg p-3 text-sm space-y-2">
           <div className="text-slate-400 text-xs mb-2">Result</div>
-          <div className="text-slate-200">
-            Annualized Vol:{' '}
-            <span className="font-mono">
-              {result.volatility_annualized === undefined
-                ? 'Unavailable'
-                : `${(result.volatility_annualized * 100).toFixed(2)}%`}
-            </span>
-          </div>
+          {resultMetrics.map((metric) => (
+            <div key={metric.label} className={metric.primary ? 'text-slate-100' : 'text-slate-400 text-xs'}>
+              {metric.label}:{' '}
+              <span className={`font-mono ${metric.primary ? 'text-sky-300 text-base' : 'text-slate-300'}`}>
+                {metric.percent.toFixed(2)}%
+              </span>
+            </div>
+          ))}
+          {!resultMetrics.length && <div className="text-slate-400">Volatility unavailable</div>}
         </div>
       )}
     </div>

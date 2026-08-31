@@ -12,7 +12,8 @@ import {
   normalizeWatchlist,
   removeWatchlistSymbol,
 } from '../lib/watchlist'
-import { radarDisplayPrice, radarQuoteUnusable } from '../lib/radarDisplay'
+import { outputWarningMessage } from '../lib/compactForecast'
+import { radarDisplayPrice, radarMissingSymbolSet, radarQuoteUnusable } from '../lib/radarDisplay'
 import type { RadarRow } from '../types'
 
 type Props = {
@@ -89,6 +90,14 @@ export function RadarPanel({
     }
     return map
   }, [radarQuery.data?.rows])
+  const missingSymbols = useMemo(
+    () => radarMissingSymbolSet(radarQuery.data?.missing_symbols),
+    [radarQuery.data?.missing_symbols]
+  )
+  const radarWarnings = useMemo(
+    () => (radarQuery.data?.warnings ?? []).map(outputWarningMessage),
+    [radarQuery.data?.warnings]
+  )
 
   const session = sessionQuery.data
 
@@ -158,12 +167,24 @@ export function RadarPanel({
           {radarQuery.error && (
             <div className="px-4 py-2 text-xs text-rose-300">{getErrorMessage(radarQuery.error)}</div>
           )}
+          {radarQuery.data?.partial_failure && missingSymbols.size > 0 && (
+            <div
+              className="mx-4 my-2 rounded border border-amber-800 bg-amber-950/40 px-3 py-2 text-xs text-amber-100"
+              role="status"
+            >
+              <div>Unavailable broker symbols: {Array.from(missingSymbols).join(', ')}</div>
+              {radarWarnings.map((warning) => (
+                <div key={warning} className="mt-1 text-amber-200">{warning}</div>
+              ))}
+            </div>
+          )}
 
           <ul className="divide-y divide-slate-800">
             {watchlist.map((name, index) => {
               const row = rowsBySymbol.get(name)
               const change = row?.live_price_change_pct ?? row?.price_change_pct
               const unusable = radarQuoteUnusable(row)
+              const missing = missingSymbols.has(name.toUpperCase())
               const active = name === symbol
               return (
                 <li key={name} className={`px-4 py-2 ${active ? 'bg-slate-800/70' : ''}`}>
@@ -171,22 +192,30 @@ export function RadarPanel({
                     <button
                       type="button"
                       className="text-left min-w-0"
+                      disabled={missing}
                       onClick={() => onSelectSymbol(name)}
                     >
                       <div className="text-sm text-slate-100">{name}</div>
-                      <div className="text-[11px] text-slate-500">
-                        {formatPrice(radarDisplayPrice(row))}
-                        {row?.spread_pips != null && <span className="ml-2">spr {row.spread_pips}</span>}
-                        <span className={`ml-2 ${typeof change === 'number' && change < 0 ? 'text-rose-300' : 'text-emerald-300'}`}>
-                          {formatChange(change)}
-                        </span>
-                      </div>
-                      {unusable && <div className="text-[11px] text-amber-400">quote unusable</div>}
+                      {missing ? (
+                        <div className="text-[11px] text-amber-400">symbol not found or unavailable</div>
+                      ) : (
+                        <>
+                          <div className="text-[11px] text-slate-500">
+                            {formatPrice(radarDisplayPrice(row))}
+                            {row?.spread_pips != null && <span className="ml-2">spr {row.spread_pips}</span>}
+                            <span className={`ml-2 ${typeof change === 'number' && change < 0 ? 'text-rose-300' : 'text-emerald-300'}`}>
+                              {formatChange(change)}
+                            </span>
+                          </div>
+                          {unusable && <div className="text-[11px] text-amber-400">quote unusable</div>}
+                        </>
+                      )}
                     </button>
                     <div className="flex flex-col items-end gap-1 shrink-0">
                       <button
                         type="button"
                         className="text-[11px] text-sky-300 hover:text-sky-200"
+                        disabled={missing}
                         onClick={() => onComposeIdea(name)}
                       >
                         Compose

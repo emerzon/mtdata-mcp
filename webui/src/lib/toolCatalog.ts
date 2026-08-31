@@ -50,6 +50,10 @@ export type ToolCatalogEntry = {
   related_tools?: string[]
 }
 
+export function toolChangesTradingState(tool: ToolCatalogEntry | null | undefined): boolean {
+  return tool?.safety?.is_live_trade_mutation === true
+}
+
 function schemaType(schema: JsonSchema): string {
   if (schema.type === 'array') return `list[${schema.items ? schemaType(schema.items) : 'any'}]`
   if (schema.type === 'object' || schema.properties) return 'json'

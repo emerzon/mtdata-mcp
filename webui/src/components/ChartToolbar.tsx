@@ -69,6 +69,7 @@ type Props = {
   hasExposure?: boolean
   onToggleExposure?: () => void
   exposureLoading?: boolean
+  exposureUpdatedAt?: number
 }
 
 export function ChartToolbar({
@@ -121,6 +122,7 @@ export function ChartToolbar({
   hasExposure,
   onToggleExposure,
   exposureLoading,
+  exposureUpdatedAt,
 }: Props) {
   const overflow = toolbarUsesOverflowMenu(layoutBreakpoint)
   const [moreOpen, setMoreOpen] = useState(false)
@@ -151,6 +153,7 @@ export function ChartToolbar({
         hasExposure={hasExposure}
         onToggleExposure={onToggleExposure}
         exposureLoading={exposureLoading}
+        exposureUpdatedAt={exposureUpdatedAt}
       />
       <div className="w-px h-5 bg-slate-700 hidden sm:block" />
       <PriceLinesSelector

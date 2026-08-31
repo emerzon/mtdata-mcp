@@ -124,9 +124,16 @@ def _compact_exposure_rows(payload: Any) -> List[Dict[str, Any]]:
             or item.get("price")
         )
         row: Dict[str, Any] = {}
-        ticket = item.get("ticket") or item.get("order")
+        ticket_key = "ticket" if item.get("ticket") not in (None, "") else "order"
+        ticket = item.get(ticket_key)
         if ticket not in (None, ""):
             row["ticket"] = ticket
+            exact_ticket = item.get(f"{ticket_key}_exact")
+            if exact_ticket not in (None, ""):
+                row["ticket_exact"] = str(exact_ticket)
+                identifier_encoding = item.get("identifier_encoding")
+                if identifier_encoding not in (None, ""):
+                    row["identifier_encoding"] = identifier_encoding
         side = item.get("type") or item.get("side") or item.get("order_type")
         if side not in (None, ""):
             row["type"] = side

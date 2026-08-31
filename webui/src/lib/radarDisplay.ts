@@ -14,3 +14,11 @@ export function radarQuoteUnusable(
     || row?.quote_usable_for_live_trading === false
   )
 }
+
+export function radarMissingSymbolSet(symbols: string[] | null | undefined): Set<string> {
+  return new Set(
+    (symbols ?? [])
+      .map((symbol) => String(symbol).trim().toUpperCase())
+      .filter(Boolean)
+  )
+}

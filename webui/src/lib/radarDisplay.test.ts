@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { radarDisplayPrice, radarQuoteUnusable } from './radarDisplay'
+import { radarDisplayPrice, radarMissingSymbolSet, radarQuoteUnusable } from './radarDisplay'
 
 describe('radarDisplayPrice', () => {
   it('falls back to bar_close when mid and last are absent', () => {
@@ -15,5 +15,11 @@ describe('radarDisplayPrice', () => {
 describe('radarQuoteUnusable', () => {
   it('treats quote_not_live_ready as unusable', () => {
     expect(radarQuoteUnusable({ quote_not_live_ready: true })).toBe(true)
+  })
+})
+
+describe('radarMissingSymbolSet', () => {
+  it('normalizes authoritative missing broker names', () => {
+    expect(radarMissingSymbolSet([' nope ', 'eur/usd'])).toEqual(new Set(['NOPE', 'EUR/USD']))
   })
 })

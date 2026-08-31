@@ -96,7 +96,7 @@ export function exposurePriceLines(
 ): PriceLineSpec[] {
   const lines: PriceLineSpec[] = []
   for (const row of positions ?? []) {
-    const ticket = row.ticket != null ? String(row.ticket) : 'pos'
+    const ticket = row.ticket_exact ?? (row.ticket != null ? String(row.ticket) : 'pos')
     const open = line(row.price, '#f59e0b', `Pos ${ticket}`)
     if (open) lines.push(open)
     const sl = line(row.sl, '#ef4444', `Pos SL ${ticket}`)
@@ -105,7 +105,7 @@ export function exposurePriceLines(
     if (tp) lines.push(tp)
   }
   for (const row of pending ?? []) {
-    const ticket = row.ticket != null ? String(row.ticket) : 'pend'
+    const ticket = row.ticket_exact ?? (row.ticket != null ? String(row.ticket) : 'pend')
     const pendingLine = line(row.price, '#94a3b8', `Pend ${ticket}`)
     if (pendingLine) lines.push(pendingLine)
   }

@@ -253,7 +253,9 @@ export type VolatilityPayload = {
   forecast_epoch?: number[]
   forecast_time?: string[]
   forecast_vol?: number[]
+  volatility_per_bar?: number
   volatility_annualized?: number
+  volatility_horizon?: number
 }
 
 // ============================================================================
@@ -286,6 +288,8 @@ export type VolatilityMethodInfo = {
   requires: string[]
   description?: string
   params: ParamDef[]
+  requires_proxy?: boolean
+  valid_proxies?: string[]
 }
 
 export type VolatilityMethodsMeta = {
@@ -505,6 +509,11 @@ export type TradeIdeaPayload = {
   gates?: Record<string, TradeIdeaGate>
   partial_failure?: boolean
   failed_sections?: string[]
+  section_errors?: Record<string, {
+    reason?: string
+    error_code?: string
+    remediation?: string
+  }>
   error?: string
 }
 
@@ -536,6 +545,8 @@ export type ExposureResponse = {
   symbol?: string
   positions?: Array<{
     ticket?: number | string
+    ticket_exact?: string
+    identifier_encoding?: string
     type?: string
     volume?: number
     price?: number
@@ -544,6 +555,8 @@ export type ExposureResponse = {
   }>
   pending?: Array<{
     ticket?: number | string
+    ticket_exact?: string
+    identifier_encoding?: string
     type?: string
     volume?: number
     price?: number
@@ -577,9 +590,10 @@ export type RadarResponse = {
   timeframe?: string
   rank_by?: string
   rows?: RadarRow[]
-  missing?: string[]
+  missing_symbols?: string[]
   seeded?: boolean
   partial_failure?: boolean
+  warnings?: OutputWarningLike[]
   count?: number
   error?: string
 }
