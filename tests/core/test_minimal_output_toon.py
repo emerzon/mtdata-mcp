@@ -71,6 +71,18 @@ class TestHeadersFromDicts:
         headers = _headers_from_dicts(items)
         assert headers == ["a", "b", "c"]
 
+    def test_optional_keys_are_stable_across_row_order(self):
+        first_optional = [
+            {"side": "call", "bid": 1, "reason": "stale"},
+            {"side": "put", "bid": 2},
+        ]
+        last_optional = [
+            {"side": "put", "bid": 2},
+            {"side": "call", "bid": 1, "reason": "stale"},
+        ]
+        assert _headers_from_dicts(first_optional) == _headers_from_dicts(last_optional)
+        assert _headers_from_dicts(first_optional) == ["side", "bid", "reason"]
+
     @pytest.mark.parametrize("items", [[], [1, 2, 3]])
     def test_empty_or_non_dict_returns_empty(self, items):
         assert _headers_from_dicts(items) == []

@@ -390,14 +390,26 @@ def _quote_key(key: Any, delimiter: str = _DEFAULT_DELIMITER) -> str:
 
 
 def _headers_from_dicts(items: Iterable[Dict[str, Any]]) -> List[str]:
-    headers: List[str] = []
-    for item in items:
-        if not isinstance(item, dict):
-            return []
+    materialized = list(items)
+    if not materialized or any(not isinstance(item, dict) for item in materialized):
+        return []
+    union: List[str] = []
+    seen: set[str] = set()
+    for item in materialized:
         for key in item.keys():
-            if key not in headers:
-                headers.append(str(key))
-    return headers
+            name = str(key)
+            if name not in seen:
+                seen.add(name)
+                union.append(name)
+    if len(materialized) == 1:
+        return union
+    common = [
+        str(key)
+        for key in materialized[0].keys()
+        if all(key in item for item in materialized)
+    ]
+    optional = sorted(key for key in union if key not in common)
+    return common + optional
 
 
 def _column_decimals(headers: List[str], rows: List[Dict[str, Any]]) -> Dict[str, int]:

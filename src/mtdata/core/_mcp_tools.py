@@ -1494,10 +1494,21 @@ def _select_output_fields(
             )
         if resolved_count:
             selected["output_fields_status"] = "partial"
-            if value.get("error") or value.get("remediation"):
+            original_failed = bool(value.get("error")) or value.get("success") is False
+            if original_failed:
                 selected["output_fields_remediation"] = projection_remediation
             else:
-                selected["remediation"] = projection_remediation
+                selected.update(
+                    {
+                        "success": False,
+                        "error": (
+                            "Some requested output fields are not available in "
+                            "this response contract."
+                        ),
+                        "error_code": "output_fields_unresolved",
+                        "remediation": projection_remediation,
+                    }
+                )
         elif value.get("success") is not False and not bool(value.get("error")):
             selected.update(
                 {

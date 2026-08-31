@@ -1778,6 +1778,10 @@ def _normalize_trade_risk_payload(  # noqa: C901
             "risk_currency",
             "risk_pct",
             "risk_compliance",
+            "volume_rounding",
+            "guardrail_rule",
+            "guardrail_max_volume",
+            "guardrail_capped_volume",
             "entry",
             "sl",
             "tp",
@@ -2085,6 +2089,7 @@ def _normalize_forecast_methods_payload(
         "catalog_source",
         "detail",
         "total",
+        "filtered_total",
         "total_filtered",
         "available",
         "unavailable",
@@ -2094,6 +2099,7 @@ def _normalize_forecast_methods_payload(
         "profile_methods_hidden",
         "profile_hint",
         "truncation_reason",
+        "pagination",
     ):
         value = payload.get(key)
         if not _is_empty_value(value):
