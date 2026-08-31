@@ -238,7 +238,10 @@ symbol, timeframe, start, and end values. A provider-bounded candle page reports
 
 Full list output returns the complete normalized pagination block. Compact
 output omits pagination when the collection is complete. When more data exists,
-it returns only `has_more` plus `next_cursor` or `next_offset`.
+it returns only `has_more` plus `next_cursor` or `next_offset`. Catalog tools
+(`tools_list`, `indicators_list`, `denoise_list_methods`, and
+`forecast_list_methods`) also keep `pagination.total` so the collection size
+stays visible.
 
 Public `limit` parameters always cap returned rows (including returned candles or
 ticks). Historical samples used only for analysis are named `lookback`,
@@ -427,7 +430,30 @@ tools omit nominal time telemetry unless a dedicated route needs it.
 
 ## TOON vs JSON
 
-The canonical payload above is what you get with `--json`. Without `--json`, the CLI renders the same payload as compact **TOON** text and applies `--precision auto`. Format and precision are presentation-only and never change the underlying values. See [CLI.md](CLI.md#output-contract) for details, and set `MTDATA_OUTPUT_FORMAT=json` to default all output to JSON.
+The canonical payload above is what you get with `--json`. Without `--json`,
+the CLI renders the same payload as compact **TOON** text and applies
+`--precision auto`. Format and precision are presentation-only: they never
+rewrite stored values or JSON numbers. See [CLI.md](CLI.md#output-contract)
+for details, and set `MTDATA_OUTPUT_FORMAT=json` to default all output to JSON.
+
+TOON is a display of that payload, not a second data contract. Remaining
+presentation deltas:
+
+- **Numbers.** Auto/compact TOON simplifies most values for readability
+  (~0.1% relative precision unless a field rule applies). Money fields
+  (`equity`, `balance`, `margin*`, `profit`, `*pnl*`, `commission`, `swap`,
+  `fee`, `*_before`, `*_after`) render at 2 decimals. Price fields use
+  symbol digits. Quote-summary `min`/`max` use the same decimals as `mean`.
+  `*_pct` cells use per-value decimals, not a column-wide choice. A
+  `p_value` of `0.0` displays as `<1e-6`. Use `--precision full` for
+  unrounded TOON numbers; `--json` always keeps machine-precision values.
+- **Empty collections.** Empty lists such as `items`, `data`, `rows`, and
+  `tasks` stay visible (`items[0]:`). Empty objects, nulls, and blank
+  strings may still be omitted.
+- **Key order** follows payload insertion order and is not a public
+  stability guarantee.
+
+JSON remains the authoritative machine-readable form.
 
 ---
 
