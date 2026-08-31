@@ -1943,7 +1943,9 @@ def symbols_top_markets(  # noqa: C901
     activate quotes for instruments that are not already visible. Defaults to a
     single absolute-price-change leaderboard; set `rank_by="price_change"` for
     gainers only or `rank_by="all"` for spread, volume, signed price-change,
-    and absolute price-change leaderboards. Volume and price-change rankings use
+    and absolute price-change leaderboards. Row `time` follows `data_source`:
+    `live_tick` (quote time) for spread rankings, otherwise the selected
+    `timeframe`'s completed-bar time. Volume and price-change rankings use
     the most recent completed bar on `timeframe`. Uses compact leaderboard rows by default. Set
     `detail="full"` for the expanded row shape and collection metadata. Use
     Large universes are scanned globally within `scan_budget_seconds`; a result

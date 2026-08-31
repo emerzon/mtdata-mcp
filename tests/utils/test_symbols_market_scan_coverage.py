@@ -9,6 +9,14 @@ from unittest.mock import patch
 import pytest
 
 
+def test_top_markets_rank_by_help_discloses_time_follows_data_source():
+    from mtdata.core.param_help import COMMAND_PARAM_HELP_OVERRIDES
+
+    help_text = COMMAND_PARAM_HELP_OVERRIDES[("symbols_top_markets", "rank_by")]
+    assert "data_source" in help_text
+    assert "live_tick" in help_text
+
+
 def test_top_markets_units_follow_emitted_headers():
     from mtdata.core.symbols.scan import _attach_top_markets_units
 

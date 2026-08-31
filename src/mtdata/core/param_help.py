@@ -288,16 +288,22 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "Earnings window when view=period: this-week, next-week, previous-week, "
         "or this-month. Defaults to this-week when omitted."
     ),
+    ("calendar", "source"): (
+        "Adapter pin. auto uses Finviz; mt5 is not a calendar provider and "
+        "returns a capability error instead of a fake table."
+    ),
     ("calendar", "include_elapsed"): (
         "Include earnings already released in the selected period. Defaults to "
         "false; after the US cash close this can empty this-week results."
     ),
-    ("forecast_barrier_optimize", "method"): "Barrier simulation method: mc_gbm, mc_gbm_bb, hmm_mc, garch, bootstrap, heston, jump_diffusion, auto, or ensemble.",
+    ("forecast_barrier_optimize", "method"): "Barrier simulation method: mc_gbm, mc_gbm_bb, hmm_mc, garch, bootstrap, heston, jump_diffusion, auto, or ensemble. Default mc_gbm_bb, same as forecast_barrier_prob.",
     ("forecast_barrier_optimize", "params"): (
         "Optimizer extras as JSON or k=v. Grid bounds: tp_min, tp_max, sl_min, "
-        "sl_max (percent points when --mode pct, ticks when --mode ticks), plus "
-        "tp_steps and sl_steps. Tick-mode fixed/ratio defaults convert the "
-        "implicit 0.25/1.5/0.25/2.5 percent (intraday) grid into ticks. "
+        "sl_max (percent points when --mode pct, ticks when --mode ticks, pips "
+        "when --mode pips), plus tp_steps and sl_steps. Tick/pips-mode "
+        "fixed/ratio defaults convert the implicit 0.25/1.5/0.25/2.5 percent "
+        "(intraday) grid into that distance unit. ticks is the broker trade "
+        "tick/point, not FX pips. "
         'Example: --params "tp_min=20 tp_max=80 sl_min=20 sl_max=80".'
     ),
     ("forecast_barrier_prob", "barrier"): (
@@ -305,7 +311,9 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "kind=tp_sl,unit=pct,take_profit=0.5,stop_loss=0.5 or "
         "kind=single_price,level=1.1000. JSON objects and "
         "--set barrier.kind=tp_sl --set barrier.unit=pct ... also work. "
-        "The kind may be omitted from a complete TP/SL or single-price object."
+        "The kind may be omitted from a complete TP/SL or single-price object. "
+        "ticks uses broker trade tick/point (0.1 pip on typical 5-digit FX), "
+        "not FX pips; use unit=pips for conventional forex pips."
     ),
     ("forecast_barrier_prob", "mu"): (
         "Annual log-return drift override (decimal fraction) on the shared "
@@ -338,6 +346,11 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
     ("options_chain", "limit"): (
         "Max option contracts to return. Omitted compact output uses 20 nearest "
         "strikes; omitted full output uses 200."
+    ),
+    ("options_expirations", "limit"): (
+        "Max expirations to return. Compact output defaults to the nearest 12; "
+        "omitted full output returns the complete calendar. Pagination includes "
+        "has_more when more expirations remain."
     ),
     ("options_heston_calibrate", "valuation_date"): (
         "Options-chain observation date in YYYY-MM-DD format; omit to use the "
@@ -521,6 +534,14 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "only with --model black_scholes_merton. For a smile-consistent price, "
         "use --model heston with calibrated parameters."
     ),
+    ("options_barrier_price", "risk_free_rate"): (
+        "Annual domestic/quote-currency risk-free rate r as a decimal fraction; "
+        "0.05 = 5%. Equity/index Black-Scholes-Merton uses this as r."
+    ),
+    ("options_barrier_price", "dividend_yield"): (
+        "Annual dividend yield q as a decimal fraction; 0.01 = 1%. For FX, q is "
+        "approximately the foreign/base-currency rate (Garman-Kohlhagen)."
+    ),
     ("options_chain", "quote_usable_only"): (
         "Keep only contracts with a provider option-quote timestamp and a "
         "two-sided live quote. Yahoo and Tradier do not supply quote timestamps, "
@@ -674,13 +695,14 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "default is 50 and the tool fetches lookback plus horizon bars. An "
         "explicit date range is analyzed in full unless lookback is also set."
     ),
-    ("labels_triple_barrier", "barriers"): (
+    ("labels_triple_barrier", "barrier"): (
         "Barrier pair as KV or JSON. Prefer the shell-safe form "
         "kind=tp_sl,unit=pct,take_profit=0.5,stop_loss=0.5. JSON objects also work: "
         "'{\"kind\":\"tp_sl\",\"unit\":\"pct\",\"take_profit\":0.5,\"stop_loss\":0.5}'. "
         "Spaces or commas may separate key=value pairs. kind='tp_sl' is optional, so "
-        "forecast_barrier_prob TP/SL objects can be reused. pct/ticks are distances "
-        "from entry; price values are absolute levels."
+        "forecast_barrier_prob TP/SL objects can be reused. pct/ticks/pips are "
+        "distances from entry; price values are absolute levels. ticks uses the "
+        "broker trade tick/point, not FX pips; use unit=pips for forex pips."
     ),
     ("labels_triple_barrier", "allow_noncausal_denoise"): (
         "Allow explicitly requested zero-phase denoising. This uses future bars, "
@@ -758,7 +780,9 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
     ("symbols_top_markets", "rank_by"): (
         "Leaderboard to compute: abs_price_change_pct (default), all, "
         "spread/spread_pct, tick_volume, price_change/price_change_pct, "
-        "or abs_price_change/abs_price_change_pct."
+        "or abs_price_change/abs_price_change_pct. Row time follows data_source: "
+        "live_tick (quote time) for spread rankings, otherwise the selected "
+        "timeframe's completed-bar time."
     ),
     ("symbols_top_markets", "limit"): (
         "Max symbols for the selected ranking; per leaderboard when rank_by=all."

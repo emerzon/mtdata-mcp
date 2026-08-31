@@ -196,3 +196,20 @@ def test_options_expirations_compact_paginates_provider_calendar(monkeypatch):
         "has_more": True,
         "next_offset": 5,
     }
+
+
+def test_options_expirations_limit_help_discloses_compact_default() -> None:
+    from mtdata.core.param_help import COMMAND_PARAM_HELP_OVERRIDES
+
+    help_text = COMMAND_PARAM_HELP_OVERRIDES[("options_expirations", "limit")]
+    assert "defaults to the nearest 12" in help_text
+    assert "has_more" in help_text
+
+
+def test_options_barrier_price_help_discloses_bsm_rate_convention() -> None:
+    from mtdata.core.param_help import COMMAND_PARAM_HELP_OVERRIDES
+
+    rate_help = COMMAND_PARAM_HELP_OVERRIDES[("options_barrier_price", "risk_free_rate")]
+    yield_help = COMMAND_PARAM_HELP_OVERRIDES[("options_barrier_price", "dividend_yield")]
+    assert "risk-free rate r" in rate_help
+    assert "foreign/base" in yield_help

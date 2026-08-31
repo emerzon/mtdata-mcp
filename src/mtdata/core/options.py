@@ -484,7 +484,11 @@ def _options_provider_readiness() -> Dict[str, Any]:
             effective_provider == "tradier" and api_key_configured
         )
         configured_provider_status = (
-            "ready" if configured_provider_ready else "unsupported"
+            "ready_degraded"
+            if configured_provider_ready and effective_provider == "yahoo"
+            else "ready"
+            if configured_provider_ready
+            else "unsupported"
         )
         recommendation = (
             "Yahoo options data uses anonymous cookie/crumb access and may still return "
@@ -1294,8 +1298,24 @@ def options_barrier_price(
     maturity_days: int,
     option_type: Literal["call", "put"] = "call",  # type: ignore
     barrier_type: Literal["up_in", "up_out", "down_in", "down_out"] = "up_out",  # type: ignore
-    risk_free_rate: float = 0.02,
-    dividend_yield: float = 0.0,
+    risk_free_rate: Annotated[
+        float,
+        Field(
+            description=(
+                "Annual domestic/quote-currency risk-free rate r as a decimal "
+                "fraction; 0.05 = 5%. Equity/index BSM uses this as r."
+            )
+        ),
+    ] = 0.02,
+    dividend_yield: Annotated[
+        float,
+        Field(
+            description=(
+                "Annual dividend yield q as a decimal fraction; 0.01 = 1%. "
+                "For FX, q is approximately the foreign/base-currency rate."
+            )
+        ),
+    ] = 0.0,
     volatility: float = 0.2,
     rebate: float = 0.0,
     valuation_date: Optional[str] = None,
@@ -1312,9 +1332,12 @@ def options_barrier_price(
     """Price a barrier option using QuantLib with optional calendar overrides.
 
     Default ``model=black_scholes_merton`` uses a single flat ``volatility``
-    with QuantLib's analytic barrier engine. ``model=heston`` prices with
-    QuantLib ``FdHestonBarrierEngine`` and requires the five calibrated
-    Heston parameters from ``options_heston_calibrate``.
+    with QuantLib's analytic barrier engine (equity/index BSM:
+    ``risk_free_rate`` is r, ``dividend_yield`` is q; for FX, q is
+    approximately the foreign/base-currency rate). ``model=heston`` prices
+    with QuantLib ``FdHestonBarrierEngine`` and requires the five calibrated
+    Heston parameters from ``options_heston_calibrate``. Both rates are
+    echoed in ``pricing_inputs``.
     """
     date_error = _validate_options_valuation_date(valuation_date)
     if date_error is not None:
