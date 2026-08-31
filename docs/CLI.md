@@ -821,7 +821,8 @@ mtdata-cli trade_place EURUSD --volume 0.01 --order-type BUY --stop-loss 1.00 --
 | `--expiration` | `trade_place`, `trade_modify` | Future expiration for pending orders (`dateparser` or positive UTC epoch seconds); use literal `GTC` for no expiration. Invalid or past values are rejected locally. |
 | `--idempotency-key` | `trade_place`, `trade_modify` | Durable dedupe key shared by CLI and server processes within the configured retention window. |
 | `--target` | `trade_close` | Select `positions` (default), `pending`, or `all_exposure`. |
-| `--close-all` | `trade_close` | Select the whole account when ticket, symbol, and magic are omitted. |
+| `--side` | `trade_get_open`, `trade_close`, `trade_history`, `trade_journal_analyze` | Filter by direction; `trade_close` accepts `BUY`/`LONG` and `SELL`/`SHORT` for open positions only. |
+| `--close-all` | `trade_close` | Select the whole account when ticket, symbol, side, and magic are omitted. |
 | `--confirm-close-all` | `trade_close` | Confirm any ticketless live bulk operation. |
 | `--pnl-filter` | `trade_close`, `trade_get_open` | Filter positions by `all`, `profit`, or `loss`. |
 | `--close-priority` | `trade_close` | When multiple positions match, close `loss_first`, `profit_first`, or `largest_first`. |
@@ -845,10 +846,11 @@ mtdata-cli trade_get_open --json
 mtdata-cli trade_modify --ticket 123456789 --stop-loss 60500 --take-profit 62500
 mtdata-cli trade_close --ticket 123456789 --volume 0.05 --dry-run true
 mtdata-cli trade_close --ticket 987654321 --target pending --dry-run false
+mtdata-cli trade_close --symbol EURUSD --side BUY --dry-run true
 ```
 
 `trade_close` never falls back between positions and pending orders. Use
-`--target all_exposure` only for a symbol, magic, or account-wide bulk scope; its
+`--target all_exposure` only for a symbol, side, magic, or account-wide bulk scope; its
 response reports the position-close and pending-cancel legs separately.
 
 ### Review Trade Journal

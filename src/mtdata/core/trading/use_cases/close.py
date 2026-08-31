@@ -43,6 +43,7 @@ def _run_trade_close_once(  # noqa: C901
         target=request.target,
         close_all=request.close_all,
         symbol=request.symbol,
+        side=request.side,
         volume=request.volume,
         profit_only=request.profit_only,
         loss_only=request.loss_only,
@@ -129,6 +130,7 @@ def _run_trade_close_once(  # noqa: C901
             target=request.target,
             close_all=request.close_all,
             symbol=request.symbol,
+            side=request.side,
             volume=request.volume,
             scope=scope,
             profit_only=request.profit_only,
@@ -269,6 +271,7 @@ def _run_trade_close_once(  # noqa: C901
         return out
 
     magic_kwargs = {"magic": request.magic} if request.magic is not None else {}
+    side_kwargs = {"side": request.side} if request.side is not None else {}
     target = request.target
 
     if request.profit_only and request.loss_only:
@@ -315,6 +318,15 @@ def _run_trade_close_once(  # noqa: C901
             scope=target,
         )
 
+    if target == "pending" and request.side is not None:
+        return _finish(
+            {
+                "error": "side is valid only when closing open positions.",
+                "error_code": "invalid_close_target_options",
+            },
+            scope=target,
+        )
+
     if request.ticket is not None and target == "all_exposure":
         return _finish(
             {
@@ -339,7 +351,11 @@ def _run_trade_close_once(  # noqa: C901
             scope="ticket",
         )
 
-    bulk_selector = bool(request.symbol is not None or request.magic is not None)
+    bulk_selector = bool(
+        request.symbol is not None
+        or request.magic is not None
+        or request.side is not None
+    )
     bulk_request = request.ticket is None and bool(
         request.close_all or bulk_selector
     )
@@ -373,6 +389,7 @@ def _run_trade_close_once(  # noqa: C901
     if (
         request.ticket is None
         and request.symbol is None
+        and request.side is None
         and not request.close_all
         and request.magic is None
         and request.dry_run
@@ -381,17 +398,19 @@ def _run_trade_close_once(  # noqa: C901
             {
                 "error": (
                     "Close preview requires an explicit scope: specify --ticket <ticket>, "
-                    "--symbol <symbol>, --magic <number>, or --close-all true."
+                    "--symbol <symbol>, --side BUY|SELL, --magic <number>, or "
+                    "--close-all true."
                 ),
                 "error_code": "close_scope_required",
                 "alternatives": [
                     "Use --ticket <ticket_number> to preview a specific close",
                     "Use --symbol <symbol> to preview positions for one symbol",
+                    "Use --side BUY|SELL to preview one side of open positions",
                     "Use --magic <number> to preview one strategy's matching objects",
                     "Pass --close-all true to preview the selected target account-wide",
                 ],
                 "remediation": (
-                    "Specify --ticket, --symbol, --magic, or --close-all true, "
+                    "Specify --ticket, --symbol, --side, --magic, or --close-all true, "
                     "then retry trade_close."
                 ),
             },
@@ -401,6 +420,7 @@ def _run_trade_close_once(  # noqa: C901
     if (
         request.ticket is None
         and request.symbol is None
+        and request.side is None
         and request.magic is None
         and not request.close_all
         and not request.dry_run
@@ -409,13 +429,15 @@ def _run_trade_close_once(  # noqa: C901
             {
                 "error": (
                     "Bulk close requires explicit confirmation: pass --close-all true "
-                    "for an account-wide operation, or specify --ticket, --symbol, or --magic."
+                    "for an account-wide operation, or specify --ticket, --symbol, "
+                    "--side, or --magic."
                 ),
                 "error_code": "confirmation_required",
                 "suggestion": "Review matching positions before closing (irreversible action).",
                 "alternatives": [
                     "Use --ticket <ticket_number> for one target object",
                     "Use --symbol <symbol> or --magic <number> for a bounded bulk scope",
+                    "Use --side BUY|SELL for one side of open positions",
                     "Use --close-all true for the selected target account-wide",
                 ],
             },
@@ -431,6 +453,7 @@ def _run_trade_close_once(  # noqa: C901
                 symbol=request.symbol,
                 volume=request.volume,
                 magic=request.magic,
+                **side_kwargs,
                 profit_only=request.profit_only,
                 loss_only=request.loss_only,
                 close_priority=request.close_priority,
@@ -494,6 +517,7 @@ def _run_trade_close_once(  # noqa: C901
                 position_preview = close_positions(
                     symbol=request.symbol,
                     **magic_kwargs,
+                    **side_kwargs,
                     volume=None,
                     profit_only=request.profit_only,
                     loss_only=request.loss_only,
@@ -520,6 +544,7 @@ def _run_trade_close_once(  # noqa: C901
                         "scope": scope,
                         "symbol": request.symbol,
                         "magic": request.magic,
+                        "side": request.side,
                         "close_all": request.close_all,
                     }
                 )
@@ -609,6 +634,8 @@ def _run_trade_close_once(  # noqa: C901
             preview["symbol"] = request.symbol
         if request.magic is not None:
             preview["magic"] = request.magic
+        if request.side is not None:
+            preview["side"] = request.side
         preview["target"] = target
         if request.volume is not None:
             preview["volume"] = request.volume
@@ -647,6 +674,7 @@ def _run_trade_close_once(  # noqa: C901
         position_result = close_positions(
             symbol=request.symbol,
             **magic_kwargs,
+            **side_kwargs,
             volume=None,
             profit_only=False,
             loss_only=False,
@@ -671,6 +699,7 @@ def _run_trade_close_once(  # noqa: C901
             ticket=request.ticket,
             symbol=request.symbol,
             **magic_kwargs,
+            **side_kwargs,
             volume=None,
             profit_only=request.profit_only,
             loss_only=request.loss_only,
@@ -693,6 +722,7 @@ def _run_trade_close_once(  # noqa: C901
             ticket=request.ticket,
             symbol=request.symbol,
             **magic_kwargs,
+            **side_kwargs,
             volume=request.volume,
             profit_only=False,
             loss_only=False,
@@ -749,6 +779,7 @@ def _run_trade_close_once(  # noqa: C901
         position_result = close_positions(
             symbol=request.symbol,
             **magic_kwargs,
+            **side_kwargs,
             volume=None,
             profit_only=False,
             loss_only=False,
@@ -765,6 +796,7 @@ def _run_trade_close_once(  # noqa: C901
 
     position_result = close_positions(
         **magic_kwargs,
+        **side_kwargs,
         volume=None,
         profit_only=False,
         loss_only=False,

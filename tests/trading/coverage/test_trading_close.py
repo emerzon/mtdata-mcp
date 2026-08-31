@@ -969,6 +969,30 @@ class TestClosePositions:
         assert "message" in result
 
     @patch.dict("sys.modules", {"MetaTrader5": MagicMock()})
+    def test_side_filter_keeps_opposite_hedge_open(self):
+        mt5 = sys.modules["MetaTrader5"]
+        self._setup_mt5(mt5)
+        positions = [
+            _position(ticket=1, type_=0),
+            _position(ticket=2, type_=1),
+        ]
+        mt5.positions_get.return_value = positions
+        mt5.symbol_info.return_value = SimpleNamespace(
+            name="EURUSD",
+            point=0.00001,
+            digits=5,
+        )
+        mt5.symbol_info_tick.return_value = _tick()
+
+        from mtdata.core.trading import _close_positions
+
+        result = _close_positions(symbol="EURUSD", side="long", dry_run=True)
+
+        assert result["matched_count"] == 1
+        assert [row["ticket"] for row in result["matched_positions"]] == [1]
+        assert result["filters_applied"]["side"] == "BUY"
+
+    @patch.dict("sys.modules", {"MetaTrader5": MagicMock()})
     def test_snapshot_failure_is_not_reported_as_flat(self):
         mt5 = sys.modules["MetaTrader5"]
         self._setup_mt5(mt5)

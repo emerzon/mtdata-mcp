@@ -220,8 +220,9 @@ with `--target all_exposure`. There is no automatic position-to-order fallback.
 | `--target` | `positions` | `positions`, `pending`, or `all_exposure` (bulk scopes only) |
 | `--volume` | — | Partial-close size (validated against broker step) |
 | `--symbol` | — | Restrict closes to a symbol |
+| `--side` | — | Restrict open positions to `BUY`/`LONG` or `SELL`/`SHORT`; pending orders are unaffected |
 | `--magic` | — | Restrict closes to a magic number |
-| `--close-all` | `false` | Select the whole account when ticket, symbol, and magic are omitted |
+| `--close-all` | `false` | Select the whole account when ticket, symbol, side, and magic are omitted |
 | `--confirm-close-all` | `false` | **Required** for any ticketless live bulk operation |
 | `--pnl-filter` | `all` | Close all matches, only winners (`profit`), or only losers (`loss`) |
 | `--close-priority` | — | `loss_first`, `profit_first`, or `largest_first`; largest uses broker tick economics to compare approximate account-currency exposure, with lot size only as a fallback |
@@ -240,6 +241,9 @@ mtdata-cli trade_close --close-all --confirm-close-all true --dry-run false
 
 # Close positions and cancel pending orders for one strategy
 mtdata-cli trade_close --magic 3001 --target all_exposure --confirm-close-all true --dry-run false
+
+# Preview closing only long EURUSD positions in a hedged book
+mtdata-cli trade_close --symbol EURUSD --side BUY --dry-run true
 ```
 
 For `all_exposure`, the response keeps `closed_positions` and

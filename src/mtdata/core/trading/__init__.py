@@ -140,8 +140,9 @@ def trade_close(request: TradeCloseRequest) -> dict:
     `target=pending` only cancels pending orders.
     `target=all_exposure` closes positions and cancels pending orders as separate
     legs; it is valid only for a bulk symbol, magic, or account scope.
-    `magic` is a standalone bulk selector. Use `close_all=true` only to select
-    the whole account when ticket, symbol, and magic are omitted.
+    `magic` and position `side` are standalone bulk selectors. Use
+    `close_all=true` only to select the whole account when ticket, symbol,
+    side, and magic are omitted.
     Set `volume` only to partially close a specific open position by ticket.
     `volume` is invalid without `ticket`.
     Defaults to preview mode. Set `dry_run=false` explicitly to send a live

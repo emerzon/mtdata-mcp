@@ -316,8 +316,7 @@ class TradeModifyRequest(BaseModel):
     )
 
 
-class TradeCloseRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+class TradeCloseRequest(_DirectionalSideNormalizedRequest):
 
     ticket: Optional[MT5Ticket] = None
     target: Literal["positions", "pending", "all_exposure"] = Field(
@@ -341,6 +340,14 @@ class TradeCloseRequest(BaseModel):
         ),
     )
     symbol: Optional[str] = None
+    side: Optional[Literal["BUY", "SELL"]] = Field(
+        default=None,
+        description=(
+            "Restrict open-position targets by side. BUY/LONG selects long "
+            "positions; SELL/SHORT selects short positions. It does not filter "
+            "pending orders."
+        ),
+    )
     magic: Optional[MT5Magic] = Field(default=None, description=MAGIC_NUMBER_DESCRIPTION)
     volume: Optional[float] = Field(
         default=None,

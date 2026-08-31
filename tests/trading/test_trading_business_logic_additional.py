@@ -291,6 +291,28 @@ def test_run_trade_close_passes_magic_filter_to_all_exposure_legs():
     assert cancel_pending.call_args.kwargs["magic"] == 987
 
 
+def test_run_trade_close_passes_side_only_to_position_leg():
+    request = TradeCloseRequest(
+        side="short",
+        target="all_exposure",
+        confirm_close_all=True,
+        dry_run=False,
+    )
+    close_positions = MagicMock(return_value={"closed_count": 1})
+    cancel_pending = MagicMock(return_value={"cancelled_count": 2})
+
+    result = run_trade_close(
+        request,
+        close_positions=close_positions,
+        cancel_pending=cancel_pending,
+    )
+
+    assert result["success"] is True
+    assert request.side == "SELL"
+    assert close_positions.call_args.kwargs["side"] == "SELL"
+    assert "side" not in cancel_pending.call_args.kwargs
+
+
 def test_run_trade_close_preview_uses_transport_neutral_comment():
     result = run_trade_close(
         TradeCloseRequest(symbol="EURUSD", dry_run=True, confirm_close_all=True),

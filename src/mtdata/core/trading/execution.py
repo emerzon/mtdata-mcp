@@ -1831,6 +1831,7 @@ def _close_positions_dry_run_preview(
     close_priority: Optional[str],
     comment: Optional[str] = None,
     mt5: Any,
+    side: Optional[str] = None,
 ) -> Dict[str, Any]:
     rows = [_close_position_preview_row(position, mt5) for position in positions]
     quote_contexts: List[Dict[str, Any]] = []
@@ -1877,6 +1878,8 @@ def _close_positions_dry_run_preview(
         filters["symbol"] = symbol
     if magic is not None:
         filters["magic"] = magic
+    if side is not None:
+        filters["side"] = side
     if profit_only:
         filters["profit_only"] = True
     if loss_only:
@@ -1973,6 +1976,7 @@ def _close_positions(  # noqa: C901
     ticket: Optional[Union[int, str]] = None,
     symbol: Optional[str] = None,
     magic: Optional[int] = None,
+    side: Optional[str] = None,
     volume: Optional[Union[int, float]] = None,
     profit_only: bool = False,
     loss_only: bool = False,
@@ -2008,6 +2012,13 @@ def _close_positions(  # noqa: C901
                         f"{validation.MT5_UINT64_MAX}, inclusive."
                     )
                 }
+            side_filter, side_error = validation._normalize_trade_side_filter(side)
+            if side_error is not None:
+                return {"error": side_error}
+            side_filter = {"LONG": "BUY", "SHORT": "SELL"}.get(
+                side_filter,
+                side_filter,
+            )
             symbol_error = _trading_symbol_or_error(mt5, symbol)
             if symbol_error is not None:
                 return symbol_error
@@ -2059,6 +2070,14 @@ def _close_positions(  # noqa: C901
                         "error": f"Position {ticket} does not match magic={magic_filter}",
                         "checked_scopes": ["positions"],
                     }
+                position_side = validation._resolve_position_side(position, mt5)
+                if side_filter is not None and position_side != side_filter:
+                    return {
+                        "error": (
+                            f"Position {ticket} does not match side={side_filter}"
+                        ),
+                        "checked_scopes": ["positions"],
+                    }
                 positions = [position]
             elif symbol is not None:
                 positions = mt5.positions_get(symbol=symbol)
@@ -2104,6 +2123,10 @@ def _close_positions(  # noqa: C901
                     != magic_filter
                 ):
                     continue
+                if side_filter is not None:
+                    position_side = validation._resolve_position_side(pos, mt5)
+                    if position_side != side_filter:
+                        continue
                 position_profit = validation._safe_float_attr(pos, "profit")
                 if profit_only and position_profit <= 0.0:
                     continue
@@ -2130,6 +2153,7 @@ def _close_positions(  # noqa: C901
                     close_priority=close_priority,
                     comment=comment,
                     mt5=mt5,
+                    side=side_filter,
                 )
 
             # 3. Close positions
@@ -2291,6 +2315,19 @@ def _close_positions(  # noqa: C901
                     bulk_result["error"] = "Failed to close any targeted positions."
             if close_priority:
                 bulk_result["close_priority"] = close_priority
+            filters_applied: Dict[str, Any] = {}
+            if symbol is not None:
+                filters_applied["symbol"] = symbol
+            if magic_filter is not None:
+                filters_applied["magic"] = magic_filter
+            if side_filter is not None:
+                filters_applied["side"] = side_filter
+            if profit_only:
+                filters_applied["profit_only"] = True
+            if loss_only:
+                filters_applied["loss_only"] = True
+            if filters_applied:
+                bulk_result["filters_applied"] = filters_applied
             return bulk_result
 
         except Exception as e:
@@ -2328,13 +2365,14 @@ def _close_positions(  # noqa: C901
     return _close_positions()
 
 
-def _resolve_close_dry_run_target(
+def _resolve_close_dry_run_target(  # noqa: C901
     *,
     ticket: Union[int, str],
     target: str = "positions",
     symbol: Optional[str] = None,
     volume: Optional[Union[int, float]] = None,
     magic: Optional[int] = None,
+    side: Optional[str] = None,
     profit_only: bool = False,
     loss_only: bool = False,
     close_priority: Optional[str] = None,
@@ -2363,6 +2401,13 @@ def _resolve_close_dry_run_target(
                 f"{validation.MT5_UINT64_MAX}, inclusive."
             )
         }
+    side_filter, side_error = validation._normalize_trade_side_filter(side)
+    if side_error is not None:
+        return {"error": side_error}
+    side_filter = {"LONG": "BUY", "SHORT": "SELL"}.get(
+        side_filter,
+        side_filter,
+    )
 
     position = None
     resolved_ticket = None
@@ -2381,6 +2426,9 @@ def _resolve_close_dry_run_target(
             != magic_filter
         ):
             return {"error": f"Position {ticket} does not match magic={magic_filter}"}
+        position_side = validation._resolve_position_side(position, mt5)
+        if side_filter is not None and position_side != side_filter:
+            return {"error": f"Position {ticket} does not match side={side_filter}"}
         position_profit = validation._safe_float_attr(position, "profit", 0.0)
         if profit_only and position_profit <= 0.0:
             return {"error": f"Position {ticket} does not match profit_only=true"}
@@ -2424,6 +2472,7 @@ def _resolve_close_dry_run_target(
             loss_only=loss_only,
             close_priority=close_priority,
             mt5=mt5,
+            side=side_filter,
         )
         preview.update({
             "success": True,
