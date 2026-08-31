@@ -3138,7 +3138,6 @@ def _position_mark_freshness(
     if not contexts:
         return {
             "mark_freshness_status": "not_applicable",
-            "data_stale": None,
         }
     def _age(context: Dict[str, Any]) -> float:
         try:

@@ -553,6 +553,7 @@ def _gate_barrier_optimize_live_readiness(payload: Dict[str, Any]) -> None:
     """Require both live inputs and a viable optimizer result for live readiness."""
     if "usable_for_live_trading" not in payload:
         return
+    quote_live_ready = payload.get("usable_for_live_trading") is True
     has_best = isinstance(payload.get("best"), dict)
     mathematically_viable = bool(
         has_best
@@ -563,9 +564,8 @@ def _gate_barrier_optimize_live_readiness(payload: Dict[str, Any]) -> None:
         is True
     )
     viable_result = bool(payload.get("tradable") is True and mathematically_viable)
-    payload["usable_for_live_trading"] = bool(
-        payload.get("usable_for_live_trading") is True and viable_result
-    )
+    # Combined execution gate; quote liveness stays in freshness_state/data_stale.
+    payload["usable_for_live_trading"] = bool(quote_live_ready and viable_result)
     payload["usable_for_live_trading_basis"] = (
         "model_viability_and_reference_quote"
     )

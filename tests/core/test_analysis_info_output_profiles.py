@@ -473,6 +473,64 @@ def test_compact_seasonality_keeps_elapsed_duration_basis() -> None:
     }
 
 
+def test_compact_regime_keeps_calibration_confidence() -> None:
+    result = shape_public_tool_output(
+        {
+            "success": True,
+            "symbol": "EURUSD",
+            "method": "hmm",
+            "calibration": {
+                "confidence": (
+                    "model or heuristic assignment score, not historical hit rate"
+                ),
+                "note": "Regime labels describe observed state.",
+            },
+        },
+        tool_name="regime_detect",
+        detail="compact",
+    )
+
+    assert result["calibration"] == {
+        "confidence": "model or heuristic assignment score, not historical hit rate"
+    }
+
+
+def test_compact_barrier_optimize_does_not_warn_quote_not_live_when_quote_is_live() -> None:
+    result = shape_public_tool_output(
+        {
+            "success": True,
+            "usable_for_live_trading": False,
+            "data_stale": False,
+            "freshness_state": "live",
+            "data_age_seconds": 2.2,
+            "execution_blockers": ["optimizer_non_viable"],
+        },
+        tool_name="forecast_barrier_optimize",
+        detail="compact",
+    )
+
+    codes = [warning.get("code") for warning in result.get("warnings") or []]
+    assert "quote_not_live" not in codes
+    assert "optimizer_non_viable" in codes
+
+
+def test_compact_trade_stress_test_omits_freshness_when_not_applicable() -> None:
+    result = shape_public_tool_output(
+        {
+            "success": True,
+            "empty": True,
+            "status": "no_open_positions",
+            "mark_freshness_status": "not_applicable",
+            "data_stale": None,
+        },
+        tool_name="trade_stress_test",
+        detail="compact",
+    )
+
+    assert "data_stale" not in result
+    assert "warnings" not in result
+
+
 def test_compact_patterns_keeps_confidence_scope() -> None:
     result = shape_public_tool_output(
         {

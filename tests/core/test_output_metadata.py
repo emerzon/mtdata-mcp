@@ -49,6 +49,53 @@ def test_time_context_consolidates_legacy_root_fields() -> None:
     assert context.to_dict()["data_basis"] == "completed_bar_close"
 
 
+def test_freshness_observation_skips_not_applicable_marks() -> None:
+    observation = FreshnessObservation.from_payload(
+        {
+            "mark_freshness_status": "not_applicable",
+            "data_stale": None,
+        },
+        scope="trade_stress_test",
+    )
+
+    assert observation is None
+
+
+def test_freshness_observation_live_unusable_is_execution_not_ready() -> None:
+    observation = FreshnessObservation.from_payload(
+        {
+            "data_stale": False,
+            "freshness_state": "live",
+            "usable_for_live_trading": False,
+            "data_age_seconds": 2.2,
+        },
+        scope="forecast_barrier_optimize",
+    )
+
+    assert observation is not None
+    warning = observation.to_warning()
+    assert warning is not None
+    assert warning.code == "execution_not_ready"
+    assert warning.code != "quote_not_live"
+
+
+def test_freshness_observation_maps_optimizer_non_viable_separately() -> None:
+    observation = FreshnessObservation.from_payload(
+        {
+            "data_stale": False,
+            "freshness_state": "live",
+            "usable_for_live_trading": False,
+            "execution_blockers": ["optimizer_non_viable"],
+        },
+        scope="forecast_barrier_optimize",
+    )
+
+    assert observation is not None
+    warning = observation.to_warning()
+    assert warning is not None
+    assert warning.code == "optimizer_non_viable"
+
+
 def test_freshness_observation_omits_nominal_warning() -> None:
     observation = FreshnessObservation.from_payload(
         {

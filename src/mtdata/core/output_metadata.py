@@ -222,6 +222,7 @@ class FreshnessObservation:
     history_policy_ok: Optional[bool] = None
     usable_for_live_trading: Optional[bool] = None
     message: Optional[str] = None
+    warning_code: Optional[str] = None
 
     @classmethod
     def from_payload(
@@ -230,6 +231,8 @@ class FreshnessObservation:
         *,
         scope: str = "data",
     ) -> Optional[FreshnessObservation]:
+        if payload.get("mark_freshness_status") == "not_applicable":
+            return None
         if not any(key in payload for key in LEGACY_FRESHNESS_FIELDS):
             return None
 
@@ -280,6 +283,18 @@ class FreshnessObservation:
             ),
             None,
         )
+        warning_code = None
+        if usable is False and status in {"fresh", "live", "recent"}:
+            blockers = payload.get("execution_blockers")
+            blocker_set = {
+                str(item)
+                for item in (blockers if isinstance(blockers, list) else [])
+            }
+            warning_code = (
+                "optimizer_non_viable"
+                if "optimizer_non_viable" in blocker_set
+                else "execution_not_ready"
+            )
         return cls(
             scope=str(scope or "data"),
             status=status,
@@ -304,6 +319,7 @@ class FreshnessObservation:
             history_policy_ok=history_ok if isinstance(history_ok, bool) else None,
             usable_for_live_trading=usable if isinstance(usable, bool) else None,
             message=message,
+            warning_code=warning_code,
         )
 
     @property
@@ -315,13 +331,19 @@ class FreshnessObservation:
     def to_warning(self) -> Optional[OutputWarning]:
         if self.nominal:
             return None
-        code = {
-            "clock_skew": "clock_skew",
-            "delayed": "data_delayed",
-            "market_closed": "market_closed",
-            "stale": "data_stale",
-            "unknown": "freshness_unverified",
-        }.get(self.status, "quote_not_live")
+        quote_live = self.status in {"fresh", "live", "recent"}
+        if self.warning_code:
+            code = self.warning_code
+        elif quote_live and self.usable_for_live_trading is False:
+            code = "execution_not_ready"
+        else:
+            code = {
+                "clock_skew": "clock_skew",
+                "delayed": "data_delayed",
+                "market_closed": "market_closed",
+                "stale": "data_stale",
+                "unknown": "freshness_unverified",
+            }.get(self.status, "quote_not_live")
         message = self.message or {
             "clock_skew": "The source timestamp is ahead of the wall clock.",
             "data_delayed": "The latest data is delayed.",
@@ -329,7 +351,14 @@ class FreshnessObservation:
             "data_stale": "The latest data is outside the expected freshness window.",
             "freshness_unverified": "Data freshness could not be verified.",
             "quote_not_live": "The quote is not usable for a live trading decision.",
-        }[code]
+            "execution_not_ready": (
+                "The quote is live, but the result is not ready for live execution."
+            ),
+            "optimizer_non_viable": (
+                "The quote is live, but the optimizer result is not viable "
+                "for live execution."
+            ),
+        }.get(code, "The quote is not usable for a live trading decision.")
         return OutputWarning(
             code=code,
             scope=self.scope,
