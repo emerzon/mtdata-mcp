@@ -457,11 +457,21 @@ def _option_chain_quality_metadata(rows: List[Dict[str, Any]]) -> Dict[str, Any]
         freshness = "unknown" if timestamped_count == 0 else "mixed"
     else:
         freshness = "current"
+    timestamp_capability_missing = (
+        count > 0
+        and timestamped_count == 0
+        and all(
+            row.get("quote_usability_reason") == "quote_timestamp_unavailable"
+            for row in rows
+        )
+    )
     quality = (
         "live_usable"
         if count > 0 and usable_count == count
         else "partially_usable"
         if usable_count > 0
+        else "quote_freshness_unavailable"
+        if timestamp_capability_missing
         else "unusable"
     )
     out: Dict[str, Any] = {
@@ -483,6 +493,7 @@ def _option_chain_quality_metadata(rows: List[Dict[str, Any]]) -> Dict[str, Any]
         "option_chain_freshness": freshness,
         "option_chain_quality": quality,
         "option_chain_live_usable": quality == "live_usable",
+        "quote_freshness_supported_by_provider": not timestamp_capability_missing,
     }
     if observed_times:
         out["option_contract_earliest_as_of"] = observed_times[0]

@@ -167,6 +167,21 @@ def test_option_contract_metadata_marks_current_two_sided_quote_usable(
     assert metadata["quote_usability_reason"] == "quote_timestamp_unavailable"
 
 
+def test_option_chain_quality_distinguishes_missing_provider_timestamps() -> None:
+    summary = osvc._option_chain_quality_metadata(
+        [
+            {
+                "quote_usable_for_live_analysis": False,
+                "quote_usability_reason": "quote_timestamp_unavailable",
+            }
+        ]
+    )
+
+    assert summary["option_chain_quality"] == "quote_freshness_unavailable"
+    assert summary["quote_freshness_supported_by_provider"] is False
+    assert summary["option_chain_live_usable"] is False
+
+
 def test_get_options_expirations_parses_payload(monkeypatch):
     expiry_a = _EXPIRY_A
     expiry_b = _EXPIRY_B
