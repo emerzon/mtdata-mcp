@@ -336,7 +336,11 @@ def _shape_trading(
 
     out = dict(payload)
     source = SourceContext.from_payload(payload)
-    freshness = FreshnessObservation.from_payload(payload, scope=tool_name)
+    freshness = None
+    if payload.get("mark_freshness_status") != "not_applicable":
+        freshness = FreshnessObservation.from_payload(payload, scope=tool_name)
+    else:
+        out.pop("data_stale", None)
     snapshot_as_of = None
     idea_data_as_of = None
     idea_timezone = None
@@ -1166,6 +1170,12 @@ def _compact_regime_payload(payload: MutableMapping[str, Any]) -> None:
         payload.pop("is_signal", None)
     if payload.get("usage") == "information_only":
         payload.pop("usage", None)
+    calibration = payload.get("calibration")
+    compact_calibration = None
+    if isinstance(calibration, Mapping):
+        confidence = calibration.get("confidence")
+        if confidence not in (None, "", [], {}):
+            compact_calibration = {"confidence": confidence}
     _drop_keys(
         payload,
         {
@@ -1179,6 +1189,8 @@ def _compact_regime_payload(payload: MutableMapping[str, Any]) -> None:
             "latest_bar_complete",
         },
     )
+    if compact_calibration:
+        payload["calibration"] = compact_calibration
     current = payload.get("current_regime")
     if isinstance(current, Mapping):
         compact = dict(current)

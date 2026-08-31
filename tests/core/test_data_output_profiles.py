@@ -166,6 +166,33 @@ def test_full_candles_consolidate_metadata_sections() -> None:
     assert result["meta"]["quality"]["session_gaps"][0]["missing_bars_est"] == 3
 
 
+def test_compact_ticks_empty_closed_range_does_not_claim_data_is_shown() -> None:
+    payload = {
+        "success": True,
+        "symbol": "EURUSD",
+        "empty": True,
+        "empty_reason": "market_closed_weekend",
+        "count": 0,
+        "data": [],
+        "pagination": {"returned": 0, "has_more": False},
+        "market_status": "closed",
+        "market_status_reason": "weekend",
+        "data_stale": False,
+        "source": {"provider": "mt5", "server": "Demo"},
+    }
+
+    result = shape_public_tool_output(
+        payload,
+        tool_name="data_fetch_ticks",
+        detail="compact",
+    )
+
+    assert result["empty"] is True
+    assert result["warnings"][0]["code"] == "market_closed"
+    assert "no ticks were returned" in result["warnings"][0]["message"]
+    assert "latest completed data is shown" not in result["warnings"][0]["message"]
+
+
 def test_compact_ticks_omit_healthy_freshness_and_keep_provider_only() -> None:
     payload = {
         "success": True,
