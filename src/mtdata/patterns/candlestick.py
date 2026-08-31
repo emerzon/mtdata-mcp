@@ -820,12 +820,42 @@ def detect_candlestick_patterns(  # noqa: C901
 
             dn = _normalize_denoise_spec(denoise, default_when="pre_ti")
             if dn:
+                explicit_columns = isinstance(denoise, dict) and "columns" in denoise
+                if not explicit_columns:
+                    dn = dict(dn)
+                    dn["columns"] = "ohlc"
+                else:
+                    selected_columns = dn.get("columns")
+                    if isinstance(selected_columns, str):
+                        complete_ohlc = selected_columns in {"ohlc", "ohlcv"}
+                    else:
+                        complete_ohlc = {
+                            str(column).strip().lower()
+                            for column in (selected_columns or [])
+                        }.issuperset({"open", "high", "low", "close"})
+                    if not complete_ohlc:
+                        raise ValueError(
+                            "Candlestick denoising requires all OHLC columns; "
+                            "pass denoise.columns='ohlc' or omit columns to use "
+                            "the candlestick-safe default."
+                        )
                 apply_denoise_util(df, dn)
                 suffix = str(dn.get("suffix") or "_dn")
                 for name in ("open", "high", "low", "close", "volume", "tick_volume"):
                     candidate = f"{name}{suffix}"
                     if candidate in df.columns:
                         df[name] = df[candidate]
+                application = df.attrs.get("denoise_last_application")
+                repaired_rows = (
+                    int(application.get("ohlc_geometry_repaired") or 0)
+                    if isinstance(application, dict)
+                    else 0
+                )
+                if repaired_rows:
+                    denoise_warnings.append(
+                        "Repaired denoised OHLC bounds on "
+                        f"{repaired_rows} candle row(s) before pattern detection."
+                    )
         except Exception as exc:
             logger.warning(
                 "Denoise failed for candlestick detection on %s %s; raw prices were used.",

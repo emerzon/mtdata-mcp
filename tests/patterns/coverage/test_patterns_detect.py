@@ -249,9 +249,53 @@ class TestFetchPatternData:
         assert df is not None
         assert df.attrs.get("pattern_denoise_applied") is True
         assert "close_dn" in df.columns
-        np.testing.assert_allclose(
-            df["close"].to_numpy(dtype=float),
-            df["close_dn"].to_numpy(dtype=float),
+        assert bool(
+            np.isclose(
+                df["close"].to_numpy(dtype=float),
+                df["close_dn"].to_numpy(dtype=float),
+            ).any()
+        )
+        assert bool(
+            (
+                (df["low"] <= df[["open", "close"]].min(axis=1))
+                & (df["high"] >= df[["open", "close"]].max(axis=1))
+            ).all()
+        )
+
+    @patch("mtdata.core.patterns.mt5")
+    @patch("mtdata.core.patterns._mt5_copy_rates_from")
+    def test_partial_denoise_never_materializes_impossible_ohlc(
+        self,
+        mock_rates,
+        mock_mt5,
+    ):
+        mock_mt5.symbol_info.return_value = MagicMock(visible=True)
+        rates = _make_rates_array(200)
+        gap_index = 180
+        rates[gap_index]["open"] = 90.5
+        rates[gap_index]["high"] = 91.0
+        rates[gap_index]["low"] = 89.0
+        rates[gap_index]["close"] = 90.0
+        mock_rates.return_value = rates
+
+        df, err = self._call(
+            "EURUSD",
+            "H1",
+            100,
+            denoise={"method": "ema", "params": {"span": 5}},
+        )
+
+        assert err is None
+        assert df is not None
+        assert bool(
+            (
+                (df["low"] <= df[["open", "close"]].min(axis=1))
+                & (df["high"] >= df[["open", "close"]].max(axis=1))
+            ).all()
+        )
+        assert any(
+            "invalid candle geometry" in str(warning)
+            for warning in df.attrs.get("warnings", [])
         )
 
     @patch("mtdata.core.patterns.mt5")
@@ -424,7 +468,7 @@ class TestPatternsDetect:
         assert "regime_context" not in result["highlights"][0]
 
     @patch("mtdata.core.patterns._detect_candlestick_patterns")
-    def test_candlestick_compact_recent_patterns_respects_top_k(self, mock_detect):
+    def test_candlestick_compact_highest_scoring_patterns_respects_top_k(self, mock_detect):
         mock_detect.return_value = {
             "success": True,
             "data": [
@@ -442,7 +486,7 @@ class TestPatternsDetect:
             top_k=1,
         )
 
-        assert result["top_patterns"][0]["name"] == "Doji"
+        assert result["top_patterns"][0]["name"] == "Hammer"
         assert "recent_patterns" not in result
         assert "lookback" not in result
 

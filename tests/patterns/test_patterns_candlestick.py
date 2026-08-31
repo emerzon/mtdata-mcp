@@ -546,6 +546,72 @@ def test_aggregate_dispatcher_evaluates_supported_zero_hit_whitelist(monkeypatch
     assert calls == [("cdl_pattern", ("engulfing",))]
 
 
+def test_candlestick_default_denoise_expands_to_complete_ohlc(monkeypatch):
+    _install_fake_aggregate_backend(
+        monkeypatch,
+        catalog=["doji"],
+        signals={"doji": [0.0, 0.0]},
+    )
+    captured = {}
+
+    def _apply(frame, spec):
+        captured.update(spec)
+        for column in ("open", "high", "low", "close"):
+            frame[f"{column}_dn"] = frame[column]
+        frame.attrs["denoise_last_application"] = {
+            "added_columns": [
+                "open_dn",
+                "high_dn",
+                "low_dn",
+                "close_dn",
+            ],
+            "overwrote_columns": [],
+        }
+
+    monkeypatch.setattr("mtdata.utils.denoise.apply_denoise", _apply)
+
+    result = candlestick_mod.detect_candlestick_patterns(
+        symbol="EURUSD",
+        timeframe="H1",
+        limit=10,
+        min_strength=0.0,
+        min_gap=0,
+        robust_only=False,
+        whitelist="doji",
+        top_k=1,
+        denoise={"method": "ema"},
+    )
+
+    assert result["success"] is True
+    assert captured["columns"] == "ohlc"
+
+
+def test_candlestick_partial_ohlc_denoise_falls_back_with_warning(monkeypatch):
+    _install_fake_aggregate_backend(
+        monkeypatch,
+        catalog=["doji"],
+        signals={"doji": [0.0, 0.0]},
+    )
+
+    result = candlestick_mod.detect_candlestick_patterns(
+        symbol="EURUSD",
+        timeframe="H1",
+        limit=10,
+        min_strength=0.0,
+        min_gap=0,
+        robust_only=False,
+        whitelist="doji",
+        top_k=1,
+        denoise={"method": "ema", "columns": ["close"]},
+    )
+
+    assert result["success"] is True
+    assert any(
+        "requires all OHLC columns" in str(warning)
+        for warning in result["warnings"]
+    )
+
+
 def test_aggregate_dispatcher_discloses_mixed_whitelist_coverage(monkeypatch):
     calls = _install_fake_aggregate_backend(
         monkeypatch,

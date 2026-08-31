@@ -121,6 +121,8 @@ def _should_drop_last_pattern_bar(
 def _materialize_denoise_for_detectors(
     df: pd.DataFrame,
     spec: Dict[str, Any],
+    *,
+    raw_ohlc: Optional[pd.DataFrame] = None,
 ) -> bool:
     """Copy suffixed denoise columns onto canonical OHLC for pattern detectors.
 
@@ -147,6 +149,28 @@ def _materialize_denoise_for_detectors(
             df[name] = df[candidate]
             if name == "close":
                 close_applied = True
+    if raw_ohlc is not None and all(
+        name in df.columns and name in raw_ohlc.columns
+        for name in ("open", "high", "low", "close")
+    ):
+        values = df[["open", "high", "low", "close"]].apply(
+            pd.to_numeric,
+            errors="coerce",
+        )
+        valid = (
+            np.isfinite(values).all(axis=1)
+            & (values["low"] <= values[["open", "close"]].min(axis=1))
+            & (values["high"] >= values[["open", "close"]].max(axis=1))
+        )
+        invalid = ~valid
+        if bool(invalid.any()):
+            df.loc[invalid, ["open", "high", "low", "close"]] = raw_ohlc.loc[
+                invalid,
+                ["open", "high", "low", "close"],
+            ]
+            df.attrs["pattern_denoise_geometry_fallback_rows"] = int(
+                invalid.sum()
+            )
     return close_applied
 
 
@@ -289,8 +313,24 @@ def _fetch_pattern_data_after_select(  # noqa: C901
         try:
             dn = _normalize_denoise_spec(denoise, default_when='pre_ti')
             if dn:
+                raw_ohlc = df[
+                    [name for name in ("open", "high", "low", "close") if name in df.columns]
+                ].copy()
                 apply_denoise_util(df, dn)
-                df.attrs["pattern_denoise_applied"] = _materialize_denoise_for_detectors(df, dn)
+                df.attrs["pattern_denoise_applied"] = _materialize_denoise_for_detectors(
+                    df,
+                    dn,
+                    raw_ohlc=raw_ohlc,
+                )
+                fallback_rows = int(
+                    df.attrs.get("pattern_denoise_geometry_fallback_rows", 0) or 0
+                )
+                if fallback_rows:
+                    warnings_out.append(
+                        "Used raw OHLC for "
+                        f"{fallback_rows} row(s) where partial denoising would have "
+                        "created invalid candle geometry."
+                    )
         except Exception as exc:
             warning = f"Denoise failed for pattern detection on {symbol} {timeframe}; raw prices were used."
             logger.warning(warning, exc_info=True)
