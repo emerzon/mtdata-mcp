@@ -652,6 +652,25 @@ def _net_forecast_trade_return(
     return net
 
 
+def _target_is_marketable_at_entry(
+    *,
+    direction: int,
+    entry_price: float,
+    target_price: float,
+) -> bool:
+    if (
+        direction == 0
+        or not math.isfinite(entry_price)
+        or not math.isfinite(target_price)
+    ):
+        return False
+    return (
+        entry_price >= target_price
+        if direction > 0
+        else entry_price <= target_price
+    )
+
+
 def forecast_cost_assumptions(
     *,
     slippage_bps: float = 0.0,
@@ -3580,17 +3599,29 @@ def forecast_backtest(  # noqa: C901
                                 cum_log = np.cumsum(realized_path)
                                 forecast_target_log = float(np.nansum(fcv[:m]))
                                 if math.isfinite(forecast_target_log) and abs(forecast_target_log) > 0:
-                                    if direction > 0:
-                                        hit_idx = np.where(cum_log >= forecast_target_log)[0]
-                                    else:
-                                        hit_idx = np.where(cum_log <= forecast_target_log)[0]
-                                    if hit_idx.size > 0:
-                                        exit_step = int(hit_idx[0])
-                                        exit_price = float(
-                                            signal_reference_price
-                                            * math.exp(forecast_target_log)
+                                    forecast_target_price = float(
+                                        signal_reference_price
+                                        * math.exp(forecast_target_log)
+                                    )
+                                    if _target_is_marketable_at_entry(
+                                        direction=direction,
+                                        entry_price=entry_price,
+                                        target_price=forecast_target_price,
+                                    ):
+                                        exit_step = 0
+                                        exit_price = entry_price
+                                        exit_price_source = (
+                                            "entry_open_target_price_improvement"
                                         )
-                                        exit_price_source = "forecast_target"
+                                    else:
+                                        if direction > 0:
+                                            hit_idx = np.where(cum_log >= forecast_target_log)[0]
+                                        else:
+                                            hit_idx = np.where(cum_log <= forecast_target_log)[0]
+                                        if hit_idx.size > 0:
+                                            exit_step = int(hit_idx[0])
+                                            exit_price = forecast_target_price
+                                            exit_price_source = "forecast_target"
                                 exit_idx = idx + exit_step + 1
                                 if not math.isfinite(exit_price):
                                     exit_price = float(closes[exit_idx]) if exit_idx < len(closes) else float('nan')
@@ -3611,14 +3642,25 @@ def forecast_backtest(  # noqa: C901
                                 forecast_target_price = float(fcv[m - 1])
                                 realized_prices = np.array(act[:m], dtype=float)
                                 if math.isfinite(forecast_target_price):
-                                    if direction > 0:
-                                        hit_idx = np.where(realized_prices >= forecast_target_price)[0]
+                                    if _target_is_marketable_at_entry(
+                                        direction=direction,
+                                        entry_price=entry_price,
+                                        target_price=forecast_target_price,
+                                    ):
+                                        exit_step = 0
+                                        exit_price = entry_price
+                                        exit_price_source = (
+                                            "entry_open_target_price_improvement"
+                                        )
                                     else:
-                                        hit_idx = np.where(realized_prices <= forecast_target_price)[0]
-                                    if hit_idx.size > 0:
-                                        exit_step = int(hit_idx[0])
-                                        exit_price = forecast_target_price
-                                        exit_price_source = "forecast_target"
+                                        if direction > 0:
+                                            hit_idx = np.where(realized_prices >= forecast_target_price)[0]
+                                        else:
+                                            hit_idx = np.where(realized_prices <= forecast_target_price)[0]
+                                        if hit_idx.size > 0:
+                                            exit_step = int(hit_idx[0])
+                                            exit_price = forecast_target_price
+                                            exit_price_source = "forecast_target"
                                 if not math.isfinite(exit_price):
                                     exit_price = float(realized_prices[exit_step]) if realized_prices.size else float('nan')
                             except Exception:
@@ -4032,6 +4074,7 @@ def forecast_backtest(  # noqa: C901
                 "entry": "next_bar_open",
                 "exit": "first_close_reaching_terminal_forecast_else_horizon",
                 "target_fill": "forecast_target",
+                "marketable_at_entry_fill": "entry_open",
                 "horizon_fill": "horizon_close",
                 "stop_loss": "none",
             },

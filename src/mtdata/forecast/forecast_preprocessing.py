@@ -63,6 +63,8 @@ def _create_dimred_reducer(method: Any, params: Optional[Dict[str, Any]]) -> Any
         class _TopKVarianceReducer:
             def __init__(self, k_value: int):
                 self.k = max(1, int(k_value))
+                self.n_features_in_: Optional[int] = None
+                self.selected_indices_: Optional[np.ndarray] = None
 
             def fit_transform(self, X):
                 arr = np.asarray(X, dtype=float)
@@ -75,7 +77,21 @@ def _create_dimred_reducer(method: Any, params: Optional[Dict[str, Any]]) -> Any
                 idx = np.argsort(-var)[:k_eff]
                 if idx.size == 0:
                     idx = np.arange(k_eff, dtype=int)
-                return arr[:, idx]
+                self.n_features_in_ = n_features
+                self.selected_indices_ = np.asarray(idx, dtype=int)
+                return self.transform(arr)
+
+            def transform(self, X):
+                if self.selected_indices_ is None or self.n_features_in_ is None:
+                    raise ValueError("selectkbest reducer must be fitted before transform")
+                arr = np.asarray(X, dtype=float)
+                if arr.ndim == 1:
+                    arr = arr.reshape(1, -1)
+                if arr.ndim != 2 or int(arr.shape[1]) != self.n_features_in_:
+                    raise ValueError(
+                        "selectkbest transform feature count differs from fitted data"
+                    )
+                return arr[:, self.selected_indices_]
 
         return _TopKVarianceReducer(k), {"k": k, "score_func": "variance"}
 
@@ -684,6 +700,13 @@ def _reduce_feature_frames(
     reducer_factory: ReducerFactory = _create_dimred_reducer,
 ) -> Tuple[pd.DataFrame, Optional[pd.DataFrame], Dict[str, Any]]:
     """Fit a reducer on training rows and transform the latest observed row."""
+    normalized_method = str(dimred_method or "").lower().strip()
+    if normalized_method == "tsne":
+        raise ValueError(
+            "Requested dimensionality reduction 'tsne' is not supported for "
+            "forecasting because t-SNE cannot transform out-of-sample prediction "
+            "rows; use pca, svd, umap, or selectkbest"
+        )
     if not dimred_method or len(X.columns) <= 1:
         return X, future_row, {}
 

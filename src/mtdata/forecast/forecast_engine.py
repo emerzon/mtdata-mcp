@@ -95,6 +95,10 @@ from .target_builder import build_target_series, resolve_alias_base
 
 logger = logging.getLogger(__name__)
 
+_FEATURE_CAPABILITY_ERROR_CODE = "feature_consumption_unsupported"
+_FEATURE_ATTESTATION_ERROR_CODE = "feature_consumption_unverified"
+_FORECAST_DIMRED_ERROR_CODE = "forecast_dimred_unsupported"
+
 
 def _count_weekend_forecast_times(times: List[str]) -> int:
     weekend_count = 0
@@ -167,6 +171,83 @@ def _get_available_methods():
         for method in ForecastRegistry.get_all_method_names()
         if availability.get(method, False)
     )
+
+
+def _feature_method_capability_error(
+    methods: List[str],
+    *,
+    features: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """Reject feature forecasts unless every adapter has audited exog support."""
+    if not isinstance(features, dict) or not features:
+        return None
+
+    incompatible: List[Dict[str, Any]] = []
+    for method_name in methods:
+        try:
+            adapter = ForecastRegistry.get(str(method_name))
+        except Exception:
+            historical = False
+            future = False
+        else:
+            historical = bool(
+                getattr(adapter, "supports_historical_exog", False)
+            )
+            future = bool(getattr(adapter, "supports_future_exog", False))
+        if not historical or not future:
+            incompatible.append(
+                {
+                    "method": str(method_name),
+                    "supports_historical_exog": historical,
+                    "supports_future_exog": future,
+                }
+            )
+
+    if not incompatible:
+        return None
+    compatible_methods: List[str] = []
+    for method_name in _get_available_methods():
+        try:
+            adapter = ForecastRegistry.get(str(method_name))
+        except Exception:
+            continue
+        if bool(getattr(adapter, "supports_historical_exog", False)) and bool(
+            getattr(adapter, "supports_future_exog", False)
+        ):
+            compatible_methods.append(str(method_name))
+    names = ", ".join(row["method"] for row in incompatible)
+    return {
+        "error": (
+            "Feature-bearing forecasts require audited consumption of both "
+            "historical and future exogenous inputs; unsupported methods: "
+            f"{names}."
+        ),
+        "error_code": _FEATURE_CAPABILITY_ERROR_CODE,
+        "incompatible_methods": incompatible,
+        "compatible_methods": sorted(compatible_methods),
+        "remediation": (
+            "Select a compatible method reported by forecast_list_methods, or "
+            "remove --features for a univariate forecast."
+        ),
+    }
+
+
+def _forecast_dimred_method_error(
+    dimred_method: Optional[str],
+) -> Optional[Dict[str, Any]]:
+    if str(dimred_method or "").strip().lower() != "tsne":
+        return None
+    return {
+        "error": (
+            "dimred method 'tsne' is not supported for forecasting because "
+            "t-SNE cannot transform out-of-sample prediction rows; use pca, "
+            "svd, umap, or selectkbest"
+        ),
+        "error_code": _FORECAST_DIMRED_ERROR_CODE,
+        "valid_values": {
+            "dimred_method": ["pca", "selectkbest", "svd", "umap"]
+        },
+    }
 
 
 
@@ -621,6 +702,16 @@ def build_training_context(
     if quantity_l == "volatility" or method_l.startswith("vol_"):
         raise ValueError("Use forecast_volatility for volatility models")
 
+    dimred_error = _forecast_dimred_method_error(dimred_method)
+    if dimred_error is not None:
+        raise ValueError(str(dimred_error["error"]))
+    feature_capability_error = _feature_method_capability_error(
+        [method_l],
+        features=features,
+    )
+    if feature_capability_error is not None:
+        raise ValueError(str(feature_capability_error["error"]))
+
     p = _parse_kv_or_json(params)
     if method_l == "analog":
         analog_error = _cap_analog_params_to_lookback(
@@ -756,23 +847,52 @@ def _forecast_history_sample_quality(
     method: str,
     horizon: int,
     history_bars: int,
+    lookback_requested: Optional[int] = None,
 ) -> Dict[str, Any]:
     recommended = max(30, 3 * max(1, int(horizon)))
     bars = max(0, int(history_bars))
-    sample_ok = bars >= recommended
+    recommended_ok = bars >= recommended
+    requested = (
+        max(1, int(lookback_requested))
+        if lookback_requested is not None
+        else None
+    )
+    lookback_satisfied = requested is None or bars >= requested
+    sample_ok = recommended_ok and lookback_satisfied
     out: Dict[str, Any] = {
         "history_sample_ok": sample_ok,
         "forecast_reliability": "adequate" if sample_ok else "low",
         "recommended_history_bars": recommended,
     }
-    if not sample_ok:
-        out["forecast_reliability_reason"] = "below_recommended_history"
+    if requested is not None:
+        out["lookback_satisfied"] = lookback_satisfied
+        out["lookback_shortfall_bars"] = max(0, requested - bars)
+    if not recommended_ok:
         out["history_shortfall_bars"] = recommended - bars
-        out["warning"] = (
-            f"Low-history forecast: method '{method}' used {bars} bars; at least "
-            f"{recommended} are recommended for horizon {int(horizon)}. Treat the "
-            "result as exploratory and validate it with forecast_backtest_run."
+    if not sample_ok:
+        if not recommended_ok and not lookback_satisfied:
+            reason = "below_recommended_history_and_requested_lookback"
+        elif not recommended_ok:
+            reason = "below_recommended_history"
+        else:
+            reason = "requested_lookback_shortfall"
+        out["forecast_reliability_reason"] = reason
+        warning_parts: List[str] = []
+        if not recommended_ok:
+            warning_parts.append(
+                f"Low-history forecast: method '{method}' used {bars} bars; at least "
+                f"{recommended} are recommended for horizon {int(horizon)}."
+            )
+        if requested is not None and not lookback_satisfied:
+            warning_parts.append(
+                f"Requested lookback was not satisfied: {bars} of {requested} bars "
+                f"were available ({requested - bars} bars short)."
+            )
+        warning_parts.append(
+            "Treat the result as exploratory and validate it with "
+            "forecast_backtest_run."
         )
+        out["warning"] = " ".join(warning_parts)
     return out
 
 
@@ -1432,6 +1552,59 @@ def _merge_engine_diagnostics(metadata: Dict[str, Any], diagnostics: Dict[str, A
     return metadata
 
 
+def _feature_consumption_attestation_error(
+    metadata: Dict[str, Any],
+    *,
+    horizon: int,
+) -> Optional[str]:
+    """Cross-check prepared exogenous inputs with adapter runtime evidence."""
+    diagnostics = metadata.get("diagnostics")
+    if not isinstance(diagnostics, dict):
+        return "forecast diagnostics are missing"
+    prepared = diagnostics.get("feature_preparation")
+    consumed = diagnostics.get("feature_consumption")
+    if not isinstance(prepared, dict):
+        return "feature preparation diagnostics are missing"
+    if not isinstance(consumed, dict):
+        return "runtime feature-consumption attestation is missing"
+
+    selected_columns = prepared.get("selected_columns")
+    try:
+        prepared_count = int(prepared.get("n_features"))
+    except (TypeError, ValueError):
+        return "prepared feature count is missing or invalid"
+    if (
+        prepared_count <= 0
+        or not isinstance(selected_columns, list)
+        or len(selected_columns) != prepared_count
+    ):
+        return "selected feature columns do not match prepared feature count"
+
+    if consumed.get("status") != "consumed":
+        return "runtime feature-consumption status is not consumed"
+    if consumed.get("historical_consumed") is not True:
+        return "historical exogenous inputs were not attested as consumed"
+    if consumed.get("future_consumed") is not True:
+        return "future exogenous inputs were not attested as consumed"
+    try:
+        consumed_count = int(consumed.get("n_features"))
+        historical_rows = int(consumed.get("historical_rows"))
+        future_rows = int(consumed.get("future_rows"))
+        target_points = int(diagnostics.get("target_points_used"))
+    except (TypeError, ValueError):
+        return "runtime feature-consumption row or column counts are invalid"
+    if consumed_count != prepared_count:
+        return "adapter feature count differs from prepared feature count"
+    adapter_columns = consumed.get("adapter_columns")
+    if adapter_columns != [f"x{index}" for index in range(prepared_count)]:
+        return "adapter columns do not match generic prepared feature identity"
+    if historical_rows != target_points:
+        return "historical exogenous row count differs from target row count"
+    if future_rows != int(horizon):
+        return "future exogenous row count differs from forecast horizon"
+    return None
+
+
 def _last_price_freshness_fields(
     *,
     last_epoch: float,
@@ -1547,17 +1720,19 @@ def _forecast_bar_state_reference_epoch(
     as_of: Optional[str],
     *,
     timeframe: Optional[str] = None,
-) -> Optional[float]:
-    if not as_of:
-        return None
-    parsed = _parse_as_of_bound(as_of, timeframe=timeframe)
-    if parsed is None:
-        return None
-    if parsed.tzinfo is None or parsed.utcoffset() is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    else:
-        parsed = parsed.astimezone(timezone.utc)
-    return float(parsed.timestamp())
+    historical_cutoff_epoch: Optional[float] = None,
+) -> float:
+    if as_of:
+        parsed = _parse_as_of_bound(as_of, timeframe=timeframe)
+        if parsed is not None:
+            if parsed.tzinfo is None or parsed.utcoffset() is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            else:
+                parsed = parsed.astimezone(timezone.utc)
+            return float(parsed.timestamp())
+    if historical_cutoff_epoch is not None:
+        return float(historical_cutoff_epoch)
+    return float(datetime.now(timezone.utc).timestamp())
 
 
 def _forecast_session_projection_metadata(
@@ -1956,9 +2131,28 @@ def forecast_engine(  # noqa: C901
         if quantity_l == 'volatility' or method_l.startswith('vol_'):
             return {"error": "Use forecast_volatility for volatility models"}
 
+        dimred_error = _forecast_dimred_method_error(dimred_method)
+        if dimred_error is not None:
+            return dimred_error
+        feature_capability_error = _feature_method_capability_error(
+            [method_l],
+            features=features,
+        )
+        if feature_capability_error is not None:
+            return feature_capability_error
+
         # Parse method params
         p = _parse_kv_or_json(params)
         if method_l == "analog":
+            from .methods.analog import validate_analog_similarity_settings
+
+            try:
+                validate_analog_similarity_settings(p)
+            except ValueError as ex:
+                return {
+                    "error": str(ex),
+                    "error_code": "invalid_analog_similarity_settings",
+                }
             analog_error = _cap_analog_params_to_lookback(
                 p, lookback=lookback, horizon=int(horizon)
             )
@@ -2079,6 +2273,7 @@ def forecast_engine(  # noqa: C901
             method=method_l,
             horizon=horizon,
             history_bars=len(df),
+            lookback_requested=lookback,
         )
         engine_diagnostics.update(
             {
@@ -2188,6 +2383,24 @@ def forecast_engine(  # noqa: C901
             return {"error": f"Method '{method}' returned no forecast values"}
 
         metadata = _merge_engine_diagnostics(metadata, engine_diagnostics)
+        if isinstance(features, dict) and features:
+            attestation_error = _feature_consumption_attestation_error(
+                metadata,
+                horizon=horizon,
+            )
+            if attestation_error is not None:
+                return {
+                    "error": (
+                        "Feature consumption could not be verified: "
+                        f"{attestation_error}."
+                    ),
+                    "error_code": _FEATURE_ATTESTATION_ERROR_CODE,
+                    "method": method_l,
+                    "remediation": (
+                        "Use a feature-capable method whose runtime adapter emits "
+                        "complete feature-consumption diagnostics."
+                    ),
+                }
 
         # Prepare output arrays
         forecast_return_vals = None
@@ -2234,6 +2447,16 @@ def forecast_engine(  # noqa: C901
 
         # Format and return output
         denoise_used = dn_spec_used is not None
+        historical_cutoff_epoch = (
+            bar_close_epoch(last_epoch, timeframe)
+            if start is not None or end is not None
+            else None
+        )
+        bar_state_reference_epoch = _forecast_bar_state_reference_epoch(
+            as_of,
+            timeframe=timeframe,
+            historical_cutoff_epoch=historical_cutoff_epoch,
+        )
         result = _format_forecast_output(
             forecast_values,
             last_epoch,
@@ -2257,10 +2480,7 @@ def forecast_engine(  # noqa: C901
             last_target_value=(
                 float(target_series.iloc[-1]) if len(target_series) else None
             ),
-            now_epoch=_forecast_bar_state_reference_epoch(
-                as_of,
-                timeframe=timeframe,
-            ),
+            now_epoch=bar_state_reference_epoch,
         )
         result["symbol"] = symbol
         if symbol_requested:
@@ -2268,6 +2488,16 @@ def forecast_engine(  # noqa: C901
         if as_of is not None:
             result["bar_state_reference"] = "as_of"
             result["bar_state_reference_time"] = str(as_of)
+        elif historical_cutoff_epoch is not None:
+            result["bar_state_reference"] = "historical_cutoff"
+            result["bar_state_reference_time"] = _format_time_minimal(
+                bar_state_reference_epoch
+            )
+        else:
+            result["bar_state_reference"] = "retrieval_time"
+            result["bar_state_reference_time"] = _format_time_minimal(
+                bar_state_reference_epoch
+            )
         result.update(
             {
                 key: value

@@ -125,6 +125,16 @@ class _PublicForecastRequest(BaseModel):
             getattr(self, "start", None),
             getattr(self, "end", None),
         )
+        dimred = getattr(self, "dimred", None)
+        if (
+            isinstance(dimred, DimensionalityReductionSpec)
+            and dimred.method.strip().lower() == "tsne"
+        ):
+            raise ValueError(
+                "dimred method 'tsne' is not supported for forecasting because "
+                "t-SNE cannot transform out-of-sample prediction rows; use pca, "
+                "svd, umap, or selectkbest"
+            )
         return self
 
     @property

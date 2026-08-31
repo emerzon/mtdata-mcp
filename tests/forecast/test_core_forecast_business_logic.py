@@ -425,7 +425,7 @@ def test_forecast_generate_routes_by_library_and_validates_inputs(monkeypatch):
         ForecastGenerateRequest(symbol="EURUSD", library="unsupported", method="x")
 
 
-def test_forecast_generate_native_theta_adds_disambiguation_warning(monkeypatch):
+def test_forecast_generate_native_theta_uses_provenance_without_nominal_warning(monkeypatch):
     raw = _unwrap(cf.forecast_generate)
 
     def fake_forecast_impl(**kwargs):
@@ -437,13 +437,12 @@ def test_forecast_generate_native_theta_adds_disambiguation_warning(monkeypatch)
 
     assert out["ok"] is True
     assert out["success"] is True
-    assert any(
-        "StatsForecast theta is available via the statsforecast library" in str(w)
-        for w in out.get("warnings", [])
-    )
+    assert out["method"] == "theta"
+    assert out["library"] == "native"
+    assert out.get("warnings", []) == []
 
 
-def test_forecast_generate_native_theta_suppresses_duplicate_interval_guidance(monkeypatch):
+def test_forecast_generate_native_theta_preserves_actual_interval_guidance(monkeypatch):
     raw = _unwrap(cf.forecast_generate)
 
     def fake_forecast_impl(**kwargs):
@@ -613,6 +612,10 @@ def test_forecast_generate_compact_volatility_uses_summary_row(monkeypatch):
             "volatility_annualized": 0.194444,
             "volatility_horizon": 0.021234,
             "forecast_time": ["t1", "t2", "t3"],
+            "input_evidence": {"source": {"row_sha256": "a" * 64}},
+            "fit_diagnostics": {"shape": [99, 2]},
+            "params_explained": {"lambda_": "debug explanation"},
+            "volatility_interpretation": {"volatility_per_bar": "per bar"},
         },
     )
 
@@ -642,6 +645,10 @@ def test_forecast_generate_compact_volatility_uses_summary_row(monkeypatch):
             "volatility_horizon": 0.021234,
         }
     ]
+    assert "input_evidence" not in out
+    assert "fit_diagnostics" not in out
+    assert "params_explained" not in out
+    assert "volatility_interpretation" not in out
 
 
 def test_forecast_generate_compact_normalizes_utc_times_and_neutral_delta(monkeypatch):

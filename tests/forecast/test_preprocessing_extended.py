@@ -743,13 +743,32 @@ class TestPrepareFeatures:
         ),
     ],
 )
-def test_forecast_engine_rejects_unbuilt_requested_features(features, message):
-    from mtdata.forecast.forecast_engine import forecast_engine
+def test_forecast_engine_rejects_unbuilt_requested_features(
+    monkeypatch,
+    features,
+    message,
+):
+    from mtdata.forecast import forecast_engine as engine_module
 
-    result = forecast_engine(
+    class FeatureAdapter:
+        supports_historical_exog = True
+        supports_future_exog = True
+
+    monkeypatch.setattr(
+        engine_module,
+        "_get_available_methods",
+        lambda: ("feature_model",),
+    )
+    monkeypatch.setattr(
+        engine_module.ForecastRegistry,
+        "get",
+        staticmethod(lambda _name: FeatureAdapter()),
+    )
+
+    result = engine_module.forecast_engine(
         symbol="EURUSD",
         timeframe="H1",
-        method="theta",
+        method="feature_model",
         horizon=2,
         features=features,
         prefetched_df=_make_df(40),

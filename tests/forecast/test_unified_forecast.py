@@ -5,6 +5,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
+from mtdata.forecast.exceptions import ForecastResultError
 from mtdata.forecast.forecast import execute_forecast
 from mtdata.forecast.forecast_engine import forecast_engine
 from mtdata.forecast.forecast_registry import ForecastRegistry
@@ -171,8 +172,8 @@ class TestUnifiedForecast(unittest.TestCase):
         self.assertIn('forecast_price', res)
         self.assertEqual(len(res['forecast_price']), 3)
 
-    def test_wrapper_dimred_no_nameerror(self):
-        """Wrapper dimred builder should not raise when dimred_method is set."""
+    def test_wrapper_rejects_feature_incompatible_method_before_dimred(self):
+        """The public wrapper should surface the method feature contract."""
         from unittest.mock import patch
         df = pd.DataFrame({
             'time': np.arange(30, dtype=float),
@@ -182,19 +183,23 @@ class TestUnifiedForecast(unittest.TestCase):
             'close': np.linspace(100, 101, 30),
             'volume': np.ones(30) * 1000,
         })
-        with patch('mtdata.forecast.forecast_engine._fetch_history', return_value=df):
-            res = execute_forecast(
-                symbol='X',
-                timeframe='H1',
-                method='naive',
-                horizon=3,
-                features={
-                    'include': 'ohlcv',
-                    'observed_future_policy': 'carry_forward',
-                },
-                dimred_method='pca',
-            )
-        self.assertTrue(res['success'])
+        with patch('mtdata.forecast.forecast_engine._fetch_history', return_value=df) as fetch:
+            with self.assertRaisesRegex(
+                ForecastResultError,
+                "Feature-bearing forecasts require audited consumption",
+            ):
+                execute_forecast(
+                    symbol='X',
+                    timeframe='H1',
+                    method='naive',
+                    horizon=3,
+                    features={
+                        'include': 'ohlcv',
+                        'observed_future_policy': 'carry_forward',
+                    },
+                    dimred_method='pca',
+                )
+        fetch.assert_not_called()
 
 if __name__ == '__main__':
     unittest.main()

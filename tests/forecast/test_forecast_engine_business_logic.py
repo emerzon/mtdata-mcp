@@ -566,6 +566,8 @@ def test_forecast_engine_rejects_unknown_include_column(monkeypatch):
 
     class CaptureForecaster:
         PARAMS: list = []
+        supports_historical_exog = True
+        supports_future_exog = True
 
         def forecast(self, series, horizon, seasonality, params, exog_future=None, **kwargs):
             captured["called"] = True
@@ -1245,14 +1247,32 @@ def test_forecast_engine_builds_exog_and_aligns_for_returns(monkeypatch):
     captured = {}
 
     class CaptureForecaster:
+        supports_historical_exog = True
+        supports_future_exog = True
+
         def forecast(self, series, horizon, seasonality, params, exog_future=None, **kwargs):
             captured["series_len"] = len(series)
             captured["exog_used"] = kwargs.get("exog_used")
             captured["exog_future"] = exog_future
+            feature_count = int(captured["exog_used"].shape[1])
             return ForecastResult(
                 forecast=np.ones(int(horizon), dtype=float),
                 params_used={},
-                metadata={},
+                metadata={
+                    "diagnostics": {
+                        "feature_consumption": {
+                            "status": "consumed",
+                            "historical_consumed": True,
+                            "future_consumed": True,
+                            "historical_rows": len(series),
+                            "future_rows": len(exog_future),
+                            "n_features": feature_count,
+                            "adapter_columns": [
+                                f"x{index}" for index in range(feature_count)
+                            ],
+                        }
+                    }
+                },
             )
 
     class FakeRegistry:
@@ -1292,6 +1312,9 @@ def test_forecast_engine_dimred_failure_is_an_error(monkeypatch):
     captured = {}
 
     class CaptureForecaster:
+        supports_historical_exog = True
+        supports_future_exog = True
+
         def forecast(self, series, horizon, seasonality, params, exog_future=None, **kwargs):
             captured["exog_used"] = kwargs.get("exog_used")
             captured["exog_future"] = exog_future

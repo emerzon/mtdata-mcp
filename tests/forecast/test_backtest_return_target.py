@@ -628,6 +628,55 @@ def test_backtest_executes_completed_close_signal_at_next_open() -> None:
     assert result["execution_timing"] == "next_bar_open"
 
 
+@pytest.mark.parametrize(
+    ("quantity", "entry_open", "forecast_value", "realized_close", "position"),
+    [
+        ("price", 102.0, 101.0, 103.0, "long"),
+        ("price", 98.0, 99.0, 97.0, "short"),
+        ("return", 102.0, float(np.log(1.01)), 103.0, "long"),
+        ("return", 98.0, float(np.log(0.99)), 97.0, "short"),
+    ],
+)
+def test_backtest_fills_gap_through_targets_at_entry_open(
+    quantity: str,
+    entry_open: float,
+    forecast_value: float,
+    realized_close: float,
+    position: str,
+) -> None:
+    times = np.arange(1_699_999_980, 1_699_999_980 + 80 * 3600, 3600, dtype=float)
+    close = np.full(80, 100.0)
+    open_ = close.copy()
+    idx = 70
+    open_[idx + 1] = entry_open
+    close[idx + 1] = realized_close
+    frame = pd.DataFrame({"time": times, "open": open_, "close": close})
+    anchor = _format_time_minimal(float(times[idx]))
+    forecast_key = "forecast_return" if quantity == "return" else "forecast_price"
+
+    with patch("mtdata.forecast.backtest._fetch_history", return_value=frame), patch(
+        "mtdata.forecast.backtest.forecast",
+        return_value={forecast_key: [forecast_value]},
+    ):
+        result = forecast_backtest(
+            symbol="BTCUSD",
+            timeframe="H1",
+            horizon=1,
+            methods=["naive"],
+            anchors=[anchor],
+            quantity=quantity,
+        )
+
+    detail = result["results"]["naive"]["details"][0]
+    assert detail["position"] == position
+    assert detail["entry_price"] == entry_open
+    assert detail["exit_price"] == entry_open
+    assert detail["exit_price_source"] == "entry_open_target_price_improvement"
+    assert detail["exit_step"] == 1
+    assert detail["trade_return_gross"] == 0.0
+    assert result["execution_policy"]["marketable_at_entry_fill"] == "entry_open"
+
+
 def test_performance_metrics_skip_annualization_for_short_samples() -> None:
     metrics = _compute_performance_metrics(
         returns=[0.01, -0.02, 0.015, -0.005, 0.01, 0.0],

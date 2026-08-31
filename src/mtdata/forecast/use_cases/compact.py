@@ -1486,6 +1486,10 @@ def _apply_forecast_generate_detail(  # noqa: C901
             "component_status",
             "ensemble_metrics",
             "timeframe_diagnostics",
+            "fit_diagnostics",
+            "input_evidence",
+            "params_explained",
+            "volatility_interpretation",
             "ensemble",
             "detail",
         }:
@@ -1673,10 +1677,9 @@ def _annotate_forecast_generate_method(
     if not isinstance(payload, dict) or payload.get("error"):
         return
     library_name = str(resolved_library or "native").strip().lower() or "native"
+    payload["library"] = library_name
     if library_name in {"", "native"}:
         return
-
-    payload["library"] = library_name
     adapter_method = str(resolved_method or "").strip().lower()
     output_method = str(payload.get("method") or "").strip().lower()
     if output_method in {"", adapter_method}:

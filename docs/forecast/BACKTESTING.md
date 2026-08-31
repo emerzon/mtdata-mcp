@@ -172,9 +172,16 @@ the simulated return. Compact results with trading metrics also expose this as
 machine-readable `execution_policy`:
 `entry=next_bar_open`,
 `exit=first_close_reaching_terminal_forecast_else_horizon`,
-`target_fill=forecast_target`, `horizon_fill=horizon_close`,
+`target_fill=forecast_target`, `marketable_at_entry_fill=entry_open`,
+`horizon_fill=horizon_close`,
 `stop_loss=none`. The final anchor is used only when that next open and the
 full realized horizon are available.
+
+If the next open has already crossed the terminal target, the target is
+marketable immediately and the simulation exits at that opening price. This
+models price improvement without crediting a gap that occurred before entry;
+the gross trade return is zero before configured costs. The same rule applies
+to long and short positions and to price and cumulative-return targets.
 
 Every detail level includes `analysis_time_window`. It records requested
 `start`/`end` cutoffs, the effective source-history bounds, first and last
@@ -220,8 +227,9 @@ mtdata-cli forecast_backtest_run EURUSD --horizon 12 --methods theta --slippage-
 | `--features` | Feature engineering spec |
 | `--dimred` | Dimensionality-reduction method and parameters as JSON |
 
-Dimred methods supported by the forecasting pipeline: `pca`, `tsne`,
-`selectkbest` (requires `scikit-learn`).
+Dimred methods supported by the forecasting pipeline include `pca` and
+`selectkbest` (requires `scikit-learn`). t-SNE is analysis-only because it
+cannot transform forecast prediction rows after fitting.
 
 Feature-bearing backtests require a method whose catalog row reports both
 `supports_historical_exog=true` and `supports_future_exog=true`. Observed

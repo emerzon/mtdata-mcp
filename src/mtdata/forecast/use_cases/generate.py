@@ -547,33 +547,6 @@ def run_forecast_generate(  # noqa: C901
                 warnings_out.append(default_warning)
             out["warnings"] = warnings_out
 
-        if (
-            isinstance(out, dict)
-            and lib in ("", "native")
-            and str(resolved_method).strip().lower() == "theta"
-        ):
-            detail_value = _normalize_trader_detail(getattr(request, "detail", "compact"))
-            warning = (
-                "Using native theta. StatsForecast theta is available via the "
-                "statsforecast library (--library statsforecast --method Theta) "
-                "and may produce different forecasts or interval behavior."
-            )
-            if detail_value != "compact":
-                warning = (
-                    warning
-                    + " Example: "
-                    + f"mtdata-cli forecast_generate {request.symbol} --timeframe {request.timeframe} "
-                    + f"--library statsforecast --method Theta --horizon {request.horizon}"
-                )
-            warnings_out = out.get("warnings")
-            if not isinstance(warnings_out, list):
-                warnings_out = []
-            has_interval_warning = any(
-                _is_interval_unavailable_warning(item) for item in warnings_out
-            )
-            if warning not in warnings_out and not has_interval_warning:
-                warnings_out.append(warning)
-            out["warnings"] = warnings_out
         if isinstance(out, dict):
             out = _annotate_price_currency(out, request.symbol)
             _annotate_forecast_generate_method(

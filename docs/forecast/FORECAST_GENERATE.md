@@ -26,8 +26,11 @@ Forecast row `time` is the target bar's **open timestamp**, while `value` is
 the predicted **bar close**. `bar_state` is `forming` when that target bar is
 already in progress, `future` before it opens, and `closed` when its wall-clock
 interval has elapsed. With `--as-of`, these states and `last_bar_complete` are
-evaluated at the replay timestamp rather than the current wall clock. This is
-independent of the closed-bars-only input policy.
+evaluated at the replay timestamp. With `--start`/`--end`, they are evaluated at
+the resolved historical information cutoff, so unobserved historical targets
+are not relabeled using retrieval time. `bar_state_reference` and
+`bar_state_reference_time` disclose the basis. This is independent of the
+closed-bars-only input policy.
 
 For intraday symbols with an unambiguous NYSE/Nasdaq suffix, the horizon counts
 available exchange-session bars rather than elapsed wall-clock intervals. The
@@ -81,6 +84,10 @@ non-empty `--params` mapping.
 | `--lookback` | auto | Historical bars to use. Native theta/fourier_ols default to 300 bars. For analog forecasts this is a hard upper bound: `search_depth` is reduced to fit, or the request fails if `window_size` and `horizon` cannot fit. |
 | `--as-of` | now | Reference time (for backtesting) |
 | `--start` / `--end` | — | Bounded training range; use this range style instead of `--as-of` |
+
+When an explicit historical range contains fewer bars than `--lookback`, the
+forecast remains available but reports `lookback_satisfied=false`, the exact
+`lookback_shortfall_bars`, and low reliability with a structured warning.
 
 For `analog`, an explicit lookback must contain at least
 `2 × window_size + horizon` bars. A smaller request returns
@@ -164,8 +171,11 @@ Dimensionality reduction (dimred) compresses the feature matrix when you provide
 
 Supported dimred methods in the forecasting pipeline:
 - `pca` — Principal Component Analysis (`n_components`)
-- `tsne` — t-SNE (`n_components` is typically 2 or 3)
 - `selectkbest` — keep top-K features (`k`)
+
+t-SNE remains available through the general dimensionality-reduction utilities
+for exploratory analysis, but it is not a forecast preprocessing option because
+it cannot transform a new prediction row after fitting.
 
 Examples:
 ```bash
@@ -357,6 +367,8 @@ mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 --method ensembl
 | Field | Description |
 |-------|-------------|
 | `forecast` | Compact rows with target-bar `time`, `bar_state`, and `value` |
+| `bar_state_reference` | Basis used to classify target bars: retrieval time, `as_of`, or the resolved historical cutoff |
+| `bar_state_reference_time` | Timestamp used for target-bar state classification |
 | `data_window` | Closed-history anchor plus forecast timestamp/value semantics and first target-bar state |
 | `forecast_price` | Predicted price values |
 | `forecast_return` | Predicted return values when `quantity=return` |
