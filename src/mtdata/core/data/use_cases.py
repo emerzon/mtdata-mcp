@@ -2748,7 +2748,7 @@ def _compact_tick_quality(payload: Dict[str, Any]) -> Optional[str]:
             status = str(data_quality.get("incomplete_quote_status") or "").strip().lower()
             if status and status not in {"ok", "info"}:
                 notes.append(f"quote_quality={status}")
-        if valid is not None and total and valid * 2 < total:
+        if valid is not None and total and valid < total:
             notes.append(f"valid_spreads={valid}/{total}")
     quote_only = payload.get("feed_tier") == "quote_only"
     if payload.get("last_unavailable") is True and not quote_only:
@@ -2758,8 +2758,6 @@ def _compact_tick_quality(payload: Dict[str, Any]) -> Optional[str]:
         notes.append(f"warnings={len(warnings)}")
     if notes:
         return "; ".join(notes)
-    if valid is not None and total and valid * 2 < total:
-        return f"valid_spreads={valid}/{total}"
     return "ok" if quote_only else None
 
 

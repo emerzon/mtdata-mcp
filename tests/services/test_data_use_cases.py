@@ -3431,6 +3431,39 @@ def test_run_data_fetch_ticks_compact_quality_uses_valid_spreads_not_field_prese
     assert round((eligible / len(result["data"])) * 100.0, 2) == result["valid_spread_sample_pct"]
 
 
+def test_run_data_fetch_ticks_compact_downgrades_one_locked_spread_in_three():
+    result = run_data_fetch_ticks(
+        DataFetchTicksRequest(symbol="EURUSD", limit=3, detail="compact"),
+        gateway=SimpleNamespace(ensure_connection=lambda: None),
+        fetch_ticks_impl=lambda **_kwargs: {
+            "success": True,
+            "symbol": "EURUSD",
+            "count": 3,
+            "feed_tier": "quote_only",
+            "data": [
+                {"time": "t1", "bid": 1.15860, "ask": 1.15861},
+                {"time": "t2", "bid": 1.15860, "ask": 1.15860},
+                {"time": "t3", "bid": 1.15859, "ask": 1.15860},
+            ],
+            "data_quality": {
+                "complete_ticks": 3,
+                "incomplete_ticks": 0,
+                "total_ticks": 3,
+                "valid_spread_sample_count": 2,
+                "spread_ticks_excluded": 1,
+                "zero_spread_ticks": 1,
+                "incomplete_quote_status": "info",
+            },
+        },
+    )
+
+    assert result["quote_completeness_pct"] == 100.0
+    assert result["valid_spread_sample_pct"] == 66.67
+    assert result["spread_quality_basis"] == "valid_two_sided_quote_snapshots"
+    assert result["quality"] == "valid_spreads=2/3"
+    assert result["data"][1]["spread_snapshot_valid"] is False
+
+
 def test_run_data_fetch_ticks_summary_keeps_live_usability_verdicts():
     result = run_data_fetch_ticks(
         DataFetchTicksRequest(symbol="EURUSD", limit=2, detail="summary"),
