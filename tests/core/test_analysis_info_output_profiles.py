@@ -417,3 +417,53 @@ def test_full_analysis_moves_processing_and_request_under_meta() -> None:
     ]
     assert result["meta"]["source"]["provider"] == "mt5"
     assert result["meta"]["units"] == {"score": "ratio"}
+
+
+def test_compact_seasonality_keeps_elapsed_duration_basis() -> None:
+    result = shape_public_tool_output(
+        {
+            "success": True,
+            "items": [
+                {
+                    "period_bars": 72,
+                    "period_duration": "5 days",
+                    "nominal_period_duration": "3 days",
+                    "period_duration_basis": "median_observed_timestamp_lag",
+                    "period_duration_observed_range": {
+                        "min": "3 days",
+                        "max": "5 days",
+                    },
+                }
+            ],
+        },
+        tool_name="seasonality_detect",
+        detail="compact",
+    )
+
+    assert result["items"][0]["nominal_period_duration"] == "3 days"
+    assert result["items"][0]["period_duration_basis"] == (
+        "median_observed_timestamp_lag"
+    )
+    assert result["items"][0]["period_duration_observed_range"] == {
+        "min": "3 days",
+        "max": "5 days",
+    }
+
+
+def test_compact_patterns_keeps_confidence_scope() -> None:
+    result = shape_public_tool_output(
+        {
+            "success": True,
+            "pattern_confidence": 0.149,
+            "confidence_basis": (
+                "match_score is per-pattern heuristic fit; pattern_confidence "
+                "is aggregate directional strength"
+            ),
+            "status_scope": "historical_window",
+        },
+        tool_name="patterns_detect",
+        detail="compact",
+    )
+
+    assert result["status_scope"] == "historical_window"
+    assert "aggregate directional strength" in result["confidence_basis"]

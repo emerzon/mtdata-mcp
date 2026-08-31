@@ -633,12 +633,15 @@ def _compact_patterns_payload(  # noqa: C901
         idx, row = item
         end_idx = _safe_float(row.get("end_index"))
         conf = _safe_float(row.get("confidence")) or 0.0
-        return (end_idx if end_idx is not None else float(idx), conf, idx)
+        return (conf, end_idx if end_idx is not None else float(idx), idx)
 
     try:
         preview_limit = max(1, int(preview_limit))
     except Exception:
         preview_limit = 8
+    # ``top_patterns`` is a score-ranked preview of the entire eligible
+    # window.  Truncating by recency first made the public name misleading and
+    # could hide perfect matches behind weaker, newer detections.
     preview_rows = [
         row
         for _, row in sorted(indexed_rows, key=_sort_key, reverse=True)[:preview_limit]

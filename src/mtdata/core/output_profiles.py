@@ -828,10 +828,7 @@ def _compact_seasonality(payload: MutableMapping[str, Any]) -> None:
     items = payload.get("items")
     if isinstance(items, list):
         row_omit = {
-            "nominal_period_duration",
             "nominal_period_duration_seconds",
-            "period_duration_basis",
-            "period_duration_observed_range",
             "period_duration_seconds",
             "quality_statistic",
             "spectral_strength_note",
@@ -896,14 +893,12 @@ def _compact_pattern_payload(payload: MutableMapping[str, Any]) -> None:
             "assumed_closure_end",
             "assumed_closure_seconds",
             "assumed_closure_start",
-            "confidence_basis",
             "data_as_of_epoch",
             "effective_window",
             "forming_candle_status",
             "latest_bar_complete",
             "result_limit",
             "result_limit_note",
-            "status_scope",
             "top_k_contract",
         },
     )
@@ -1000,6 +995,7 @@ def _compact_temporal_payload(payload: MutableMapping[str, Any]) -> None:
                 "avg_return_pct",
                 "win_rate_pct",
                 "rank_basis",
+                "ranking_filter",
                 "edge_status",
                 "distinct_period_instances",
             )

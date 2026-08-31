@@ -1238,6 +1238,27 @@ def test_build_pattern_response_compact_detail_returns_summary():
     assert "patterns" not in compact
 
 
+def test_compact_patterns_ranks_full_window_before_top_k():
+    compact = patterns_support_mod._compact_patterns_payload(
+        {
+            "success": True,
+            "count": 4,
+            "data": [
+                {"name": "Older perfect", "confidence": 1.0, "end_index": 1},
+                {"name": "Older strong", "confidence": 0.9, "end_index": 2},
+                {"name": "Recent weak", "confidence": 0.3, "end_index": 9},
+                {"name": "Newest weak", "confidence": 0.4, "end_index": 10},
+            ],
+        },
+        preview_limit=2,
+    )
+
+    assert [row["name"] for row in compact["top_patterns"]] == [
+        "Older perfect",
+        "Older strong",
+    ]
+
+
 def test_compact_patterns_payload_keeps_schema_when_empty():
     compact = patterns_support_mod._compact_patterns_payload(
         {
