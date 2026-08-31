@@ -1446,6 +1446,7 @@ def support_resistance_levels(  # noqa: C901
                             ),
                         }
                     )
+            result["lookback_bars"] = int(lookback)
             if isinstance(result.get("warnings"), list):
                 result["warnings"] = _normalize_warning_list(result["warnings"])
             detail_value = str(detail).strip().lower()

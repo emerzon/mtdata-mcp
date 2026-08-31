@@ -1611,7 +1611,9 @@ class TestGetSupportResistance:
             "success": True,
             "symbol": "EURUSD",
             "timeframe": "H1",
-            "levels": [{"type": "support", "value": 1.1}],
+            "supports": [{"type": "support", "value": 1.1}],
+            "resistances": [],
+            "level_counts": {"support": 1, "resistance": 0, "total": 1},
         }
         tool = MagicMock(return_value=payload)
         with patch("mtdata.core.web_api._call_tool_raw", return_value=tool):
@@ -1636,7 +1638,9 @@ class TestGetSupportResistance:
         tool = MagicMock(
             return_value={
                 "success": True,
-                "levels": [{"type": "support", "value": 1.1}],
+                "supports": [{"type": "support", "value": 1.1}],
+            "resistances": [],
+            "level_counts": {"support": 1, "resistance": 0, "total": 1},
             }
         )
         with patch("mtdata.core.web_api._call_tool_raw", return_value=tool):

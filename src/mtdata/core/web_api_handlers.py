@@ -783,7 +783,7 @@ def get_support_resistance_response(
         operation="get_support_resistance",
         default_code="support_resistance_failed",
     )
-    if not isinstance(result, dict) or not result.get("levels"):
+    if not _support_resistance_has_levels(result):
         raise _http_error(
             404,
             "No support/resistance levels detected",
@@ -791,6 +791,22 @@ def get_support_resistance_response(
             operation="get_support_resistance",
         )
     return result
+
+
+def _support_resistance_has_levels(result: Any) -> bool:
+    if not isinstance(result, dict):
+        return False
+    for key in ("supports", "resistances", "levels"):
+        value = result.get(key)
+        if isinstance(value, list) and value:
+            return True
+    counts = result.get("level_counts")
+    if isinstance(counts, dict):
+        try:
+            return int(counts.get("total") or 0) > 0
+        except (TypeError, ValueError):
+            return False
+    return False
 
 
 def get_tick_response(

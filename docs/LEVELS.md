@@ -76,11 +76,12 @@ mtdata-cli support_resistance_levels EURUSD --timeframe auto --detail standard -
 (normalized by ATR), pre-test ADX trend strength, exponential time decay, and
 ATR-filtered Fibonacci retracement/extension levels from the most relevant swing.
 
-**Output:** ranked `levels` with `score`, a `type` reflecting current price geometry
-(support below price, resistance above), and a `dominant_source` showing whether the
+**Output:** ranked `supports` and `resistances` lists. Each row's price is
+`value`, with `score`, a `type` reflecting current price geometry (support
+below price, resistance above), and a `dominant_source` showing whether the
 historical tests mostly behaved as support or resistance. `--detail standard` adds
 Fibonacci swing levels; `--detail full` returns the raw
-diagnostic payload.
+diagnostic payload. Compact output also reports `lookback_bars`.
 
 Use `confluence_levels` to cluster these levels with pivots and Fibonacci into
 scored consensus zones.
@@ -121,7 +122,7 @@ The default `min_source_families=2` requires independent agreement. Pass
 Volume-profile computation is opt-in because it can require a much larger M1
 history request than the other level families.
 
-**Output:** `clusters` sorted by `score`, each with a `price`, the contributing
+**Output:** `levels` sorted by `score`, each with a `price`, the contributing
 `source_families` and `sources`, and `distance_pct` from current price.
 
 Use `support_resistance_levels` for the structural S/R component on its own.
