@@ -219,7 +219,6 @@ _CANDLE_COMPACT_OMIT = frozenset(
         "incomplete_candles_skipped",
         "indicator_columns",
         "indicator_engine",
-        "indicator_input",
         "indicator_rounding",
         "indicator_warmup_bars",
         "indicators_spec",

@@ -1648,15 +1648,10 @@ def _apply_indicator_stage(
     ]
     ti_cols = list(dict.fromkeys([*reported_columns, *created_columns]))
     ti_cols = _normalize_indicator_columns_for_display(df, ti_cols)
-    range_inputs = [
-        column
-        for column in ("high", "low")
-        if column in df.columns or f"{column}{suffix}" in df.columns
-    ]
-    fully_denoised_range = bool(range_inputs) and all(
-        column in denoised_sources for column in range_inputs
+    price_inputs_denoised = any(
+        column in denoised_sources for column in ("open", "high", "low", "close")
     )
-    if denoised_sources and fully_denoised_range:
+    if price_inputs_denoised:
         rename_map: Dict[str, str] = {}
         renamed_columns: List[str] = []
         for column in ti_cols:
@@ -3015,10 +3010,9 @@ def fetch_candles(  # noqa: C901
                     if "pre_ti" in denoise_stages
                     else "raw_ohlcv"
                 )
-                if "pre_ti" in denoise_stages:
-                    payload["indicator_column_suffix"] = str(
-                        (denoise or {}).get("suffix") or "_dn"
-                    )
+                suffix = str((denoise or {}).get("suffix") or "_dn")
+                if any(str(column).endswith(suffix) for column in ti_cols):
+                    payload["indicator_column_suffix"] = suffix
             if "post_ti" in denoise_stages:
                 pipeline.append("denoise_post_ti")
             if projection_requested:

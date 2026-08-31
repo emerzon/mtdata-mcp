@@ -14,6 +14,7 @@ from mtdata.services import data_service
 from mtdata.services.data_service import fetch_candles
 
 from ._helpers import (
+    _APPLY_TI,
     _CACHED_INFO,
     _DS,
     _ESTIMATE_WARMUP,
@@ -206,6 +207,39 @@ class TestFetchCandlesAdvanced(unittest.TestCase):
         self.assertTrue(application["keep_original"])
         self.assertEqual(application["overwrote_columns"], [])
 
+    @patch(_MT5_CONFIG)
+    @patch(_APPLY_TI)
+    @patch(_SIMPLIFY_EXT, side_effect=lambda df, h, s: (df, None))
+    @patch(_RATES_FROM)
+    @patch(_CACHED_INFO, return_value=MagicMock())
+    @patch(_RESOLVE_CTZ, return_value=None)
+    @patch(_ESTIMATE_WARMUP, return_value=0)
+    @patch(_GUARD, _mock_symbol_guard)
+    def test_denoise_kalman_rsi_emits_suffixed_indicator_column(
+        self, mock_warmup, mock_ctz, mock_info, mock_from, mock_simp, mock_ti, mock_cfg
+    ):
+        mock_cfg.get_time_offset_seconds.return_value = 0
+        mock_from.return_value = _make_rates(30)
+
+        def add_rsi(df, spec):
+            df["rsi_14"] = df["close"]
+            return ["rsi_14"]
+
+        mock_ti.side_effect = add_rsi
+        result = fetch_candles(
+            "EURUSD",
+            limit=5,
+            indicators="rsi(14)",
+            denoise={"method": "sma"},
+        )
+
+        self.assertTrue(result.get("success"))
+        latest = result["data"][-1]
+        self.assertIn("rsi_14_dn", latest)
+        self.assertNotIn("rsi_14", latest)
+        self.assertEqual(result["indicator_column_suffix"], "_dn")
+        self.assertEqual(result["indicator_input"], "pre_ti_denoised_ohlcv")
+
     def test_pre_ti_indicators_use_denoised_values_and_restore_raw_close(self):
         df = pd.DataFrame(
             {"close": [1.0, 2.0, 3.0], "close_dn": [10.0, 20.0, 30.0]}
@@ -230,6 +264,34 @@ class TestFetchCandlesAdvanced(unittest.TestCase):
         self.assertNotIn("test", df.columns)
         self.assertEqual(df["test_dn"].tolist(), [20.0, 40.0, 60.0])
         self.assertEqual(columns, ["test_dn"])
+
+    def test_close_only_pre_ti_denoise_suffixes_rsi_column(self):
+        df = pd.DataFrame(
+            {
+                "open": [1.0, 2.0, 3.0],
+                "high": [1.2, 2.2, 3.2],
+                "low": [0.8, 1.8, 2.8],
+                "close": [1.0, 2.0, 3.0],
+                "close_dn": [10.0, 20.0, 30.0],
+            }
+        )
+
+        def apply_indicator(frame, _spec):
+            frame["rsi_14"] = frame["close"] * 2
+            return ["rsi_14"]
+
+        with patch(f"{_DS}._apply_ta_indicators", side_effect=apply_indicator):
+            columns = data_service.candles._apply_indicator_stage(
+                df,
+                [],
+                "rsi(14)",
+                {"method": "kalman", "when": "pre_ti"},
+            )
+
+        self.assertNotIn("rsi_14", df.columns)
+        self.assertEqual(df["rsi_14_dn"].tolist(), [20.0, 40.0, 60.0])
+        self.assertEqual(columns, ["rsi_14_dn"])
+        self.assertEqual(df["close"].tolist(), [1.0, 2.0, 3.0])
 
     @patch(_MT5_CONFIG)
     @patch(f'{_DS}._normalize_denoise_spec')
