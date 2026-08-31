@@ -967,6 +967,8 @@ def _finviz_screen_units_for_rows(
     }
     if "short_ratio" in seen_fields:
         units["short_ratio"] = "days_to_cover"
+    if "recom" in seen_fields:
+        units["recom"] = "analyst_consensus_1_strong_buy_to_5_sell"
     if rows_key == "stocks":
         if "price" in seen_fields:
             units["price"] = "USD_per_share"

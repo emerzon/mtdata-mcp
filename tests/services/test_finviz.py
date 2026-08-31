@@ -39,6 +39,18 @@ def test_finviz_fundamental_percent_units_are_explicit() -> None:
     }
 
 
+def test_finviz_fundamental_recom_units_are_explicit() -> None:
+    from mtdata.core.finviz.common import _finviz_screen_units_for_rows
+    from mtdata.core.finviz.fundamentals import _finviz_fundamental_units
+
+    assert _finviz_fundamental_units({"recom": 2.11}) == {
+        "recom": "analyst_consensus_1_strong_buy_to_5_sell"
+    }
+    assert _finviz_screen_units_for_rows([{"recom": 2.11}])["recom"] == (
+        "analyst_consensus_1_strong_buy_to_5_sell"
+    )
+
+
 def test_finviz_numeric_percent_values_scale_above_one_hundred_percent() -> None:
     from mtdata.core.finviz.common import _finviz_percent_value
 
@@ -2045,6 +2057,7 @@ class TestFinvizTools:
         assert fundamentals["volatility_m_pct"] == 2.04
         assert "volatility" not in fundamentals
         assert fundamentals["recom"] == 2.11
+        assert result["units"]["recom"] == "analyst_consensus_1_strong_buy_to_5_sell"
         assert fundamentals["target_price"] == 333.10
         assert fundamentals["prev_close"] == 309.35
         assert result["units"]["cash_per_share"] == "listing_currency_per_share"

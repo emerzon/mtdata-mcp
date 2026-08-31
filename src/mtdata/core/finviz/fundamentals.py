@@ -335,6 +335,8 @@ def _finviz_fundamental_units(fundamentals: Dict[str, Any]) -> Dict[str, str]:
             units[key] = "count"
         elif key == "short_interest":
             units[key] = "shares"
+        elif key == "recom":
+            units[key] = "analyst_consensus_1_strong_buy_to_5_sell"
     return units
 
 
