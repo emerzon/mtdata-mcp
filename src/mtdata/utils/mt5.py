@@ -880,10 +880,11 @@ def _server_epoch_to_utc(epoch_seconds: float) -> float:
 def _mt5_epoch_to_utc(
     epoch_seconds: float,
     *,
-    mode: str = _MT5_TIMESTAMP_MODE_NATIVE,
+    mode: Optional[str] = None,
 ) -> float:
     """Convert an MT5 epoch to UTC according to the detected terminal mode."""
-    if str(mode) != _MT5_TIMESTAMP_MODE_SERVER:
+    resolved = mode or _valid_cached_timestamp_mode() or _MT5_TIMESTAMP_MODE_NATIVE
+    if str(resolved) != _MT5_TIMESTAMP_MODE_SERVER:
         return float(epoch_seconds)
     return _server_epoch_to_utc(float(epoch_seconds))
 

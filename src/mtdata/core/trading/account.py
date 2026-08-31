@@ -13,6 +13,7 @@ from ...utils.coercion import coerce_finite_float, coerce_optional_bool, round_f
 from ...utils.freshness import is_standard_weekend_closure
 from ...utils.mt5 import (
     MT5ConnectionError,
+    _mt5_epoch_to_utc,
     account_currency_from_gateway,
     describe_mt5_time_normalization,
     ensure_mt5_connection_or_raise,
@@ -125,7 +126,7 @@ def _run_trade_history_request(request: TradeHistoryRequest) -> Any:
         use_client_tz=_use_client_tz,
         format_time_minimal=_format_time_minimal,
         format_time_minimal_local=_format_time_minimal_local,
-        mt5_epoch_to_utc=float,
+        mt5_epoch_to_utc=_mt5_epoch_to_utc,
         parse_end_datetime=_parse_end_datetime,
         parse_start_datetime=_parse_start_datetime,
         normalize_limit=_normalize_limit,

@@ -78,7 +78,7 @@ timestamped forecast points.
 | Field | Meaning |
 |-------|---------|
 | `direction` | `long`, `short`, or `stand_down` |
-| `direction_basis` | `forecast_vs_live_quote` when a calibrated interval and live quote are available, `forecast_vs_last_price` as the closed-bar fallback, or `requested` for an explicit side |
+| `direction_basis` | `forecast_vs_live_quote` when a calibrated interval and live quote are available, `forecast_vs_last_price` as the closed-bar fallback, `requested` for an explicit side, or `gate_outcome` when gates force `stand_down` |
 | `suggested_direction` | Forecast-based hint; may differ from `direction` |
 | `forecast.calibration` | Auto mode's requested anchors, minimum usable residual sample, empirical coverage, and sufficiency status |
 | `forecast.forecast_vs_last_price.direction_interval_basis` | Exact comparison used by the auto direction gate |

@@ -330,8 +330,33 @@ def _shape_trading(
     source = SourceContext.from_payload(payload)
     freshness = FreshnessObservation.from_payload(payload, scope=tool_name)
     snapshot_as_of = None
-    if tool_name in {"trade_account_info", "trade_get_open", "trade_get_pending"}:
+    idea_data_as_of = None
+    idea_timezone = None
+    trade_time_meta: Dict[str, Any] = {}
+    if tool_name in {
+        "trade_account_info",
+        "trade_get_open",
+        "trade_get_pending",
+        "trade_idea_compose",
+        "trade_history",
+    }:
         snapshot_as_of = payload.get("as_of") or payload.get("retrieved_at")
+        if tool_name == "trade_idea_compose":
+            idea_data_as_of = payload.get("data_as_of")
+            idea_timezone = payload.get("timezone")
+        if tool_name in {
+            "trade_history",
+            "trade_get_open",
+            "trade_get_pending",
+        }:
+            for key in (
+                "time_basis",
+                "time_normalization",
+                "raw_time_basis",
+                "timezone",
+            ):
+                if payload.get(key) not in (None, ""):
+                    trade_time_meta[key] = payload[key]
     protected_freshness_fields = {
         "market_status",
         "market_status_reason",
@@ -354,6 +379,11 @@ def _shape_trading(
         out["source"] = source.compact()
     if snapshot_as_of not in (None, ""):
         out["as_of"] = snapshot_as_of
+    if idea_data_as_of not in (None, ""):
+        out["data_as_of"] = idea_data_as_of
+    if idea_timezone not in (None, ""):
+        out["timezone"] = idea_timezone
+    out.update(trade_time_meta)
 
     for quote_key in ("quote", "quote_context"):
         quote = out.get(quote_key)
@@ -483,9 +513,15 @@ def _shape_analysis_info(
         LEGACY_FRESHNESS_FIELDS
         | _GENERIC_COMPACT_TIME_OMIT
         | _GENERIC_VERBOSE_ROOT_FIELDS
-        | {"meta", "related_tools", "source"}
+        | {"meta", "related_tools", "source", "data_as_of_epoch"}
     ):
         out.pop(key, None)
+    if payload.get("data_as_of") not in (None, "") and tool_name in {
+        "forecast_volatility_estimate",
+        "pivot_compute_points",
+        "seasonality_detect",
+    }:
+        out["data_as_of"] = payload["data_as_of"]
     if source:
         out["source"] = source.compact()
     for key in ("limit_satisfied", "partial", "truncated"):
@@ -1005,13 +1041,22 @@ def _compact_seasonality(payload: MutableMapping[str, Any]) -> None:
         payload.pop("analyzed_target", None)
     if payload.get("preprocessing") in {None, "", "none"}:
         payload.pop("preprocessing", None)
+    analysis_window = payload.get("analysis_window")
+    if isinstance(analysis_window, Mapping):
+        if analysis_window.get("period_start") not in (None, ""):
+            payload["period_start"] = analysis_window["period_start"]
+        if analysis_window.get("period_end") not in (None, ""):
+            payload["period_end"] = analysis_window["period_end"]
+        if analysis_window.get("timezone") not in (None, ""):
+            payload["timezone"] = analysis_window["timezone"]
+        if analysis_window.get("bars_used") not in (None, ""):
+            payload.setdefault("window_bars", analysis_window["bars_used"])
     _drop_keys(
         payload,
         {
             "analysis_window",
             "count",
             "forming_candle_status",
-            "history_policy",
             "quality_formula",
             "quality_statistic",
             "quality_thresholds",
@@ -1453,7 +1498,7 @@ def _compact_outliers(payload: MutableMapping[str, Any]) -> None:
     units = payload.get("units")
     if (
         payload.get("volume_source") == "tick_volume"
-        and payload.get("volume_type") == "tick_count"
+        and payload.get("volume_type") in {"tick_count", "bid_update_count"}
     ):
         payload.pop("volume_type", None)
         if isinstance(units, Mapping) and units.get("volume") == "bid_update_count":
@@ -2624,6 +2669,21 @@ def _shape_candles(payload: Mapping[str, Any], *, detail: str) -> Dict[str, Any]
     if gaps:
         _drop_legacy_gap_warnings(out)
     if freshness and (warning := freshness.to_warning()):
+        empty_result = payload.get("empty") is True
+        pagination = payload.get("pagination")
+        no_rows = (
+            isinstance(pagination, Mapping) and pagination.get("returned") == 0
+        )
+        if freshness.status == "market_closed" and (empty_result or no_rows):
+            warning = OutputWarning(
+                code="market_closed",
+                scope=warning.scope,
+                message=(
+                    "The requested range is entirely within a market closure; "
+                    "no candles were returned."
+                ),
+                context=warning.context,
+            )
         append_output_warning(out, warning)
     if forming_index is not None:
         out["forming_candle_index"] = forming_index

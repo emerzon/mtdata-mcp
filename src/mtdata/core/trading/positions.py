@@ -9,7 +9,11 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from ...shared.constants import BROKER_VOLUME_UNIT
 from ...utils.market_metadata import build_tick_freshness_context
-from ...utils.mt5 import account_currency_from_gateway
+from ...utils.mt5 import (
+    _mt5_epoch_to_utc,
+    account_currency_from_gateway,
+    describe_mt5_time_normalization,
+)
 from ...utils.quote import resolve_quote_tick, tick_epoch
 from ...utils.time import format_datetime_utc, format_epoch_utc
 from ...utils.utils import _normalize_limit
@@ -1713,7 +1717,7 @@ def trade_get_open(
             use_client_tz=lambda: False,
             format_time_minimal=format_epoch_utc,
             format_time_minimal_local=format_epoch_utc,
-            mt5_epoch_to_utc=float,
+            mt5_epoch_to_utc=_mt5_epoch_to_utc,
             normalize_limit=_normalize_limit,
             comment_row_metadata=comments._comment_row_metadata,
         )
@@ -1731,6 +1735,19 @@ def trade_get_open(
             account_currency=account_currency,
         )
         _project_open_position_rows(out, request=resolved_request)
+        if isinstance(out, dict) and out.get("success") is True:
+            time_metadata = describe_mt5_time_normalization(
+                symbol=resolved_request.symbol
+            )
+            for key in (
+                "raw_time_basis",
+                "time_basis",
+                "time_normalization",
+                "timezone",
+            ):
+                value = time_metadata.get(key)
+                if value not in (None, "", [], {}):
+                    out[key] = value
         if symbol_input is not None:
             out["symbol"] = resolved_request.symbol
             out["symbol_input"] = symbol_input
@@ -1766,7 +1783,7 @@ def trade_get_pending(
                 use_client_tz=lambda: False,
                 format_time_minimal=format_epoch_utc,
                 format_time_minimal_local=format_epoch_utc,
-                mt5_epoch_to_utc=float,
+                mt5_epoch_to_utc=_mt5_epoch_to_utc,
                 normalize_limit=_normalize_limit,
                 comment_row_metadata=comments._comment_row_metadata,
             ),
@@ -1774,6 +1791,19 @@ def trade_get_pending(
             kind="pending_orders",
             account_currency=account_currency_from_gateway(gateway),
         )
+        if isinstance(out, dict) and out.get("success") is True:
+            time_metadata = describe_mt5_time_normalization(
+                symbol=resolved_request.symbol
+            )
+            for key in (
+                "raw_time_basis",
+                "time_basis",
+                "time_normalization",
+                "timezone",
+            ):
+                value = time_metadata.get(key)
+                if value not in (None, "", [], {}):
+                    out[key] = value
         if symbol_input is not None:
             out["symbol"] = resolved_request.symbol
             out["symbol_input"] = symbol_input

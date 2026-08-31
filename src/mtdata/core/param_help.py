@@ -796,6 +796,15 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "New take-profit price. Omit to leave the existing target unchanged; use "
         "--clear-take-profit to remove it."
     ),
+    ("trade_risk_analyze", "sizing"): (
+        "Sizing spec as JSON or key=value pairs. method: fixed_fraction|kelly. "
+        "Keys: risk_pct (percent of equity), kelly_fraction. Example: "
+        "method=fixed_fraction,risk_pct=1"
+    ),
+    ("trade_risk_analyze", "sizing_params"): (
+        "Extra sizing keys as key=value pairs. Prefer putting method and "
+        "risk_pct in --sizing; --sizing-params only adds leftover keys."
+    ),
     ("trade_risk_analyze", "stop_loss"): (
         "Stop-loss price required to compute risk-based position size when "
         "--sizing is supplied."

@@ -12,7 +12,7 @@ from ...forecast.common import fetch_history as _fetch_history
 from ...forecast.common import log_returns_from_prices as _log_returns_from_prices
 from ...shared.schema import DenoiseSpecInput, DetailLiteral, TimeframeLiteral
 from ...shared.validators import unknown_mapping_keys_error
-from ...utils.denoise import resolve_denoise_base_col
+from ...utils.denoise import normalize_denoise_spec, resolve_denoise_base_col
 from ...utils.freshness import completed_bar_freshness_fields
 from ...utils.mt5 import (
     MT5ConnectionError,
@@ -428,6 +428,27 @@ def regime_detect(  # noqa: C901
     def _finish(result: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(result, dict) and "error" not in result:
             result = attach_completed_bar_input_policy(result)
+            if denoise:
+                spec = normalize_denoise_spec(denoise) or {}
+                method_name = str(spec.get("method") or "").strip()
+                if method_name and method_name.lower() != "none":
+                    result["denoise_applied"] = True
+                    result["denoise_method"] = method_name
+                    causality = str(spec.get("causality") or "causal").strip().lower()
+                    live_safe = causality != "zero_phase"
+                    result["denoise_live_safe"] = live_safe
+                    if not live_safe:
+                        result["input_bar_policy"] = "closed_bars_with_lookahead_filter"
+                        warnings = result.get("warnings")
+                        if not isinstance(warnings, list):
+                            warnings = []
+                            result["warnings"] = warnings
+                        warning = (
+                            "Zero-phase denoise uses future observations and is "
+                            "not usable for live trading."
+                        )
+                        if warning not in warnings:
+                            warnings.append(warning)
             for key, value in freshness_meta.items():
                 result.setdefault(key, value)
             if requested_method != method:
