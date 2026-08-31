@@ -1390,9 +1390,10 @@ def _compact_candles_payload(
             isinstance(query_applied, dict)
             and query_applied.get("mode") == "range"
         )
-        if is_range and requested_count >= 0 and returned_count >= 0:
-            compact["limit_reached"] = returned_count >= requested_count
+        if is_range:
             compact["range_complete"] = bool(result.get("range_complete", False))
+            if requested_count >= 0 and returned_count >= 0:
+                compact["limit_reached"] = returned_count >= requested_count
         elif requested_count >= 0 and returned_count >= 0:
             # Compact responses omit the detailed exclusion breakdown, but a
             # caller must still be able to distinguish a complete response
@@ -1637,6 +1638,23 @@ def _attach_denoise_disclosure(payload: Dict[str, Any]) -> None:
         return
     payload["denoise_applied"] = True
     payload["denoise_status"] = "applied"
+    denoise_columns: List[str] = []
+    for app in applications:
+        if not isinstance(app, dict):
+            continue
+        added_columns = app.get("added_columns")
+        if not isinstance(added_columns, list):
+            continue
+        suffix = str(app.get("suffix") or "_dn")
+        for column in added_columns:
+            name = str(column or "").strip()
+            if not name:
+                continue
+            base = name[: -len(suffix)] if suffix and name.endswith(suffix) else name
+            if base and base not in denoise_columns:
+                denoise_columns.append(base)
+    if denoise_columns:
+        payload["denoise_columns"] = denoise_columns
     if methods:
         payload["denoise_method"] = methods[0] if len(methods) == 1 else methods
     if overwritten:
@@ -2729,7 +2747,7 @@ def _tick_valid_spread_sample_pct(payload: Dict[str, Any]) -> Optional[float]:
     return round((float(valid) / float(total)) * 100.0, 2)
 
 
-def _compact_tick_quality(payload: Dict[str, Any]) -> Optional[str]:
+def _compact_tick_quality(payload: Dict[str, Any]) -> Any:
     notes: List[str] = []
     data_quality = payload.get("data_quality")
     total = None
@@ -2756,6 +2774,14 @@ def _compact_tick_quality(payload: Dict[str, Any]) -> Optional[str]:
     warnings = payload.get("warnings")
     if not notes and isinstance(warnings, list) and warnings:
         notes.append(f"warnings={len(warnings)}")
+    if valid is not None and total is not None:
+        quality: Dict[str, Any] = {
+            "valid_spread_ticks": valid,
+            "ticks_total": total,
+        }
+        if notes:
+            quality["notes"] = "; ".join(notes)
+        return quality
     if notes:
         return "; ".join(notes)
     return "ok" if quote_only else None

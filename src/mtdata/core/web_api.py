@@ -384,7 +384,7 @@ def get_history(
         Optional[str],
         Query(description="Indicator specification forwarded to data_fetch_candles."),
     ] = None,
-    timestamp_format: Literal["epoch", "iso", "iso_utc"] = "iso",
+    timestamp_format: Literal["epoch", "iso", "iso_utc"] = "iso_utc",
     detail: DetailLiteral = "compact",
     denoise_method: Annotated[
         Optional[str],

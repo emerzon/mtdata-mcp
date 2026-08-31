@@ -128,8 +128,9 @@ Fetch OHLCV candles for a symbol.
     fails (default `false`). This is an explicit research override; it does not
     make stale data suitable for live decisions. A forming bar is still included
     only when `include_incomplete=true`.
-  - `timestamp_format` (`epoch` | `iso`): Requested timestamp encoding for
-    returned rows. Default `iso`.
+  - `timestamp_format` (`epoch` | `iso` | `iso_utc`): Requested timestamp encoding for
+    returned rows. Default `iso_utc` (UTC `Z` strings). `iso` renders rows in
+    `CLIENT_TZ`.
   - `detail` (`compact` | `standard` | `summary` | `full`): Use `full` for diagnostics and runtime metadata.
   - `indicators` (string, optional): Same compact spec as `data_fetch_candles` (for example `EMA(20), EMA(50), RSI(14), MACD(12,26,9)`). Extra numeric columns are attached to each row using the display-normalized names (`ema_20`, `rsi_14`, `macd_12_26_9`, `macd_h_12_26_9`, `macd_s_12_26_9`).
   - `denoise_method` (string, optional): Apply denoising (e.g., "ema").

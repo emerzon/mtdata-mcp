@@ -307,9 +307,9 @@ mtdata-cli tools_list --category forecast --limit 20 --offset 20 --json
 ## Market-data timestamps
 
 For candle and tick rows, `timestamp_format` is the authoritative description
-of the serialized `time` value. `iso_utc` means an ISO 8601 value with a UTC
-offset, `iso_offset` means an ISO 8601 value in the named `timezone`, and
-`epoch_seconds` means Unix seconds in UTC. UTC instants use the RFC 3339 `Z`
+of the serialized `time` value. The default is `iso_utc` (UTC `Z` strings).
+`iso` renders ISO 8601 values in `CLIENT_TZ` (`iso_offset` in the payload).
+`epoch` returns Unix seconds in UTC. UTC instants use the RFC 3339 `Z`
 suffix (`2026-08-28T04:15:00Z`), not `+00:00`.
 
 Generic compact output relies on the serialized row value (`Z`, an explicit

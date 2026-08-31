@@ -3421,7 +3421,11 @@ def test_run_data_fetch_ticks_compact_quality_uses_valid_spreads_not_field_prese
     assert result["quote_completeness_pct"] == 100.0
     assert result["valid_spread_sample_pct"] == 25.0
     assert result["spread_quality_basis"] == "valid_two_sided_quote_snapshots"
-    assert result["quality"] == "valid_spreads=1/4"
+    assert result["quality"] == {
+        "valid_spread_ticks": 1,
+        "ticks_total": 4,
+        "notes": "valid_spreads=1/4",
+    }
     assert result["quality"] != "ok"
     eligible = sum(
         1
@@ -3460,7 +3464,11 @@ def test_run_data_fetch_ticks_compact_downgrades_one_locked_spread_in_three():
     assert result["quote_completeness_pct"] == 100.0
     assert result["valid_spread_sample_pct"] == 66.67
     assert result["spread_quality_basis"] == "valid_two_sided_quote_snapshots"
-    assert result["quality"] == "valid_spreads=2/3"
+    assert result["quality"] == {
+        "valid_spread_ticks": 2,
+        "ticks_total": 3,
+        "notes": "valid_spreads=2/3",
+    }
     assert result["data"][1]["spread_snapshot_valid"] is False
 
 
@@ -3722,7 +3730,7 @@ def test_data_fetch_ticks_request_uses_detail_control():
         "simplify",
         "detail",
     ]
-    assert request.timestamp_format == "iso"
+    assert request.timestamp_format == "iso_utc"
 
 
 def test_data_fetch_ticks_request_rejects_removed_output_mode_field():

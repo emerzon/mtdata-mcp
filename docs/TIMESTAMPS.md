@@ -104,9 +104,11 @@ MT5_SERVER_TZ=Europe/Athens
 Compact candle responses retain a thin public time contract. `time_basis=utc`
 describes normalized instant provenance, while `timestamp_format`,
 `timestamp_mode`, `public_timestamp_mode`, and `timestamp_timezone` describe
-the serialized row values. UTC strings use `iso_utc` / `utc`; client-local
-strings with an explicit offset use `iso_offset` / `client_timezone`; numeric
-values use `epoch_seconds` / `utc`. Latest-N queries expose `limit_satisfied`; historical
+the serialized row values. Candle and tick rows default to `timestamp_format=iso_utc`
+(UTC `Z` strings) so output does not follow ambient `CLIENT_TZ`. Pass
+`timestamp_format=iso` for client-local offset strings. UTC strings use
+`iso_utc` / `utc`; client-local strings with an explicit offset use
+`iso_offset` / `client_timezone`; numeric values use `epoch_seconds` / `utc`. Latest-N queries expose `limit_satisfied`; historical
 ranges expose `range_complete`, `limit_reached`, and a `query_applied` block
 that states whether the limit was anchored at the start or end. An omitted
 range limit returns a 20-bar page and is reported as `default_limit`, not as a

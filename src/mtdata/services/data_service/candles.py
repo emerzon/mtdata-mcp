@@ -1313,7 +1313,7 @@ def _candle_volume_metadata(headers: List[str]) -> Dict[str, Any]:
     meta: Dict[str, Any] = {}
     units: Dict[str, str] = {}
     if "tick_volume" in headers:
-        meta["volume_type"] = "tick_count"
+        meta["volume_type"] = TICK_VOLUME_UNIT
         meta["volume_note"] = (
             "MT5 tick_volume counts bid-price updates for the bar, not every "
             "quote update and not exchange traded volume."
@@ -1571,7 +1571,15 @@ def _apply_indicator_stage(
     ]
     ti_cols = list(dict.fromkeys([*reported_columns, *created_columns]))
     ti_cols = _normalize_indicator_columns_for_display(df, ti_cols)
-    if denoised_sources:
+    range_inputs = [
+        column
+        for column in ("high", "low")
+        if column in df.columns or f"{column}{suffix}" in df.columns
+    ]
+    fully_denoised_range = bool(range_inputs) and all(
+        column in denoised_sources for column in range_inputs
+    )
+    if denoised_sources and fully_denoised_range:
         rename_map: Dict[str, str] = {}
         renamed_columns: List[str] = []
         for column in ti_cols:

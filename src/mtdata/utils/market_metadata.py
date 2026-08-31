@@ -41,7 +41,10 @@ TICK_FUTURE_TOLERANCE_SECONDS = 10.0
 def attach_candle_volume_semantics(payload: Dict[str, Any]) -> None:
     volume_type = str(payload.get("volume_type") or "").strip().lower()
     volume_unit = str(payload.get("volume_unit") or "").strip().lower()
-    if volume_type == "tick_count" or volume_unit in _TICK_VOLUME_UNIT_ALIASES:
+    if (
+        volume_type in {"tick_count", TICK_VOLUME_UNIT}
+        or volume_unit in _TICK_VOLUME_UNIT_ALIASES
+    ):
         payload["volume_semantics"] = TICK_VOLUME_SEMANTICS
         payload["tick_volume_event_basis"] = TICK_VOLUME_EVENT_BASIS
         payload["tick_volume_tape_equivalent"] = TICK_VOLUME_TAPE_EQUIVALENT

@@ -85,7 +85,7 @@ class TestEdgeCases(unittest.TestCase):
         row_keys = set(result['data'][0].keys())
         self.assertIn('tick_volume', row_keys)
         self.assertNotIn('open', row_keys)
-        self.assertEqual(result['volume_type'], 'tick_count')
+        self.assertEqual(result['volume_type'], 'bid_update_count')
 
     @patch(_MT5_CONFIG)
     @patch(_RATES_FROM)
@@ -98,7 +98,7 @@ class TestEdgeCases(unittest.TestCase):
         mock_from.return_value = _make_rates(10, real_vol=50)
         result = fetch_candles('EURUSD', limit=5)
         self.assertTrue(result.get('success'))
-        self.assertEqual(result['volume_type'], 'tick_count')
+        self.assertEqual(result['volume_type'], 'bid_update_count')
         self.assertEqual(result['real_volume_type'], 'traded_volume')
 
     # ------------------------------------------------------------------ #

@@ -426,8 +426,7 @@ def _stats_for_group(df: pd.DataFrame, volume_col: Optional[str]) -> Dict[str, A
         else pd.Series(False, index=df.index)
     )
     gap_count = int((gap & ret.notna()).sum())
-    if gap_count:
-        out["session_gap_observations"] = gap_count
+    out["session_gap_observations"] = gap_count
     ret = ret[ret.notna() & ~gap]
     n = int(ret.shape[0])
     out["return_observations"] = n
