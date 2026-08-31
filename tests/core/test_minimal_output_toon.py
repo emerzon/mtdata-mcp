@@ -5,9 +5,12 @@ import pytest
 
 from mtdata.utils.minimal_output import (
     _encode_tabular,
+    _format_to_toon,
     _headers_from_dicts,
+    _normalize_market_ticker_payload,
     _quote_key,
     _stringify_for_toon_value,
+    format_result_minimal,
 )
 from mtdata.utils.minimal_output_toon import (
     _column_decimals,
@@ -168,6 +171,25 @@ class TestEncodeTabular:
         assert "target,48.1679" in one
         assert "target,48.1679" in many
 
+    def test_pct_cells_do_not_depend_on_other_rows(self):
+        one = _encode_tabular(
+            "data",
+            ["symbol", "price_change_pct"],
+            [{"symbol": "EURUSD", "price_change_pct": 0.000861}],
+        )
+        many = _encode_tabular(
+            "data",
+            ["symbol", "price_change_pct"],
+            [
+                {"symbol": "EURUSD", "price_change_pct": 0.000861},
+                {"symbol": "GBPUSD", "price_change_pct": 0.12},
+                {"symbol": "USDJPY", "price_change_pct": -0.0042},
+            ],
+        )
+
+        assert "EURUSD,0.000861" in one
+        assert "EURUSD,0.000861" in many
+
 
 class TestStringifyForToon:
     @pytest.mark.parametrize(
@@ -221,6 +243,16 @@ class TestStringifyForToonValue:
         )
 
         assert result == "4.2e-12"
+
+    def test_zero_p_value_displays_as_floor(self):
+        result = _stringify_for_toon_value(
+            0.0,
+            None,
+            ",",
+            field="p_value",
+        )
+
+        assert result == "<1e-6"
 
 
 class TestEncodeTabularNestedCells:
@@ -284,3 +316,76 @@ class TestEncodeTabularNestedCells:
         )
 
         assert "count=2; mean=1.23456789" in result
+
+
+class TestToonPresentationRules:
+    def test_money_equity_keeps_cents(self):
+        result = _format_to_toon({"equity": 3425.18, "summary": {"equity": 3425.18}})
+
+        assert "equity: 3425.18" in result
+        assert "summary.equity: 3425.18" in result
+        assert "equity: 3425\n" not in result + "\n"
+
+    def test_empty_items_collection_stays_visible(self):
+        result = _format_to_toon({"success": True, "items": []})
+
+        assert "items[0]:" in result
+
+    def test_summary_min_max_match_mean_precision(self):
+        result = _format_to_toon(
+            {
+                "summary_statistics": {
+                    "close": {
+                        "min": 1.16141,
+                        "max": 1.16164,
+                        "mean": 1.161525,
+                    }
+                }
+            }
+        )
+        displayed = {}
+        for line in result.splitlines():
+            if ":" not in line:
+                continue
+            key, value = line.strip().split(":", 1)
+            leaf = key.strip().rsplit(".", 1)[-1]
+            if leaf in {"min", "max", "mean"}:
+                displayed[leaf] = float(value.strip())
+
+        assert displayed["min"] <= displayed["mean"] <= displayed["max"]
+        assert displayed["min"] == 1.16141
+        assert displayed["max"] == 1.16164
+        assert displayed["mean"] == 1.161525
+
+    def test_market_ticker_compact_keeps_quote_timestamp(self):
+        result = _normalize_market_ticker_payload(
+            {
+                "success": True,
+                "symbol": "EURUSD",
+                "bid": 1.16167,
+                "ask": 1.16168,
+                "quote_as_of": "2026-08-31T17:52:06Z",
+                "data_age_seconds": 0.0,
+            },
+            verbose=False,
+            tool_name="market_ticker",
+        )
+
+        assert result is not None
+        assert result["quote_as_of"] == "2026-08-31T17:52:06Z"
+        assert result["data_age_seconds"] == 0.0
+
+        rendered = format_result_minimal(
+            {
+                "success": True,
+                "symbol": "EURUSD",
+                "bid": 1.16167,
+                "ask": 1.16168,
+                "quote_as_of": "2026-08-31T17:52:06Z",
+                "data_age_seconds": 0.0,
+            },
+            verbose=False,
+            tool_name="market_ticker",
+        )
+        assert "quote_as_of:" in rendered
+        assert "data_age_seconds:" in rendered

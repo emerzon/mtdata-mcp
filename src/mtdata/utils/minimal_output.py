@@ -22,6 +22,7 @@ from .minimal_output_toon import (
     _is_empty_value,
     _quote_always,
     _quote_key,
+    _should_omit_toon_value,
     _stringify_for_toon_value,
 )
 
@@ -222,7 +223,7 @@ def _render_news_payload(
 
     lines: List[str] = []
     for key, value in payload.items():
-        if _is_empty_value(value):
+        if _should_omit_toon_value(value):
             continue
         if key in bucket_keys and isinstance(value, list):
             lines.append(_render_news_bucket_toon(key, value))
@@ -1221,6 +1222,8 @@ def _normalize_market_ticker_payload(  # noqa: C901
         "freshness_reason",
         "data_stale",
         "usable_for_live_trading",
+        "quote_as_of",
+        "data_age_seconds",
         "related_live_symbols",
         "market_status",
         "market_status_reason",

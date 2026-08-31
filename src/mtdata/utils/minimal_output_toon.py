@@ -72,6 +72,10 @@ _SYMBOL_PRICE_PRECISION_FIELDS = {
 _PROBABILITY_FIELDS = frozenset(
     {"p_value", "p_value_raw", "q_value", "adjusted_p_value"}
 )
+_MONEY_EXACT_FIELDS = frozenset(
+    {"equity", "balance", "profit", "commission", "swap", "fee"}
+)
+_MONEY_DECIMALS = 2
 _INDICATOR_FIELD_PREFIXES = (
     "adx",
     "atr",
@@ -94,11 +98,39 @@ _INDICATOR_FIELD_PREFIXES = (
 )
 
 
+def _field_leaf_name(field: Any) -> str:
+    return str(field or "").rsplit(".", 1)[-1].strip().lower()
+
+
+def _is_probability_field(field: Any) -> bool:
+    name = _field_leaf_name(field)
+    return name in _PROBABILITY_FIELDS or name.endswith("_p_value")
+
+
+def _money_decimals_for_field(field: Any) -> Optional[int]:
+    name = _field_leaf_name(field)
+    if not name:
+        return None
+    if name in _MONEY_EXACT_FIELDS:
+        return _MONEY_DECIMALS
+    if name.startswith("margin"):
+        return _MONEY_DECIMALS
+    if "pnl" in name:
+        return _MONEY_DECIMALS
+    if name.endswith("_before") or name.endswith("_after"):
+        return _MONEY_DECIMALS
+    return None
+
+
 def _format_small_probability(value: float, field: Any) -> Optional[str]:
-    if str(field or "").lower() not in _PROBABILITY_FIELDS:
+    if not _is_probability_field(field):
         return None
     numeric = float(value)
-    if numeric == 0.0 or abs(numeric) >= 1e-6:
+    if not math.isfinite(numeric):
+        return None
+    if numeric == 0.0:
+        return "<1e-6"
+    if abs(numeric) >= 1e-6:
         return None
     return f"{numeric:.6g}"
 
@@ -108,15 +140,22 @@ def _quote_decimals_for_field(field: Any) -> Optional[int]:
     forced = _QUOTE_DECIMALS_BY_FIELD.get(text)
     if forced is not None:
         return forced
-    return _QUOTE_DECIMALS_BY_FIELD.get(text.lower())
+    forced = _QUOTE_DECIMALS_BY_FIELD.get(text.lower())
+    if forced is not None:
+        return forced
+    return _money_decimals_for_field(field)
 
 
 def _is_indicator_field(field: Any) -> bool:
-    name = str(field or "").rsplit(".", 1)[-1].strip().lower()
+    name = _field_leaf_name(field)
     return any(
         name == prefix or name.startswith(f"{prefix}_")
         for prefix in _INDICATOR_FIELD_PREFIXES
     )
+
+
+def _is_pct_field(field: Any) -> bool:
+    return _field_leaf_name(field).endswith("_pct")
 
 
 def _coerce_precision(value: Any) -> Optional[int]:
@@ -190,6 +229,8 @@ _QUOTE_STAT_DECIMAL_FIELDS = {
     "last",
     "low",
     "high",
+    "min",
+    "max",
     "mean",
     "median",
     "q25",
@@ -213,6 +254,17 @@ def _is_empty_value(value: Any) -> bool:
     if isinstance(value, dict):
         return all(_is_empty_value(v) for v in value.values())
     return False
+
+
+def _should_omit_toon_value(value: Any) -> bool:
+    """Skip null/blank values in TOON, but keep empty lists as visible collections."""
+    if isinstance(value, list) and len(value) == 0:
+        return False
+    if isinstance(value, dict):
+        if not value:
+            return True
+        return all(_should_omit_toon_value(item) for item in value.values())
+    return _is_empty_value(value)
 
 
 def _format_number_full(num: float) -> str:
@@ -452,14 +504,18 @@ def _forced_scalar_decimals(
         key_parts = str(key).split(".")
         parent, child = key_parts[0], key_parts[-1]
         if child in _QUOTE_STAT_DECIMAL_FIELDS:
-            forced = _quote_decimals_for_field(parent)
-            if forced is not None:
-                return forced
+            for candidate in (key_parts[-2], parent):
+                forced = _quote_decimals_for_field(candidate)
+                if forced is not None:
+                    return forced
         if any(part in _PRICE_CONTAINER_KEYS for part in key_parts[:-1]):
             if child in _PRICE_LEVEL_KEYS or child in {"value", "price"}:
                 return _QUOTE_DECIMALS_BY_FIELD["price"]
     if parent_key is not None and str(key) in _QUOTE_STAT_DECIMAL_FIELDS:
-        return _quote_decimals_for_field(parent_key)
+        forced = _quote_decimals_for_field(parent_key)
+        if forced is not None:
+            return forced
+        return _quote_decimals_for_field(_field_leaf_name(parent_key))
     if parent_key is not None and str(parent_key) in _PRICE_CONTAINER_KEYS:
         key_text = str(key)
         if key_text in _PRICE_LEVEL_KEYS or key_text in {"value", "price"}:
@@ -519,6 +575,9 @@ def _stringify_for_toon_value(
     if isinstance(value, bool):
         return format_number(value)
     if isinstance(value, int):
+        probability = _format_small_probability(float(value), field)
+        if probability is not None:
+            return probability
         return format_number(value)
     if isinstance(value, (dict, list, tuple, set)):
         rendered = _stringify_cell(
@@ -592,7 +651,8 @@ def _encode_tabular(
             cell_decimals = col_decimals.get(header)
             if (
                 simplify_numbers
-                and _is_indicator_field(header)
+                and _quote_decimals_for_field(header) is None
+                and (_is_indicator_field(header) or _is_pct_field(header))
                 and isinstance(value, Number)
                 and not isinstance(value, bool)
             ):
@@ -813,7 +873,7 @@ def _format_to_toon(
         lines: List[str] = []
         child_indent = indent if key is None else indent + 1
         for subkey, subval in value.items():
-            if _is_empty_value(subval):
+            if _should_omit_toon_value(subval):
                 continue
             chunk = _format_to_toon(
                 subval,
