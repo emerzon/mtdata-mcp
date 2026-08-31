@@ -22,6 +22,7 @@ from .denoise import (
 from .denoise import (
     get_denoise_methods_data as _get_denoise_methods_data,
 )
+from .denoise import is_close_based_denoise_column
 from .denoise import (
     normalize_denoise_spec as _normalize_denoise_spec,
 )
@@ -29,6 +30,28 @@ from .dimred import DimReducer as _DimReducer
 from .dimred import create_reducer as _create_reducer
 from .dtw import dtw_distance
 from .utils import align_finite
+
+_PATTERN_SCALES = ("zscore", "minmax", "none")
+_PATTERN_METRICS = ("euclidean", "cosine", "correlation")
+_PATTERN_METRIC_ALIASES = {"l2": "euclidean"}
+_PATTERN_REFINE_METRICS = ("dtw", "softdtw", "affine", "ncc", "none")
+
+
+def _normalize_pattern_choice(
+    name: str,
+    raw_value: Any,
+    allowed: Tuple[str, ...],
+    *,
+    aliases: Optional[Dict[str, str]] = None,
+) -> str:
+    value = str(raw_value).strip().lower()
+    value = dict(aliases or {}).get(value, value)
+    if value not in allowed:
+        raise ValueError(
+            f"Unknown pattern {name} {raw_value!r}; expected one of: "
+            f"{', '.join(allowed)}."
+        )
+    return value
 
 
 @lru_cache(maxsize=1)
@@ -129,8 +152,17 @@ class PatternIndex:
         self.start_end_idx = start_end_idx  # shape (N,2)
         self.labels = labels                 # shape (N,)
         self._series = series               # list aligned with label indices
-        self.scale = (scale or "minmax").lower()
-        self.metric = (metric or "euclidean").lower()
+        self.scale = _normalize_pattern_choice(
+            "scale",
+            "minmax" if scale is None else scale,
+            _PATTERN_SCALES,
+        )
+        self.metric = _normalize_pattern_choice(
+            "metric",
+            "euclidean" if metric is None else metric,
+            _PATTERN_METRICS,
+            aliases=_PATTERN_METRIC_ALIASES,
+        )
         self.dimred_method = (dimred_method or "none").lower()
         self.dimred_params = dict(dimred_params or {})
         self._reducer = reducer  # type: ignore
@@ -320,7 +352,14 @@ class PatternIndex:
         if shape_metric is None:
             shape_metric = 'none'
         sm = str(shape_metric).lower().strip()
-        if sm in ("", "none"):
+        if not sm:
+            sm = "none"
+        if sm not in _PATTERN_REFINE_METRICS:
+            raise ValueError(
+                f"Unknown pattern refinement metric {shape_metric!r}; expected "
+                f"one of: {', '.join(_PATTERN_REFINE_METRICS)}."
+            )
+        if sm == "none":
             # No refinement; just truncate
             k = min(int(top_k), idxs.size)
             return idxs[:k], dists[:k]
@@ -364,10 +403,6 @@ class PatternIndex:
                     ts_soft_dtw = _get_ts_soft_dtw()
                     gamma = float(soft_dtw_gamma) if (soft_dtw_gamma is not None and soft_dtw_gamma > 0) else 1.0
                     score = float(ts_soft_dtw(a.reshape(1, -1), w.reshape(1, -1), gamma=gamma))
-            else:
-                # Fallback to euclidean on scaled windows
-                diff = a - w
-                score = float(np.sqrt(np.dot(diff, diff)))
             scores.append((score, int(idx)))
         scores.sort(key=lambda x: x[0])
         take = min(int(top_k), len(scores))
@@ -483,18 +518,41 @@ def _prepare_series(
         data['volume'] = data['tick_volume']
 
     series_col = str(source_base_col or "close").strip() or "close"
+    normalized_denoise = _normalize_denoise_spec(denoise, default_when='pre_ti')
     if using_provided_history:
         if series_col not in data.columns:
             info.denoise_error = f"provided history did not include requested base column '{series_col}'"
             return None, info
-        info.denoise_applied = bool(denoise) or series_col.endswith("_dn")
-        info.denoise_method = str((denoise or {}).get("method")) if isinstance(denoise, dict) else (str(denoise) if denoise else None)
     else:
         series_col = "close"
-        normalized_denoise = _normalize_denoise_spec(denoise, default_when='pre_ti')
-        if normalized_denoise:
-            method_name = str(normalized_denoise.get("method") or "").strip().lower()
-            info.denoise_method = method_name or None
+
+    materialized_denoise = False
+    if using_provided_history:
+        application = data.attrs.get("denoise_last_application")
+        application_columns = {
+            str(column)
+            for column in (
+                list((application or {}).get("added_columns") or [])
+                + list((application or {}).get("overwrote_columns") or [])
+            )
+        }
+        materialized_denoise = (
+            series_col in application_columns
+            or (
+                series_col != "close"
+                and is_close_based_denoise_column(
+                    series_col,
+                    normalized_denoise if isinstance(normalized_denoise, dict) else None,
+                )
+            )
+        )
+
+    if normalized_denoise:
+        method_name = str(normalized_denoise.get("method") or "").strip().lower()
+        info.denoise_method = method_name or None
+        if materialized_denoise:
+            info.denoise_applied = True
+        else:
             available, requires = _denoise_method_available(method_name)
             if not available:
                 info.denoise_error = f"denoise method '{method_name}' is unavailable; requires {requires}"
@@ -502,7 +560,11 @@ def _prepare_series(
             params = dict(normalized_denoise.get("params") or {})
             causality = str(
                 normalized_denoise.get("causality")
-                or ("causal" if str(normalized_denoise.get("when") or "pre_ti") == "pre_ti" else "zero_phase")
+                or (
+                    "causal"
+                    if str(normalized_denoise.get("when") or "pre_ti") == "pre_ti"
+                    else "zero_phase"
+                )
             )
             try:
                 data[series_col] = apply_denoise_series(
@@ -513,8 +575,12 @@ def _prepare_series(
                 )
                 info.denoise_applied = True
             except Exception as exc:
-                info.denoise_error = f"failed to denoise '{series_col}' using '{method_name}': {exc}"
+                info.denoise_error = (
+                    f"failed to denoise '{series_col}' using '{method_name}': {exc}"
+                )
                 raise RuntimeError(info.denoise_error) from exc
+    elif materialized_denoise:
+        info.denoise_applied = True
 
     try:
         t = _coerce_time_epoch(data['time'])
@@ -555,6 +621,25 @@ def build_index(
     """
     if window_size < 5:
         raise ValueError("window_size must be at least 5")
+    scale = _normalize_pattern_choice(
+        "scale",
+        "minmax" if scale is None else scale,
+        _PATTERN_SCALES,
+    )
+    metric = _normalize_pattern_choice(
+        "metric",
+        "euclidean" if metric is None else metric,
+        _PATTERN_METRICS,
+        aliases=_PATTERN_METRIC_ALIASES,
+    )
+    engine = str(engine or "ckdtree").strip().lower()
+    if engine in ("matrix_profile", "mass") and (
+        metric != "euclidean" or scale != "zscore"
+    ):
+        raise ValueError(
+            f"Pattern engine {engine!r} requires metric='euclidean' and "
+            f"scale='zscore'; received metric={metric!r}, scale={scale!r}."
+        )
     symbols_ok: List[str] = []
     series: List[_SeriesStore] = []
     prepare_info_by_symbol: Dict[str, Dict[str, Any]] = {}
@@ -615,7 +700,7 @@ def build_index(
         )[:limit]
         target = X[offset : offset + limit]
         # Apply per-row scaling
-        sc = (scale or "minmax").lower()
+        sc = scale
         if sc == "zscore":
             mu = np.nanmean(windows, axis=1, keepdims=True)
             sd = np.nanstd(windows, axis=1, keepdims=True)
@@ -624,7 +709,7 @@ def build_index(
             np.divide(target, sd, out=target)
         elif sc == "none":
             target[:] = windows
-        else:  # minmax
+        else:  # validated minmax
             mn = np.nanmin(windows, axis=1, keepdims=True)
             mx = np.nanmax(windows, axis=1, keepdims=True)
             rng = mx - mn
@@ -655,7 +740,7 @@ def build_index(
         X = X.astype(np.float32, copy=False)
 
     # Metric transform (for cosine/correlation)
-    met = (metric or "euclidean").lower()
+    met = metric
     if met == "cosine":
         # L2-normalize rows
         norms = np.linalg.norm(X, axis=1, keepdims=True)
@@ -667,7 +752,7 @@ def build_index(
         norms = np.linalg.norm(X, axis=1, keepdims=True)
         norms[norms <= 1e-12] = 1.0
         X = (X / norms).astype(np.float32)
-    eng = (engine or "ckdtree").lower()
+    eng = engine
     if eng in ("matrix_profile", "mass"):
         tree_obj = None  # search will bypass tree
     elif eng == "hnsw":
@@ -695,8 +780,8 @@ def build_index(
         start_end_idx=start_end_idx,
         labels=labels_arr,
         series=series,
-        scale=(scale or "minmax").lower(),
-        metric=(metric or "euclidean").lower(),
+        scale=scale,
+        metric=metric,
         dimred_method=str(effective_dimred_method or 'none'),
         dimred_params=effective_dimred_params,
         reducer=reducer,
@@ -714,7 +799,11 @@ def build_index(
 
 
 def _apply_scale_vector(x: np.ndarray, scale: str) -> np.ndarray:
-    s = (scale or "minmax").lower()
+    s = _normalize_pattern_choice(
+        "scale",
+        "minmax" if scale is None else scale,
+        _PATTERN_SCALES,
+    )
     x = np.asarray(x, dtype=float)
     if x.size == 0:
         return x.astype(np.float32, copy=False)
@@ -726,7 +815,7 @@ def _apply_scale_vector(x: np.ndarray, scale: str) -> np.ndarray:
         return ((x - mu) / sd).astype(np.float32)
     if s == "none":
         return x.astype(np.float32)
-    # minmax
+    # Validated minmax
     mn = float(np.nanmin(x))
     mx = float(np.nanmax(x))
     rng = mx - mn
@@ -736,7 +825,12 @@ def _apply_scale_vector(x: np.ndarray, scale: str) -> np.ndarray:
 
 
 def _apply_metric_vector(x: np.ndarray, metric: str) -> np.ndarray:
-    m = (metric or "euclidean").lower()
+    m = _normalize_pattern_choice(
+        "metric",
+        "euclidean" if metric is None else metric,
+        _PATTERN_METRICS,
+        aliases=_PATTERN_METRIC_ALIASES,
+    )
     v = np.asarray(x, dtype=np.float32)
     if m == "cosine":
         n = float(np.linalg.norm(v))

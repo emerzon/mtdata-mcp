@@ -247,13 +247,17 @@ class TestRunSingleTimeframe:
     @patch("mtdata.forecast.methods.analog.build_index")
     def test_matrix_profile_engine(self, mock_bi):
         mock_bi.return_value = _make_mock_index()
-        futures, meta = self.m._run_single_timeframe(
-            "EURUSD", "H1", 10,
-            {"window_size": 64, "search_engine": "matrix_profile", "metric": "cosine"},
-            query_vector=np.random.rand(64),
-        )
-        # metric gets overridden to euclidean for matrix_profile
-        assert len(futures) > 0
+        with pytest.raises(ValueError, match="requires metric='euclidean'"):
+            self.m._run_single_timeframe(
+                "EURUSD", "H1", 10,
+                {
+                    "window_size": 64,
+                    "search_engine": "matrix_profile",
+                    "metric": "cosine",
+                },
+                query_vector=np.random.rand(64),
+            )
+        mock_bi.assert_not_called()
 
     @patch("mtdata.forecast.methods.analog.build_index")
     def test_mass_engine(self, mock_bi):
@@ -443,4 +447,3 @@ class TestRunSingleTimeframe:
         assert [m_obj["index"] for m_obj in meta] == [1, 0]
         assert len(calls) >= 2
         assert self.m._get_timeframe_diagnostic("H1")["search_rounds"] >= 1
-

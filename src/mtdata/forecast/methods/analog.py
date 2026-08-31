@@ -1,4 +1,5 @@
 import warnings
+from difflib import get_close_matches
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -9,6 +10,12 @@ from ...utils.denoise import normalize_denoise_spec as _normalize_denoise_spec
 from ...utils.mt5 import _mt5_epoch_to_utc
 from ..forecast_registry import ForecastRegistry
 from ..interface import ForecastCallContext, ForecastMethod, ForecastResult
+
+_ANALOG_METRIC_ALIASES = {"l2": "euclidean"}
+_ANALOG_METRICS = ("euclidean", "cosine", "correlation")
+_ANALOG_SCALES = ("zscore", "minmax", "none")
+_ANALOG_REFINE_METRICS = ("dtw", "softdtw", "affine", "ncc", "none")
+_PROFILE_SEARCH_ENGINES = ("matrix_profile", "mass")
 
 
 def build_index(*args: Any, **kwargs: Any) -> Any:
@@ -23,14 +30,65 @@ def _normalize_engine_metric_scale(
     requested_metric: str,
     requested_scale: str,
 ) -> Tuple[str, str]:
-    if search_engine in ("matrix_profile", "mass"):
-        metric = (
-            requested_metric
-            if requested_metric.lower() in ("euclidean", "l2")
-            else "euclidean"
+    engine = str(search_engine or "ckdtree").strip().lower()
+    metric = _ANALOG_METRIC_ALIASES.get(requested_metric, requested_metric)
+    if engine in _PROFILE_SEARCH_ENGINES and (
+        metric != "euclidean" or requested_scale != "zscore"
+    ):
+        raise ValueError(
+            f"Analog search_engine={engine!r} requires metric='euclidean' and "
+            f"scale='zscore'; received metric={requested_metric!r}, "
+            f"scale={requested_scale!r}."
         )
-        return metric, "zscore"
-    return requested_metric, requested_scale
+    return metric, requested_scale
+
+
+def _normalize_similarity_choice(
+    name: str,
+    raw_value: Any,
+    allowed: Tuple[str, ...],
+    *,
+    aliases: Optional[Dict[str, str]] = None,
+) -> Tuple[str, str]:
+    requested = str(raw_value).strip().lower()
+    effective = dict(aliases or {}).get(requested, requested)
+    if effective in allowed:
+        return requested, effective
+
+    suggestion = get_close_matches(requested, list(allowed), n=1, cutoff=0.6)
+    suggestion_text = f" Did you mean {suggestion[0]!r}?" if suggestion else ""
+    raise ValueError(
+        f"Analog method parameter {name!r} must be one of: "
+        f"{', '.join(allowed)}; received {raw_value!r}.{suggestion_text}"
+    )
+
+
+def validate_analog_similarity_settings(
+    params: Dict[str, Any],
+) -> Tuple[str, str, str, str, str]:
+    requested_metric, metric = _normalize_similarity_choice(
+        "metric",
+        params.get("metric", "euclidean"),
+        _ANALOG_METRICS,
+        aliases=_ANALOG_METRIC_ALIASES,
+    )
+    _, scale = _normalize_similarity_choice(
+        "scale",
+        params.get("scale", "zscore"),
+        _ANALOG_SCALES,
+    )
+    _, refine_metric = _normalize_similarity_choice(
+        "refine_metric",
+        params.get("refine_metric", "dtw"),
+        _ANALOG_REFINE_METRICS,
+    )
+    search_engine = str(params.get("search_engine", "ckdtree")).strip().lower()
+    metric, scale = _normalize_engine_metric_scale(
+        search_engine,
+        metric,
+        scale,
+    )
+    return requested_metric, metric, scale, refine_metric, search_engine
 
 
 def _weighted_nanstd(values: np.ndarray, weights: np.ndarray) -> float:
@@ -78,7 +136,7 @@ class AnalogMethod(ForecastMethod):
         {"name": "window_size", "type": "int", "description": "Length of pattern window (default: 64)."},
         {"name": "search_depth", "type": "int", "description": "Maximum disjoint candidate windows to search back (default: 5000)."},
         {"name": "top_k", "type": "int", "description": "Target number of analogs to retain (default: 20)."},
-        {"name": "metric", "type": "str", "description": "Initial search metric (default: euclidean)."},
+        {"name": "metric", "type": "str", "description": "Initial search metric (euclidean|cosine|correlation)."},
         {"name": "scale", "type": "str", "description": "Initial scaling (zscore|minmax|none)."},
         {"name": "refine_metric", "type": "str", "description": "Refinement metric (dtw|softdtw|affine|ncc|none)."},
         {"name": "dtw_band_frac", "type": "float", "description": "Optional DTW Sakoe-Chiba band as a fraction of window size."},
@@ -211,10 +269,17 @@ class AnalogMethod(ForecastMethod):
         history_df: Optional[pd.DataFrame],
         source_timeframe: str,
         target_timeframe: str,
+        source_base_col: str = "close",
     ) -> Optional[pd.DataFrame]:
         from ...shared.constants import TIMEFRAME_SECONDS
 
-        if history_df is None or history_df.empty or "time" not in history_df.columns or "close" not in history_df.columns:
+        base_col = str(source_base_col or "close").strip().lower() or "close"
+        if (
+            history_df is None
+            or history_df.empty
+            or "time" not in history_df.columns
+            or base_col not in history_df.columns
+        ):
             return None
         source_sec = TIMEFRAME_SECONDS.get(str(source_timeframe))
         target_sec = TIMEFRAME_SECONDS.get(str(target_timeframe))
@@ -249,24 +314,66 @@ class AnalogMethod(ForecastMethod):
         ):
             if col in work.columns:
                 agg_map[col] = func
-        if "close" not in agg_map:
-            return None
+        agg_map[base_col] = "last"
 
         try:
-            resampled = work.resample(f"{int(target_sec)}s", origin="epoch", label="left", closed="left").agg(agg_map)
+            rule = f"{int(target_sec)}s"
+            grouped = work.resample(
+                rule,
+                origin="epoch",
+                label="left",
+                closed="left",
+            )
+            resampled = grouped.agg(agg_map)
+            constituent_counts = grouped[base_col].count()
         except Exception:
             return None
-        resampled = resampled.dropna(subset=["close"])
+
+        first_source_time = work.index[0]
+        first_bucket_start = first_source_time.floor(rule)
+        if first_source_time > first_bucket_start:
+            first_bucket_start += pd.Timedelta(seconds=int(target_sec))
+        completion_cutoff = work.index[-1] + pd.Timedelta(seconds=int(source_sec))
+        bucket_ends = resampled.index + pd.Timedelta(seconds=int(target_sec))
+        complete_mask = (
+            (resampled.index >= first_bucket_start)
+            & (bucket_ends <= completion_cutoff)
+        )
+        resampled = resampled.loc[complete_mask].dropna(subset=[base_col])
         if resampled.empty:
             return None
+        constituent_counts = constituent_counts.reindex(resampled.index).fillna(0).astype(int)
 
         out = resampled.reset_index(drop=False)
         time_col = str(out.columns[0])
         out["time"] = (pd.to_datetime(out[time_col], utc=True).astype("int64") // 10**9).astype("int64")
         if time_col != "time":
             out = out.drop(columns=[time_col])
-        ordered_cols = ["time"] + [col for col in ("open", "high", "low", "close", "tick_volume", "real_volume", "volume", "spread") if col in out.columns]
-        return out.loc[:, ordered_cols].reset_index(drop=True)
+        ordered_cols = ["time"] + [
+            col
+            for col in (
+                "open",
+                "high",
+                "low",
+                "close",
+                "tick_volume",
+                "real_volume",
+                "volume",
+                "spread",
+                base_col,
+            )
+            if col in out.columns
+        ]
+        result = out.loc[:, list(dict.fromkeys(ordered_cols))].reset_index(drop=True)
+        result.attrs["analog_resample"] = {
+            "source_timeframe": str(source_timeframe),
+            "target_timeframe": str(target_timeframe),
+            "source_base_col": base_col,
+            "expected_constituents": int(target_sec // source_sec),
+            "constituent_counts": constituent_counts.tolist(),
+            "completion_cutoff": completion_cutoff.isoformat(),
+        }
+        return result
 
     def _resolve_timeframe_history_context(
         self,
@@ -295,9 +402,56 @@ class AnalogMethod(ForecastMethod):
                 primary_history_denoise_spec,
                 "provided_primary_history",
             )
-        resampled_history = self._resample_history_df(primary_history_df, str(primary_timeframe), target_key)
+        resampled_history = self._resample_history_df(
+            primary_history_df,
+            str(primary_timeframe),
+            target_key,
+            source_base_col=primary_history_base_col,
+        )
         if resampled_history is not None:
-            return resampled_history, "close", primary_history_denoise_spec, "resampled_primary_history"
+            materialized_denoise = False
+            if primary_history_denoise_spec is not None:
+                application = (
+                    primary_history_df.attrs.get("denoise_last_application")
+                    if isinstance(primary_history_df, pd.DataFrame)
+                    else None
+                )
+                application_columns = {
+                    str(column)
+                    for column in (
+                        list((application or {}).get("added_columns") or [])
+                        + list((application or {}).get("overwrote_columns") or [])
+                    )
+                }
+                materialized_denoise = (
+                    str(primary_history_base_col) in application_columns
+                    or (
+                        str(primary_history_base_col) != "close"
+                        and is_close_based_denoise_column(
+                            str(primary_history_base_col),
+                            primary_history_denoise_spec
+                            if isinstance(primary_history_denoise_spec, dict)
+                            else None,
+                        )
+                    )
+                )
+            if materialized_denoise:
+                resampled_history.attrs["denoise_last_application"] = {
+                    "added_columns": (
+                        [str(primary_history_base_col)]
+                        if str(primary_history_base_col) != "close"
+                        else []
+                    ),
+                    "overwrote_columns": (
+                        ["close"] if str(primary_history_base_col) == "close" else []
+                    ),
+                }
+            return (
+                resampled_history,
+                str(primary_history_base_col or "close").strip().lower() or "close",
+                primary_history_denoise_spec,
+                "resampled_primary_history",
+            )
         return None, "close", None, None
 
     def _select_diverse_matches(
@@ -453,10 +607,13 @@ class AnalogMethod(ForecastMethod):
         window_size = int(params.get("window_size", 64))
         search_depth = int(params.get("search_depth", 5000))
         top_k = int(params.get("top_k", 20))
-        requested_metric = str(params.get("metric", "euclidean"))
-        requested_scale = str(params.get("scale", "zscore"))
-        refine_metric = str(params.get("refine_metric", "dtw"))
-        search_engine = str(params.get("search_engine", "ckdtree"))
+        (
+            requested_metric,
+            metric,
+            idx_scale,
+            refine_metric,
+            search_engine,
+        ) = validate_analog_similarity_settings(params)
         denoise_spec = history_denoise_spec if history_df is not None else params.get("denoise")
         search_symbols = self._parse_search_symbols(str(symbol), params.get("search_symbols"))
         projection_mode = str(params.get("projection_mode", "auto"))
@@ -482,10 +639,6 @@ class AnalogMethod(ForecastMethod):
             self._record_timeframe_diagnostic(str(timeframe), diagnostic)
             return [], []
 
-        metric, idx_scale = _normalize_engine_metric_scale(
-            search_engine, requested_metric, requested_scale
-        )
-
         diagnostic: Dict[str, Any] = {
             "symbol": str(symbol),
             "timeframe": str(timeframe),
@@ -495,7 +648,7 @@ class AnalogMethod(ForecastMethod):
             "top_k": top_k,
             "metric": metric,
             "requested_metric": requested_metric,
-            "scale": requested_scale,
+            "scale": idx_scale,
             "index_scale": idx_scale,
             "refine_metric": refine_metric,
             "search_engine": search_engine,
@@ -819,13 +972,13 @@ class AnalogMethod(ForecastMethod):
         if max_primary_median_score is not None:
             quality_gate_thresholds["max_primary_median_score"] = float(max_primary_median_score)
 
-        requested_metric = str(params.get("metric", "euclidean"))
-        requested_scale = str(params.get("scale", "zscore"))
-        refine_metric = str(params.get("refine_metric", "dtw"))
-        search_engine = str(params.get("search_engine", "ckdtree"))
-        effective_metric, index_scale = _normalize_engine_metric_scale(
-            search_engine, requested_metric, requested_scale
-        )
+        (
+            requested_metric,
+            effective_metric,
+            index_scale,
+            refine_metric,
+            search_engine,
+        ) = validate_analog_similarity_settings(params)
         denoise_spec = params.get("denoise")
         search_symbols = self._parse_search_symbols(str(symbol), params.get("search_symbols"))
         base_col = str(params.get("base_col") or base_name or "").strip().lower()
@@ -1005,6 +1158,8 @@ class AnalogMethod(ForecastMethod):
 
         requested_components = [primary_tf] + secondary_tfs
         components_used = [primary_tf]
+        primary_anchor = float(series.iloc[-1])
+        secondary_alignment = "step_hold_from_primary_anchor"
         component_status: List[Dict[str, Any]] = []
         pool_entries: List[Dict[str, Any]] = []
         for future_path, analog_meta in zip(p_futures, p_analogs):
@@ -1063,9 +1218,9 @@ class AnalogMethod(ForecastMethod):
 
             added_paths = 0
             if s_futures:
-                t_p = np.arange(horizon) * p_sec
-                t_s = np.arange(s_horizon) * s_sec
-                if t_p[-1] < t_s[1]:
+                t_p = (np.arange(horizon, dtype=float) + 1.0) * float(p_sec)
+                t_s = (np.arange(s_horizon, dtype=float) + 1.0) * float(s_sec)
+                if t_p[-1] < t_s[0]:
                     component_status.append(
                         {
                             "timeframe": tf,
@@ -1078,13 +1233,18 @@ class AnalogMethod(ForecastMethod):
                     continue
 
                 for s_path, s_meta in zip(s_futures, s_analogs):
-                    valid = np.isfinite(s_path)
+                    path_values = np.asarray(s_path, dtype=float).ravel()
+                    valid = np.isfinite(path_values)
                     if not np.any(valid):
                         continue
-                    idxs = np.searchsorted(t_s, t_p, side="right") - 1
-                    idxs[idxs < 0] = 0
-                    idxs[idxs >= len(s_path)] = len(s_path) - 1
-                    step_y = np.asarray(s_path, dtype=float)[idxs]
+                    path_times = (
+                        np.arange(path_values.size, dtype=float) + 1.0
+                    ) * float(s_sec)
+                    aligned_times = np.concatenate(([0.0], path_times))
+                    aligned_values = np.concatenate(([primary_anchor], path_values))
+                    idxs = np.searchsorted(aligned_times, t_p, side="right") - 1
+                    idxs = np.clip(idxs, 0, aligned_values.size - 1)
+                    step_y = aligned_values[idxs]
                     if not np.any(np.isfinite(step_y)):
                         continue
                     pool_entries.append(
@@ -1106,6 +1266,7 @@ class AnalogMethod(ForecastMethod):
                         "role": "secondary",
                         "status": "contributed",
                         "n_paths": int(added_paths),
+                        "alignment": secondary_alignment,
                         "diagnostic": self._get_timeframe_diagnostic(tf),
                     }
                 )
@@ -1230,7 +1391,7 @@ class AnalogMethod(ForecastMethod):
             "top_k": top_k,
             "metric": effective_metric,
             "requested_metric": requested_metric,
-            "scale": requested_scale,
+            "scale": index_scale,
             "index_scale": index_scale,
             "refine_metric": refine_metric,
             "search_engine": search_engine,
@@ -1257,6 +1418,7 @@ class AnalogMethod(ForecastMethod):
         if secondary_tfs:
             params_used["secondary_timeframes"] = secondary_tfs
             params_used["secondary_timeframes_used"] = components_used[1:]
+            params_used["secondary_alignment"] = secondary_alignment
         if component_weight_overrides:
             params_used["component_weights"] = component_weight_overrides
         if weight_temperature is not None:

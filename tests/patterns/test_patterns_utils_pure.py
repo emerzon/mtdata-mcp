@@ -447,12 +447,12 @@ class TestRefineMatches:
         assert new_idxs.shape == (5,)
         assert np.all(np.diff(new_scores) >= -1e-10)
 
-    def test_euclidean_fallback(self):
+    def test_unknown_refinement_metric_is_rejected(self):
         idxs, dists = self.pi.search(self.query, top_k=10)
-        new_idxs, new_scores = self.pi.refine_matches(
-            self.query, idxs, dists, top_k=5, shape_metric="unknown_metric"
-        )
-        assert new_idxs.shape == (5,)
+        with pytest.raises(ValueError, match="Unknown pattern refinement metric"):
+            self.pi.refine_matches(
+                self.query, idxs, dists, top_k=5, shape_metric="unknown_metric"
+            )
 
     def test_empty_string_metric_no_reranking(self):
         idxs = np.arange(5, dtype=int)

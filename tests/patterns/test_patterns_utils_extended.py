@@ -79,6 +79,108 @@ def test_build_index_rejects_too_small_window_size():
         build_index(["EURUSD"], "H1", window_size=4, future_size=1)
 
 
+@pytest.mark.parametrize(
+    ("setting", "value", "message"),
+    [
+        ("scale", "zsocre", "Unknown pattern scale"),
+        ("scale", "", "Unknown pattern scale"),
+        ("metric", "cosne", "Unknown pattern metric"),
+        ("metric", "", "Unknown pattern metric"),
+    ],
+)
+def test_build_index_rejects_unknown_similarity_settings_before_fetch(
+    monkeypatch,
+    setting,
+    value,
+    message,
+):
+    def unexpected_fetch(*args, **kwargs):
+        raise AssertionError("history fetch should not run for invalid settings")
+
+    monkeypatch.setattr("mtdata.utils.patterns._fetch_symbol_df", unexpected_fetch)
+    with pytest.raises(ValueError, match=message):
+        build_index(
+            ["EURUSD"],
+            "H1",
+            window_size=5,
+            future_size=1,
+            **{setting: value},
+        )
+
+
+def test_build_index_applies_denoise_to_raw_provided_history(monkeypatch):
+    close = pd.Series(np.linspace(100.0, 111.0, 12))
+    history = {
+        "TEST": pd.DataFrame(
+            {"time": np.arange(close.size, dtype=float), "close": close}
+        )
+    }
+    calls = []
+
+    def fake_denoise(series, *, method, params, causality):
+        calls.append((method, params, causality))
+        return pd.Series(
+            series.to_numpy(dtype=float) + 1000.0,
+            index=series.index,
+        )
+
+    monkeypatch.setattr(
+        "mtdata.utils.patterns.apply_denoise_series",
+        fake_denoise,
+    )
+
+    index = build_index(
+        ["TEST"],
+        "H1",
+        window_size=5,
+        future_size=2,
+        denoise={"method": "ema"},
+        history_by_symbol=history,
+    )
+
+    np.testing.assert_allclose(index.get_symbol_series("TEST"), close + 1000.0)
+    assert calls == [("ema", {"span": 10}, "causal")]
+    prep = index.build_metadata["series_prepare_info"]["TEST"]
+    assert prep["denoise_requested"] is True
+    assert prep["denoise_applied"] is True
+
+
+def test_build_index_preserves_materialized_denoised_history(monkeypatch):
+    close_dn = np.linspace(1000.0, 1110.0, 12)
+    history = {
+        "TEST": pd.DataFrame(
+            {
+                "time": np.arange(close_dn.size, dtype=float),
+                "close": close_dn / 10.0,
+                "close_dn": close_dn,
+            }
+        )
+    }
+
+    def unexpected_denoise(*args, **kwargs):
+        raise AssertionError("materialized denoised history must not be filtered twice")
+
+    monkeypatch.setattr(
+        "mtdata.utils.patterns.apply_denoise_series",
+        unexpected_denoise,
+    )
+
+    index = build_index(
+        ["TEST"],
+        "H1",
+        window_size=5,
+        future_size=2,
+        denoise={"method": "ema"},
+        history_by_symbol=history,
+        history_base_cols={"TEST": "close_dn"},
+    )
+
+    np.testing.assert_allclose(index.get_symbol_series("TEST"), close_dn)
+    prep = index.build_metadata["series_prepare_info"]["TEST"]
+    assert prep["base_col"] == "close_dn"
+    assert prep["denoise_applied"] is True
+
+
 def test_fetch_symbol_frame_uses_shared_history_gateway(monkeypatch):
     expected = pd.DataFrame({"time": [1.0], "close": [2.0]})
     calls = []
@@ -236,14 +338,14 @@ class TestRefineMatches:
         )
         assert len(new_idxs) == 3
 
-    def test_unknown_metric_fallback(self):
+    def test_unknown_metric_is_rejected(self):
         pi = _make_index()
         anchor = pi._series[0].close[:10]
         idxs, dists = pi.search(anchor, top_k=5)
-        new_idxs, new_scores = pi.refine_matches(
-            anchor, idxs, dists, top_k=3, shape_metric="unknown_metric"
-        )
-        assert len(new_idxs) == 3
+        with pytest.raises(ValueError, match="Unknown pattern refinement metric"):
+            pi.refine_matches(
+                anchor, idxs, dists, top_k=3, shape_metric="unknown_metric"
+            )
 
     def test_affine_metric(self):
         pi = _make_index()

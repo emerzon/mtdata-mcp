@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from mtdata.forecast import forecast_engine as forecast_engine_module
 from mtdata.forecast.interface import ForecastCallContext
 from mtdata.forecast.methods.analog import AnalogMethod
 from mtdata.shared import constants as shared_constants
@@ -438,3 +439,234 @@ def test_analog_method_resamples_primary_history_for_coarser_secondary(monkeypat
     assert secondary_kwargs["history_denoise_spec"] == {"method": "sma", "params": {"window": 3}}
     assert resampled_history["time"].tolist() == [0, 14400, 28800]
     assert resampled_history["close"].tolist() == pytest.approx([103.2, 107.2, 111.2])
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "suggestion"),
+    [
+        ("metric", "cosne", "cosine"),
+        ("scale", "zsocre", "zscore"),
+        ("refine_metric", "dwt", "dtw"),
+    ],
+)
+def test_analog_method_rejects_unknown_similarity_settings_before_search(
+    monkeypatch,
+    name,
+    value,
+    suggestion,
+):
+    method = AnalogMethod()
+    series = pd.Series(np.linspace(100.0, 108.0, 80), name="close")
+    search = pytest.fail
+    monkeypatch.setattr(method, "_run_single_timeframe", search)
+
+    with pytest.raises(
+        ValueError,
+        match=rf"parameter '{name}'.*Did you mean '{suggestion}'",
+    ):
+        method.forecast(
+            series,
+            horizon=3,
+            seasonality=1,
+            params={"symbol": "EURUSD", "timeframe": "H1", name: value},
+        )
+
+
+def test_analog_method_rejects_incompatible_profile_similarity_settings():
+    method = AnalogMethod()
+    series = pd.Series(np.linspace(100.0, 108.0, 80), name="close")
+
+    with pytest.raises(ValueError, match="requires metric='euclidean'.*scale='zscore'"):
+        method.forecast(
+            series,
+            horizon=3,
+            seasonality=1,
+            params={
+                "symbol": "EURUSD",
+                "timeframe": "H1",
+                "search_engine": "mass",
+                "scale": "minmax",
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    ("setting", "value", "suggestion"),
+    [
+        ("metric", "cosne", "cosine"),
+        ("scale", "zsocre", "zscore"),
+        ("refine_metric", "dwt", "dtw"),
+    ],
+)
+def test_forecast_engine_rejects_invalid_analog_similarity_before_history_fetch(
+    monkeypatch,
+    setting,
+    value,
+    suggestion,
+):
+    def unexpected_fetch(*args, **kwargs):
+        raise AssertionError("history fetch should not run for invalid analog settings")
+
+    monkeypatch.setattr(forecast_engine_module, "TIMEFRAME_MAP", {"H1": 1})
+    monkeypatch.setattr(forecast_engine_module, "TIMEFRAME_SECONDS", {"H1": 3600})
+    monkeypatch.setattr(
+        forecast_engine_module,
+        "_get_available_methods",
+        lambda: ("analog",),
+    )
+    monkeypatch.setattr(forecast_engine_module, "_fetch_history", unexpected_fetch)
+
+    out = forecast_engine_module.forecast_engine(
+        symbol="EURUSD",
+        timeframe="H1",
+        method="analog",
+        horizon=3,
+        params={setting: value},
+    )
+
+    assert out["error_code"] == "invalid_analog_similarity_settings"
+    assert f"parameter '{setting}'" in out["error"]
+    assert f"Did you mean '{suggestion}'?" in out["error"]
+
+
+def test_analog_resampling_drops_trailing_incomplete_bucket(monkeypatch):
+    method = AnalogMethod()
+    history = pd.DataFrame(
+        {
+            "time": np.arange(11, dtype=np.int64) * 3600,
+            "close": np.arange(11, dtype=float),
+        }
+    )
+    monkeypatch.setitem(shared_constants.TIMEFRAME_SECONDS, "H1", 3600)
+    monkeypatch.setitem(shared_constants.TIMEFRAME_SECONDS, "H4", 14400)
+
+    resampled = method._resample_history_df(history, "H1", "H4")
+
+    assert resampled is not None
+    assert resampled["time"].tolist() == [0, 14400]
+    assert resampled.attrs["analog_resample"]["expected_constituents"] == 4
+    assert resampled.attrs["analog_resample"]["constituent_counts"] == [4, 4]
+
+
+def test_analog_resampling_drops_partial_lead_but_keeps_elapsed_session_gap(
+    monkeypatch,
+):
+    method = AnalogMethod()
+    history = pd.DataFrame(
+        {
+            "time": np.array([1, 2, 3, 4, 5, 7], dtype=np.int64) * 3600,
+            "close": np.arange(6, dtype=float),
+        }
+    )
+    monkeypatch.setitem(shared_constants.TIMEFRAME_SECONDS, "H1", 3600)
+    monkeypatch.setitem(shared_constants.TIMEFRAME_SECONDS, "H4", 14400)
+
+    resampled = method._resample_history_df(history, "H1", "H4")
+
+    assert resampled is not None
+    assert resampled["time"].tolist() == [14400]
+    assert resampled.attrs["analog_resample"]["constituent_counts"] == [3]
+
+
+def test_analog_secondary_resampling_preserves_materialized_denoised_base(
+    monkeypatch,
+):
+    method = AnalogMethod()
+    series = pd.Series(np.linspace(1000.0, 1080.0, 80), name="close_dn")
+    seen_calls = []
+    primary_history = pd.DataFrame(
+        {
+            "time": np.arange(12, dtype=np.int64) * 3600,
+            "close": np.linspace(100.0, 111.0, 12),
+            "close_dn": np.linspace(1000.0, 1110.0, 12),
+        }
+    )
+
+    def fake_run(symbol, timeframe, horizon, params, query_vector=None, **kwargs):
+        seen_calls.append((timeframe, kwargs))
+        method._timeframe_diagnostics[timeframe] = {
+            "status": "ok",
+            "returned_paths": 1,
+        }
+        return ([np.linspace(1000.0, 1010.0, horizon)], [{"score": 0.1}])
+
+    monkeypatch.setitem(shared_constants.TIMEFRAME_SECONDS, "H1", 3600)
+    monkeypatch.setitem(shared_constants.TIMEFRAME_SECONDS, "H4", 14400)
+    monkeypatch.setattr(method, "_run_single_timeframe", fake_run)
+
+    method.forecast(
+        series,
+        horizon=3,
+        seasonality=1,
+        params={
+            "symbol": "EURUSD",
+            "timeframe": "H1",
+            "base_col": "close_dn",
+            "secondary_timeframes": "H4",
+            "denoise": {"method": "ema"},
+        },
+        history_df=primary_history,
+        history_base_col="close_dn",
+        history_denoise_spec={"method": "ema"},
+    )
+
+    secondary_kwargs = next(
+        kwargs for timeframe, kwargs in seen_calls if timeframe == "H4"
+    )
+    resampled = secondary_kwargs["history_df"]
+    assert secondary_kwargs["history_base_col"] == "close_dn"
+    assert resampled["close_dn"].tolist() == pytest.approx(
+        [1030.0, 1070.0, 1110.0]
+    )
+    assert resampled.attrs["denoise_last_application"]["added_columns"] == [
+        "close_dn"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("horizon", "expected"),
+    [
+        (4, [100.0, 100.0, 100.0, 104.0]),
+        (5, [100.0, 100.0, 100.0, 104.0, 104.0]),
+    ],
+)
+def test_analog_secondary_paths_align_from_future_endpoints(
+    monkeypatch,
+    horizon,
+    expected,
+):
+    method = AnalogMethod()
+    series = pd.Series(np.full(80, 100.0), name="close")
+
+    def fake_run(symbol, timeframe, path_horizon, params, query_vector=None, **kwargs):
+        method._timeframe_diagnostics[timeframe] = {
+            "status": "ok",
+            "returned_paths": 1,
+        }
+        if timeframe == "H1":
+            return ([np.full(path_horizon, 100.0)], [{"score": 0.1}])
+        return ([np.array([104.0, 108.0, 112.0])], [{"score": 0.1}])
+
+    monkeypatch.setitem(shared_constants.TIMEFRAME_SECONDS, "H1", 3600)
+    monkeypatch.setitem(shared_constants.TIMEFRAME_SECONDS, "H4", 14400)
+    monkeypatch.setattr(method, "_run_single_timeframe", fake_run)
+
+    result = method.forecast(
+        series,
+        horizon=horizon,
+        seasonality=1,
+        params={
+            "symbol": "EURUSD",
+            "timeframe": "H1",
+            "secondary_timeframes": "H4",
+            "component_weights": {"H1": 1.0, "H4": 100.0},
+        },
+    )
+
+    assert result.forecast.tolist() == expected
+    assert result.metadata["components"] == ["H1", "H4"]
+    secondary = result.metadata["component_status"][1]
+    assert secondary["alignment"] == "step_hold_from_primary_anchor"
+    assert result.params_used["secondary_alignment"] == (
+        "step_hold_from_primary_anchor"
+    )

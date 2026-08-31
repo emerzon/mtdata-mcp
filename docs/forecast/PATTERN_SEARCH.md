@@ -258,7 +258,7 @@ mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 --method analog 
 | `window_size` | 64 | Length of pattern to match |
 | `search_depth` | 5000 | How far back to search |
 | `top_k` | 20 | Number of similar patterns to use |
-| `metric` | euclidean | Distance metric |
+| `metric` | euclidean | Initial distance: euclidean, cosine, correlation |
 | `scale` | zscore | Normalization: zscore, minmax, none |
 | `refine_metric` | dtw | Refinement: dtw, softdtw, affine, ncc, none |
 | `search_engine` | ckdtree | Search algorithm |
@@ -278,6 +278,8 @@ The `metric` parameter controls the initial candidate search (must be fast — E
 | Metric | Description |
 |--------|-------------|
 | `euclidean` | Standard L2 distance (default, fastest) |
+| `cosine` | Cosine distance after vector normalization |
+| `correlation` | Correlation distance after centering and normalization |
 
 The `refine_metric` parameter re-ranks candidates using a slower, more precise metric:
 
@@ -303,6 +305,10 @@ This first finds candidates with fast Euclidean distance, then refines ranking u
 | `hnsw` | Approximate nearest neighbor (scalable `hnswlib` backend; included in `[all]`, or add to lean installs through the source-build path in [../SETUP.md](../SETUP.md)) |
 | `matrix_profile` | STUMPY-based (specialized for time series) |
 | `mass` | Mueen's MASS algorithm |
+
+`matrix_profile` and `mass` require `metric=euclidean` with `scale=zscore`.
+Unsupported values and incompatible combinations are rejected rather than
+silently replaced with another similarity algorithm.
 
 ---
 
