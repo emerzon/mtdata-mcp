@@ -27,6 +27,7 @@ from ..utils.barriers import (
 from ..utils.utils import parse_kv_or_json as _parse_kv_or_json
 from .barrier_constants import barrier_simulation_param_keys
 from .barrier_outcomes import evaluate_barrier_path_outcomes
+from .barrier_stats import effective_sample_size as _effective_sample_size
 from .barriers_shared import (
     BROWNIAN_BRIDGE_DUAL_BARRIER_MODEL,
     BROWNIAN_BRIDGE_DUAL_BARRIER_WARNING,
@@ -43,6 +44,8 @@ from .barriers_shared import (
     _resolve_reference_prices,
     _stable_barrier_seed,
     _symbol_price_precision,
+    barrier_anchor_breach_error,
+    barrier_anchor_is_unbreached,
     barrier_method_error,
     normalize_barrier_method,
     normalize_barrier_seed,
@@ -278,6 +281,19 @@ def forecast_barrier_hit_probabilities(  # noqa: C901
             sl_price=sl_price,
         ):
             return {"error": "Resolved TP/SL barriers are invalid for the current price."}
+        if not barrier_anchor_is_unbreached(
+            anchor_price=simulation_reference_price,
+            dir_long=direction_norm == "long",
+            tp_price=tp_price,
+            sl_price=sl_price,
+        ):
+            return barrier_anchor_breach_error(
+                anchor_price=simulation_reference_price,
+                dir_long=direction_norm == "long",
+                tp_price=tp_price,
+                sl_price=sl_price,
+                quote_side="bid" if direction_norm == "long" else "ask",
+            )
 
         # Build input series (denoise optional)
         base_col = 'close'
@@ -505,10 +521,30 @@ def forecast_barrier_hit_probabilities(  # noqa: C901
         prob_no_hit = resolved_probabilities["prob_no_hit"]
         tp_any_curve = (tp_any_by_t / S_f).tolist()
         sl_any_curve = (sl_any_by_t / S_f).tolist()
-        tp_lo, tp_hi = _binomial_wilson_95(prob_tp_first, int(S))
-        sl_lo, sl_hi = _binomial_wilson_95(prob_sl_first, int(S))
-        tie_lo, tie_hi = _binomial_wilson_95(prob_same_bar, int(S))
-        no_hit_lo, no_hit_hi = _binomial_wilson_95(prob_no_hit, int(S))
+        # Antithetic paths are pairwise dependent, so p*(1-p)/n misstates the
+        # sampling error: too narrow for prob_no_hit, too wide for the monotone
+        # first-hit probabilities. Size each interval by its own design effect.
+        antithetic_group = sim.get("antithetic_group") if isinstance(sim, dict) else None
+        tp_indicator = np.zeros(S, dtype=float)
+        tp_indicator[outcomes.wins] = 1.0
+        sl_indicator = np.zeros(S, dtype=float)
+        sl_indicator[outcomes.losses] = 1.0
+        if same_bar_policy_value == "tp_first":
+            tp_indicator[outcomes.ties] = 1.0
+        elif same_bar_policy_value == "sl_first":
+            sl_indicator[outcomes.ties] = 1.0
+        n_eff_tp = _effective_sample_size(tp_indicator, antithetic_group)
+        n_eff_sl = _effective_sample_size(sl_indicator, antithetic_group)
+        n_eff_tie = _effective_sample_size(
+            outcomes.ties.astype(float), antithetic_group
+        )
+        n_eff_no_hit = _effective_sample_size(
+            outcomes.unresolved.astype(float), antithetic_group
+        )
+        tp_lo, tp_hi = _binomial_wilson_95(prob_tp_first, n_eff_tp)
+        sl_lo, sl_hi = _binomial_wilson_95(prob_sl_first, n_eff_sl)
+        tie_lo, tie_hi = _binomial_wilson_95(prob_same_bar, n_eff_tie)
+        no_hit_lo, no_hit_hi = _binomial_wilson_95(prob_no_hit, n_eff_no_hit)
 
         def _stats(arr: list[int]) -> Dict[str, float]:
             if not arr:
@@ -547,14 +583,25 @@ def forecast_barrier_hit_probabilities(  # noqa: C901
             "seed": int(request_seed_base),
             "seed_source": "params" if seed_provided else "derived_from_request",
             **resolved_probabilities,
-            "prob_tp_first_se": _binomial_se(prob_tp_first, int(S)),
-            "prob_sl_first_se": _binomial_se(prob_sl_first, int(S)),
-            "prob_same_bar_se": _binomial_se(prob_same_bar, int(S)),
-            "prob_no_hit_se": _binomial_se(prob_no_hit, int(S)),
+            "prob_tp_first_se": _binomial_se(prob_tp_first, n_eff_tp),
+            "prob_sl_first_se": _binomial_se(prob_sl_first, n_eff_sl),
+            "prob_same_bar_se": _binomial_se(prob_same_bar, n_eff_tie),
+            "prob_no_hit_se": _binomial_se(prob_no_hit, n_eff_no_hit),
             "prob_tp_first_ci95": {"low": float(tp_lo), "high": float(tp_hi)},
             "prob_sl_first_ci95": {"low": float(sl_lo), "high": float(sl_hi)},
             "prob_same_bar_ci95": {"low": float(tie_lo), "high": float(tie_hi)},
             "prob_no_hit_ci95": {"low": float(no_hit_lo), "high": float(no_hit_hi)},
+            "probability_ci_basis": (
+                "wilson_design_effect_adjusted"
+                if antithetic_group is not None
+                else "wilson_independent_paths"
+            ),
+            "probability_effective_sample_size": {
+                "prob_tp_first": float(n_eff_tp),
+                "prob_sl_first": float(n_eff_sl),
+                "prob_same_bar": float(n_eff_tie),
+                "prob_no_hit": float(n_eff_no_hit),
+            },
             "probability_edge": probability_edge,
             "tp_hit_prob_by_t": [float(v) for v in tp_any_curve],
             "sl_hit_prob_by_t": [float(v) for v in sl_any_curve],

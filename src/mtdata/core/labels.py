@@ -661,8 +661,15 @@ def labels_triple_barrier(  # noqa: C901
                     "Requested start/end range was truncated to the explicit "
                     f"lookback tail ({history_bars_used} of {history_bars_fetched} bars)."
                 )
-            if len(df) < horizon_bars + 2:
-                return {"error": "Insufficient history for labeling"}
+            # One label needs the entry bar plus `horizon` future bars.
+            if len(df) < horizon_bars + 1:
+                return {
+                    "error": (
+                        f"Insufficient history for labeling: {len(df)} bar(s) "
+                        f"available, {horizon_bars + 1} required for horizon="
+                        f"{horizon_bars}."
+                    )
+                }
             raw_highs = (
                 df["high"].astype(float).to_numpy(copy=True)
                 if "high" in df.columns
@@ -736,6 +743,39 @@ def labels_triple_barrier(  # noqa: C901
             highs = raw_highs
             lows = raw_lows
             times = df["time"].astype(float).to_numpy()
+
+            # Without high/low columns, high_low labeling silently becomes
+            # close-only labeling, which materially understates barrier hits.
+            # Degrade explicitly so the label semantics stay auditable.
+            label_on_requested = str(label_on)
+            label_on_effective = label_on_requested
+            ohlc_fallback_reason: Optional[str] = None
+            if label_on_requested == "high_low" and (highs is None or lows is None):
+                missing_ohlc = [
+                    name
+                    for name, values in (("high", highs), ("low", lows))
+                    if values is None
+                ]
+                label_on_effective = "close"
+                ohlc_fallback_reason = (
+                    f"Missing {'/'.join(missing_ohlc)} column(s) for this "
+                    "timeframe, so intrabar extremes are unavailable."
+                )
+                warnings_out.append(
+                    "label_on='high_low' was requested but "
+                    f"{ohlc_fallback_reason} Labels fall back to close-only "
+                    "barrier detection, which reports fewer hits and more "
+                    "timeouts than true intrabar labeling."
+                )
+            if (
+                label_on_effective == "close"
+                and same_bar_policy_value != "sl_first"
+            ):
+                warnings_out.append(
+                    f"same_bar_policy={same_bar_policy_value!r} has no effect "
+                    "with close-only labeling: a single close cannot touch both "
+                    "barriers. See labeling_spec.same_bar_policy_applied."
+                )
 
             tick_size = _get_tick_size(symbol)
             pip_size = (
@@ -879,7 +919,7 @@ def labels_triple_barrier(  # noqa: C901
                 lows=lows,
                 times=times,
                 horizon=horizon_bars,
-                label_on=label_on,
+                label_on=label_on_effective,
                 direction_value=direction_value,
                 tick_size=tick_size,
                 pip_size=pip_size,
@@ -949,7 +989,12 @@ def labels_triple_barrier(  # noqa: C901
                 "preprocessing": preprocessing,
                 "labeling_spec": {
                     "direction": direction_value,
-                    "label_on": str(label_on),
+                    "label_on": label_on_effective,
+                    "label_on_requested": label_on_requested,
+                    "label_on_degraded": bool(
+                        label_on_effective != label_on_requested
+                    ),
+                    "label_on_degraded_reason": ohlc_fallback_reason,
                     "entry_price_source": (
                         "denoised_close" if denoise_applied else "close"
                     ),
@@ -957,8 +1002,22 @@ def labels_triple_barrier(  # noqa: C901
                     "entry_price_timing": "completed_bar_close",
                     "hit_price_source": (
                         "raw_high_low"
-                        if label_on == "high_low"
+                        if label_on_effective == "high_low"
                         else ("denoised_close" if denoise_applied else "close")
+                    ),
+                    # A single close cannot touch both barriers, so the policy
+                    # has no bar to resolve when labeling on closes.
+                    "same_bar_policy_applied": bool(
+                        label_on_effective == "high_low"
+                    ),
+                    "same_bar_policy_inert_reason": (
+                        None
+                        if label_on_effective == "high_low"
+                        else (
+                            "Close-only labeling cannot produce a bar that "
+                            "touches both barriers, so same_bar_policy never "
+                            "applies."
+                        )
                     ),
                     "hit_time_basis": "bar_open_time",
                     "exact_intrabar_hit_time_available": False,

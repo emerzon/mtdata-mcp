@@ -71,6 +71,7 @@ from .barriers_shared import (
     _sort_candidate_results,
     _stable_barrier_seed,
     _symbol_price_precision,
+    barrier_anchor_is_unbreached,
     barrier_method_error,
     normalize_barrier_method,
     normalize_barrier_seed,
@@ -359,6 +360,7 @@ class _BarrierEvaluationContext:
     same_bar_policy: str = "sl_first"
     gap_aware_stops: bool = False
     pip_size: Optional[float] = None
+    path_anchor_price: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -523,6 +525,53 @@ def _resolve_profile_param(
     return profile_cfg[param_key]
 
 
+def _post_selection_gate_diagnostics(
+    statistical_analysis: Optional[Dict[str, Any]],
+    *,
+    objective: str,
+) -> Dict[str, Any]:
+    """Surface debiased post-selection evidence so the trade gate can use it.
+
+    The reported ``best`` metrics are an argmax over many Monte Carlo estimates,
+    so the winning value is optimistically biased. When an independent-seed
+    re-evaluation or a walk-forward holdout is available, its verdict overrides
+    the in-sample one for gating purposes instead of sitting in diagnostics.
+    """
+    out: Dict[str, Any] = {}
+    if not isinstance(statistical_analysis, dict):
+        return out
+
+    post_selection = statistical_analysis.get("post_selection_evaluation")
+    if isinstance(post_selection, dict):
+        optimism = _safe_float(post_selection.get("optimism"))
+        holdout_metrics = post_selection.get("metrics")
+        holdout_ev = (
+            _safe_float(holdout_metrics.get("ev"))
+            if isinstance(holdout_metrics, dict)
+            else None
+        )
+        if optimism is not None:
+            out["post_selection_optimism"] = float(optimism)
+        if holdout_ev is not None:
+            out["post_selection_holdout_ev"] = float(holdout_ev)
+            if holdout_ev < 0.0:
+                out["post_selection_ev_negative"] = True
+                out["post_selection_basis"] = "independent_seed_reevaluation"
+        holdout_objective = _safe_float(post_selection.get("holdout_estimate"))
+        if holdout_objective is not None:
+            out["post_selection_holdout_objective"] = float(holdout_objective)
+            out["post_selection_objective"] = str(objective)
+
+    walk_forward = statistical_analysis.get("walk_forward_oos")
+    if isinstance(walk_forward, dict) and not walk_forward.get("error"):
+        mean_realized_ev = _safe_float(walk_forward.get("mean_realized_ev"))
+        if mean_realized_ev is not None:
+            out["walk_forward_mean_realized_ev"] = float(mean_realized_ev)
+            if mean_realized_ev < 0.0:
+                out["walk_forward_ev_negative"] = True
+    return out
+
+
 def _candidate_barrier_prices(
     tp_unit: float,
     sl_unit: float,
@@ -561,8 +610,19 @@ def _candidate_barrier_geometry_is_valid(
     if tp_price <= 0.0 or sl_price <= 0.0:
         return False
     if context.dir_long:
-        return sl_price < context.last_price < tp_price
-    return tp_price < context.last_price < sl_price
+        if not sl_price < context.last_price < tp_price:
+            return False
+    elif not tp_price < context.last_price < sl_price:
+        return False
+    # Barriers are measured from the entry quote, but paths are scored from the
+    # executable exit quote. A barrier inside the spread is already breached at
+    # t=0, and the path matrix (which starts at bar 1) cannot observe that.
+    return barrier_anchor_is_unbreached(
+        anchor_price=context.path_anchor_price,
+        dir_long=context.dir_long,
+        tp_price=tp_price,
+        sl_price=sl_price,
+    )
 
 
 def _candidate_hit_arrays(
@@ -810,6 +870,9 @@ def _evaluate_barrier_candidate(
 
     profit_factor: Optional[float] = 0.0
     profit_factor_note: Optional[str] = None
+    # Realized resolved payoffs, not prob_win*net_TP / prob_loss*net_SL: this
+    # respects gap-aware stop fills and the same-bar policy, and excludes
+    # unresolved paths entirely.
     active_payoffs = (
         payoffs.net if context.has_trading_costs else payoffs.gross
     )[payoffs.active]
@@ -2255,16 +2318,48 @@ def forecast_barrier_optimize(  # noqa: C901
 
         # Minimum barrier constraints
         min_barrier_multiplier = float(params_dict.get('min_barrier_multiplier', 2.0) if params_dict.get('min_barrier_multiplier') is not None else 2.0)
-        if mode_val == 'pct':
-            min_barrier_absolute = float(params_dict.get('min_barrier_pct', 0.0) or 0.0)
-        elif mode_val == 'pips':
-            min_barrier_absolute = float(params_dict.get('min_barrier_pips', 0.0) or 0.0)
-        else:
-            min_barrier_absolute = float(params_dict.get('min_barrier_ticks', 0.0) or 0.0)
+        min_barrier_key_by_mode = {
+            'pct': 'min_barrier_pct',
+            'pips': 'min_barrier_pips',
+            'ticks': 'min_barrier_ticks',
+        }
+        min_barrier_key = min_barrier_key_by_mode.get(mode_val, 'min_barrier_ticks')
+        # A minimum barrier distance is only comparable to barriers in the same
+        # unit. Silently ignoring a mismatched key let callers believe a floor
+        # was enforced when it was not.
+        mismatched_min_barrier_keys = sorted(
+            key
+            for key in min_barrier_key_by_mode.values()
+            if key != min_barrier_key and params_dict.get(key) is not None
+        )
+        if mismatched_min_barrier_keys:
+            return {
+                "success": False,
+                "error": (
+                    f"{', '.join(mismatched_min_barrier_keys)} cannot be used with "
+                    f"mode={mode_val}. Use {min_barrier_key} so the minimum "
+                    "barrier distance matches the barrier unit."
+                ),
+                "error_code": "invalid_input",
+                "mode": mode_val,
+                "distance_unit": mode_val,
+                "expected_param": min_barrier_key,
+                "remediation": (
+                    f'Pass --params "{min_barrier_key}=…" or switch --mode to match '
+                    "the unit you intended."
+                ),
+            }
+        min_barrier_absolute = float(params_dict.get(min_barrier_key, 0.0) or 0.0)
         # Minimum barrier distance must exceed total round-trip cost (spread +
         # slippage + commission), not just spread — otherwise setups that are
         # structurally negative-EV after slippage/commission can slip through.
-        min_barrier_distance = max(min_barrier_absolute, min_barrier_multiplier * cost_per_trade)
+        # Use the modeled total rather than the payoff deduction: when the live
+        # bid/ask fallback embeds spread in the path geometry the deduction
+        # excludes spread, which would drop it from this floor entirely.
+        min_barrier_distance = max(
+            min_barrier_absolute,
+            min_barrier_multiplier * modeled_cost_per_trade,
+        )
         tp_min_val, tp_max_val, sl_min_val, sl_max_val = (
             _apply_implicit_tick_mode_grid_defaults(
                 mode_val=mode_val,
@@ -3165,7 +3260,7 @@ def forecast_barrier_optimize(  # noqa: C901
         if mode_val in {'ticks', 'pips'} and not base_candidates:
             return _tick_grid_below_min_distance_error(
                 min_barrier_distance=min_barrier_distance,
-                cost_per_trade=cost_per_trade,
+                cost_per_trade=modeled_cost_per_trade,
                 mode=mode_val,
             )
 
@@ -3211,6 +3306,7 @@ def forecast_barrier_optimize(  # noqa: C901
                 default=False,
             ),
             pip_size=_optional_finite_float(pip_size),
+            path_anchor_price=_optional_finite_float(simulation_reference_price),
         )
 
         def _evaluate(
@@ -3839,6 +3935,28 @@ def forecast_barrier_optimize(  # noqa: C901
                 vol_steps=vol_steps_val,
                 candidate_pairs=base_candidates,
             ),
+            "constraints_applied": {
+                "min_prob_win": min_prob_win_val,
+                "max_prob_no_hit": max_prob_no_hit_val,
+                "max_median_time": max_median_time_val,
+                "max_median_time_basis": "t_hit_resolve_median",
+                "min_prob_resolve": min_prob_resolve_val,
+                "min_prob_resolve_source": (
+                    "objective_default"
+                    if (
+                        params_dict.get('min_prob_resolve') is None
+                        and min_prob_resolve_val is not None
+                    )
+                    else "explicit_params"
+                    if params_dict.get('min_prob_resolve') is not None
+                    else None
+                ),
+                "min_barrier_distance": float(min_barrier_distance),
+                "min_barrier_distance_basis": (
+                    f"max({min_barrier_key}, "
+                    f"{min_barrier_multiplier:g} * round_trip_cost)"
+                ),
+            },
             "compute_profile": {
                 "profile": search_profile_val,
                 "n_sims": int(sims),
@@ -3905,8 +4023,9 @@ def forecast_barrier_optimize(  # noqa: C901
         if contract_warnings:
             out["warnings"] = list(contract_warnings)
         
+        statistical_analysis: Dict[str, Any] = {}
         if statistical_robustness_requested and isinstance(best, dict) and len(candidates) > 0:
-            statistical_analysis: Dict[str, Any] = {
+            statistical_analysis = {
                 "minimum_simulations": {
                     "recommended": int(min_sims_recommended),
                     "used": int(S),
@@ -4087,7 +4206,6 @@ def forecast_barrier_optimize(  # noqa: C901
                         if not seed_candidates:
                             continue
                         seed_best = seed_candidates[0]
-                        results_by_seed[seed_key] = seed_best
                         seed_pair_key = (
                             int(round(float(seed_best['tp']) * 1e9)),
                             int(round(float(seed_best['sl']) * 1e9)),
@@ -4095,18 +4213,25 @@ def forecast_barrier_optimize(  # noqa: C901
                         selection_counts[seed_pair_key] = (
                             selection_counts.get(seed_pair_key, 0) + 1
                         )
+                        selected_pair_row = next(
+                            (
+                                row
+                                for row in seed_rows
+                                if (
+                                    int(round(float(row['tp']) * 1e9)),
+                                    int(round(float(row['sl']) * 1e9)),
+                                ) == selected_pair_key
+                            ),
+                            None,
+                        )
+                        # Metric stability must hold the barrier pair fixed.
+                        # Using each seed's own winner would mix estimator noise
+                        # with selection changes, which `selection_stability`
+                        # reports separately.
+                        if selected_pair_row is not None:
+                            results_by_seed[seed_key] = selected_pair_row
                         if holdout_selected_row is None:
-                            holdout_selected_row = next(
-                                (
-                                    row
-                                    for row in seed_rows
-                                    if (
-                                        int(round(float(row['tp']) * 1e9)),
-                                        int(round(float(row['sl']) * 1e9)),
-                                    ) == selected_pair_key
-                                ),
-                                None,
-                            )
+                            holdout_selected_row = selected_pair_row
 
                 if len(results_by_seed) > 1:
                     stability_result = _cross_seed_stability(
@@ -4115,8 +4240,10 @@ def forecast_barrier_optimize(  # noqa: C901
                     )
                     stability_result["seeds_attempted"] = int(min(n_seeds_stability_val, 5))
                     stability_result["seeds_succeeded"] = int(len(results_by_seed))
+                    stability_result["metric_basis"] = "selected_barrier_pair_fixed"
+                    selections_observed = max(1, sum(selection_counts.values()))
                     selected_frequency = (
-                        selection_counts.get(selected_pair_key, 0) / len(results_by_seed)
+                        selection_counts.get(selected_pair_key, 0) / selections_observed
                     )
                     modal_pair, modal_count = max(
                         selection_counts.items(),
@@ -4125,11 +4252,12 @@ def forecast_barrier_optimize(  # noqa: C901
                     stability_result["selection_stability"] = {
                         "stable": bool(selected_frequency >= 0.60),
                         "selected_pair_frequency": float(selected_frequency),
+                        "seeds_with_selection": int(selections_observed),
                         "unique_pairs_selected": int(len(selection_counts)),
                         "modal_pair": {
                             "tp": float(modal_pair[0] / 1e9),
                             "sl": float(modal_pair[1] / 1e9),
-                            "frequency": float(modal_count / len(results_by_seed)),
+                            "frequency": float(modal_count / selections_observed),
                         },
                         "selection_counts": [
                             {
@@ -4423,6 +4551,12 @@ def forecast_barrier_optimize(  # noqa: C901
                     len(results),
                     int(optuna_trials_val) if optimizer_val == 'optuna' else 0,
                 ),
+            )
+            diagnostics.update(
+                _post_selection_gate_diagnostics(
+                    statistical_analysis,
+                    objective=objective_val,
+                )
             )
             out.update(diagnostics)
         if not cost_model_complete:

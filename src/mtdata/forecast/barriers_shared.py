@@ -81,7 +81,9 @@ BARRIER_METRIC_BASIS_NOTE = (
     "net of supplied costs; neutral same-bar ties contribute zero; "
     "edge=prob_win-prob_loss; edge_vs_breakeven="
     "prob_win_resolved-breakeven_win_rate; "
-    "profit_factor=resolved reward/loss; higher is better, positive ev/edge is favorable."
+    "profit_factor=sum of positive realized resolved payoffs / sum of negative "
+    "realized resolved payoffs (respects gap-aware fills and same-bar policy, "
+    "excludes unresolved paths); higher is better, positive ev/edge is favorable."
 )
 BARRIER_EDGE_DEFINITION = "prob_win - prob_loss (probability fraction)."
 BROWNIAN_BRIDGE_DUAL_BARRIER_MODEL = "independent_single_barrier_approximation"
@@ -170,17 +172,21 @@ def barrier_method_error(
     return f"Unsupported barrier method: {method}. Use one of: {', '.join(allowed)}."
 
 
-def _binomial_wilson_95(p_hat: float, n: int) -> Tuple[float, float]:
-    """Wilson 95% interval for a Bernoulli proportion."""
-    return _confidence_interval_wilson_proportion(float(p_hat), int(n), confidence=0.95)
+def _binomial_wilson_95(p_hat: float, n: float) -> Tuple[float, float]:
+    """Wilson 95% interval for a Bernoulli proportion.
+
+    ``n`` may be an effective sample size when simulated paths are not
+    independent draws (for example antithetic pairs).
+    """
+    return _confidence_interval_wilson_proportion(float(p_hat), float(n), confidence=0.95)
 
 
-def _binomial_se(p_hat: float, n: int) -> float:
-    n_i = int(n)
-    if n_i <= 0:
+def _binomial_se(p_hat: float, n: float) -> float:
+    n_f = float(n)
+    if n_f <= 0 or not math.isfinite(n_f):
         return float("nan")
     p = float(np.clip(float(p_hat), 0.0, 1.0))
-    return float(math.sqrt(max(0.0, p * (1.0 - p) / n_i)))
+    return float(math.sqrt(max(0.0, p * (1.0 - p) / n_f)))
 
 
 def _least_negative_ref(best_row: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -230,6 +236,75 @@ def _barrier_exit_quote_reference(
     if exit_quote is not None and exit_quote > 0.0:
         return float(exit_quote)
     return float(entry) if entry is not None else float("nan")
+
+
+def barrier_anchor_is_unbreached(
+    *,
+    anchor_price: Any,
+    dir_long: bool,
+    tp_price: Any,
+    sl_price: Any,
+) -> bool:
+    """Return True when the path-scoring anchor has not already crossed a barrier.
+
+    TP/SL distances are measured from the executable entry quote, while simulated
+    close paths are anchored on the executable exit quote. When a barrier sits
+    inside the spread the position is resolved before the first simulated bar,
+    and neither close comparisons nor the Brownian bridge can observe it: the
+    path matrix begins at bar 1, and the bridge's validity mask requires the
+    step's opening log-price to be on the unbreached side of the barrier.
+    """
+    anchor = _safe_float(anchor_price)
+    tp_val = _safe_float(tp_price)
+    sl_val = _safe_float(sl_price)
+    if anchor is None or anchor <= 0.0 or tp_val is None or sl_val is None:
+        # Without a usable anchor the caller falls back to entry-anchored paths,
+        # which the entry-side geometry check already validated.
+        return True
+    if dir_long:
+        return bool(sl_val < anchor < tp_val)
+    return bool(tp_val < anchor < sl_val)
+
+
+def barrier_anchor_breach_error(
+    *,
+    anchor_price: Any,
+    dir_long: bool,
+    tp_price: Any,
+    sl_price: Any,
+    quote_side: str,
+) -> Dict[str, Any]:
+    """Explain that a TP/SL level sits inside the spread and is already resolved."""
+    anchor = _safe_float(anchor_price)
+    tp_val = _safe_float(tp_price)
+    sl_val = _safe_float(sl_price)
+    breached = "take_profit"
+    if dir_long:
+        if sl_val is not None and anchor is not None and anchor <= sl_val:
+            breached = "stop_loss"
+    elif sl_val is not None and anchor is not None and anchor >= sl_val:
+        breached = "stop_loss"
+    side = "long" if dir_long else "short"
+    return {
+        "success": False,
+        "error": (
+            f"The {breached} level is inside the current spread. Simulated exit "
+            f"paths start at the executable {quote_side} quote "
+            f"({anchor:g}), which has already crossed it, so a {side} position "
+            "would resolve before the first simulated bar."
+        ),
+        "error_code": "barrier_inside_spread",
+        "breached_barrier": breached,
+        "simulation_reference_price": anchor,
+        "simulation_quote_side": quote_side,
+        "tp_price": tp_val,
+        "sl_price": sl_val,
+        "remediation": (
+            "Widen the barrier beyond the current spread, or re-run with "
+            "--as-of/--start/--end for candle-close-anchored research where no "
+            "spread is embedded in the path geometry."
+        ),
+    }
 
 
 def _prepare_brownian_bridge_draws(
@@ -695,6 +770,10 @@ def _build_actionability_payload(  # noqa: C901
         flags.append("ev_edge_conflict")
     if bool(diag.get("low_practical_win_probability")):
         flags.append("low_practical_win_probability")
+    if bool(diag.get("post_selection_ev_negative")):
+        flags.append("post_selection_ev_negative")
+    if bool(diag.get("walk_forward_ev_negative")):
+        flags.append("walk_forward_ev_negative")
     if bool(diag.get("trading_costs_incomplete")):
         flags.append("trading_costs_incomplete")
     if diag.get("selection_warnings"):
@@ -723,6 +802,8 @@ def _build_actionability_payload(  # noqa: C901
         or "ev_timeout_dominated" in seen
         or "ev_edge_conflict" in seen
         or "low_practical_win_probability" in seen
+        or "post_selection_ev_negative" in seen
+        or "walk_forward_ev_negative" in seen
     ):
         actionability = "blocked"
         trade_gate_passed = False
@@ -745,6 +826,23 @@ def _build_actionability_payload(  # noqa: C901
             actionability_reason = (
                 "Win probability is below the practical review threshold; skip or set "
                 "min_prob_win explicitly."
+            )
+        elif "post_selection_ev_negative" in seen:
+            optimism = diag.get("post_selection_optimism")
+            optimism_text = (
+                f" Selection optimism was {float(optimism):+.4g}."
+                if isinstance(optimism, (int, float))
+                else ""
+            )
+            actionability_reason = (
+                "Re-evaluating the selected barrier pair on an independent seed "
+                "produced negative EV, so the reported in-sample EV reflects "
+                f"selection bias rather than edge.{optimism_text}"
+            )
+        elif "walk_forward_ev_negative" in seen:
+            actionability_reason = (
+                "Walk-forward holdout evaluation of the selected barrier pair "
+                "produced negative mean realized EV; skip this setup."
             )
         else:
             actionability_reason = (

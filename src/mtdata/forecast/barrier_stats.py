@@ -57,15 +57,76 @@ def minimum_simulations_for_ci_width(
     return max(int(math.ceil(n)), 100)
 
 
+def effective_sample_size(
+    indicator: np.ndarray,
+    group_index: Optional[np.ndarray] = None,
+    *,
+    max_inflation: float = 4.0,
+) -> float:
+    """Return the independent-draw count implied by a grouped Bernoulli sample.
+
+    Variance-reduction schemes such as antithetic sampling make simulated paths
+    dependent, so ``p*(1-p)/n`` misstates the sampling error of the mean: it is
+    too narrow for functionals that are positively correlated within a group
+    (for example "hit neither barrier") and too wide for monotone ones. This
+    estimates the true variance of the mean from group totals and converts the
+    resulting design effect back into an effective ``n`` that can be fed to the
+    usual proportion interval.
+    """
+    values = np.asarray(indicator, dtype=float).reshape(-1)
+    n = int(values.size)
+    if n <= 1:
+        return float(max(0, n))
+    if group_index is None:
+        return float(n)
+
+    groups = np.asarray(group_index).reshape(-1)
+    if groups.size != n:
+        return float(n)
+
+    p_hat = float(values.mean())
+    binomial_variance = p_hat * (1.0 - p_hat) / n
+    if not np.isfinite(binomial_variance) or binomial_variance <= 0.0:
+        # Degenerate all-hit or all-miss sample: grouping cannot add information.
+        return float(n)
+
+    _, inverse = np.unique(groups, return_inverse=True)
+    n_groups = int(inverse.max()) + 1
+    if n_groups < 2 or n_groups == n:
+        return float(n)
+
+    group_sums = np.bincount(inverse, weights=values, minlength=n_groups)
+    group_counts = np.bincount(inverse, minlength=n_groups).astype(float)
+    if np.any(group_counts <= 0.0):
+        return float(n)
+    group_means = group_sums / group_counts
+
+    # Unequal final group (odd n_sims) is a negligible weighting error here.
+    grouped_variance_of_mean = float(np.var(group_means, ddof=1) / n_groups)
+    if not np.isfinite(grouped_variance_of_mean) or grouped_variance_of_mean <= 0.0:
+        return float(n)
+
+    design_effect = grouped_variance_of_mean / binomial_variance
+    if not np.isfinite(design_effect) or design_effect <= 0.0:
+        return float(n)
+    n_eff = float(n) / design_effect
+    return float(min(max(n_eff, 2.0), float(n) * float(max_inflation)))
+
+
 def _confidence_interval_wilson_proportion(
     p_hat: float,
-    n_trials: int,
+    n_trials: Union[int, float],
     confidence: float = 0.95,
 ) -> Tuple[float, float]:
-    """Wilson score interval from a probability estimate and trial count."""
+    """Wilson score interval from a probability estimate and trial count.
+
+    ``n_trials`` accepts a float so callers can pass an effective sample size
+    from :func:`effective_sample_size` when draws are not independent.
+    """
     if not 0 < confidence < 1:
         raise ValueError(f"confidence must be in (0, 1), got {confidence}")
-    if n_trials <= 0:
+    n_trials = float(n_trials)
+    if n_trials <= 0 or not math.isfinite(n_trials):
         return float("nan"), float("nan")
 
     p_hat = float(np.clip(p_hat, 0.0, 1.0))
@@ -196,21 +257,35 @@ def mc_convergence_diagnostic(
     }
 
 
+def _coerce_metric_value(value: Any) -> Optional[float]:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    numeric = float(value)
+    return numeric if math.isfinite(numeric) else None
+
+
 def cross_seed_stability(
     results_by_seed: Dict[int, Dict[str, Any]],
     metric_keys: Optional[List[str]] = None,
     threshold_cv: float = 0.10,
 ) -> Dict[str, Any]:
     """Analyze stability of results across different random seeds.
-    
+
+    A coefficient of variation needs a mean that does not sit on zero. Signed
+    barrier metrics such as ``edge``, ``ev``, and ``kelly`` straddle zero for
+    no-edge candidates, where CV explodes into the thousands and suggests the
+    fix is a larger ``n_sims``. Those metrics are still reported as unstable,
+    but with ``cv=None`` and a reason naming the real problem: the sign is not
+    reproducible.
+
     Args:
         results_by_seed: Dictionary mapping seed -> result dict
         metric_keys: List of metrics to analyze (default: common metrics)
         threshold_cv: Coefficient of variation threshold for stability
-        
+
     Returns:
         Dictionary with stability analysis:
-        - stable: bool indicating overall stability
+        - stable: bool indicating overall stability across determinate metrics
         - metrics: per-metric stability analysis
         - recommendation: string recommendation
     """
@@ -220,73 +295,121 @@ def cross_seed_stability(
             "error": "No results provided",
             "recommendation": "Run with multiple seeds for stability analysis",
         }
-    
+
     if metric_keys is None:
         metric_keys = [
             'prob_win', 'prob_loss', 'prob_tp_first', 'prob_sl_first',
             'ev', 'edge', 'kelly', 'prob_no_hit'
         ]
-    
+
     n_seeds = len(results_by_seed)
     metrics_analysis: Dict[str, Dict[str, Any]] = {}
-    all_stable = True
-    
+    unstable_metrics: List[str] = []
+    sign_unstable_metrics: List[str] = []
+    indeterminate_metrics: List[str] = []
+    determinate_seen = False
+
     for metric in metric_keys:
         values = []
         for seed_result in results_by_seed.values():
             if not isinstance(seed_result, dict):
                 continue
-            val = seed_result.get(metric)
-            if val is not None and np.isfinite(float(val)):
-                values.append(float(val))
-        
+            val = _coerce_metric_value(seed_result.get(metric))
+            if val is not None:
+                values.append(val)
+
         if len(values) < 2:
             metrics_analysis[metric] = {
-                "stable": False,
+                "stable": None,
                 "reason": "Insufficient data points",
                 "n_values": len(values),
             }
-            all_stable = False
+            indeterminate_metrics.append(metric)
             continue
-        
+
         mean_val = float(np.mean(values))
         std_val = float(np.std(values, ddof=1))
-        scale = max(abs(mean_val), 1e-6)
-        cv = std_val / scale
-        stable = bool(cv < threshold_cv)
-        if not stable:
-            all_stable = False
-        
-        metrics_analysis[metric] = {
-            "stable": stable,
+        min_val = float(np.min(values))
+        max_val = float(np.max(values))
+        sign_consistent = not (min_val < 0.0 < max_val)
+        analysis: Dict[str, Any] = {
             "mean": mean_val,
             "std": std_val,
-            "cv": cv,
-            "min": float(np.min(values)),
-            "max": float(np.max(values)),
-            "range": float(np.max(values) - np.min(values)),
+            "min": min_val,
+            "max": max_val,
+            "range": max_val - min_val,
+            "sign_consistent": sign_consistent,
+            "n_values": len(values),
             "n_seeds": n_seeds,
         }
-    
-    if all_stable:
+        determinate_seen = True
+        if std_val <= 0.0:
+            analysis["cv"] = 0.0
+            analysis["stable"] = True
+        elif not sign_consistent or mean_val == 0.0:
+            # Signed metrics such as ev, edge, and kelly straddle zero for
+            # no-edge candidates. Dividing by a near-zero mean yields a
+            # meaningless CV in the thousands and the misleading advice to raise
+            # n_sims, when the decision-relevant fact is that the sign itself is
+            # not reproducible.
+            analysis["cv"] = None
+            analysis["stable"] = False
+            analysis["reason"] = (
+                "Values straddle zero across seeds, so the sign of this metric "
+                "is not reproducible and its coefficient of variation is not "
+                "meaningful."
+            )
+            sign_unstable_metrics.append(metric)
+            unstable_metrics.append(metric)
+        else:
+            cv = std_val / abs(mean_val)
+            analysis["cv"] = cv
+            analysis["stable"] = bool(cv < threshold_cv)
+            if not analysis["stable"]:
+                unstable_metrics.append(metric)
+        metrics_analysis[metric] = analysis
+
+    all_stable = bool(determinate_seen and not unstable_metrics)
+    if sign_unstable_metrics:
         recommendation = (
-            f"Results are stable across {n_seeds} seeds (CV < {threshold_cv:.0%}). "
-            f"Confidence in estimates is high."
+            "The sign of "
+            f"{', '.join(sign_unstable_metrics)} is not reproducible across "
+            "seeds, which usually means this candidate has no measurable edge "
+            "rather than that the simulation is too small."
         )
-    else:
-        unstable_metrics = [
-            m for m, analysis in metrics_analysis.items()
-            if not analysis.get("stable", False)
+        cv_unstable = [
+            metric for metric in unstable_metrics
+            if metric not in sign_unstable_metrics
         ]
+        if cv_unstable:
+            recommendation += (
+                f" Separately, {', '.join(cv_unstable)} varies more than "
+                f"{threshold_cv:.0%}; consider increasing n_sims or seeds."
+            )
+    elif unstable_metrics:
         recommendation = (
             f"Results show instability across seeds for: {', '.join(unstable_metrics)}. "
             f"Consider increasing n_sims or using more seeds."
         )
-    
+    elif not determinate_seen:
+        recommendation = "Run with multiple seeds for stability analysis"
+    else:
+        recommendation = (
+            f"Results are stable across {n_seeds} seeds (CV < {threshold_cv:.0%}). "
+            f"Confidence in estimates is high."
+        )
+    if indeterminate_metrics:
+        recommendation += (
+            f" Not assessed (too few data points): {', '.join(indeterminate_metrics)}."
+        )
+
     return {
         "stable": all_stable,
         "n_seeds": n_seeds,
         "threshold_cv": threshold_cv,
+        "unstable_metrics": unstable_metrics,
+        "sign_unstable_metrics": sign_unstable_metrics,
+        "not_assessed_metrics": indeterminate_metrics,
         "metrics": metrics_analysis,
         "recommendation": recommendation,
     }

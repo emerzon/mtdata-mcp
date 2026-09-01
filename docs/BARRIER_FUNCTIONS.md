@@ -97,6 +97,38 @@ We want to compute:
 - `P(no hit)`: Probability neither is hit by time T
 - `E[time to hit]`: Expected time until resolution
 
+### Which tool models what
+
+Four tools compute barrier outcomes, and they deliberately make different
+execution assumptions. Numbers are not interchangeable between them; pick the one
+that matches your question.
+
+| Tool | Question it answers | Price path | Barrier touch test |
+|------|--------------------|------------|--------------------|
+| `forecast_barrier_prob` | What are the odds for one TP/SL pair from here? | Simulated forward paths | Simulated bar closes, or a Brownian bridge for intra-bar hits |
+| `forecast_barrier_optimize` | Which TP/SL pair looks best from here? | Simulated forward paths | Same as above, across a candidate grid |
+| `labels_triple_barrier` | What would this rule have labeled historically? | Actual history | Raw intrabar high/low by default, or closes only |
+| `strategy_validate` | What would trading this rule have returned historically? | Actual history | Raw intrabar high/low, non-overlapping trades |
+
+The two forecast tools measure TP/SL distances from the executable **entry**
+quote but score simulated paths against the executable **exit** quote (bid for
+longs, ask for shorts), reported as `simulation_reference_price`. A barrier placed
+inside the current spread is therefore already resolved before the first
+simulated bar; both tools reject that geometry rather than reporting a
+probability the path matrix cannot observe. Use `--as-of`, `--start`, or `--end`
+for candle-close-anchored research with no spread embedded in the geometry.
+
+The two historical tools anchor on the completed bar close and model no spread in
+the barrier geometry, so their hit rates are systematically more optimistic than a
+live-quoted forecast at the same distances. `strategy_validate` additionally
+enforces one position at a time, which makes its trade count far lower than the
+label count from `labels_triple_barrier` over the same history.
+
+Both `labels_triple_barrier` and the forecast tools expose `same_bar_policy` for
+bars that touch both barriers, but only when intrabar extremes are in play.
+Close-only labeling cannot produce a both-touched bar, so the label output reports
+`labeling_spec.same_bar_policy_applied: false` in that mode.
+
 ---
 
 ## Available Methods & Algorithms
@@ -119,6 +151,15 @@ where:
 1. Calibrate μ and σ from historical log-returns
 2. Generate N random paths using the formula above (with antithetic variance reduction by default for more stable estimates)
 3. Count paths that hit TP first vs SL first
+
+Antithetic paths come in mirrored pairs, so they are not `n_sims` independent
+draws and a plain `p(1-p)/n` interval would be wrong in both directions: too
+narrow for `prob_no_hit`, too wide for the first-hit probabilities. Each reported
+Wilson interval is therefore sized by that outcome's own design effect, and the
+resulting effective counts are echoed under
+`probability_effective_sample_size` with `probability_ci_basis:
+"wilson_design_effect_adjusted"`. `forecast_barrier_optimize` draws independent
+paths and reports `wilson_independent_paths`.
 
 **Strengths**:
 - Fast and stable
@@ -630,7 +671,7 @@ Choose what to optimize. Each objective answers a different trading question:
 | `ev` | `P(tp_first)*net_TP - P(sl_first)*net_SL + P(no_hit)*timeout_MTM` | Maximize full-path profit per trade |
 | `ev_cond` | EV on resolved trades only | Profit per trade (ignoring timeouts) |
 | `ev_per_bar` | `EV / mean_time_in_trade_all_paths` | Fast trades, capital turnover |
-| `profit_factor` | `(P(tp_first)*net_TP) / (P(sl_first)*net_SL)` | Risk/reward ratio focus |
+| `profit_factor` | Sum of winning realized payoffs / sum of losing realized payoffs, over resolved paths only | Risk/reward ratio focus |
 | `min_loss_prob` | Minimize `P(loss)` | Capital preservation |
 | `utility` | `mean(log1p(path_payoff * unit_to_return))`; `unit_to_return` is `0.01` for pct, `pip_size / entry` for pips, and `tick_size / entry` for ticks | Risk-averse trading |
 
@@ -677,8 +718,21 @@ Choose what to optimize. Each objective answers a different trading question:
 
 **`profit_factor`** — *"What's my gains-to-losses ratio?"*
 - Profit factor > 1 means profitable; > 2 is very good
+- Summed from each simulated path's realized payoff rather than from
+  `P(win) * net_TP / P(loss) * net_SL`, so it reflects gap-aware stop fills and
+  the `same_bar_policy` you chose instead of assuming every stop fills exactly at
+  the barrier
 - Uses net wins/net losses when trading costs are supplied
-- Common metric in backtesting reports
+- Paths that hit neither barrier are excluded from both the numerator and the
+  denominator
+- Returns `null` with a `profit_factor_note` when a candidate produced no
+  simulated losses, since the ratio is undefined
+- Because it ignores timeouts, this objective (like `min_loss_prob`) applies a
+  default `min_prob_resolve` floor of 0.20 so that a candidate resolving 2% of
+  the time cannot win on a lossless handful of paths. Pass
+  `--params "min_prob_resolve=0"` to opt out; the value in effect is reported at
+  `constraints_applied.min_prob_resolve` alongside
+  `constraints_applied.min_prob_resolve_source`.
 - **Use when:** Comparing strategies by risk/reward
 - **Limitation:** Doesn't account for trade frequency
 
@@ -738,8 +792,21 @@ Filter candidates before ranking:
 |------------|-------------|---------|
 | `min_prob_win` | Minimum tie-adjusted TP-first probability | `0.5` (50%) |
 | `max_prob_no_hit` | Maximum no-hit probability | `0.2` (20%) |
-| `min_barrier_pips` | Minimum TP and SL distance when `mode=pips` | `2.0` |
-| `max_median_time` | Maximum resolution time (bars) | `10` |
+| `min_prob_resolve` | Minimum probability that TP or SL is hit | `0.3` (30%) |
+| `min_barrier_pct` / `min_barrier_pips` / `min_barrier_ticks` | Minimum TP and SL distance, in the unit matching `mode` | `2.0` |
+| `min_barrier_multiplier` | Minimum TP and SL distance as a multiple of round-trip cost | `2.0` (default) |
+| `max_median_time` | Maximum median bars to resolution, counting resolved paths only | `10` |
+
+The minimum barrier distance is `max(min_barrier_<unit>, min_barrier_multiplier ×
+round-trip cost)`, where round-trip cost is the modeled total of spread,
+slippage, and commission. Pass the `min_barrier_*` key that matches your `mode`:
+`min_barrier_pips` with `mode=pct` is rejected rather than ignored, because a
+floor in the wrong unit cannot be compared to the barrier grid. The resolved
+values are echoed under `constraints_applied`.
+
+`max_median_time` is evaluated against the median over resolved paths only, so a
+candidate that resolves rarely but quickly can satisfy it. Pair it with
+`min_prob_resolve` or `max_prob_no_hit` when you need trades to actually close.
 
 **Example**:
 ```bash
@@ -773,6 +840,36 @@ trade gate. Economic viability, costs, unresolved-path behavior, and explicit
 validation diagnostics remain separate decisions.
 
 **Important:** These checks do not make a trade valid by themselves. They are quality controls on the simulation and on the optimizer output.
+
+#### Selection bias and the trade gate
+
+The metrics on `best` are the maximum over every candidate the search evaluated,
+so they are optimistically biased: some of the winning value is Monte Carlo luck
+that happened to favor that TP/SL pair. Two diagnostics measure that bias, and
+both can now close the trade gate:
+
+- `post_selection_evaluation` re-scores the selected pair on seeds the search
+  never saw. Its `optimism` field is the in-sample value minus the independent
+  estimate. If the independent EV is negative, `trade_gate_passed` becomes
+  `false` with the flag `post_selection_ev_negative`, because the reported
+  positive EV came from selection rather than edge.
+- `walk_forward_oos` (enable with `enable_oos_validation=true`) re-runs the
+  search on truncated history and measures what the chosen pair actually did next.
+  Negative `mean_realized_ev` sets the flag `walk_forward_ev_negative` and also
+  closes the gate.
+
+`cross_seed_stability` reports two distinct things, which are easy to conflate:
+
+- `metrics` holds the seed-to-seed spread of the **selected pair, held fixed**, so
+  it measures estimator noise. `metric_basis` records this.
+- `selection_stability` records how often each seed's own search picked the same
+  pair. A low `selected_pair_frequency` means the grid has many
+  near-indistinguishable candidates, not that the metrics are noisy.
+
+For signed metrics such as `ev`, `edge`, and `kelly`, a coefficient of variation
+is meaningless when values straddle zero. Those metrics report `cv: null` and are
+listed under `sign_unstable_metrics` with a reason: the sign is not reproducible.
+That is a statement about missing edge, not about needing a larger `n_sims`.
 
 #### Python Example
 

@@ -514,20 +514,29 @@ def simulate_gbm_mc(
     sims_i = int(n_sims)
     horizon_i = int(horizon)
 
+    antithetic_group: Optional[np.ndarray] = None
     if bool(antithetic) and sims_i > 1 and horizon_i > 0:
         half = (sims_i + 1) // 2
         z = rng.normal(size=(half, horizon_i))
         z = np.vstack([z, -z])[:sims_i]
         ret_paths = mu + sigma * z
+        # Paired paths are not independent draws. Callers computing sampling
+        # error must aggregate within a pair before treating rows as i.i.d.
+        antithetic_group = np.concatenate(
+            [np.arange(half, dtype=int), np.arange(half, dtype=int)]
+        )[:sims_i]
     else:
         ret_paths = rng.normal(loc=mu, scale=sigma, size=(sims_i, horizon_i))
     price_paths = _reconstruct_price_paths(last_price, ret_paths)
-    return {
+    out: Dict[str, np.ndarray] = {
         'price_paths': price_paths,
         'return_paths': ret_paths,
         'mu': float(mu),
         'sigma': float(sigma),
     }
+    if antithetic_group is not None:
+        out['antithetic_group'] = antithetic_group
+    return out
 
 
 def _finite_positive(value: Any) -> Optional[float]:
