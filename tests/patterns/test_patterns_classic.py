@@ -1657,12 +1657,24 @@ def test_detect_head_shoulders_uses_wick_geometry_with_high_low_pivots():
         low=low,
     )
 
-    assert close_only == []
+    # Both bases detect a structure here; the point is that they measure it from
+    # different prices. Unequal closes are no longer a hard rejection, because
+    # shoulder similarity has its own tolerance and is also scored continuously.
+    close_pattern = next(
+        item for item in close_only if item.name == "Head and Shoulders"
+    )
+    assert close_pattern.details["geometry_price_source"] == "close"
+    assert close_pattern.details["left_shoulder"] == pytest.approx(101.5)
+    assert close_pattern.details["right_shoulder"] == pytest.approx(99.0)
+    assert close_pattern.details["head"] == pytest.approx(105.0)
+
     pattern = next(item for item in wick_aware if item.name == "Head and Shoulders")
     assert pattern.details["left_shoulder"] == pytest.approx(102.0)
     assert pattern.details["right_shoulder"] == pytest.approx(102.0)
     assert pattern.details["head"] == pytest.approx(106.0)
     assert pattern.details["geometry_price_source"] == "high_low"
+    # Symmetric wicks score above visibly unequal closes.
+    assert pattern.confidence > close_pattern.confidence
 
 
 def test_detect_inverse_head_shoulders_uses_reaction_peaks_for_neckline(monkeypatch):
@@ -1759,20 +1771,24 @@ def test_head_shoulders_two_point_neckline_does_not_get_free_r2_boost():
 def test_detect_rounding_tries_multiple_windows(monkeypatch):
     from mtdata.patterns.classic_impl import reversal
 
+    # A trend into a genuine 100-bar saucer, so only the shorter window fits.
     n = 260
-    close = np.linspace(100.0, 110.0, n)
-    called = []
+    lead = 159
+    close = np.empty(n, dtype=float)
+    close[:lead] = np.linspace(118.0, 112.0, lead)
+    close[lead : lead + 100] = 100.0 + 12.0 * np.linspace(-1.0, 1.0, 100) ** 2
+    close[-1] = 116.0
 
-    def _fake_polyfit(x, y, deg):
-        _ = y
-        _ = deg
+    called = []
+    real_polyfit = np.polyfit
+
+    def _tracking_polyfit(x, y, deg):
         called.append(len(x))
         if len(x) == 100:
-            return np.array([0.6, 0.0, 95.0], dtype=float)
+            return real_polyfit(x, y, deg)
         raise np.linalg.LinAlgError("skip other windows")
 
-    monkeypatch.setattr(reversal.np, "polyfit", _fake_polyfit)
-    monkeypatch.setattr(reversal, "_level_close", lambda *_args, **_kwargs: True)
+    monkeypatch.setattr(reversal.np, "polyfit", _tracking_polyfit)
 
     out = reversal.detect_rounding(
         close,
@@ -1785,38 +1801,37 @@ def test_detect_rounding_tries_multiple_windows(monkeypatch):
     assert called == [100, 220] or called == [220, 100]
     assert out
     assert out[0].details["window_bars"] == 100
+    assert out[0].details["quad_r2"] > 0.99
 
 
-def test_detect_rounding_returns_multiple_non_overlapping_windows(monkeypatch):
-    from mtdata.patterns.classic_impl import reversal
+def test_detect_rounding_keeps_windows_that_overlap_below_the_threshold():
+    from mtdata.patterns.classic_impl.reversal import _dedupe_overlapping_patterns
 
-    n = 320
-    close = np.linspace(100.0, 110.0, n)
-    fits = {
-        100: np.array([0.5, 0.0, 95.0], dtype=float),
-        220: np.array([0.55, 0.0, 95.0], dtype=float),
-    }
+    # Every rounding window ends at the same bar, so two results survive only
+    # when the shorter span is under the dedupe threshold of the longer one.
+    # Exercised directly here: two real nested saucers of these scales cannot
+    # coexist, because the fit and turn-width gates reject the wider window.
+    def _rounding(window_bars: int) -> ClassicPatternResult:
+        return ClassicPatternResult(
+            name="Rounding Bottom",
+            status="completed",
+            confidence=0.9,
+            start_index=319 - window_bars,
+            end_index=319,
+            start_time=float(319 - window_bars),
+            end_time=319.0,
+            details={"window_bars": window_bars},
+        )
 
-    def _fake_polyfit(x, y, deg):
-        _ = (y, deg)
-        value = fits.get(len(x))
-        if value is None:
-            raise np.linalg.LinAlgError("skip")
-        return value
-
-    monkeypatch.setattr(reversal.np, "polyfit", _fake_polyfit)
-    monkeypatch.setattr(reversal, "_level_close", lambda *_args, **_kwargs: True)
-
-    out = reversal.detect_rounding(
-        close,
-        np.arange(n, dtype=float),
-        ClassicDetectorConfig(
-            rounding_window_bars=220, rounding_window_sizes=[100, 220]
-        ),
+    kept = _dedupe_overlapping_patterns(
+        [_rounding(100), _rounding(220)], overlap_threshold=0.75
     )
+    assert {pattern.details["window_bars"] for pattern in kept} == {100, 220}
 
-    assert len(out) == 2
-    assert {pattern.details["window_bars"] for pattern in out} == {100, 220}
+    collapsed = _dedupe_overlapping_patterns(
+        [_rounding(200), _rounding(220)], overlap_threshold=0.75
+    )
+    assert len(collapsed) == 1
 
 
 def test_detect_rounding_uses_a_post_structure_confirmation_bar(monkeypatch):
@@ -1836,7 +1851,9 @@ def test_detect_rounding_uses_a_post_structure_confirmation_bar(monkeypatch):
 
     assert forming
     assert forming[0].status == "forming"
-    assert forming[0].end_index == 99
+    # end_index is the confirmation bar the detector actually inspected, so it
+    # matches breakout_index on the completed case rather than trailing it.
+    assert forming[0].end_index == 100
     assert forming[0].details["breakout_index"] is None
 
     close[-1] = rim_level + 1.0
@@ -1847,7 +1864,7 @@ def test_detect_rounding_uses_a_post_structure_confirmation_bar(monkeypatch):
     )
 
     assert completed[0].status == "completed"
-    assert completed[0].end_index == 99
+    assert completed[0].end_index == 100
     assert completed[0].details["breakout_index"] == 100
 
 

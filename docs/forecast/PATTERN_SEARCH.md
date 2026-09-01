@@ -109,6 +109,18 @@ returned even when the shared `--include-completed` flag is false. That flag
 continues to control historical visibility for classic, Elliott, and fractal
 modes.
 
+For harmonic and Elliott results, `available_at_index` is the right edge of the
+requested window, reported as `available_at_index_basis:
+"input_window_right_edge"`. That is the only index at which the result is
+guaranteed reproducible: pivot prominence, min-distance spacing and (for
+Elliott under the default `scale_mode="auto"`) the swing scale itself are all
+measured across the whole window, so a later bar can add, remove or move a
+pivot. Each row also carries `earliest_possible_index_estimate`, a heuristic
+derived from per-pivot price confirmation, alongside
+`earliest_possible_index_caveat`. Do not use the estimate for backtest entry
+timing; re-run over a truncated window to establish genuine point-in-time
+availability.
+
 ```bash
 mtdata-cli patterns_detect EURUSD --timeframe H1 --mode harmonic --lookback 500
 ```
@@ -168,18 +180,21 @@ mtdata-cli patterns_detect EURUSD --timeframe H1 --mode fractal --config "left_b
 
 Active levels are informational support/resistance context and have neutral
 signal bias. A broken level takes the breakout direction as its bias. By
-default, active levels are returned and historical broken levels are hidden;
-use `--include-completed true` to include broken levels as well.
+default, active levels are returned while broken and stale levels are hidden;
+`--include-completed true` adds both, and `--config '{"include_stale_levels":
+true}'` adds only the stale ones. Whatever is withheld is counted in
+`broken_levels_hidden` and `stale_levels_hidden`.
 
 ### Parameters
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
 | `--mode` | `candlestick` | Pattern type: all, candlestick, classic, harmonic, fractal, elliott |
-| `--lookback` | 150 | Historical bars fetched for pattern analysis |
-| `--robust-only` | false | Restrict detection to a curated subset of established multi-bar candlestick types. This is a name preset, not a confidence threshold. |
+| `--lookback` | 150 | Historical bars fetched for pattern analysis. `mode=all` requires at least 150 and caps each timeframe to roughly one year of history, so the weekly leg fetches far fewer bars than requested. Detectors additionally cap their own input window (`max_bars`, 1500 for classic and harmonic); when that binds, the response reports `analyzed_bars` and warns. |
+| `--robust-only` | false | Restrict detection to a curated subset of established multi-bar candlestick types. This is a name preset, not a confidence threshold. Candlestick and all modes only. |
 | `--whitelist` | — | Comma-separated list of specific patterns |
-| `--min-strength` | 0.70 | Minimum OHLC-geometry and pattern-reliability strength score (0.0-1.0) |
+| `--min-strength` | 0.70 | Minimum OHLC-geometry and pattern-reliability strength score (0.0-1.0). Candlestick and all modes only; other modes reject a non-default value rather than ignoring it, and apply their own confidence rules via `--config`. |
+| `--min-gap` | 3 | Minimum bars between returned candlestick detections. Candlestick and all modes only. Spacing is applied among detections that meet `--min-strength`. |
 | `--top-k` | `3` | Candidate/collision budget and compact, summary, or standard row cap; it is not a global cap for `--detail full` |
 | `--last-n-bars` | — | Candlestick-only recency window for returned detections; use it to bound a full scan |
 | `--config` | — | Detector-specific overrides. Fractals support `left_bars`, `right_bars`, `breakout_basis`, `min_prominence_pct`, and `confidence_prominence_cap_pct`. Harmonics support `pattern_types`, `ratio_tolerance`, `min_confidence`, and pivot controls. |
@@ -190,6 +205,25 @@ Detector config is strict. Candlestick mode accepts
 `volume_confirm_bonus`, `volume_confirm_penalty`, `use_regime_context`,
 `regime_alignment_bonus`, and `regime_countertrend_penalty`; other keys return
 `unknown_config_key` instead of being ignored.
+
+In `mode=all`, un-namespaced config keys apply to every detector that has the
+field. Nest under a section name to retune one detector, for example
+`--config '{"harmonic": {"min_confidence": 0.7}}'`. An unknown key inside a
+section is reported as `section.key` against that section alone; an unknown
+top-level key is reported against every detector that could have owned it.
+
+### Denoising
+
+Pattern detection smooths all four OHLC columns together, because pivot
+geometry is read from the open, high, low and close as a set. If you omit
+`denoise.columns` the tool substitutes `ohlc`; if you pass a column list that
+lacks any of them the request is rejected rather than analyzing a series that
+mixes smoothed and raw prices. When denoising fails, the response reports
+`denoise_applied: false` with `denoise_error` and
+`preprocessing_causality: "raw_prices"` — it never echoes the requested spec as
+if it had been applied. Zero-phase denoising sets `denoise_lookahead_bias: true`
+and rewrites every row's `status_basis`, because such results may repaint.
+See [DENOISING.md](../DENOISING.md).
 
 Pattern names listed in this guide describe detector coverage, not a promise
 that every pattern is returned at the default threshold. `robust_only=true`
@@ -206,11 +240,24 @@ aggregate pattern dispatcher. Full results report `requested_detectors`,
 `detectors_evaluated`, and any `unsupported_detectors`, so a zero-hit detector
 is distinguishable from one the active backend could not run.
 
+Most detectors run through the aggregate dispatcher, so a single non-finite OHLC
+value can stop nearly all of them at once. When fewer detectors run than were
+selected, the response adds a `detector_coverage` block with the expected and
+evaluated counts, the names that did not run, any
+`aggregate_dispatcher_error`, and any names the installed backend does not
+provide. Treat "no patterns found" as inconclusive whenever that block is
+present.
+
 For candlesticks, `top_k` also resolves collisions when several detector types
 fire on the same bar. Compact and summary use it as a preview budget, and
 standard uses it as a returned-row cap. Full detail deliberately keeps every
-surviving row and reports that scope in `top_k_contract`; combine full detail
-with `--last-n-bars` when the complete row set must remain small.
+surviving row and reports that scope in `top_k_contract` (candlestick mode
+only); combine full detail with `--last-n-bars` when the complete row set must
+remain small.
+
+`--detail` trades away per-row diagnostics, never the fields that tell you not
+to trust a result: `warnings`, `data_quality`, `candles` and `effective_window`
+are present at every detail level, including `summary`.
 
 ### Filtering Patterns
 

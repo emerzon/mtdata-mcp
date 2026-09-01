@@ -264,11 +264,17 @@ class TestFetchPatternData:
 
     @patch("mtdata.core.patterns.mt5")
     @patch("mtdata.core.patterns._mt5_copy_rates_from")
-    def test_partial_denoise_never_materializes_impossible_ohlc(
+    def test_denoise_covers_full_ohlc_without_reverting_rows(
         self,
         mock_rates,
         mock_mt5,
     ):
+        """Every bar must come from the same series.
+
+        Smoothing only ``close`` (the spec default) left the extremes raw and
+        forced whole rows back to raw prices wherever the smoothed close escaped
+        its own candle, so detectors saw a raw/denoised sawtooth.
+        """
         mock_mt5.symbol_info.return_value = MagicMock(visible=True)
         rates = _make_rates_array(200)
         gap_index = 180
@@ -293,10 +299,39 @@ class TestFetchPatternData:
                 & (df["high"] >= df[["open", "close"]].max(axis=1))
             ).all()
         )
+        # High and low must be smoothed too, not left raw.
+        for column in ("open", "high", "low", "close"):
+            assert f"{column}_dn" in df.columns
+            assert np.allclose(
+                df[column].to_numpy(dtype=float),
+                df[f"{column}_dn"].to_numpy(dtype=float),
+                equal_nan=True,
+            ), f"{column} was not materialized from its denoised series"
+
+    @patch("mtdata.core.patterns.mt5")
+    @patch("mtdata.core.patterns._mt5_copy_rates_from")
+    def test_explicit_partial_denoise_columns_are_rejected(
+        self,
+        mock_rates,
+        mock_mt5,
+    ):
+        mock_mt5.symbol_info.return_value = MagicMock(visible=True)
+        mock_rates.return_value = _make_rates_array(200)
+
+        df, err = self._call(
+            "EURUSD",
+            "H1",
+            100,
+            denoise={"method": "ema", "columns": ["close"]},
+        )
+
+        assert err is None
+        assert df is not None
         assert any(
-            "invalid candle geometry" in str(warning)
+            "requires all OHLC columns" in str(warning)
             for warning in df.attrs.get("warnings", [])
         )
+        assert df.attrs.get("pattern_denoise_failed")
 
     @patch("mtdata.core.patterns.mt5")
     @patch("mtdata.core.patterns._mt5_copy_rates_from")

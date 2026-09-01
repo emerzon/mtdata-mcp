@@ -182,6 +182,16 @@ class ClassicDetectorConfig:
         2  # touches needed near the right edge to mark completed
     )
     completion_lookback_bars: int = 5  # lookback window for completion confirmation
+    # Head-and-shoulders shoulders are rarely equal. Deriving their tolerance from
+    # same_level_tol_pct (which exists for horizontal double tops) gave a hard
+    # 0.6% gate that silently rejected realistic formations, even though
+    # shoulder similarity is already scored continuously in the confidence blend.
+    head_shoulders_max_shoulder_mismatch_pct: float = 4.0
+    # A neckline or boundary break can arrive long after the structure finishes.
+    # Bounding that search by ``breakout_lookahead`` (sized for the trailing
+    # breakout window) left already-triggered patterns reported as ``forming``
+    # forever. 0 means scan to the end of the series, matching head-and-shoulders.
+    neckline_break_lookahead_bars: int = 0
     # Detection-window bounds for all returned patterns, including completed
     # structures. include_completed controls lifecycle visibility; it does not
     # bypass these recency and geometry-quality limits.
@@ -268,6 +278,14 @@ def validate_classic_detector_config(
         val = getattr(cfg, attr, None)
         if isinstance(val, (int, float)) and val <= 0:
             warnings.append(f"{attr} must be positive, got {val}")
+
+    # 0 is meaningful here: scan to the end of the series.
+    neckline_lookahead = getattr(cfg, "neckline_break_lookahead_bars", 0)
+    if isinstance(neckline_lookahead, (int, float)) and neckline_lookahead < 0:
+        warnings.append(
+            "neckline_break_lookahead_bars must be >= 0 "
+            f"(0 scans to the end of the series), got {neckline_lookahead}"
+        )
 
     # min <= max relationships
     if cfg.min_input_bars > cfg.max_bars:

@@ -248,6 +248,54 @@ def _fit_lines_and_arrays(
     return sh, bh, r2h, sl, bl, r2l, upper, lower
 
 
+def _boundary_apex_index(
+    upper: np.ndarray,
+    lower: np.ndarray,
+    *,
+    start_idx: int,
+) -> Optional[int]:
+    """First index at or after ``start_idx`` where the boundaries cross.
+
+    Converging boundaries meet at an apex. Past it the arrays are inverted, so
+    "close is above the upper trendline" is meaningless and a breakout test
+    returns an arbitrary direction determined only by which side price sits on.
+    """
+    up = np.asarray(upper, dtype=float)
+    lo = np.asarray(lower, dtype=float)
+    n = min(up.size, lo.size)
+    start = max(0, int(start_idx))
+    if n <= 0 or start >= n:
+        return None
+    span = up[start:n] - lo[start:n]
+    crossed = ~(np.isfinite(span) & (span > 0.0))
+    hits = np.flatnonzero(crossed)
+    if hits.size == 0:
+        return None
+    return int(start + int(hits[0]))
+
+
+def _mask_boundaries_after_apex(
+    upper: np.ndarray,
+    lower: np.ndarray,
+    *,
+    start_idx: int,
+) -> Tuple[np.ndarray, np.ndarray, Optional[int]]:
+    """Blank out boundary values from the apex onward.
+
+    ``_find_recent_breakout`` skips non-finite boundary values, so masking is
+    enough to stop a breakout being reported against crossed lines while leaving
+    a genuine pre-apex breakout detectable.
+    """
+    apex = _boundary_apex_index(upper, lower, start_idx=start_idx)
+    if apex is None:
+        return np.asarray(upper, dtype=float), np.asarray(lower, dtype=float), None
+    up = np.array(upper, dtype=float, copy=True)
+    lo = np.array(lower, dtype=float, copy=True)
+    up[apex:] = np.nan
+    lo[apex:] = np.nan
+    return up, lo, apex
+
+
 def _boundaries_are_ordered(
     upper: np.ndarray,
     lower: np.ndarray,
@@ -359,6 +407,26 @@ def _find_recent_breakout(
             last_dir = "down"
             last_idx = int(i)
     return last_dir, last_idx
+
+
+def _neckline_break_lookahead(
+    cfg: ClassicDetectorConfig,
+    *,
+    n: int,
+    start_idx: int,
+) -> int:
+    """Bars to scan forward for a neckline break after a structure completes.
+
+    Separate from ``breakout_lookahead``, which sizes the *trailing* breakout
+    window. A neckline can break arbitrarily long after the structure finishes,
+    and bounding this by the trailing window left already-triggered patterns
+    stuck at ``forming``. 0 scans to the end of the series.
+    """
+    configured = int(getattr(cfg, "neckline_break_lookahead_bars", 0) or 0)
+    remaining = max(1, int(n) - int(start_idx) - 1)
+    if configured <= 0:
+        return remaining
+    return min(remaining, configured)
 
 
 def _find_forward_level_breakout(

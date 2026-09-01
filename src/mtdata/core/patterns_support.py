@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from ..patterns.common import interval_containment_ratio as _interval_containment_ratio
 from ..patterns.common import interval_overlap_ratio as _interval_overlap_ratio
 from ..patterns.enrichment import (
     _apply_confidence_delta,
@@ -218,7 +219,15 @@ def _visible_pattern_rows(
     rows: List[Dict[str, Any]],
     *,
     include_completed: bool,
+    include_stale: bool = False,
 ) -> List[Dict[str, Any]]:
+    """Rows a caller sees by default.
+
+    ``include_stale`` exists because the fractal detector has its own
+    ``include_stale_levels`` opt-in. This allowlist silently discarded the rows
+    that flag turned on, so the opt-in only worked in combination with the
+    unrelated ``include_completed``.
+    """
     if include_completed:
         return rows
     return [
@@ -227,6 +236,7 @@ def _visible_pattern_rows(
         if _pattern_has_status(row, "forming")
         or _pattern_has_status(row, "detected")
         or _pattern_has_status(row, "active")
+        or (include_stale and _pattern_has_status(row, "stale"))
     ]
 
 
@@ -2566,6 +2576,12 @@ def _resolve_engine_weights(
     return out
 
 
+# Engines often bracket the same structure differently (peaks only vs peaks plus
+# breakout). Merge those only when one span sits almost entirely inside the other,
+# so genuinely sequential same-name patterns stay separate.
+_ENSEMBLE_CONTAINMENT_THRESHOLD = 0.9
+
+
 def _merge_classic_ensemble(
     engine_patterns: Dict[str, List[Dict[str, Any]]],
     weights: Dict[str, float],
@@ -2584,12 +2600,19 @@ def _merge_classic_ensemble(
             target: Optional[Dict[str, Any]] = None
             same_name_groups = groups_by_name.setdefault(name_norm, [])
             for group in same_name_groups:
-                if _interval_overlap_ratio(
-                    start_idx,
-                    end_idx,
-                    int(group["start_index"]),
-                    int(group["end_index"]),
-                ) >= float(overlap_threshold):
+                # Compare against each member's own span rather than the group's
+                # growing hull. A hull that expands on every merge enlarges the
+                # union and shrinks the ratio, so whether a later detection
+                # merged depended on engine iteration order.
+                if any(
+                    _interval_overlap_ratio(start_idx, end_idx, span_start, span_end)
+                    >= float(overlap_threshold)
+                    or _interval_containment_ratio(
+                        start_idx, end_idx, span_start, span_end
+                    )
+                    >= _ENSEMBLE_CONTAINMENT_THRESHOLD
+                    for span_start, span_end in group["spans"]
+                ):
                     target = group
                     break
             if target is None:
@@ -2597,12 +2620,14 @@ def _merge_classic_ensemble(
                     "name_norm": name_norm,
                     "start_index": start_idx,
                     "end_index": end_idx,
+                    "spans": [],
                     "items": [],
                 }
                 groups.append(target)
                 same_name_groups.append(target)
             target["start_index"] = min(int(target["start_index"]), start_idx)
             target["end_index"] = max(int(target["end_index"]), end_idx)
+            target["spans"].append((start_idx, end_idx))
             target["items"].append((engine, pattern))
 
     merged: List[Dict[str, Any]] = []

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Literal, Optional
 
@@ -175,6 +176,7 @@ def _build_fractal_result(
     breakout_index: Optional[int],
     breakout_price: Optional[float],
     breakout_direction: Optional[str],
+    geometry_price_source: str,
     times: np.ndarray,
     n_bars: int,
     cfg: FractalDetectorConfig,
@@ -208,6 +210,10 @@ def _build_fractal_result(
         "bars_since_confirmation": int(max((n_bars - 1) - int(confirmation_index), 0)),
         "prominence_pct": float(np.round(float(prominence_pct), 8)),
         "breakout_basis": str(breakout_basis),
+        # Without high/low columns the swing geometry silently came from closes,
+        # which places fractals on different bars. Match the classic detectors and
+        # say so rather than returning an indistinguishable payload.
+        "geometry_price_source": str(geometry_price_source),
     }
     if fractal_time is not None:
         details["fractal_time"] = float(fractal_time)
@@ -305,15 +311,26 @@ def detect_fractal_patterns(
     if breakout_basis not in {"close", "high_low"}:
         breakout_basis = "close"
 
-    highs = (
-        to_float_np(df["high"]) if "high" in df.columns else to_float_np(df["close"])
-    )
-    lows = to_float_np(df["low"]) if "low" in df.columns else to_float_np(df["close"])
+    has_high = "high" in df.columns
+    has_low = "low" in df.columns
+    highs = to_float_np(df["high"]) if has_high else to_float_np(df["close"])
+    lows = to_float_np(df["low"]) if has_low else to_float_np(df["close"])
     closes = to_float_np(df["close"])
     if highs.size != closes.size:
         highs = closes
+        has_high = False
     if lows.size != closes.size:
         lows = closes
+        has_low = False
+    geometry_price_source = "high_low" if (has_high and has_low) else "close"
+    if geometry_price_source == "close":
+        logging.getLogger(__name__).warning(
+            "Fractal detection falling back to close for missing/mismatched "
+            "high/low columns (high=%s, low=%s); swing geometry differs from "
+            "true intrabar extremes.",
+            has_high,
+            has_low,
+        )
     n_bars = int(closes.size)
     if n_bars < int(left_bars + right_bars + 1):
         return []
@@ -368,6 +385,7 @@ def detect_fractal_patterns(
                         breakout_index=breakout_index,
                         breakout_price=breakout_price,
                         breakout_direction=breakout_direction,
+                        geometry_price_source=geometry_price_source,
                         times=times,
                         n_bars=n_bars,
                         cfg=cfg,
@@ -403,6 +421,7 @@ def detect_fractal_patterns(
                         breakout_index=breakout_index,
                         breakout_price=breakout_price,
                         breakout_direction=breakout_direction,
+                        geometry_price_source=geometry_price_source,
                         times=times,
                         n_bars=n_bars,
                         cfg=cfg,

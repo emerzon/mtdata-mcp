@@ -117,6 +117,50 @@ def fallback_local_extrema(
     return np.asarray(reduced, dtype=int)
 
 
+def repair_ohlc_extremes(
+    close: np.ndarray,
+    high: Optional[np.ndarray],
+    low: Optional[np.ndarray],
+) -> Tuple[np.ndarray, np.ndarray, int, int]:
+    """Substitute the close for individually unusable high/low bars.
+
+    Returns ``(high, low, repaired_high_bars, repaired_low_bars)``.
+
+    Repairing per bar matters for two reasons. Discarding the whole array on a
+    single bad bar erases every wick, and it also leaves the surviving side
+    paired with closes, so true range becomes ``close - low`` (or ``high -
+    close``) — an asymmetric quantity belonging to no real bar. Because
+    :func:`compute_pivot_thresholds` derives one ATR-adaptive prominence and
+    spacing for peaks *and* troughs, that mis-sized range corrupts the side
+    whose data was intact.
+    """
+    x = np.asarray(close, dtype=float)
+    finite_close = np.isfinite(x)
+
+    def _repair(values: Optional[np.ndarray], *, is_high: bool) -> Tuple[np.ndarray, int]:
+        if values is None:
+            return x.copy(), 0
+        arr = np.asarray(values, dtype=float)
+        if arr.size != x.size:
+            # A length mismatch cannot be repaired bar by bar.
+            return x.copy(), int(x.size)
+        arr = arr.copy()
+        bad = ~np.isfinite(arr)
+        with np.errstate(invalid="ignore"):
+            violates = (arr < x) if is_high else (arr > x)
+        bad |= finite_close & violates
+        # Never substitute a non-finite close for an existing value.
+        bad &= finite_close
+        count = int(np.count_nonzero(bad))
+        if count:
+            arr[bad] = x[bad]
+        return arr, count
+
+    hi, repaired_high = _repair(high, is_high=True)
+    lo, repaired_low = _repair(low, is_high=False)
+    return hi, lo, repaired_high, repaired_low
+
+
 def compute_pivot_thresholds(
     close: np.ndarray,
     high: np.ndarray,
@@ -169,12 +213,7 @@ def detect_pivots(
     if x.size < max(5, int(getattr(cfg, "min_distance", 5)) * 3):
         return np.asarray([], dtype=int), np.asarray([], dtype=int)
 
-    hi = np.asarray(high, dtype=float) if high is not None else x
-    lo = np.asarray(low, dtype=float) if low is not None else x
-    if hi.size != x.size or not np.isfinite(hi).all():
-        hi = x
-    if lo.size != x.size or not np.isfinite(lo).all():
-        lo = x
+    hi, lo, _, _ = repair_ohlc_extremes(x, high, low)
 
     prom_abs, min_dist = compute_pivot_thresholds(x, hi, lo, cfg)
     src_hi = hi if bool(getattr(cfg, "pivot_use_hl", True)) else x
@@ -219,6 +258,9 @@ def prepare_ohlc_pattern_inputs(
     """Slice history and extract close/high/low/time arrays for pattern detectors."""
     if not isinstance(df, pd.DataFrame) or "close" not in df.columns:
         return None
+    # Slicing produces a copy, so degradation recorded on ``df`` below would not
+    # reach the caller's frame. Keep the original to write to as well.
+    source_df = df
     if len(df) > int(max_bars):
         df = df.iloc[-int(max_bars) :].copy()
 
@@ -233,6 +275,10 @@ def prepare_ohlc_pattern_inputs(
     if low.size != close.size:
         used_close_for_low = True
         low = close
+
+    high, low, repaired_high_bars, repaired_low_bars = repair_ohlc_extremes(
+        close, high, low
+    )
     if used_close_for_high or used_close_for_low:
         logging.getLogger(__name__).warning(
             "%s falling back to close for missing/mismatched "
@@ -242,6 +288,21 @@ def prepare_ohlc_pattern_inputs(
             used_close_for_low,
             log_extra,
         )
+    # A logger call cannot reach the tool response. Record the degradation on the
+    # frame so the API layer can disclose that pivots came from close-only or
+    # partially repaired geometry.
+    ohlc_fallback = {
+        "used_close_for_high": bool(used_close_for_high),
+        "used_close_for_low": bool(used_close_for_low),
+        "repaired_high_bars": int(repaired_high_bars),
+        "repaired_low_bars": int(repaired_low_bars),
+        "total_bars": int(close.size),
+        "analyzed_bars": int(close.size),
+        "input_bars": int(len(source_df)),
+    }
+    df.attrs["pattern_ohlc_fallback"] = ohlc_fallback
+    if source_df is not df:
+        source_df.attrs["pattern_ohlc_fallback"] = ohlc_fallback
 
     n = int(close.size)
     if n < int(min_input_bars):
@@ -299,6 +360,27 @@ def interval_overlap_ratio(a_start: int, a_end: int, b_start: int, b_end: int) -
     return float(inter) / float(union)
 
 
+def interval_containment_ratio(
+    a_start: int, a_end: int, b_start: int, b_end: int
+) -> float:
+    """Return how much of the shorter interval lies inside the longer one.
+
+    Complements :func:`interval_overlap_ratio`, which is an
+    intersection-over-union and therefore scores a short interval nested inside
+    a long one very low even though they describe the same region.
+    """
+    lo = max(int(a_start), int(b_start))
+    hi = min(int(a_end), int(b_end))
+    inter = max(0, hi - lo + 1)
+    shorter = min(
+        int(a_end) - int(a_start) + 1,
+        int(b_end) - int(b_start) + 1,
+    )
+    if shorter <= 0:
+        return 0.0
+    return float(inter) / float(shorter)
+
+
 def _crosses_weekend(start_epoch: float, end_epoch: float) -> bool:
     try:
         start_dt = datetime.fromtimestamp(float(start_epoch), tz=timezone.utc)
@@ -326,6 +408,41 @@ def data_quality_warnings(  # noqa: C901
     warnings: list[str] = []
     if not isinstance(df, pd.DataFrame) or len(df) < 3:
         return warnings
+
+    missing_extremes = [name for name in ("high", "low") if name not in df.columns]
+    if missing_extremes:
+        warnings.append(
+            "Data quality warning: missing "
+            f"{'/'.join(missing_extremes)} column(s); pivots and pattern "
+            "geometry fall back to close-only values, which detects different "
+            "patterns than true intrabar extremes."
+        )
+    elif "close" in df.columns:
+        try:
+            extremes = df[["high", "low", "close"]].apply(
+                pd.to_numeric, errors="coerce"
+            )
+        except Exception:
+            extremes = None
+        if extremes is not None and len(extremes) > 0:
+            close_vals = extremes["close"].to_numpy(dtype=float)
+            finite_close = np.isfinite(close_vals)
+            unusable = 0
+            for name, is_high in (("high", True), ("low", False)):
+                values = extremes[name].to_numpy(dtype=float)
+                bad = ~np.isfinite(values)
+                with np.errstate(invalid="ignore"):
+                    violates = (
+                        values < close_vals if is_high else values > close_vals
+                    )
+                unusable += int(np.count_nonzero(bad | (finite_close & violates)))
+            if unusable > 0:
+                warnings.append(
+                    "Data quality warning: "
+                    f"{unusable} high/low value(s) were non-finite or violated "
+                    "candle geometry and were replaced with the bar close; "
+                    "pivot placement near those bars is less reliable."
+                )
 
     close_col = "close" if "close" in df.columns else ("Close" if "Close" in df.columns else None)
     if close_col is not None:

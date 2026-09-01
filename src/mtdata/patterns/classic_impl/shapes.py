@@ -17,6 +17,7 @@ from .utils import (
     _fit_lines_and_arrays,
     _is_converging,
     _level_close,
+    _mask_boundaries_after_apex,
     _result,
     _robust_level_center,
     _tol_abs_from_close,
@@ -55,6 +56,11 @@ def _fit_line_bounded_shape(
     last_pivot = int(max(ih[-1], il[-1]))
     if not _boundaries_are_ordered(top, bot, start_idx=start_idx, end_idx=last_pivot):
         return None
+    # Ordering was only checked up to the last pivot, but the boundary arrays span
+    # the whole series and the breakout scan reads their trailing bars. For a
+    # converging shape whose apex lands after the last pivot, those bars are
+    # inverted, so blank them rather than test a breakout against crossed lines.
+    top, bot, apex_index = _mask_boundaries_after_apex(top, bot, start_idx=start_idx)
     tol_abs = _tol_abs_from_close(c, cfg.same_level_tol_pct)
     touches = _count_touches(
         top,
@@ -83,6 +89,7 @@ def _fit_line_bounded_shape(
         "start_index": start_idx,
         "tol_abs": tol_abs,
         "touches": touches,
+        "apex_index": apex_index,
     }
 
 
@@ -321,7 +328,6 @@ def detect_broadening(
     flat = _effective_flat_slope(c, cfg)
     diverging = (sh > flat and sl < -flat)
     if diverging:
-        conf = _conf(4, min(r2h, r2l), 1.0, cfg)
         x = np.arange(n, dtype=float)
         top = sh * x + bh
         bot = sl * x + bl
@@ -330,6 +336,19 @@ def detect_broadening(
         if not _boundaries_are_ordered(top, bot, start_idx=start_idx, end_idx=last_pivot):
             return out
         tol_abs = _tol_abs_from_close(c, cfg.same_level_tol_pct)
+        # Measured rather than the previous hardcoded 4, which always saturated
+        # _conf's touch term and made it a constant.
+        touches = _count_touches(
+            top,
+            bot,
+            ih,
+            il,
+            c,
+            tol_abs,
+            upper_source=upper_source,
+            lower_source=lower_source,
+        )
+        conf = _conf(touches, min(r2h, r2l), 1.0, cfg)
         status, conf, bdir, bidx = _classify_shape_breakout(
             c,
             upper=top,
@@ -402,7 +421,11 @@ def detect_diamonds(
         return out
 
     best: Optional[Dict[str, Any]] = None
-    min_slope = float(max(1e-6, float(cfg.max_flat_slope) * 2.0))
+    # A diamond boundary must be steeper than "flat", using the same price-scaled
+    # notion of flat as every other shape detector. The previous
+    # ``cfg.max_flat_slope * 2.0`` was an absolute price step, so on a 5000-level
+    # index it was orders of magnitude looser than the triangle/wedge gate.
+    min_slope = float(max(1e-6, _effective_flat_slope(seg, cfg)))
 
     upper_geometry = seg_h if bool(cfg.pivot_use_hl) else seg
     lower_geometry = seg_l if bool(cfg.pivot_use_hl) else seg

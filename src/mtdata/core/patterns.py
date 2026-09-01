@@ -121,8 +121,6 @@ def _should_drop_last_pattern_bar(
 def _materialize_denoise_for_detectors(
     df: pd.DataFrame,
     spec: Dict[str, Any],
-    *,
-    raw_ohlc: Optional[pd.DataFrame] = None,
 ) -> bool:
     """Copy suffixed denoise columns onto canonical OHLC for pattern detectors.
 
@@ -149,29 +147,40 @@ def _materialize_denoise_for_detectors(
             df[name] = df[candidate]
             if name == "close":
                 close_applied = True
-    if raw_ohlc is not None and all(
-        name in df.columns and name in raw_ohlc.columns
-        for name in ("open", "high", "low", "close")
-    ):
-        values = df[["open", "high", "low", "close"]].apply(
-            pd.to_numeric,
-            errors="coerce",
-        )
-        valid = (
-            np.isfinite(values).all(axis=1)
-            & (values["low"] <= values[["open", "close"]].min(axis=1))
-            & (values["high"] >= values[["open", "close"]].max(axis=1))
-        )
-        invalid = ~valid
-        if bool(invalid.any()):
-            df.loc[invalid, ["open", "high", "low", "close"]] = raw_ohlc.loc[
-                invalid,
-                ["open", "high", "low", "close"],
-            ]
-            df.attrs["pattern_denoise_geometry_fallback_rows"] = int(
-                invalid.sum()
-            )
     return close_applied
+
+
+def _require_full_ohlc_denoise_columns(
+    spec: Dict[str, Any],
+    *,
+    requested: Any,
+) -> Dict[str, Any]:
+    """Force OHLC-wide denoising, rejecting an explicitly partial column set.
+
+    ``normalize_denoise_spec`` defaults ``columns`` to ``["close"]``, which is
+    right for indicator inputs but wrong for candle geometry.
+    """
+    explicit_columns = isinstance(requested, dict) and "columns" in requested
+    if not explicit_columns:
+        out = dict(spec)
+        out["columns"] = "ohlc"
+        return out
+
+    selected = spec.get("columns")
+    if isinstance(selected, str):
+        complete = selected in {"ohlc", "ohlcv"}
+    else:
+        complete = {
+            str(column).strip().lower() for column in (selected or [])
+        }.issuperset({"open", "high", "low", "close"})
+    if not complete:
+        raise ValueError(
+            "Pattern denoising requires all OHLC columns; pass "
+            "denoise.columns='ohlc' or omit columns to use the pattern-safe "
+            "default. Smoothing a subset leaves the remaining prices raw, so "
+            "pivot geometry would come from bars that never existed."
+        )
+    return dict(spec)
 
 
 def _fetch_pattern_data(  # noqa: C901
@@ -313,28 +322,37 @@ def _fetch_pattern_data_after_select(  # noqa: C901
         try:
             dn = _normalize_denoise_spec(denoise, default_when='pre_ti')
             if dn:
-                raw_ohlc = df[
-                    [name for name in ("open", "high", "low", "close") if name in df.columns]
-                ].copy()
+                # Pivot geometry is read from open/high/low/close together.
+                # Smoothing only `close` (the spec default) leaves the extremes
+                # raw, so the smoothed close routinely falls outside its own
+                # candle and the row has to be reverted -- producing a series
+                # that alternates between raw and denoised precisely at the
+                # local extremes pivot detection keys on. Require the full set,
+                # matching the candlestick path.
+                dn = _require_full_ohlc_denoise_columns(dn, requested=denoise)
                 apply_denoise_util(df, dn)
-                df.attrs["pattern_denoise_applied"] = _materialize_denoise_for_detectors(
-                    df,
-                    dn,
-                    raw_ohlc=raw_ohlc,
+                df.attrs["pattern_denoise_applied"] = (
+                    _materialize_denoise_for_detectors(df, dn)
                 )
-                fallback_rows = int(
-                    df.attrs.get("pattern_denoise_geometry_fallback_rows", 0) or 0
+                df.attrs["pattern_denoise_effective_spec"] = dict(dn)
+                application = df.attrs.get("denoise_last_application")
+                repaired_rows = (
+                    int(application.get("ohlc_geometry_repaired") or 0)
+                    if isinstance(application, dict)
+                    else 0
                 )
-                if fallback_rows:
+                if repaired_rows:
                     warnings_out.append(
-                        "Used raw OHLC for "
-                        f"{fallback_rows} row(s) where partial denoising would have "
-                        "created invalid candle geometry."
+                        "Repaired denoised OHLC bounds on "
+                        f"{repaired_rows} row(s) before pattern detection."
                     )
         except Exception as exc:
             warning = f"Denoise failed for pattern detection on {symbol} {timeframe}; raw prices were used."
             logger.warning(warning, exc_info=True)
             warnings_out.append(f"{warning} {exc}")
+            # The echo of effective_denoise/preprocessing_causality is built from
+            # the request, so record the failure or it reads as a clean apply.
+            df.attrs["pattern_denoise_failed"] = str(exc)
     
     # Trim to requested limit
     if len(df) > int(limit):
@@ -466,6 +484,63 @@ def _patterns_detect_deps() -> PatternsDetectDeps:
     )
 
 
+def _attach_pattern_geometry_disclosure(
+    resp: Dict[str, Any],
+    df: pd.DataFrame,
+    *,
+    limit: Any = None,
+) -> None:
+    """Surface pivot-geometry degradation recorded by the detector prep step.
+
+    ``prepare_ohlc_pattern_inputs`` records close-only fallbacks, per-bar
+    extreme repairs and its own ``max_bars`` truncation on the frame. Without
+    this read the whole channel is dead and the response reports an analyzed bar
+    count it did not analyze.
+    """
+    if df is None:
+        return
+    fallback = getattr(df, "attrs", {}).get("pattern_ohlc_fallback")
+    if not isinstance(fallback, dict):
+        return
+    resp["pivot_geometry"] = dict(fallback)
+    messages: List[str] = []
+    if fallback.get("used_close_for_high") or fallback.get("used_close_for_low"):
+        messages.append(
+            "Pivot geometry used close prices for missing or mismatched "
+            "high/low columns; wick-based extremes were unavailable."
+        )
+    repaired = int(fallback.get("repaired_high_bars") or 0) + int(
+        fallback.get("repaired_low_bars") or 0
+    )
+    if repaired:
+        messages.append(
+            f"Substituted close for unusable high/low values on {repaired} "
+            "bar(s); pivot prominence on those bars is understated."
+        )
+    analyzed = fallback.get("analyzed_bars")
+    try:
+        requested = int(limit) if limit is not None else None
+    except (TypeError, ValueError):
+        requested = None
+    if (
+        isinstance(analyzed, int)
+        and requested is not None
+        and analyzed < requested
+    ):
+        messages.append(
+            f"Only the most recent {analyzed} of {requested} requested bars "
+            "were analyzed; the detector caps its input window (config "
+            "max_bars)."
+        )
+        resp["analyzed_bars"] = int(analyzed)
+    if messages:
+        existing = resp.setdefault("warnings", [])
+        if isinstance(existing, list):
+            for message in messages:
+                if message not in existing:
+                    existing.append(message)
+
+
 def _build_pattern_response(  # noqa: C901
     symbol: str,
     timeframe: str,
@@ -478,6 +553,7 @@ def _build_pattern_response(  # noqa: C901
     df: pd.DataFrame,
     detail: PatternsDetailLiteral = "compact",
     top_k: int = 8,
+    include_stale: bool = False,
 ) -> Dict[str, Any]:
     """Build the response dict for pattern detection results."""
     mode_value = str(mode).lower()
@@ -488,12 +564,23 @@ def _build_pattern_response(  # noqa: C901
         include_completed or mode_value in {"candlestick", "harmonic"}
     )
     # Filter patterns based on include_completed
-    filtered = _visible_pattern_rows(patterns, include_completed=include_completed)
+    filtered = _visible_pattern_rows(
+        patterns,
+        include_completed=include_completed,
+        include_stale=include_stale,
+    )
     hidden_status = "broken" if str(mode).lower() == "fractal" else "completed"
     completed_hidden = (
         0
         if include_completed
         else _count_patterns_with_status(patterns, hidden_status)
+    )
+    # Stale rows were hidden by the allowlist above but never counted, so the
+    # disclosed hidden total understated what was withheld.
+    stale_hidden = (
+        0
+        if include_completed or include_stale
+        else _count_patterns_with_status(patterns, "stale")
     )
     elliott_preview = (
         _elliott_completed_preview(patterns, timeframe=timeframe)
@@ -545,6 +632,16 @@ def _build_pattern_response(  # noqa: C901
                 )
             )
         )
+    if stale_hidden > 0:
+        resp["stale_levels_hidden"] = int(stale_hidden)
+        stale_note = (
+            f"{int(stale_hidden)} stale fractal level(s) hidden; set "
+            "config.include_stale_levels=true to include them."
+        )
+        existing_note = resp.get("note")
+        resp["note"] = (
+            f"{existing_note} {stale_note}" if existing_note else stale_note
+        )
     if str(mode).lower() == "elliott" and int(len(filtered)) == 0:
         if completed_hidden > 0:
             resp["diagnostic"] = (
@@ -560,7 +657,15 @@ def _build_pattern_response(  # noqa: C901
                 "You can also increase lookback or focus on a clearer trending segment."
             )
     if str(mode).lower() != "elliott" and int(len(filtered)) == 0 and "note" not in resp:
-        resp["note"] = _empty_patterns_note(mode, limit, timeframe)
+        # Without observed_bars the note asserts a pattern-absence conclusion
+        # over bars that were never fetched, and recommends more lookback when
+        # short history is the actual constraint.
+        resp["note"] = _empty_patterns_note(
+            mode,
+            limit,
+            timeframe,
+            observed_bars=int(len(df)) if df is not None else None,
+        )
     
     # Add data freshness metadata for high timeframes with ancient patterns
     # For MN1 (monthly) and W1 (weekly), check if patterns are very old
@@ -573,8 +678,13 @@ def _build_pattern_response(  # noqa: C901
         for pattern in filtered:
             try:
                 if "end_date" in pattern:
-                    # Pattern end_date is a string like "2011-08-31 21:00"
-                    end_date_str = str(pattern.get("end_date", ""))
+                    # Pattern end_date is a string like "2011-08-31 21:00".
+                    # An unresolved date must not become the string "None",
+                    # which is truthy and then breaks the year parse below.
+                    end_date_raw = pattern.get("end_date")
+                    end_date_str = (
+                        str(end_date_raw) if end_date_raw is not None else ""
+                    )
                     if end_date_str and oldest_pattern_time is None:
                         oldest_pattern_time = end_date_str
                         newest_pattern_time = end_date_str
@@ -644,6 +754,8 @@ def _build_pattern_response(  # noqa: C901
                 for warning_text in filtered_warnings:
                     if warning_text not in resp["warnings"]:
                         resp["warnings"].append(warning_text)
+
+    _attach_pattern_geometry_disclosure(resp, df, limit=limit)
     
     # Include series data if requested
     if include_series:
@@ -1664,6 +1776,7 @@ def _track_pattern_data_deps(
     request: "PatternsDetectRequest",
     deps: "PatternsDetectDeps",
     freshness_by_timeframe: Dict[str, Dict[str, Any]],
+    denoise_outcome: Optional[Dict[str, Any]] = None,
 ) -> "PatternsDetectDeps":
     fetch_pattern_data = deps.fetch_pattern_data
     detect_candlestick_patterns = deps.detect_candlestick_patterns
@@ -1671,6 +1784,16 @@ def _track_pattern_data_deps(
     def _tracked_fetch_pattern_data(*args: Any, **kwargs: Any) -> Any:
         frame, error = fetch_pattern_data(*args, **kwargs)
         timeframe = args[1] if len(args) > 1 else kwargs.get("timeframe")
+        if denoise_outcome is not None and isinstance(frame, pd.DataFrame):
+            # The response echoes effective_denoise from the request, which is a
+            # false claim when normalization raised and raw prices were used.
+            failure = frame.attrs.get("pattern_denoise_failed")
+            if failure:
+                denoise_outcome["failed"] = str(failure)
+            effective_spec = frame.attrs.get("pattern_denoise_effective_spec")
+            if isinstance(effective_spec, dict):
+                denoise_outcome.setdefault("spec", dict(effective_spec))
+                denoise_outcome["applied"] = True
         if (
             error is None
             and isinstance(frame, pd.DataFrame)
@@ -1953,10 +2076,12 @@ def patterns_detect(
         )
         effective_request = request.model_copy(update={"symbol": resolved_symbol})
         freshness_by_timeframe: Dict[str, Dict[str, Any]] = {}
+        denoise_outcome: Dict[str, Any] = {}
         deps = _track_pattern_data_deps(
             effective_request,
             _patterns_detect_deps(),
             freshness_by_timeframe,
+            denoise_outcome,
         )
         result = run_patterns_detect(effective_request, deps)
         if isinstance(result, dict) and "error" not in result:
@@ -1969,15 +2094,33 @@ def patterns_detect(
             )
             result.setdefault("timezone", "UTC")
             if request.denoise is not None:
-                effective_denoise = (
+                requested_denoise = (
                     request.denoise.model_dump(exclude_none=True)
                     if hasattr(request.denoise, "model_dump")
                     else dict(request.denoise)
                 )
-                causality = str(effective_denoise.get("causality") or "causal")
-                result["effective_denoise"] = effective_denoise
-                result["preprocessing_causality"] = causality
-                result["denoise_lookahead_bias"] = causality == "zero_phase"
+                denoise_failure = denoise_outcome.get("failed")
+                if denoise_failure:
+                    # Raw prices were analyzed, so claiming a causal denoise was
+                    # applied would invert the truth for a machine consumer.
+                    result["effective_denoise"] = None
+                    result["requested_denoise"] = requested_denoise
+                    result["denoise_applied"] = False
+                    result["denoise_error"] = str(denoise_failure)
+                    result["preprocessing_causality"] = "raw_prices"
+                    result["denoise_lookahead_bias"] = False
+                    causality = "raw_prices"
+                else:
+                    effective_denoise = (
+                        denoise_outcome.get("spec") or requested_denoise
+                    )
+                    causality = str(effective_denoise.get("causality") or "causal")
+                    result["effective_denoise"] = effective_denoise
+                    result["denoise_applied"] = bool(
+                        denoise_outcome.get("applied", True)
+                    )
+                    result["preprocessing_causality"] = causality
+                    result["denoise_lookahead_bias"] = causality == "zero_phase"
                 if causality == "zero_phase":
                     result.setdefault("warnings", []).append(
                         "Zero-phase denoising uses future bars within the requested window; "
@@ -1987,10 +2130,14 @@ def patterns_detect(
                     def _qualify_causality(value: Any) -> None:
                         if isinstance(value, dict):
                             basis = value.get("status_basis")
-                            if isinstance(basis, str) and basis.startswith("causal"):
+                            # Only classic/elliott/fractal bases start with
+                            # "causal"; harmonic's is confirmation-based, so a
+                            # prefix test left its rows unqualified.
+                            if isinstance(basis, str) and basis:
                                 value["status_basis"] = (
                                     "retrospective_zero_phase_preprocessing"
                                 )
+                                value.setdefault("status_basis_before_denoise", basis)
                             for child in value.values():
                                 _qualify_causality(child)
                         elif isinstance(value, list):

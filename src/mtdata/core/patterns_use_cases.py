@@ -125,6 +125,25 @@ def _all_mode_fetch_limit(timeframe: str, user_limit: int) -> int:
 
 _ALL_MODE_SECTION_KEYS = ("classic", "elliott", "fractal", "harmonic", "candlestick")
 
+# Candlestick-only parameters that carry non-None defaults, so "was it supplied"
+# has to be answered by comparing against the model default.
+_CANDLESTICK_ONLY_DEFAULTS: Dict[str, Any] = {
+    "min_strength": 0.70,
+    "min_gap": 3,
+    "robust_only": False,
+}
+
+
+def _request_field_default(name: str) -> Any:
+    """Default for a request field, read from the model where possible."""
+    try:
+        from .patterns_requests import PatternsDetectRequest
+
+        field = PatternsDetectRequest.model_fields[name]
+        return field.default
+    except Exception:
+        return _CANDLESTICK_ONLY_DEFAULTS.get(name)
+
 
 def _section_config(
     config: Optional[Dict[str, Any]],
@@ -411,10 +430,39 @@ def _all_mode_invalid_config_keys(
     fractal_invalid_set = {str(key) for key in fractal_invalid}
     harmonic_invalid_set = {str(key) for key in harmonic_invalid}
 
+    section_cfgs = {
+        "classic": classic_cfg,
+        "elliott": elliott_cfg,
+        "fractal": fractal_cfg,
+        "harmonic": harmonic_cfg,
+    }
+
     out: List[str] = []
-    for key in config.keys():
+    for key, value in config.items():
         key_str = str(key)
         if key_str in _CLASSIC_CONFIG_EXTRA_KEYS or key_str in _FRACTAL_CONFIG_EXTRA_KEYS:
+            continue
+        if key_str in _ALL_MODE_SECTION_KEYS:
+            # A section name is the documented namespacing mechanism, not a
+            # detector field. Validate what it contains against that detector
+            # only; reporting the section name itself as unknown made
+            # {"harmonic": {...}} fail the harmonic and fractal sections.
+            section_cfg = section_cfgs.get(key_str)
+            if section_cfg is None or not isinstance(value, dict):
+                continue
+            section_extra = (
+                _CLASSIC_CONFIG_EXTRA_KEYS
+                if key_str == "classic"
+                else _FRACTAL_CONFIG_EXTRA_KEYS
+                if key_str == "fractal"
+                else set()
+            )
+            for nested_key in value.keys():
+                nested_str = str(nested_key)
+                if nested_str in section_extra:
+                    continue
+                if not hasattr(section_cfg, nested_str):
+                    out.append(f"{key_str}.{nested_str}")
             continue
         if key_str not in known_keys:
             out.append(key_str)
@@ -522,6 +570,33 @@ def run_patterns_detect(  # noqa: C901
         return {
             "error": "last_n_bars applies only to mode='candlestick' or mode='all'."
         }
+    # These three reach detect_candlestick_patterns and nothing else. They have
+    # non-None defaults, so gate on "differs from the default" to avoid breaking
+    # callers that pass the default explicitly.
+    if mode_value not in {"candlestick", "all"}:
+        for name in ("min_strength", "min_gap", "robust_only"):
+            received = getattr(request, name, None)
+            default = _request_field_default(name)
+            if received is None or received == default:
+                continue
+            return {
+                "success": False,
+                "error": (
+                    f"{name} applies only to mode='candlestick' or mode='all'."
+                ),
+                "error_code": "incompatible_parameters",
+                "details": {
+                    "parameter": name,
+                    "received": received,
+                    "mode": mode_value,
+                },
+                "remediation": (
+                    f"Remove {name} for this mode, or set mode='candlestick'. "
+                    "Classic, harmonic, fractal and elliott modes apply their "
+                    "own mode-specific confidence rules via config."
+                ),
+                "example": "--mode candlestick --min-strength 0.9",
+            }
 
     def _fetch_pattern_frame(
         timeframe: str,
@@ -637,9 +712,20 @@ def run_patterns_detect(  # noqa: C901
                 "applied_last_n_bars",
                 "top_k_contract",
                 "timezone",
+                # Trust and provenance fields belong at every detail level. The
+                # detail knob trades away per-row diagnostics, not the signals
+                # that tell a caller the result is degraded.
+                "warnings",
+                "data_quality",
+                "candles",
+                "effective_window",
             ):
                 if isinstance(compact_src, dict) and compact_src.get(key) not in (None, ""):
                     summary_out[key] = compact_src[key]
+            for key in ("warnings", "data_quality", "candles", "effective_window"):
+                if key not in summary_out and isinstance(out, dict):
+                    if out.get(key) not in (None, ""):
+                        summary_out[key] = out[key]
             if isinstance(out, dict) and out.get("note"):
                 summary_out["note"] = out["note"]
             return summary_out
@@ -862,13 +948,17 @@ def run_patterns_detect(  # noqa: C901
                     price_point=vp_payload.get("price_point") or vp_payload.get("bucket_size"),
                     price_key="level_price",
                 )
+        # The detector's own opt-in; without honouring it here the flag is a
+        # no-op unless include_completed is also set.
+        include_stale = bool(getattr(cfg, "include_stale_levels", False))
+        visible_statuses = {"active"} | ({"stale"} if include_stale else set())
         visible_rows = (
             list(out_list)
             if request.include_completed
             else [
                 row
                 for row in out_list
-                if str(row.get("status", "")).strip().lower() == "active"
+                if str(row.get("status", "")).strip().lower() in visible_statuses
             ]
         )
         resp = deps.build_pattern_response(
@@ -883,6 +973,7 @@ def run_patterns_detect(  # noqa: C901
             df,
             detail=detail_value,
             top_k=request.top_k,
+            include_stale=include_stale,
         )
         fractal_context = deps.summarize_fractal_context(visible_rows)
         if fractal_context:
@@ -1266,7 +1357,12 @@ def run_patterns_detect(  # noqa: C901
             harmonic_invalid=harmonic_invalid,
         )
         if all_unapplied_keys:
+            # Every detector that could have owned the key must report it.
+            # Restricting this to fractal and harmonic let a misspelling fail
+            # those two while classic and elliott ignored it silently.
             cfgs_by_section = {
+                "classic": classic_cfg,
+                "elliott": elliott_cfg,
                 "fractal": fractal_cfg,
                 "harmonic": harmonic_cfg,
             }
@@ -1280,7 +1376,15 @@ def run_patterns_detect(  # noqa: C901
                 section_keys = [
                     key
                     for key in all_unapplied_keys
-                    if hasattr(section_cfg, str(key)) or str(key) not in all_known_keys
+                    # A "section.field" key belongs only to that section.
+                    if str(key).startswith(f"{section_name}.")
+                    or (
+                        "." not in str(key)
+                        and (
+                            hasattr(section_cfg, str(key))
+                            or str(key) not in all_known_keys
+                        )
+                    )
                 ]
                 if section_keys:
                     msg = f"Invalid config key(s): {section_keys}"
@@ -1374,7 +1478,12 @@ def run_patterns_detect(  # noqa: C901
                 )
                 if isinstance(candle_result, dict) and not candle_result.get("error"):
                     rows = candle_result.get("data", [])
-                    candle_bars = candle_result.get("candles")
+                    # end_index is an index into the warmup-inclusive frame, so
+                    # scaling recency by the shorter reported `candles` clamped
+                    # bars_ago to 0 for every pattern inside the warmup span.
+                    candle_bars = candle_result.get(
+                        "index_frame_bars", candle_result.get("candles")
+                    )
                     if isinstance(rows, list):
                         for row in rows:
                             if isinstance(row, dict):

@@ -68,13 +68,11 @@ class ElliottWaveConfig:
         default_factory=lambda: [0.30, 0.35, 0.20, 0.15]
     )
 
-    # Hybrid confidence blending. Each rule/classifier pair is renormalized
-    # before use so callers can express relative preference without manually
-    # forcing the weights to sum to 1.0.
-    impulse_rule_weight: float = 0.65
-    impulse_cls_weight: float = 0.35
-    correction_rule_weight: float = 0.60
-    correction_cls_weight: float = 0.40
+    # NOTE: there is deliberately no rule/classifier confidence blend. Scenario
+    # confidence is the rule-based structural score, adjusted only by pivot
+    # confirmation; ``cls_score`` is reported for inspection but never mixed in.
+    # The former impulse_/correction_ rule_weight and cls_weight knobs were
+    # removed rather than left accepted-and-ignored.
     use_regime_context: bool = True
     regime_window_bars: int = 160
     regime_trend_strength_threshold: float = 1.25
@@ -94,8 +92,9 @@ class ElliottWaveConfig:
     # Analyzer controls
     min_confidence: float = 0.0
     min_structural_score: float = 0.25
-    unconfirmed_pattern_penalty: float = 0.12
-    unconfirmed_terminal_pivot_penalty: float = 0.10
+    # An unconfirmed pattern is handled by scaling confidence with this cap, not
+    # by subtracting a penalty; the former additive unconfirmed_pattern_penalty
+    # and unconfirmed_terminal_pivot_penalty knobs were unread and are removed.
     unconfirmed_terminal_pivot_confidence_cap: float = 0.72
     top_k: int = 10
     include_fallback_candidate: bool = True
@@ -430,13 +429,19 @@ def _ohlc_zigzag_pivots_indices(
     return pivots, directions
 
 
-def _enforce_min_distance_on_pivots(
+def _enforce_min_distance_on_pivots_with_settlement(
     pivots: List[int], close: np.ndarray, min_distance: int
-) -> List[int]:
-    """Ensure pivots are monotonic and separated by at least min_distance bars."""
+) -> Tuple[List[int], Dict[int, int]]:
+    """Space pivots by ``min_distance``, reporting when each choice was settled.
 
+    Returns ``(kept_pivots, settled_at_by_pivot)``. A pivot inside the spacing
+    window can be displaced by a later, larger-move pivot, so the surviving
+    pivot is not knowable at its own bar -- only once the competing bar has been
+    seen and rejected. Callers need that index or a downstream availability
+    claim understates when the pivot set became stable.
+    """
     if not pivots:
-        return []
+        return [], {}
 
     md = int(max(1, min_distance))
     sorted_unique: List[int] = []
@@ -450,25 +455,43 @@ def _enforce_min_distance_on_pivots(
             continue
 
     if not sorted_unique:
-        return []
+        return [], {}
     if len(sorted_unique) <= 1:
-        return sorted_unique
+        return sorted_unique, {sorted_unique[0]: sorted_unique[0]}
 
     out = [sorted_unique[0]]
+    settled: Dict[int, int] = {sorted_unique[0]: sorted_unique[0]}
     for idx in sorted_unique[1:]:
         prev = out[-1]
         if idx - prev >= md:
             out.append(idx)
+            settled[idx] = idx
             continue
         # Keep the earlier origin. Replacing it shifts a 1-5 count off wave 0.
         if len(out) == 1:
+            # The origin survived a challenge, which is only known at ``idx``.
+            settled[prev] = max(settled.get(prev, prev), idx)
             continue
         anchor = out[-2]
         old_move = abs(float(close[prev]) - float(close[anchor]))
         new_move = abs(float(close[idx]) - float(close[anchor]))
         if new_move >= old_move:
             out[-1] = idx
-    return out
+            settled.pop(prev, None)
+            settled[idx] = idx
+        else:
+            settled[prev] = max(settled.get(prev, prev), idx)
+    return out, {key: settled[key] for key in out if key in settled}
+
+
+def _enforce_min_distance_on_pivots(
+    pivots: List[int], close: np.ndarray, min_distance: int
+) -> List[int]:
+    """Ensure pivots are monotonic and separated by at least min_distance bars."""
+    kept, _ = _enforce_min_distance_on_pivots_with_settlement(
+        pivots, close, min_distance
+    )
+    return kept
 
 
 def _enforce_pivot_alternation(pivots: List[int], close: np.ndarray) -> List[int]:
@@ -528,6 +551,7 @@ def _build_pivot_records(
     low: Optional[np.ndarray] = None,
     kinds: Optional[Dict[int, str]] = None,
     prices: Optional[Dict[int, float]] = None,
+    settled_at: Optional[Dict[int, int]] = None,
 ) -> List[ElliottPivot]:
     """Attach the first bar that made each geometric pivot causally knowable."""
     records: List[ElliottPivot] = []
@@ -579,6 +603,13 @@ def _build_pivot_records(
             if reversal >= threshold:
                 confirmation_index = int(bar)
                 break
+        # A pivot that only survived min-distance spacing once a later
+        # competing bar was rejected is not knowable before that bar, even if
+        # its price reversal confirmed earlier.
+        if confirmation_index is not None and isinstance(settled_at, dict):
+            settle_bar = settled_at.get(int(idx))
+            if settle_bar is not None:
+                confirmation_index = max(int(confirmation_index), int(settle_bar))
         records.append(
             ElliottPivot(
                 index=int(idx),
@@ -1729,7 +1760,9 @@ class ElliottWaveAnalyzer:
             int(idx): float(geometry[int(idx)])
             for idx in piv_idx
         }
-        piv_idx = _enforce_min_distance_on_pivots(piv_idx, geometry, min_distance)
+        piv_idx, settled_at = _enforce_min_distance_on_pivots_with_settlement(
+            piv_idx, geometry, min_distance
+        )
         piv_idx = _enforce_pivot_alternation(piv_idx, geometry)
         piv_idx = _enforce_kind_alternation(
             piv_idx, kind_by_index, price_by_index
@@ -1743,6 +1776,7 @@ class ElliottWaveAnalyzer:
             low=self.low if self._normalized_pivot_price_source() == "ohlc" else None,
             kinds=kind_by_index,
             prices=price_by_index,
+            settled_at=settled_at,
         )
         if self._normalized_pivot_price_source() == "close":
             from dataclasses import replace as _replace_pivot
@@ -2071,7 +2105,7 @@ class ElliottWaveAnalyzer:
         )
         pattern_confirmed = bool(all(confirmations)) if confirmations else True
         terminal_confirmed = bool(confirmations[-1]) if confirmations else True
-        available_at_index = end_index
+        confirmation_available_index = end_index
         if records and all(record.confirmed for record in records):
             confirmed_at = [
                 int(record.confirmation_index)
@@ -2079,9 +2113,20 @@ class ElliottWaveAnalyzer:
                 if record.confirmation_index is not None
             ]
             if confirmed_at:
-                available_at_index = max(confirmed_at)
+                confirmation_available_index = max(confirmed_at)
         elif self.close.size:
-            available_at_index = int(self.close.size - 1)
+            confirmation_available_index = int(self.close.size - 1)
+        # Pivot thresholds and spacing are whole-window statistics, and under the
+        # default scale_mode="auto" the scale itself is derived from the whole
+        # requested window. Truncating history at the confirmation-derived index
+        # reproduces the same structure only a minority of the time, so the only
+        # index at which this result is guaranteed reproducible is the right
+        # edge. The confirmation figure is retained below as an estimate.
+        right_edge_index = int(self.close.size - 1) if self.close.size else end_index
+        available_at_index = right_edge_index
+        earliest_possible_index_estimate = min(
+            right_edge_index, int(confirmation_available_index)
+        )
         invalidation_level = float(pivot_prices[0]) if pivot_prices else None
         sequence_direction = "bull" if scenario.bullish else "bear"
         rule_confidence = _rule_confidence_from_eval(scenario.rule_eval)
@@ -2144,6 +2189,19 @@ class ElliottWaveAnalyzer:
             "available_at_index": int(available_at_index),
             "available_at_time": PatternResultBase.resolve_time(
                 self.times, int(available_at_index)
+            ),
+            "available_at_index_basis": "input_window_right_edge",
+            "earliest_possible_index_estimate": int(
+                earliest_possible_index_estimate
+            ),
+            "earliest_possible_index_caveat": (
+                "Heuristic only, not safe for backtest entry timing. Derived "
+                "from per-pivot price confirmation, but ZigZag pivot selection, "
+                "min-distance spacing and (under scale_mode='auto') the swing "
+                "scale itself are all measured across the whole requested "
+                "window, so a later bar can still add, remove or move a pivot. "
+                "Re-run over a truncated window to establish genuine "
+                "point-in-time availability."
             ),
             "status_basis": (
                 "causal_confirmation_given_terminal_scale"
@@ -2320,14 +2378,41 @@ class ElliottWaveAnalyzer:
         if conf < float(self.config.min_confidence):
             return None
 
-        fallback_kinds = {
-            int(idx): (
+        # Prefer the kind the pivot detector actually assigned. Re-deriving it
+        # from sequence parity assumes the window starts on the leg the parity
+        # implies; when it does not, every kind flips, and because the prices
+        # below are selected by kind under OHLC geometry, the reported wave
+        # points and invalidation level come from the wrong extreme.
+        detected_kinds = {
+            int(record.index): str(record.kind)
+            for record in self._pivot_record_cache.get(
+                (float(thr_cand), int(max(1, min_distance))), []
+            )
+            if str(record.kind) in {"peak", "trough"}
+        }
+        fallback_kinds: Dict[int, str] = {}
+        for pos, idx in enumerate(piv_seq):
+            key = int(idx)
+            detected = detected_kinds.get(key)
+            if detected is not None:
+                fallback_kinds[key] = detected
+                continue
+            # The appended terminal bar is not a detected pivot. Derive it by
+            # alternation from its predecessor, falling back to the direction of
+            # the closing leg.
+            if pos > 0:
+                previous = fallback_kinds.get(int(piv_seq[pos - 1]))
+                if previous in {"peak", "trough"}:
+                    fallback_kinds[key] = (
+                        "trough" if previous == "peak" else "peak"
+                    )
+                    continue
+            reference = int(piv_seq[pos - 1]) if pos > 0 else key
+            fallback_kinds[key] = (
                 "peak"
-                if ((pos % 2 == 1) if bullish else (pos % 2 == 0))
+                if float(self.close[key]) >= float(self.close[reference])
                 else "trough"
             )
-            for pos, idx in enumerate(piv_seq)
-        }
         fallback_prices = {
             int(idx): float(
                 self.high[int(idx)]

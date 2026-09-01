@@ -59,11 +59,25 @@ class TestBuildPatternResponse:
         assert resp["mode"] == "classic"
 
     def test_empty_compact_response_adds_note(self):
-        resp = self._call(detail="compact", patterns=[])
+        resp = self._call(detail="compact", patterns=[], limit=100)
 
         assert resp["note"] == (
-            "No classic patterns detected in 500 H1 bars. "
+            "No classic patterns detected in 100 H1 bars. "
             "Try increasing lookback or relaxing mode-specific thresholds."
+        )
+
+    def test_empty_note_reports_short_history_for_classic_mode(self):
+        """A 100-bar frame cannot support an absence claim over 500 bars.
+
+        The note was previously only history-aware in candlestick mode, so other
+        modes recommended more lookback when short history was the constraint.
+        """
+        resp = self._call(detail="compact", patterns=[], limit=500)
+
+        assert resp["note"] == (
+            "Only 100 of 500 requested H1 bars were available; no reliable "
+            "pattern-absence conclusion was made. Choose a more populated date "
+            "range or verify source history."
         )
 
     def test_compact_rounds_confidence_noise(self):

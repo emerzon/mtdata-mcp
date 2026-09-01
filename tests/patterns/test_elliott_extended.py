@@ -1149,8 +1149,6 @@ class TestDetectElliottWaves:
                 min_confidence=0.0,
                 pattern_types=["impulse"],
                 include_fallback_candidate=False,
-                impulse_rule_weight=0.2,
-                impulse_cls_weight=0.8,
             ),
         )
 
@@ -1183,8 +1181,6 @@ class TestDetectElliottWaves:
 
     def test_apply_confirmation_confidence_adjustments_caps_unconfirmed_terminal(self):
         cfg = ElliottWaveConfig(
-            unconfirmed_pattern_penalty=0.12,
-            unconfirmed_terminal_pivot_penalty=0.10,
             unconfirmed_terminal_pivot_confidence_cap=0.72,
         )
 

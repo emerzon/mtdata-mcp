@@ -13,12 +13,23 @@ from .utils import (
     _find_forward_level_breakout,
     _fit_line,
     _level_close,
+    _neckline_break_lookahead,
     _paa,
     _result,
+    _stable_r2,
     _template_hs_variants,
     _tol_abs_from_close,
     _znorm,
 )
+
+# A rounding turn must be broad, which separates a saucer from a V that happens
+# to fit a parabola well. ``_ROUNDING_TURN_BAND`` is the share of the window's
+# amplitude counted as "near the extreme"; ``_ROUNDING_MIN_TURN_SHARE`` is the
+# share of bars that must sit inside it. For y=|x|^p the share is
+# band**(1/p), so a 0.25 band gives 0.50 for a parabola and 0.25 for a linear V;
+# the threshold sits between the two.
+_ROUNDING_TURN_BAND = 0.25
+_ROUNDING_MIN_TURN_SHARE = 0.35
 
 
 def _dedupe_overlapping_patterns(
@@ -214,7 +225,9 @@ def detect_tops_bottoms(
                     kind,
                 )
                 direction = "down" if kind == "top" else "up"
-                breakout_look = max(int(cfg.completion_lookback_bars), int(max(1, cfg.breakout_lookahead)))
+                breakout_look = _neckline_break_lookahead(
+                    cfg, n=int(c.size), start_idx=end_i
+                )
                 break_i = _find_forward_level_breakout(
                     c,
                     end_i,
@@ -301,6 +314,15 @@ def detect_head_shoulders(  # noqa: C901
     trough_candidates = troughs[-pivot_cap:] if troughs.size > pivot_cap else troughs
     peak_list = [int(v) for v in peak_candidates.tolist()]
     trough_list = [int(v) for v in trough_candidates.tolist()]
+
+    # Shoulder similarity gets its own budget: same_level_tol_pct is calibrated for
+    # horizontal double tops, and reusing it rejected shoulders a few percent apart.
+    shoulder_tol_pct = float(
+        max(
+            tol_pct * 1.5,
+            getattr(cfg, "head_shoulders_max_shoulder_mismatch_pct", 4.0),
+        )
+    )
 
     def _append_pattern(
         *,
@@ -420,11 +442,18 @@ def detect_head_shoulders(  # noqa: C901
             else:
                 base_conf = min(1.0, base_conf + 0.1)
 
+        # The fitted neckline is a line, but the measured-move helper downstream
+        # needs a level. Evaluate it at the bar that matters: the breakout if
+        # there is one, otherwise the right shoulder.
+        neckline_at = int(break_i) if break_i is not None else int(rsh)
+        neckline_level = float(slope * float(neckline_at) + intercept)
         details = {
             'left_shoulder': float(ls_p),
             'right_shoulder': float(rs_p),
             'head': float(head_price),
             'neckline_source': 'troughs' if regular else 'peaks',
+            'neckline': neckline_level if np.isfinite(neckline_level) else None,
+            'neckline_index': neckline_at,
             'neck_slope': float(slope),
             'neck_intercept': float(intercept),
             'neck_r2': float(r2),
@@ -460,7 +489,7 @@ def detect_head_shoulders(  # noqa: C901
         rs_p = float(upper_source[rsh])
         if not ((ls_p < head_price) and (rs_p < head_price)):
             continue
-        if not _level_close(ls_p, rs_p, tol_pct * 1.5):
+        if not _level_close(ls_p, rs_p, shoulder_tol_pct):
             continue
         nl1_candidates = [ti for ti in trough_list if lsh < ti < head_idx]
         nl2_candidates = [ti for ti in trough_list if head_idx < ti < rsh]
@@ -492,7 +521,7 @@ def detect_head_shoulders(  # noqa: C901
         rs_p = float(lower_source[rsh])
         if not ((ls_p > head_price) and (rs_p > head_price)):
             continue
-        if not _level_close(ls_p, rs_p, tol_pct * 1.5):
+        if not _level_close(ls_p, rs_p, shoulder_tol_pct):
             continue
         nl1_candidates = [pi for pi in peak_list if lsh < pi < head_idx]
         nl2_candidates = [pi for pi in peak_list if head_idx < pi < rsh]
@@ -546,6 +575,17 @@ def detect_rounding(
         if not (-0.55 <= xv <= 0.55):
             continue
 
+        # Nothing above requires the price path to actually be rounded. Without a
+        # fit gate a flat series with one spike scores as a high-confidence
+        # Rounding Bottom, because the only other shape test is amplitude.
+        seg_f = seg.astype(float)
+        fitted = np.polyval((qa, qb, qc), x)
+        ss_res = float(np.sum((seg_f - fitted) ** 2))
+        ss_tot = float(np.sum((seg_f - float(np.mean(seg_f))) ** 2))
+        quad_r2 = _stable_r2(ss_res, ss_tot)
+        if quad_r2 < float(cfg.min_r2):
+            continue
+
         edge_n = max(6, W // 10)
         left_edge = float(np.mean(seg[:edge_n]))
         right_edge = float(np.mean(seg[-edge_n:]))
@@ -556,6 +596,22 @@ def detect_rounding(
         trough = float(np.min(seg))
         amp_pct = abs(peak - trough) / max(1e-9, abs((peak + trough) / 2.0)) * 100.0
         if amp_pct < 2.0:
+            continue
+
+        # A sharp V fits a parabola well (high R^2) yet is not a rounding: it
+        # reaches its extreme in one or two bars. Require the turn itself to be
+        # broad, measured as the share of bars sitting near the extreme.
+        amp_abs = abs(peak - trough)
+        if amp_abs <= 1e-12:
+            continue
+        near_extreme = (
+            (seg_f - trough) <= _ROUNDING_TURN_BAND * amp_abs
+            if qa > 0
+            else (peak - seg_f) <= _ROUNDING_TURN_BAND * amp_abs
+        )
+        turn_width = int(np.count_nonzero(near_extreme))
+        min_turn_width = max(3, int(round(W * _ROUNDING_MIN_TURN_SHARE)))
+        if turn_width < min_turn_width:
             continue
 
         tol_abs = _tol_abs_from_close(c, cfg.same_level_tol_pct)
@@ -577,18 +633,28 @@ def detect_rounding(
             )
             bias = "bearish"
 
-        conf = min(1.0, 0.5 + 0.3 * min(1.0, amp_pct / 12.0))
+        # Blend fit quality with amplitude. Scoring on amplitude alone rewarded
+        # the worst fits, since a violent spike has the largest amplitude.
+        amp_component = min(1.0, amp_pct / 12.0)
+        conf = min(
+            1.0,
+            0.4
+            + 0.35 * float(np.clip(quad_r2, 0.0, 1.0))
+            + 0.2 * amp_component,
+        )
         candidate = _result(
             name,
             status,
             conf,
             int(n - W - 1),
-            int(n - 2),
+            int(n - 1),
             t,
             {
                 "quad_a": float(qa),
                 "quad_b": float(qb),
                 "vertex_x_norm": float(xv),
+                "quad_r2": float(quad_r2),
+                "turn_width_bars": int(turn_width),
                 "left_edge": left_edge,
                 "right_edge": right_edge,
                 "amplitude_pct": float(amp_pct),

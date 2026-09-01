@@ -6,11 +6,13 @@ from .config import ClassicDetectorConfig, ClassicPatternResult
 from .utils import (
     _apply_breakout_confidence_bonus,
     _conf,
+    _count_touches,
     _detect_pivots_close,
     _find_forward_level_breakout,
     _find_recent_breakout,
     _fit_lines_and_arrays,
     _level_close,
+    _neckline_break_lookahead,
     _result,
     _tol_abs_from_close,
 )
@@ -137,10 +139,23 @@ def detect_flags_pennants(
         name = "Flag"
 
     if name:
-        conf = _conf(4, min(r2h, r2l), 1.0, cfg)
         titled = ("Bull " + name) if ret > 0 else ("Bear " + name)
         status = "forming"
         tol_abs = _tol_abs_from_close(consolidation_seg, cfg.same_level_tol_pct)
+        # A hardcoded 4 saturated _conf's touch term at every call, so the touch
+        # component was always 1.0 regardless of how the boundaries were actually
+        # respected. Measure it instead.
+        touches = _count_touches(
+            top,
+            bot,
+            peaks2,
+            troughs2,
+            consolidation_seg,
+            tol_abs,
+            upper_source=consolidation_h,
+            lower_source=consolidation_l,
+        )
+        conf = _conf(touches, min(r2h, r2l), 1.0, cfg)
         breakout_look = max(int(cfg.completion_lookback_bars), int(max(1, cfg.breakout_lookahead)))
         bdir, bidx_local = _find_recent_breakout(
             consolidation_seg,
@@ -275,8 +290,10 @@ def _detect_cup_handle_window(
     )
     status = "forming"
     tol_abs = _tol_abs_from_close(c, cfg.same_level_tol_pct)
-    breakout_look = max(int(cfg.completion_lookback_bars), int(max(1, cfg.breakout_lookahead)))
     handle_anchor = max(int(i_max_right), handle_start)
+    breakout_look = _neckline_break_lookahead(
+        cfg, n=n, start_idx=int(n - W + handle_anchor)
+    )
     absolute_left_idx = int(n - W + i_max_left)
     absolute_bottom_idx = int(n - W + i_min)
     absolute_right_idx = int(n - W + i_max_right)

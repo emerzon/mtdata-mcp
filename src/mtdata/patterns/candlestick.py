@@ -62,7 +62,14 @@ def _candlestick_volume_warmup_bars(config: Optional[Dict[str, Any]]) -> int:
         _DEFAULT_VOLUME_CONFIRM_LOOKBACK_BARS,
         minimum=breakout_bars + 1,
     )
-    return int(lookback_bars) + int(breakout_bars)
+    # A multi-bar pattern whose signal lands on the first visible bar begins
+    # before it, so the volume baseline needs the pattern's own span on top of
+    # the lookback or it is measured over a shorter window than requested.
+    return (
+        int(lookback_bars)
+        + int(breakout_bars)
+        + max(0, _MAX_CANDLESTICK_PATTERN_SPAN - 1)
+    )
 
 
 ta: Any = None
@@ -153,6 +160,7 @@ _CANDLESTICK_PATTERN_BAR_SPANS = {
     "upsidegap2crows": 3,
     "xsidegap3methods": 3,
 }
+_MAX_CANDLESTICK_PATTERN_SPAN = max(_CANDLESTICK_PATTERN_BAR_SPANS.values()) + 3
 _DEPRIORITIZED_CANDLESTICK_PATTERNS = {
     "shortline",
     "longline",
@@ -165,6 +173,78 @@ _DEPRIORITIZED_CANDLESTICK_PATTERNS = {
     "longleggeddoji",
     "rickshawman",
 }
+# Body size the *signal* bar is expected to have, by pattern definition. The
+# geometry score previously keyed this off the deprioritize set, which mixes two
+# unrelated ideas: a hammer, shooting star and harami are all short-body
+# patterns that are not deprioritized, so they were scored as if a large body
+# confirmed them -- the opposite of their definition. Conversely marubozu is
+# deprioritized yet requires a full body.
+_SHORT_BODY_CANDLESTICK_PATTERNS = frozenset(
+    {
+        "doji",
+        "dojistar",
+        "dragonflydoji",
+        "gravestonedoji",
+        "longleggeddoji",
+        "rickshawman",
+        "spinningtop",
+        "highwave",
+        "shortline",
+        "hammer",
+        "invertedhammer",
+        "hangingman",
+        "shootingstar",
+        "takuri",
+        "harami",
+        "haramicross",
+        "tristar",
+    }
+)
+_LONG_BODY_CANDLESTICK_PATTERNS = frozenset(
+    {
+        "marubozu",
+        "closingmarubozu",
+        "longline",
+        "belthold",
+        "engulfing",
+        "3whitesoldiers",
+        "3blackcrows",
+        "identical3crows",
+        "3outside",
+        "3linestrike",
+        "kicking",
+        "kickingbylength",
+        "morningstar",
+        "eveningstar",
+        "morningdojistar",
+        "eveningdojistar",
+        "piercing",
+        "darkcloudcover",
+    }
+)
+
+
+# Patterns whose backend sign encodes the candle's colour rather than any
+# directional implication. An inside bar is pure consolidation: it has no bias
+# until its range breaks, so signing it by colour produced output that
+# contradicted the harami detected on the identical two bars.
+_NON_DIRECTIONAL_CANDLESTICK_PATTERNS = frozenset({"inside"})
+
+
+def _is_non_directional_candlestick(
+    normalized_name: str,
+    *,
+    deprioritize: set[str],
+) -> bool:
+    """Whether a pattern's reported direction must be ``neutral``.
+
+    Kept separate from ``deprioritize``, which governs strength scoring: a
+    pattern can be directionless without being low-value, and vice versa.
+    """
+    name = str(normalized_name)
+    return name in _NON_DIRECTIONAL_CANDLESTICK_PATTERNS or name in deprioritize
+
+
 _CANDLESTICK_REDUNDANCY_SUPPRESSORS = {
     "doji": frozenset(
         {"dragonflydoji", "gravestonedoji", "longleggeddoji", "rickshawman"}
@@ -175,6 +255,32 @@ _CANDLESTICK_REDUNDANCY_SUPPRESSORS = {
     "hikkake": frozenset({"hikkakemod"}),
     "marubozu": frozenset({"closingmarubozu"}),
 }
+
+# Detectors that emit a larger magnitude on the bar that *confirms* an earlier
+# setup rather than on the setup itself. The backend allows up to three bars
+# between the two, so a confirmation hit spans more bars than the table entry.
+_CANDLESTICK_CONFIRMATION_MAGNITUDE = 150.0
+_CANDLESTICK_CONFIRMATION_EXTRA_BARS = {"hikkake": 3, "hikkakemod": 3}
+
+
+def _candlestick_hit_span_bars(
+    normalized_name: str,
+    *,
+    base_span: int,
+    value: float,
+) -> int:
+    """Bars a single hit covers, widening confirmation-bar hits.
+
+    A hikkake confirmation arrives up to three bars after the three-bar setup,
+    so reporting the table's 3-bar span put ``start_index`` inside the setup and
+    mis-sized the dedupe window.
+    """
+    extra = _CANDLESTICK_CONFIRMATION_EXTRA_BARS.get(str(normalized_name))
+    if not extra:
+        return int(base_span)
+    if abs(float(value)) < _CANDLESTICK_CONFIRMATION_MAGNITUDE:
+        return int(base_span)
+    return int(base_span) + int(extra)
 
 
 def _normalize_candlestick_name(pattern_name: str) -> str:
@@ -430,7 +536,22 @@ def _dedupe_redundant_candlestick_hits(
         return hit_idx
 
     hit_start_idx = np.asarray(
-        [max(0, int(end_index - span_values[idx] + 1)) for idx in hit_idx], dtype=int
+        [
+            max(
+                0,
+                int(
+                    end_index
+                    - _candlestick_hit_span_bars(
+                        str(normalized_names[idx]),
+                        base_span=int(span_values[idx]),
+                        value=float(values_row[idx]),
+                    )
+                    + 1
+                ),
+            )
+            for idx in hit_idx
+        ],
+        dtype=int,
     )
     hit_direction = np.sign(values_row[hit_idx]).astype(int, copy=False)
     hit_names = normalized_names[hit_idx]
@@ -441,7 +562,13 @@ def _dedupe_redundant_candlestick_hits(
         if not suppressors:
             continue
         same_window = hit_start_idx == hit_start_idx[pos]
-        same_direction = hit_direction == hit_direction[pos]
+        if str(name) in _NON_DIRECTIONAL_CANDLESTICK_PATTERNS:
+            # The generic form reports no direction, so requiring a matching
+            # sign would keep it alongside the specific form it exists to be
+            # replaced by.
+            same_direction = np.ones(hit_idx.size, dtype=bool)
+        else:
+            same_direction = hit_direction == hit_direction[pos]
         more_specific = np.asarray(
             [str(other_name) in suppressors for other_name in hit_names.tolist()],
             dtype=bool,
@@ -450,6 +577,64 @@ def _dedupe_redundant_candlestick_hits(
             keep_mask[pos] = False
 
     return hit_idx[keep_mask]
+
+
+def _candlestick_geometry_score(
+    normalized_name: str,
+    *,
+    signs: np.ndarray,
+    high_values: np.ndarray,
+    low_values: np.ndarray,
+    close_values: np.ndarray,
+    candle_range: np.ndarray,
+    valid_range: np.ndarray,
+    body_ratio: np.ndarray,
+    range_expansion: np.ndarray,
+    deprioritize: set[str],
+) -> np.ndarray:
+    """Score how well each bar's shape matches the pattern's definition.
+
+    The body-size term is chosen by what the pattern requires: a hammer is
+    confirmed by a *small* body, a marubozu by a full one.
+    """
+    n = int(close_values.size)
+    bullish_location = np.divide(
+        close_values - low_values,
+        candle_range,
+        out=np.full(n, 0.5, dtype=float),
+        where=valid_range,
+    )
+    bearish_location = np.divide(
+        high_values - close_values,
+        candle_range,
+        out=np.full(n, 0.5, dtype=float),
+        where=valid_range,
+    )
+    directional_location = np.clip(
+        np.where(signs >= 0.0, bullish_location, bearish_location), 0.0, 1.0
+    )
+    clipped_body = np.clip(body_ratio, 0.0, 1.0)
+
+    wants_short_body = (
+        normalized_name in _SHORT_BODY_CANDLESTICK_PATTERNS
+        or (
+            normalized_name not in _LONG_BODY_CANDLESTICK_PATTERNS
+            and normalized_name in deprioritize
+        )
+    )
+    if wants_short_body:
+        # A short body is the defining feature, and these patterns carry no
+        # reliable expectation about where the close sits.
+        return 0.70 * (1.0 - clipped_body) + 0.30 * range_expansion
+    if normalized_name in _LONG_BODY_CANDLESTICK_PATTERNS:
+        return (
+            0.50 * clipped_body
+            + 0.30 * directional_location
+            + 0.20 * range_expansion
+        )
+    # Unclassified: score close location and range expansion without asserting
+    # a body-size expectation in either direction.
+    return 0.60 * directional_location + 0.40 * range_expansion
 
 
 def _extract_candlestick_rows(
@@ -466,6 +651,7 @@ def _extract_candlestick_rows(
     deprioritize: set[str],
     include_metrics: bool = False,
     start_index: int = 0,
+    gap_threshold: float = 0.0,
 ) -> List[List[Any]]:
     if not pattern_cols:
         return []
@@ -517,6 +703,11 @@ def _extract_candlestick_rows(
             out=np.full(len(df_tail), 0.5, dtype=float),
             where=valid_range,
         )
+        # A zero-range bar has a zero body by construction, so it is a perfect
+        # doji rather than an unknown shape. The 0.5 "unknown" fallback made it
+        # score below an imperfect doji.
+        zero_range = np.isfinite(candle_range) & (candle_range <= 0.0)
+        body_ratio[zero_range] = 0.0
         range_series = pd.Series(candle_range).where(valid_range)
         typical_range = (
             range_series.shift(1).rolling(20, min_periods=1).median().to_numpy()
@@ -540,7 +731,6 @@ def _extract_candlestick_rows(
         )
         span_bars = int(span_values[col_idx])
         span_bonus = min(0.10, 0.05 * max(0, span_bars - 1))
-        geometry_score = np.full(len(df_tail), 0.5, dtype=float)
         normalized_name = str(normalized_names[col_idx])
         if geometry_available:
             assert high_values is not None
@@ -550,34 +740,20 @@ def _extract_candlestick_rows(
             assert valid_range is not None
             assert body_ratio is not None
             assert range_expansion is not None
-            bullish_location = np.divide(
-                close_geometry_values - low_values,
-                candle_range,
-                out=np.full(len(df_tail), 0.5, dtype=float),
-                where=valid_range,
+            geometry_score = _candlestick_geometry_score(
+                normalized_name,
+                signs=values[:, col_idx],
+                high_values=high_values,
+                low_values=low_values,
+                close_values=close_geometry_values,
+                candle_range=candle_range,
+                valid_range=valid_range,
+                body_ratio=body_ratio,
+                range_expansion=range_expansion,
+                deprioritize=deprioritize,
             )
-            bearish_location = np.divide(
-                high_values - close_geometry_values,
-                candle_range,
-                out=np.full(len(df_tail), 0.5, dtype=float),
-                where=valid_range,
-            )
-            directional_location = np.where(
-                values[:, col_idx] >= 0.0,
-                bullish_location,
-                bearish_location,
-            )
-            if normalized_name in deprioritize:
-                geometry_score = (
-                    0.70 * (1.0 - np.clip(body_ratio, 0.0, 1.0))
-                    + 0.30 * range_expansion
-                )
-            else:
-                geometry_score = (
-                    0.50 * np.clip(body_ratio, 0.0, 1.0)
-                    + 0.30 * np.clip(directional_location, 0.0, 1.0)
-                    + 0.20 * range_expansion
-                )
+        else:
+            geometry_score = np.full(len(df_tail), 0.5, dtype=float)
         strength_values[:, col_idx] = _combine_candlestick_strength(
             base_strength,
             span_bonus,
@@ -591,6 +767,10 @@ def _extract_candlestick_rows(
     )
     if not bool(np.any(active_mask)):
         return []
+    effective_gap_threshold = max(float(threshold), float(gap_threshold))
+    qualifying_mask = active_mask & (
+        strength_values >= effective_gap_threshold
+    )
 
     rows: List[List[Any]] = []
     gap = max(0, int(min_gap))
@@ -621,7 +801,12 @@ def _extract_candlestick_rows(
     # collision window. Select newest-first so an older hit cannot suppress a
     # later signal merely because the detector returned chronological rows.
     for i in candidate_rows[::-1].tolist():
-        if last_pick_idx - i < gap:
+        # Gap spacing must be decided among the rows that will survive the
+        # min_strength filter applied downstream. Spacing against sub-threshold
+        # candidates let a weak hit consume the slot and erase a qualifying
+        # signal one bar away.
+        row_qualifies = bool(np.any(qualifying_mask[i]))
+        if row_qualifies and last_pick_idx - i < gap:
             continue
         hit_idx = np.flatnonzero(active_mask[i])
         if hit_idx.size == 0:
@@ -651,22 +836,29 @@ def _extract_candlestick_rows(
             value = float(values[i, col_idx])
             label_core = _candlestick_display_name(name).strip().upper()
             normalized = str(normalized_names[col_idx])
-            if normalized in deprioritize:
+            non_directional = _is_non_directional_candlestick(
+                normalized, deprioritize=deprioritize
+            )
+            if non_directional:
                 dir_title = "Neutral"
             else:
                 dir_title = "Bullish" if value > 0 else "Bearish"
             if include_metrics:
-                span_bars = int(span_values[col_idx])
+                span_bars = _candlestick_hit_span_bars(
+                    normalized,
+                    base_span=int(span_values[col_idx]),
+                    value=value,
+                )
                 start_bar_idx = max(0, int(i - span_bars + 1))
                 start_time = str(time_vals[start_bar_idx])
                 end_time = str(time_vals[i])
-                if normalized in deprioritize:
+                if non_directional:
                     direction = "neutral"
                 else:
                     direction = "bullish" if value > 0 else "bearish"
                 strength = float(strength_values[i, col_idx])
                 raw_signal: Any
-                if normalized in deprioritize:
+                if non_directional:
                     raw_signal = 0
                 elif abs(value - round(value)) <= 1e-9:
                     raw_signal = int(round(value))
@@ -696,7 +888,8 @@ def _extract_candlestick_rows(
                 rows.append(
                     [t_val, f"{dir_title} {label_core}" if label_core else dir_title]
                 )
-        last_pick_idx = i
+        if row_qualifies:
+            last_pick_idx = i
     return rows
 
 
@@ -987,6 +1180,7 @@ def detect_candlestick_patterns(  # noqa: C901
 
     before_cols = set(temp.columns)
     dispatcher_succeeded = False
+    dispatcher_error: Optional[str] = None
     failed_detectors: List[str] = []
     if dispatcher_method:
         dispatch_names: Any
@@ -1003,12 +1197,17 @@ def detect_candlestick_patterns(  # noqa: C901
                     warnings.simplefilter("ignore")
                     method(name=dispatch_names, append=True)
                 dispatcher_succeeded = True
-            except Exception:
+            except Exception as exc:
                 logger.warning(
                     "Aggregate candlestick pattern dispatcher '%s' failed.",
                     dispatcher_method,
                     exc_info=True,
                 )
+                # The dispatcher carries the overwhelming majority of the
+                # catalog. When it throws (one non-finite OHLC value is enough)
+                # only the few directly-attached detectors remain, so this has
+                # to reach the caller rather than only the log.
+                dispatcher_error = f"{type(exc).__name__}: {exc}"
                 if isinstance(dispatch_names, list):
                     failed_detectors.extend(str(name) for name in dispatch_names)
 
@@ -1097,6 +1296,10 @@ def detect_candlestick_patterns(  # noqa: C901
         deprioritize=_DEPRIORITIZED_CANDLESTICK_PATTERNS,
         include_metrics=True,
         start_index=start_index,
+        # Rows are extracted at threshold 0.0 so metrics stay complete, then
+        # filtered by `thr`. Gap spacing has to use the real threshold or it
+        # spaces against candidates that are about to be discarded.
+        gap_threshold=thr,
     )
 
     headers = [
@@ -1125,6 +1328,10 @@ def detect_candlestick_patterns(  # noqa: C901
             "candles": int(min(int(limit), len(df))),
             "requested_lookback": int(limit),
             "lookback_satisfied": int(len(df)) >= int(limit),
+            # Pattern end_index values index the warmup-inclusive frame, which
+            # is longer than `candles`. Recency scaling downstream needs the
+            # frame those indices actually refer to.
+            "index_frame_bars": int(len(df)),
             "mode": "candlestick",
             "min_strength": float(thr),
             "min_strength_stage": "post_confirmation",
@@ -1147,6 +1354,52 @@ def detect_candlestick_patterns(  # noqa: C901
         payload["filtered_by_robust_only"] = robust_filtered_names
     if unresolved_failures:
         payload["failed_detectors"] = unresolved_failures
+    expected_detectors = (
+        supported_selected
+        if selected_names is not None
+        else available_detector_names
+    )
+    unevaluated = sorted(
+        set(expected_detectors)
+        - set(evaluated_detectors)
+        - set(unsupported_detectors)
+        - set(robust_filtered_names)
+    )
+    # Names selected by robust_only (rather than by an explicit whitelist) that
+    # the installed backend does not provide. Without this they are silently
+    # intersected away, so robust_only advertises detectors that cannot fire.
+    unavailable_selected = (
+        sorted(selected_names - available_detector_names)
+        if selected_names is not None and requested_names is None
+        else []
+    )
+    if dispatcher_error or unevaluated or unavailable_selected:
+        payload["detector_coverage"] = {
+            "expected": int(len(expected_detectors)),
+            "evaluated": int(len(evaluated_detectors)),
+            "unevaluated": unevaluated,
+            "unavailable_in_backend": unavailable_selected,
+            "aggregate_dispatcher_error": dispatcher_error,
+        }
+        if unavailable_selected:
+            warnings_out.append(
+                "Detectors not provided by the installed backend were skipped: "
+                + ", ".join(name.upper() for name in unavailable_selected)
+                + "."
+            )
+        if dispatcher_error:
+            warnings_out.append(
+                "The aggregate candlestick detector failed, so only "
+                f"{len(evaluated_detectors)} of {len(expected_detectors)} "
+                "detectors were evaluated; an absence of patterns is not a "
+                f"finding here. Cause: {dispatcher_error}"
+            )
+        else:
+            warnings_out.append(
+                f"Only {len(evaluated_detectors)} of "
+                f"{len(expected_detectors)} candlestick detectors produced "
+                "output; the remainder were not evaluated."
+            )
     if warnings_out:
         payload["warnings"] = warnings_out
     if not start and not end and epochs:

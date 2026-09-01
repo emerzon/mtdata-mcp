@@ -92,12 +92,18 @@ class _SwingPoint:
     price: float
 
 
+_AVAILABILITY_GAP_MULTIPLE = 3
+
+
 @dataclass(frozen=True)
 class _PatternSpec:
     key: str
     display: str
     family: str
     ratios: Dict[str, Tuple[float, float]]
+    # Set when the published point names differ from the family's default
+    # labelling, so reported pivots match what a charting package shows.
+    pivot_labels: Optional[Tuple[str, ...]] = None
 
 
 _XABCD_SPECS: Dict[str, _PatternSpec] = {
@@ -186,6 +192,9 @@ _XABCD_SPECS: Dict[str, _PatternSpec] = {
             "abc": (1.618, 2.24),
             "bcd": (0.5, 0.5),
         },
+        # The 5-0 reuses the five-point XABCD ratio machinery, but its published
+        # point names are 0,X,A,B,C. The ratio keys stay in family terms.
+        pivot_labels=("0", "X", "A", "B", "C"),
     ),
 }
 
@@ -336,6 +345,49 @@ def _build_swing_points(
     if len(swings) > max_pivots:
         swings = swings[-max_pivots:]
     return swings
+
+
+def _pivot_confirm_gap(cfg: HarmonicDetectorConfig) -> int:
+    """Bars dropped from the right edge before pivots are considered at all.
+
+    Deliberately smaller than ``min_distance``: a terminal pivot with only a few
+    bars of follow-through is genuinely unstable, but the honest label for that is
+    ``forming``, which ``_build_result`` already assigns from the same
+    ``min_distance`` gap. Using ``min_distance`` here too would drop every such
+    pivot and make ``forming`` unreachable. Two bars is the minimum for the pivot
+    to have neighbours on both sides.
+    """
+    _ = cfg
+    return 2
+
+
+def _availability_confirmation_bars(cfg: HarmonicDetectorConfig) -> int:
+    """Bars after the terminal pivot before a pattern is *likely* reproducible.
+
+    This is a heuristic only, and cannot be promoted to a guarantee: because
+    ``find_peaks`` derives prominence from the whole window, a pivot can gain or
+    lose status an unbounded distance in the future. Widening this gap from 1x to
+    6x ``min_distance`` left a residual of irreproducible claims rather than
+    converging to zero, so the authoritative availability index is the right edge
+    of the requested window.
+    """
+    return max(1, int(getattr(cfg, "min_distance", 5)) * _AVAILABILITY_GAP_MULTIPLE)
+
+
+def _window_legs_are_swings(points: List[_SwingPoint], min_leg_bars: int) -> bool:
+    """Reject candidate windows whose legs are too short to be real swings.
+
+    ``find_peaks`` is called separately for peaks and troughs, so its ``distance``
+    argument only spaces peak-to-peak and trough-to-trough. Nothing constrained
+    the gap between a peak and its neighbouring trough, so an XABCD could be
+    assembled from pivots one bar apart, where the Fibonacci ratio between two
+    single candles is noise.
+    """
+    required = max(1, int(min_leg_bars))
+    return all(
+        (int(nxt.index) - int(cur.index)) >= required
+        for cur, nxt in zip(points, points[1:])
+    )
 
 
 def _finite_positive(value: float) -> bool:
@@ -559,7 +611,9 @@ def _build_result(
     bullish = points[-1].kind == "low"
     bias = "bullish" if bullish else "bearish"
     direction_label = "Bullish" if bullish else "Bearish"
-    if spec.family == "XABCD":
+    if spec.pivot_labels is not None:
+        pivot_labels = list(spec.pivot_labels)
+    elif spec.family == "XABCD":
         pivot_labels = list("XABCD")
     elif spec.family == "OXABC":
         pivot_labels = list("OXABC")
@@ -577,9 +631,13 @@ def _build_result(
     confirmation_bars = max(1, int(cfg.min_distance))
     terminal_pivot_confirmed = bars_since_completion >= confirmation_bars
     status = "completed" if terminal_pivot_confirmed else "forming"
-    available_at_index = min(
+    # Pivots come from a batch scan of the whole requested window, so the only
+    # index at which this pattern is guaranteed to be reproducible is the right
+    # edge. The earlier figure is retained as an explicitly-labelled estimate.
+    available_at_index = int(n_bars) - 1
+    earliest_possible_index_estimate = min(
         int(n_bars) - 1,
-        int(points[-1].index) + confirmation_bars,
+        int(points[-1].index) + _availability_confirmation_bars(cfg),
     )
     completion_freshness = (
         "recent" if bars_since_completion <= int(cfg.recent_bars) else "historical"
@@ -610,6 +668,14 @@ def _build_result(
         "terminal_pivot_confirmed": terminal_pivot_confirmed,
         "confirmation_bars_required": confirmation_bars,
         "available_at_index": available_at_index,
+        "available_at_index_basis": "input_window_right_edge",
+        "earliest_possible_index_estimate": earliest_possible_index_estimate,
+        "earliest_possible_index_caveat": (
+            "Heuristic only, not safe for backtest entry timing. Pivot prominence "
+            "is measured across the whole requested window, so a later extreme can "
+            "still add or remove a pivot; re-run over a truncated window to "
+            "establish genuine point-in-time availability."
+        ),
         "status_basis": "right_edge_batch_pivots_with_terminal_confirmation",
         "detection_scope": "right_edge_as_of_input_window",
     }
@@ -684,7 +750,11 @@ def _dedupe_results(results: List[HarmonicPatternResult]) -> List[HarmonicPatter
         details = result.details if isinstance(result.details, dict) else {}
         pivot_indexes = details.get("pivot_indexes")
         if isinstance(pivot_indexes, dict):
-            signature = tuple(int(v) for _, v in sorted(pivot_indexes.items()))
+            # Key on the bar indices alone. Sorting label/value pairs made the
+            # signature depend on alphabetical label order, so two patterns on
+            # the identical pivots collapsed or survived based on whether their
+            # families happened to share point names.
+            signature = tuple(sorted(int(value) for value in pivot_indexes.values()))
         else:
             signature = (int(result.start_index), int(result.end_index))
         current = best_by_signature.get(signature)
@@ -706,9 +776,16 @@ def detect_harmonic_patterns(
         return []
     _, t, close, high, low, n_bars = prepared
     peaks, troughs = detect_pivots(close, cfg, high=high, low=low)
+    # Trailing pivots are the least stable: scipy's prominence is a whole-window
+    # statistic, so a bar near the right edge can gain or lose pivot status once
+    # more data arrives. Classic detection already drops this tail.
+    pivot_cutoff = max(0, int(n_bars) - _pivot_confirm_gap(cfg))
+    peaks = peaks[peaks < pivot_cutoff]
+    troughs = troughs[troughs < pivot_cutoff]
     swings = _build_swing_points(peaks, troughs, high, low, cfg)
     if len(swings) < 4:
         return []
+    min_leg_bars = max(1, int(getattr(cfg, "min_distance", 5)))
 
     enabled = set(_normalized_pattern_types(cfg))
     xabcd_specs = [spec for key, spec in _XABCD_SPECS.items() if key in enabled]
@@ -719,7 +796,11 @@ def detect_harmonic_patterns(
     max_age = int(getattr(cfg, "max_pattern_age_bars", 0))
     for start in range(0, max(0, len(swings) - 4)):
         window = swings[start : start + 5]
-        if len(window) == 5 and (xabcd_specs or oxabc_specs):
+        if (
+            len(window) == 5
+            and (xabcd_specs or oxabc_specs)
+            and _window_legs_are_swings(window, min_leg_bars)
+        ):
             results.extend(
                 _candidate_results(
                     window,
@@ -731,7 +812,11 @@ def detect_harmonic_patterns(
             )
     for start in range(0, max(0, len(swings) - 3)):
         window = swings[start : start + 4]
-        if len(window) == 4 and abcd_specs:
+        if (
+            len(window) == 4
+            and abcd_specs
+            and _window_legs_are_swings(window, min_leg_bars)
+        ):
             results.extend(_candidate_results(window, abcd_specs, t, n_bars, cfg))
 
     if max_age > 0:
