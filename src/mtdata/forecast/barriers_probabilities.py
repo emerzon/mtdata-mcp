@@ -125,6 +125,8 @@ def forecast_barrier_hit_probabilities(  # noqa: C901
     sl_pct: Optional[float] = None,
     tp_ticks: Optional[float] = None,
     sl_ticks: Optional[float] = None,
+    tp_pips: Optional[float] = None,
+    sl_pips: Optional[float] = None,
     params: Optional[Dict[str, Any]] = None,
     denoise: Optional[DenoiseSpec] = None,
     as_of: Optional[str] = None,
@@ -182,6 +184,8 @@ def forecast_barrier_hit_probabilities(  # noqa: C901
                     "sl_pct": sl_pct,
                     "tp_ticks": tp_ticks,
                     "sl_ticks": sl_ticks,
+                    "tp_pips": tp_pips,
+                    "sl_pips": sl_pips,
                 }
             )
         except ValueError as exc:

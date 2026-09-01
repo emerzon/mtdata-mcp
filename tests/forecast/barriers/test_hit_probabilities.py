@@ -357,6 +357,19 @@ class TestBarrierHitProbabilities(_BarrierTestBase):
         )
         self.assertTrue(result["success"])
 
+    def test_forecast_barrier_hit_probabilities_accepts_pip_barriers(self):
+        result = forecast_barrier_hit_probabilities(
+            symbol="EURUSD",
+            timeframe="H1",
+            horizon=10,
+            method="mc_gbm",
+            direction="long",
+            tp_pips=5,
+            sl_pips=5,
+        )
+
+        self.assertTrue(result["success"])
+
     def test_forecast_barrier_hit_probabilities_prefers_live_tick_price(self):
         self._set_flat_history(1.0, bars=200)
         paths = self._sample_paths()
