@@ -36,6 +36,8 @@ _MT5_TIMESTAMP_MODE_TTL_SECONDS = 60.0
 _MT5_TIMESTAMP_MODE_FRESH_TOLERANCE_SECONDS = 15 * 60.0
 _MT5_TIMESTAMP_MODE_CLOSED_MARKET_MAX_AGE_SECONDS = 4 * 24 * 60 * 60.0
 _MT5_TIMESTAMP_MODE_PROBE_LIMIT = 64
+_MT5_TIMESTAMP_WHOLE_HOUR_TOLERANCE_SECONDS = 90.0
+_MT5_TIMESTAMP_MAX_PLAUSIBLE_OFFSET_HOURS = 14
 _mt5_timestamp_mode_cache: Dict[str, Tuple[str, float, int]] = {}
 _mt5_terminal_timestamp_mode: Optional[Tuple[str, float, int]] = None
 _SYMBOL_VISIBILITY_LOCK_ENV = "MTDATA_SYMBOL_VISIBILITY_LOCK"
@@ -45,6 +47,10 @@ _symbol_visibility_lock_state = threading.local()
 
 class MT5ConnectionError(RuntimeError):
     """Raised when the MT5 adapter cannot establish a usable connection."""
+
+
+class MT5TimestampConfigurationError(RuntimeError):
+    """Raised when a live MT5 tick contradicts the broker timezone config."""
 
 
 def _safe_mt5_error_code(error: Any) -> str:
@@ -517,6 +523,62 @@ def _configured_server_offset_seconds(at_epoch: float) -> int:
         return 0
 
 
+def _aligned_future_whole_hour_offset_seconds(
+    tick_time: float,
+    *,
+    now_epoch: float,
+) -> Optional[int]:
+    """Return a likely future broker-clock offset when minute/seconds align."""
+    try:
+        delta_seconds = float(tick_time) - float(now_epoch)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not math.isfinite(delta_seconds):
+        return None
+    nearest_hours = int(round(delta_seconds / 3600.0))
+    if nearest_hours <= 0 or nearest_hours > _MT5_TIMESTAMP_MAX_PLAUSIBLE_OFFSET_HOURS:
+        return None
+    candidate_seconds = nearest_hours * 3600
+    if (
+        abs(delta_seconds - float(candidate_seconds))
+        > _MT5_TIMESTAMP_WHOLE_HOUR_TOLERANCE_SECONDS
+    ):
+        return None
+    return candidate_seconds
+
+
+def _raise_on_timestamp_configuration_mismatch(
+    *,
+    symbol: str,
+    tick_time: float,
+    now_epoch: float,
+    configured_offset_seconds: int,
+) -> None:
+    observed_offset_seconds = _aligned_future_whole_hour_offset_seconds(
+        tick_time,
+        now_epoch=now_epoch,
+    )
+    if observed_offset_seconds is None:
+        return
+    if (
+        abs(float(observed_offset_seconds) - float(configured_offset_seconds))
+        <= _MT5_TIMESTAMP_WHOLE_HOUR_TOLERANCE_SECONDS
+    ):
+        return
+    observed_hours = float(observed_offset_seconds) / 3600.0
+    configured_hours = float(configured_offset_seconds) / 3600.0
+    raise MT5TimestampConfigurationError(
+        f"MT5 live quote timestamp for {str(symbol or '').upper() or 'the probed symbol'} "
+        f"tracks the current minute but is shifted by approximately {observed_hours:+g} "
+        "hours. "
+        f"The configured broker offset is {configured_hours:+g} hours, so "
+        "MT5_SERVER_TZ or MT5_TIME_OFFSET_MINUTES is missing, incorrect, or was "
+        "not loaded from .env. Load the environment before importing mtdata, set "
+        "MT5_SERVER_TZ to the broker's IANA timezone (preferred), and restart the "
+        "mtdata process. Timestamp normalization stopped before querying history."
+    )
+
+
 def _cache_timestamp_mode(symbol: str, mode: str, *, offset_seconds: int) -> str:
     global _mt5_terminal_timestamp_mode
     expires_at = time.monotonic() + _MT5_TIMESTAMP_MODE_TTL_SECONDS
@@ -573,6 +635,12 @@ def _timestamp_mode_from_tick(
             or _MT5_TIMESTAMP_MODE_NATIVE
         )
     if offset_seconds == 0:
+        _raise_on_timestamp_configuration_mismatch(
+            symbol=symbol,
+            tick_time=float(tick_time),
+            now_epoch=observed_now,
+            configured_offset_seconds=offset_seconds,
+        )
         return _cache_timestamp_mode(
             symbol,
             _MT5_TIMESTAMP_MODE_NATIVE,
@@ -582,6 +650,12 @@ def _timestamp_mode_from_tick(
     native_distance = abs(float(tick_time) - observed_now)
     server_distance = abs((float(tick_time) - float(offset_seconds)) - observed_now)
     tolerance = _MT5_TIMESTAMP_MODE_FRESH_TOLERANCE_SECONDS
+    _raise_on_timestamp_configuration_mismatch(
+        symbol=symbol,
+        tick_time=float(tick_time),
+        now_epoch=observed_now,
+        configured_offset_seconds=offset_seconds,
+    )
     if (
         server_distance <= tolerance
         and native_distance >= max(tolerance, abs(float(offset_seconds)) * 0.5)
@@ -1747,6 +1821,16 @@ def inspect_mt5_time_alignment(
             now_epoch=now_utc_epoch,
         )
         raw_tick_epoch = tick_epoch(tick)
+    except MT5TimestampConfigurationError as exc:
+        out["status"] = "misaligned"
+        out["reason"] = "broker_timezone_configuration_error"
+        out["error"] = str(exc)
+        out["warning"] = str(exc)
+        out["remediation"] = (
+            "Load .env, set MT5_SERVER_TZ to the broker's IANA timezone "
+            "(preferred) or set MT5_TIME_OFFSET_MINUTES, then restart mtdata."
+        )
+        return out
     except Exception:
         raw_tick_epoch = None
 

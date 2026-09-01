@@ -97,6 +97,14 @@ possibly stale tick:
 MT5_SERVER_TZ=Europe/Athens
 ```
 
+The adapter also checks fresh live ticks before caching that UTC assumption. If
+a quote tracks the current minute and seconds but is in the future by an
+approximately whole-hour broker offset, mtdata stops before querying history.
+The error identifies the symbol and observed offset and asks you to load `.env`,
+correct `MT5_SERVER_TZ` (or `MT5_TIME_OFFSET_MINUTES`), and restart the process.
+This catches both a missing setting and a configured timezone whose current
+offset disagrees with the live terminal clock.
+
 ---
 
 ## Time metadata

@@ -884,8 +884,9 @@ class TestInspectMt5TimeAlignment:
         result = inspect_mt5_time_alignment("EURUSD")
 
         assert result["status"] == "misaligned"
-        assert result["reason"] == "timestamp_in_future"
-        assert "latest tick is 3600s in the future" in result["warning"]
+        assert result["reason"] == "broker_timezone_configuration_error"
+        assert "current minute" in result["warning"]
+        assert "MT5_SERVER_TZ" in result["remediation"]
 
     def test_h4_boundary_uses_configured_server_offset(self, monkeypatch):
         now = datetime(2026, 1, 5, 6, 30, tzinfo=timezone.utc).timestamp()

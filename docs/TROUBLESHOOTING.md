@@ -245,6 +245,11 @@ UTC epochs directly. If `server_clock` is detected, configure `MT5_SERVER_TZ`
 boundary. Never manually shift an already-normalized payload. See
 [TIMESTAMPS.md](TIMESTAMPS.md).
 
+If an error says that a live quote tracks the current minute but is in the
+future by whole hours, `.env` was not loaded or the broker timezone is wrong. Set
+`MT5_SERVER_TZ` to the broker's IANA timezone, then restart the CLI, MCP server,
+or Web API process. A running process does not adopt edited timezone settings.
+
 ### Volume is Always Zero
 
 **Cause:** Forex spot typically has indicative volume (tick count, not real volume).

@@ -452,6 +452,68 @@ def test_adapter_keeps_native_utc_terminal_unchanged(monkeypatch) -> None:
     assert mt5_mod.get_mt5_timestamp_mode("TSLA.NAS-24") == "native_utc"
 
 
+@pytest.mark.parametrize(
+    ("configured_offset", "observed_offset"),
+    [
+        (0, 3 * 60 * 60),
+        (2 * 60 * 60, 3 * 60 * 60),
+    ],
+)
+def test_adapter_rejects_live_whole_hour_shift_when_timezone_disagrees(
+    monkeypatch,
+    configured_offset,
+    observed_offset,
+) -> None:
+    now = datetime(2026, 9, 1, 15, 44, 8, tzinfo=timezone.utc)
+    now_epoch = now.timestamp()
+    raw_epoch = now_epoch + observed_offset - 11
+    raw_tick = SimpleNamespace(
+        time=raw_epoch,
+        time_msc=raw_epoch * 1000,
+        bid=77_900.0,
+        ask=77_905.0,
+    )
+    module = SimpleNamespace(symbol_info_tick=lambda symbol: raw_tick)
+    monkeypatch.setitem(sys.modules, "MetaTrader5", module)
+    monkeypatch.setattr(mt5_mod.time, "time", lambda: now_epoch)
+    monkeypatch.setattr(
+        mt5_mod.mt5_config,
+        "get_time_offset_seconds",
+        lambda at_time=None: configured_offset,
+    )
+
+    with pytest.raises(
+        mt5_mod.MT5TimestampConfigurationError,
+        match=r"BTCUSD.*current minute.*MT5_SERVER_TZ.*\.env",
+    ):
+        mt5_mod.MT5Adapter().symbol_info_tick("BTCUSD")
+
+    assert mt5_mod.get_mt5_timestamp_mode("BTCUSD") == "native_utc"
+
+
+def test_unconfigured_timezone_does_not_misclassify_unaligned_stale_tick(
+    monkeypatch,
+) -> None:
+    now = datetime(2026, 9, 1, 15, 44, 8, tzinfo=timezone.utc)
+    now_epoch = now.timestamp()
+    stale_epoch = now_epoch - 4 * 60 * 60 - 11
+    stale_tick = SimpleNamespace(
+        time=stale_epoch,
+        time_msc=stale_epoch * 1000,
+    )
+    monkeypatch.setattr(mt5_mod.time, "time", lambda: now_epoch)
+    monkeypatch.setattr(
+        mt5_mod.mt5_config,
+        "get_time_offset_seconds",
+        lambda at_time=None: 0,
+    )
+
+    assert mt5_mod._timestamp_mode_from_tick(
+        stale_tick,
+        symbol="CLOSED",
+    ) == "native_utc"
+
+
 def test_adapter_detects_server_clock_from_closed_market_future_tick(monkeypatch) -> None:
     now = datetime(2026, 7, 17, 23, 8, 29, tzinfo=timezone.utc)
     now_epoch = now.timestamp()
