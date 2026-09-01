@@ -314,7 +314,6 @@ def test_wait_event_budget_error_keeps_only_actionable_compact_state() -> None:
         "data_stale": False,
         "usable_for_live_trading": True,
         "source": {"provider": "mt5", "server": "ICMarketsSC-MT5-2"},
-        "wait_policy": {"max_wait_seconds": 3660},
     }
 
     result = shape_public_tool_output(

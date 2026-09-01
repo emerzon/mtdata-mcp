@@ -177,11 +177,9 @@ _NUMERIC_NAMES_REQUIRING_LOWER_BOUND = frozenset(
         "horizon",
         "limit",
         "lookback",
-        "max_wait_seconds",
         "min_overlap",
         "min_sample",
         "offset",
-        "poll_interval_seconds",
         "timeout_seconds",
         "window",
     }

@@ -1428,28 +1428,16 @@ class TestAddDynamicArguments:
         symbol_action = next(
             action for action in parser._actions if action.dest == "symbol"
         )
-        assert "Timer-only duration" in symbol_action.help
+        assert "clock-only timeframe-boundary wait" in symbol_action.help
 
-    def test_wait_event_help_explains_exclusive_wait_modes(self):
+    def test_wait_event_help_exposes_only_the_timeframe_horizon(self):
         parser = argparse.ArgumentParser()
         func_info = {
             "params": [
-                {"name": "timeframe", "type": str, "required": False, "default": None},
-                {
-                    "name": "max_wait_seconds",
-                    "type": float,
-                    "required": False,
-                    "default": None,
-                },
+                {"name": "timeframe", "type": str, "required": True, "default": None},
                 {
                     "name": "symbols",
                     "type": Optional[List[str]],
-                    "required": False,
-                    "default": None,
-                },
-                {
-                    "name": "poll_interval_seconds",
-                    "type": float,
                     "required": False,
                     "default": None,
                 },
@@ -1460,16 +1448,16 @@ class TestAddDynamicArguments:
         help_text = _strip_ansi(parser.format_help())
         compact_help = " ".join(help_text.split())
 
-        assert "Cannot be combined with max_wait_seconds" in compact_help
-        assert "inferred as the timeframe length plus 60 seconds" in compact_help
-        assert "Cannot be combined with timeframe or boundary entries in end_on" in compact_help
+        assert "Required wait horizon" in compact_help
+        assert "polls only when explicit event watchers" in compact_help
         assert "Basket of 1-12 trading symbols" in compact_help
         assert "Cannot be combined with symbol" in compact_help
-        assert "must be at least 0.1" in compact_help
-        assert "Defaults to M1" not in compact_help
-        assert "--timeout" in help_text
-        assert parser.parse_args(["--timeout", "1"]).max_wait_seconds == 1.0
-        assert parser.parse_args(["--symbols", "EURUSD", "GBPUSD"]).symbols == [
+        assert "--max-wait-seconds" not in help_text
+        assert "--poll-interval-seconds" not in help_text
+        assert "--timeout" not in help_text
+        assert parser.parse_args(
+            ["M1", "--symbols", "EURUSD", "GBPUSD"]
+        ).symbols == [
             "EURUSD",
             "GBPUSD",
         ]
@@ -1514,8 +1502,8 @@ class TestAddDynamicArguments:
         examples_at = compact_help.find("Examples:")
         watch_for_at = compact_help.find("--watch-for")
         assert examples_at != -1
-        assert "wait_event --max-wait-seconds 10" in compact_help
         assert "wait_event EURUSD --timeframe H1" in compact_help
+        assert "wait_event EURUSD --timeframe M5 --watch-for order_filled" in compact_help
         assert "price_touch_level" in compact_help
         assert "price_above" not in compact_help
         assert watch_for_at == -1 or examples_at < watch_for_at

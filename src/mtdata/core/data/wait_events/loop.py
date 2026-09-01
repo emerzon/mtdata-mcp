@@ -134,11 +134,9 @@ def run_wait_event_loop(  # noqa: C901
             end_on_inferred=end_on_inferred,
         )
 
-    boundary_only = (
-        not watch_for
-        and len(boundaries) == 1
-        and boundaries[0]["type"] == "candle_close"
-    )
+    # No state can match early without watchers, so polling would only waste
+    # MT5 calls. Compiled boundaries are ordered; sleep directly to the first.
+    boundary_only = bool(not watch_for and boundaries)
     if boundary_only:
         if request.symbol is not None or request.symbols is not None:
             connection_error = _wait_event_connection_error(gateway)

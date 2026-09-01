@@ -18,13 +18,13 @@ runner, which has no progress bar for a long wait.
 
 ## Pick a wait target
 
-Choose exactly one stopping mode:
+Choose a **timeframe** as the wait horizon. The call stops at its next candle
+boundary (for example the next H1 close), or earlier when an explicit watcher
+matches. The engine keeps the wait budget and observation cadence internal.
 
-- a **timeframe** — stop at the next candle boundary (for example the next H1 close),
-- **`max_wait_seconds`** — stop after a fixed number of seconds.
-
-Do not combine them or omit both. In timeframe mode, `wait_event` infers the
-maximum wait as the timeframe length plus 60 seconds.
+Boundary-only waits do not poll: they sleep directly to the calculated boundary.
+When explicit market or account watchers are present, the engine polls only as
+needed to observe those events.
 
 ---
 
@@ -36,38 +36,32 @@ mtdata-cli wait_event EURUSD --timeframe H1 --watch-for '[]' --json
 
 The explicit empty watch list makes this a candle-boundary-only wait, so the
 next research step runs on a *completed* hour rather than returning early for
-an inferred market or account event. The inferred 3,660-second maximum covers
-at most one H1 boundary plus a safety margin.
+a market or account event.
 
 A timeframe wait with no symbol and no extra watch list is a pure clock wait
 (no candle payload). Passing the symbol includes a best-effort closed-candle
 snapshot when the boundary hits. Omitting `--watch-for` waits only for that
-candle boundary. The inferred maximum prevents a weekend H1 wait from blocking
-until Sunday reopen.
+candle boundary. The internal one-timeframe budget prevents a weekend H1 wait
+from blocking until Sunday reopen.
 
 ---
 
-## Example 2 — wait up to 30 seconds for a fill
+## Example 2 — wait for a fill within M5
 
 ```powershell
-mtdata-cli wait_event EURUSD --max-wait-seconds 30 --watch-for '[{"type":"order_filled","symbol":"EURUSD"}]' --json
+mtdata-cli wait_event EURUSD --timeframe M5 --watch-for '[{"type":"order_filled","symbol":"EURUSD"}]' --json
 ```
 
-If nothing fills in time, the command fails (`success=false`,
-`error_code=wait_event_timeout`) and the CLI exits nonzero. That is
-intentional: a script can decide whether to retry. When the symbol's market
-is closed — for example the FX weekend — the timeout also reports
-`market_status=closed` and `assumed_closure_end`, and the remediation points
-at reopen instead of asking you to wait longer.
-
-Omitting `--watch-for` in duration mode makes this a pure timer. It does not
-connect to MT5 or poll order, position, or market state. Completion reports
-`success=true`, `matched=false`, `timed_out=false`, `timer_only=true`, and
-`completion_reason=duration_elapsed`. `timed_out` is reserved for an explicit
-event wait whose deadline expires.
+If nothing fills before the M5 boundary, the command fails (`success=false`,
+`error_code=wait_event_boundary_reached`) and the CLI exits nonzero. That is
+intentional: a script can decide whether to retry. If the internal budget
+expires before a reachable boundary, the failure is `wait_event_timeout`.
+When the symbol's market is closed — for example the FX weekend — that timeout
+also reports `market_status=closed` and `assumed_closure_end`, and the
+remediation points at reopen instead of asking you to wait longer.
 
 Pass an explicit `--watch-for` when the wait should return early for an event,
-as in the fill example above. In timeframe mode, omitting `--watch-for` waits
+as in the fill example above. Omitting `--watch-for` waits
 only for the candle boundary.
 
 ---
@@ -123,5 +117,6 @@ mtdata-cli wait_event EURUSD --timeframe H1 --end-on '[{"type":"candle_close","t
 - `accept_preexisting=true` returns immediately if a state-style watcher is
   already true at startup. The default waits for a *new* transition.
 - Put candle-close boundaries in `end_on`, not in `watch_for`.
-- `--detail full` adds polling and timing diagnostics.
+- `--detail full` adds elapsed timing diagnostics and poll counts without
+  exposing internal timing controls.
 - `wait_event --help` repeats this contract, including complete JSON examples.

@@ -796,7 +796,7 @@ class WaitEventRequest(BaseModel):
             "stop_threat. Example: "
             "[{\"type\": \"price_change\", \"direction\": \"up\", "
             "\"threshold_mode\": \"fixed_pct\", \"threshold_value\": 0.1}]. "
-            "In duration mode, omitting watch_for creates a timer-only wait."
+            "Omitting watch_for creates a boundary-only wait when timeframe is set."
         ),
     )
     end_on: List[WaitBoundaryEventSpec] = Field(default_factory=list)
@@ -925,6 +925,7 @@ class WaitEventRequest(BaseModel):
                     f"({self.timeframe}); received {', '.join(conflicting_timeframes)}."
                 )
             self.max_wait_seconds = (
-                float(TIMEFRAME_SECONDS[str(self.timeframe).upper()]) + 60.0
+                float(TIMEFRAME_SECONDS[str(self.timeframe).upper()])
+                + self.buffer_seconds
             )
         return self

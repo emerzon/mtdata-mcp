@@ -18,16 +18,10 @@ _PAIR_BARRIER = {
 
 SCHEMA_CONTRACT_CASES = [
     (
-        "wait-timeframe-excludes-duration",
+        "wait-requires-timeframe",
         "wait_event",
         {"timeframe": "H1"},
-        {"timeframe": "H1", "max_wait_seconds": 30},
-    ),
-    (
-        "wait-duration-symbol-needs-watcher",
-        "wait_event",
-        {"max_wait_seconds": 30},
-        {"max_wait_seconds": 30, "symbol": "EURUSD"},
+        {"symbol": "EURUSD"},
     ),
     (
         "asset-performance-order-needs-rank",

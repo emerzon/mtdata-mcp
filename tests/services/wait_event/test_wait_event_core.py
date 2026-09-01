@@ -326,8 +326,6 @@ def test_wait_event_tool_exposes_minimal_public_contract(monkeypatch) -> None:
         "symbol",
         "symbols",
         "timeframe",
-        "max_wait_seconds",
-        "poll_interval_seconds",
         "accept_preexisting",
         "watch_for",
         "end_on",
@@ -380,6 +378,8 @@ def test_wait_event_tool_exposes_minimal_public_contract(monkeypatch) -> None:
     assert explicit["matched"] is False
     assert explicit["event"] is None
     assert explicit["started_at_utc"] == "2026-04-06T02:00:29.017205+00:00"
+    assert "max_wait_seconds" not in explicit
+    assert "poll_interval_seconds" not in explicit
 
 
 def test_wait_event_tool_accepts_simple_event_names(monkeypatch) -> None:
@@ -423,7 +423,7 @@ def test_wait_event_tool_accepts_simple_event_names(monkeypatch) -> None:
     assert result["criteria"]["end_on_inferred"] is False
 
 
-def test_wait_event_explicit_watch_does_not_add_an_implicit_boundary(
+def test_wait_event_explicit_watch_uses_internal_timeframe_budget(
     monkeypatch,
 ) -> None:
     captured = {}
@@ -456,8 +456,8 @@ def test_wait_event_explicit_watch_does_not_add_an_implicit_boundary(
     raw = getattr(core_data.wait_event, "__wrapped__", core_data.wait_event)
     result = raw(
         symbol="EURUSD",
+        timeframe="M5",
         watch_for=[{"type": "order_filled", "symbol": "EURUSD"}],
-        max_wait_seconds=300,
         detail="full",
     )
 
@@ -600,18 +600,19 @@ def test_wait_event_compact_timeout_omits_inferred_event_catalog() -> None:
     assert result["error_code"] == "wait_event_timeout"
     assert result["timed_out"] is True
     assert result["events"] == []
-    assert result["wait_mode"] == "duration"
+    assert result["wait_mode"] == "timeframe_boundary"
     assert result["waited_seconds"] == 2.003
-    assert result["next_poll_hint"] == "retry after 0.5s"
+    assert "next_poll_hint" not in result
+    assert "poll_interval_seconds" not in result
+    assert "max_wait_seconds" not in result
     assert "events_monitored" not in result
     assert result["details"] == {
-        "mode": "duration",
+        "mode": "timeframe_boundary",
         "watch_for": ["order_created", "position_opened", "volume_spike"],
         "watch_for_inferred": True,
         "elapsed_seconds": 2.003,
-        "requested_wait_seconds": 2.0,
     }
-    assert "increase max_wait_seconds" in result["remediation"]
+    assert "shorter timeframe" in result["remediation"]
 
 
 def test_wait_event_compact_timeout_keeps_explicit_watch_types() -> None:
@@ -638,6 +639,7 @@ def test_wait_event_compact_timeout_keeps_explicit_watch_types() -> None:
     assert result["wait_mode"] == "timeframe_boundary"
     assert result["details"]["mode"] == "timeframe_boundary"
     assert "max_wait_seconds" not in result
+    assert "poll_interval_seconds" not in result
     assert "requested_wait_seconds" not in result["details"]
     assert "shorter timeframe" in result["remediation"]
 
@@ -1140,6 +1142,74 @@ def test_run_wait_event_infers_candle_boundary_from_request_timeframe(monkeypatc
     assert result["boundary_event"]["type"] == "candle_close"
     assert result["boundary_event"]["timeframe"] == "M1"
 
+
+def test_boundary_only_wait_with_multiple_boundaries_does_not_poll(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "mtdata.core.data.wait_events.compile._next_candle_wait_payload",
+        lambda timeframe, buffer_seconds, now_utc, **_kwargs: {
+            "timeframe": timeframe,
+            "buffer_seconds": buffer_seconds,
+            "sleep_seconds": 2.0 + buffer_seconds,
+            "started_at_utc": now_utc.isoformat(),
+            "next_candle_close_utc": (
+                now_utc + timedelta(seconds=2.0 + buffer_seconds)
+            ).isoformat(),
+            "next_candle_close_server": "2026-03-15T12:00:02",
+            "server_timezone": "UTC",
+        },
+    )
+    monkeypatch.setattr(
+        "mtdata.core.data.wait_events.loop._collect_snapshot",
+        lambda **_kwargs: pytest.fail("boundary-only waits must not poll state"),
+    )
+    selected_buffers = []
+
+    def _sleep_to_boundary(timeframe, buffer_seconds, sleep_impl, now_utc, **_kwargs):
+        selected_buffers.append(buffer_seconds)
+        sleep_seconds = 2.0 + buffer_seconds
+        sleep_impl(sleep_seconds)
+        return {
+            "timeframe": timeframe,
+            "buffer_seconds": buffer_seconds,
+            "sleep_seconds": sleep_seconds,
+            "slept_seconds": sleep_seconds,
+            "started_at_utc": now_utc.isoformat(),
+            "next_candle_close_utc": (
+                now_utc + timedelta(seconds=sleep_seconds)
+            ).isoformat(),
+            "next_candle_close_server": "2026-03-15T12:00:02",
+            "server_timezone": "UTC",
+            "status": "completed",
+            "slept": True,
+            "remaining_seconds": 0.0,
+        }
+
+    monkeypatch.setattr(
+        "mtdata.core.data.wait_events.loop._sleep_until_next_candle",
+        _sleep_to_boundary,
+    )
+    clock = FakeClock(datetime(2026, 3, 15, 12, 0, 0, tzinfo=timezone.utc))
+
+    result = run_wait_event(
+        WaitEventRequest(
+            timeframe="M1",
+            watch_for=[],
+            end_on=[
+                {"type": "candle_close", "timeframe": "M1", "buffer_seconds": 1.0},
+                {"type": "candle_close", "timeframe": "M1", "buffer_seconds": 0.0},
+            ],
+        ),
+        gateway=None,
+        sleep_impl=clock.sleep,
+        monotonic_impl=clock.monotonic,
+        now_utc_impl=clock.now_utc,
+    )
+
+    assert result["status"] == "completed"
+    assert result["slept_seconds"] == 2.0
+    assert selected_buffers == [0.0]
+    assert clock.monotonic_value == 2.0
+
 def test_wait_event_boundary_uses_inferred_timeframe_cap(monkeypatch) -> None:
     started = datetime(2026, 3, 15, 12, 0, 0, tzinfo=timezone.utc)
     monkeypatch.setattr(
@@ -1171,7 +1241,7 @@ def test_wait_event_boundary_uses_inferred_timeframe_cap(monkeypatch) -> None:
     assert result["success"] is False
     assert result["status"] == "wait_budget_exceeded"
     assert result["wait_mode"] == "timeframe_boundary"
-    assert result["max_wait_seconds"] == 120.0
+    assert result["max_wait_seconds"] == 61.0
     assert result["remaining_seconds"] == 121.0
     assert clock.monotonic_value == 0.0
 

@@ -725,7 +725,7 @@ class TestCreateCommandFunction:
         start = description.index("{\"type\":")
         end = description.index("}'", start) + 1
         example = json.loads(description[start:end])
-        request = WaitEventRequest(watch_for=[example], max_wait_seconds=1)
+        request = WaitEventRequest(timeframe="M1", watch_for=[example])
         assert request.watch_for[0].type == "price_touch_level"
 
     def test_wait_event_key_value_event_specs_are_wrapped(self, capsys):

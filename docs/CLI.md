@@ -761,13 +761,13 @@ Do not run long waits from the Web UI. See [WAIT_EVENT.md](WAIT_EVENT.md).
 
 ```bash
 mtdata-cli wait_event EURUSD --timeframe H1 --watch-for '[]' --json
-mtdata-cli wait_event --max-wait-seconds 30 --json
+mtdata-cli wait_event EURUSD --timeframe M5 --watch-for order_filled --json
 ```
 
-The first command is boundary-only; its maximum wait is inferred as the H1
-length plus 60 seconds. The second command is a 30-second timer. `timeframe`
-and `max_wait_seconds` are mutually exclusive. Omitting `--watch-for` in
-timeframe mode waits only for the candle boundary.
+The first command is boundary-only. The second can return early when an order
+fills and otherwise ends at the M5 boundary. `timeframe` is the required wait
+horizon. The wait budget and polling cadence are internal: boundary-only waits
+sleep directly to the boundary, while explicit event watchers are polled.
 
 ### Place Orders
 `trade_place` requires `symbol`, `volume`, and `order_type`.
@@ -959,13 +959,13 @@ Use one of these forms instead:
 
 ```powershell
 # Escaped inner quotes (PowerShell 5.1)
-mtdata-cli wait_event --max-wait-seconds 2 --watch-for '{\"type\":\"price_touch_level\",\"symbol\":\"EURUSD\",\"level\":1.16}'
+mtdata-cli wait_event EURUSD --timeframe M1 --watch-for '{\"type\":\"price_touch_level\",\"symbol\":\"EURUSD\",\"level\":1.16}'
 
 # KV form (no JSON quotes)
-mtdata-cli wait_event --max-wait-seconds 2 --watch-for type=price_touch_level,symbol=EURUSD,level=1.16
+mtdata-cli wait_event EURUSD --timeframe M1 --watch-for type=price_touch_level,symbol=EURUSD,level=1.16
 
 # PowerShell 7+ / stop-parsing
-mtdata-cli wait_event --max-wait-seconds 2 --% --watch-for {"type":"price_touch_level","symbol":"EURUSD","level":1.16}
+mtdata-cli wait_event EURUSD --timeframe M1 --% --watch-for {"type":"price_touch_level","symbol":"EURUSD","level":1.16}
 ```
 
 The same quoting applies to other JSON-or-KV parameters (`--kv-args`, `--shocks`,

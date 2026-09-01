@@ -956,9 +956,7 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
     ("trade_place", "expiration"): "Future pending-order expiration (dateparser string or positive UTC epoch seconds); use the literal GTC token for no expiration.",
     ("wait_event", "symbol"): (
         "Single trading symbol (e.g. EURUSD). Cannot be combined with symbols. "
-        "Requires --timeframe or --watch-for; a symbol plus --max-wait-seconds "
-        "alone is rejected because duration mode ignores the symbol. "
-        "Timer-only duration and clock-only timeframe waits may omit both."
+        "Omit symbol and symbols for a clock-only timeframe-boundary wait."
     ),
     ("wait_event", "symbols"): (
         "Basket of 1-12 trading symbols. Cannot be combined with symbol; omitted-symbol "
@@ -966,18 +964,9 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "must belong to the basket."
     ),
     ("wait_event", "timeframe"): (
-        "Candle-boundary wait mode. Cannot be combined with max_wait_seconds; "
-        "the maximum wait is inferred as the timeframe length plus 60 seconds. "
-        "With inferred watchers, reaching the boundary is a successful completion."
-    ),
-    ("wait_event", "max_wait_seconds"): (
-        "Duration-mode wait in seconds (alias: --timeout). Cannot be combined "
-        "with timeframe or boundary entries in end_on; an empty end_on is "
-        "treated as omitted. Omit the symbol and watch_for for a timer, or pass "
-        "watchers to return early."
-    ),
-    ("wait_event", "poll_interval_seconds"): (
-        "Seconds between polls; must be at least 0.1. Omit to use 0.5."
+        "Required wait horizon. The engine derives the wait budget internally, "
+        "sleeps directly for boundary-only waits, and polls only when explicit "
+        "event watchers need observation."
     ),
     ("wait_event", "watch_for"): (
         "Event names or JSON event objects. Supported types (required fields): "
@@ -993,9 +982,8 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "minutes or ticks); price_touch_level/price_break_level (level in price "
         "units; optional direction, tolerance, confirm_ticks for breaks); "
         "price_enter_zone (lower and upper in price units). Put candle_close "
-        "boundaries in end_on. In timeframe mode, omit for a candle-boundary wait "
-        "only. In duration mode, omit for a pure timer. Explicit watchers make an "
-        "unmatched timeout or boundary a failed wait. Examples: order_filled; "
+        "boundaries in end_on. Omit for a boundary-only wait. Explicit watchers "
+        "make an unmatched timeout or boundary a failed wait. Examples: order_filled; "
         "'{\"type\":\"order_filled\",\"symbol\":\"EURUSD\"}'; "
         "'{\"type\":\"price_change\",\"direction\":\"up\",\"threshold_mode\":"
         "\"fixed_pct\",\"threshold_value\":0.1}'; "

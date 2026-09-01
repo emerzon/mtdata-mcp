@@ -224,7 +224,6 @@ PARAM_HINTS = {
     "segments": "Segment count.",
     "bucket_seconds": "Resample bucket size in seconds.",
     "buffer_seconds": "Extra seconds to wait after the candle close before returning.",
-    "max_wait_seconds": "Maximum seconds to block before returning a failed timeout payload with wait timing fields.",
     "schema": "Encoding schema (e.g. delta).",
     "bits": "Bits per symbol for encoding schemas.",
     "paa": "PAA segments for symbolic representation.",
@@ -522,7 +521,6 @@ PARAM_HINTS = {
     "max_m1_bars": "Maximum M1 bars fetched when using M1-bar volume-profile approximation.",
     "max_regimes": "Maximum regime summary rows to return in compact output.",
     "limit_per_bucket": "Maximum news items returned per bucket.",
-    "poll_interval_seconds": "Seconds between polling attempts while waiting for events.",
     "core_only": "Return only methods implemented by the core package.",
 }
 

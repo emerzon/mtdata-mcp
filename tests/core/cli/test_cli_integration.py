@@ -3785,7 +3785,7 @@ def test_help_search_indexes_reviewed_examples():
         ("report_generate", "--template minimal", "<template>"),
         ("portfolio_risk_decompose", "--method bootstrap_historical", "theta"),
         ("options_barrier_price", "150 --strike 155", "<"),
-        ("wait_event", "--max-wait-seconds 1", "mtdata-cli wait_event\n"),
+        ("wait_event", "EURUSD --timeframe H1", "mtdata-cli wait_event\n"),
         ("trade_stress_test", "--shocks", "<shocks>"),
         ("cross_correlation", "EURUSD GBPUSD", "<symbols>"),
         ("strategy_validate", "ema_cross", "<candidates>"),

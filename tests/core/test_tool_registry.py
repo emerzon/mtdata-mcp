@@ -584,7 +584,7 @@ def test_tools_catalog_full_descriptions_preserve_abbreviations_and_guidance():
     expected_fragments = {
         ("market_relative_strength", "symbols"): ("e.g. EURUSD,GBPUSD", "group"),
         ("options_chain", "expiration"): ("e.g. 2026-07-17", "Omit"),
-        ("wait_event", "symbol"): ("e.g. EURUSD", "max_wait_seconds"),
+        ("wait_event", "symbol"): ("e.g. EURUSD", "clock-only"),
     }
     for (tool_name, parameter), fragments in expected_fragments.items():
         row = tools_by_name[tool_name]
@@ -659,7 +659,7 @@ def test_tools_list_searches_parameters_and_preserves_full_gated_schema(monkeypa
     raw_tools_list = getattr(tools_list, "__wrapped__", tools_list)
 
     parameter_match = raw_tools_list(search="max_wait_seconds")
-    assert [row["name"] for row in parameter_match["tools"]] == ["wait_event"]
+    assert parameter_match["tools"] == []
 
     gated = raw_tools_list(search="market_depth_fetch", detail="full")
     assert gated["count"] == 0
