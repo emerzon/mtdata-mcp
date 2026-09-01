@@ -1282,7 +1282,7 @@ def test_wait_event_empty_watch_with_symbol_uses_boundary_budget(monkeypatch) ->
     assert clock.monotonic_value == 0.0
 
 
-def test_run_wait_event_uses_timeframe_as_boundary_when_watchers_are_inferred(monkeypatch) -> None:
+def test_run_wait_event_omitted_watch_for_is_boundary_only(monkeypatch) -> None:
     monkeypatch.setattr(
         "mtdata.core.data.wait_events.compile._next_candle_wait_payload",
         lambda timeframe, buffer_seconds, now_utc, **_kwargs: {
@@ -1326,17 +1326,20 @@ def test_run_wait_event_uses_timeframe_as_boundary_when_watchers_are_inferred(mo
         now_utc_impl=clock.now_utc,
     )
 
-    assert result["status"] == "boundary_reached"
+    assert result["status"] == "completed"
     assert result["success"] is True
     assert result["completed"] is True
-    assert result["matched"] is False
     assert result["completion_reason"] == "candle_boundary_reached"
     assert result["boundary_event"]["type"] == "candle_close"
     assert result["boundary_event"]["timeframe"] == "M1"
     assert result["bid"] == 1.205
     assert result["ask"] == 1.2053
-    assert result["criteria"]["watch_for_inferred"] is True
-    assert result["criteria"]["end_on_inferred"] is True
+    assert "criteria" not in result
+    assert gateway._orders_calls == 0
+    assert gateway._positions_calls == 0
+    assert gateway._history_orders_calls == 0
+    assert gateway._history_deals_calls == 0
+
 
 def test_run_wait_event_boundary_only_includes_gateway_quote_when_symbol_is_set(monkeypatch) -> None:
     monkeypatch.setattr(

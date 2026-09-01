@@ -10,12 +10,19 @@ from mtdata.core.data import wait_events
 from mtdata.core.data.requests import WaitEventRequest
 
 
-def test_wait_event_request_defaults_watch_for_to_inferred_set() -> None:
+def test_wait_event_request_defaults_watch_for_to_empty_list() -> None:
     request = WaitEventRequest(timeframe="M1")
 
-    assert request.watch_for is None
+    assert request.watch_for == []
     assert request.end_on == []
     assert request.max_wait_seconds == 61.0
+
+
+def test_wait_event_request_default_watch_lists_are_independent() -> None:
+    first = WaitEventRequest(timeframe="M1")
+    second = WaitEventRequest(timeframe="M1")
+
+    assert first.watch_for is not second.watch_for
 
 
 def test_wait_event_request_rejects_combined_stopping_modes() -> None:

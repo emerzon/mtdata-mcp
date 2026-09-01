@@ -785,8 +785,9 @@ class WaitEventRequest(BaseModel):
 
     _watch_for_inferred: bool = PrivateAttr(default=False)
 
-    watch_for: Optional[List[WaitWatchEventSpec]] = Field(
-        default=None,
+    watch_for: List[WaitWatchEventSpec] = Field(
+        default_factory=list,
+        json_schema_extra={"default": []},
         description=(
             "Watch event specs (each an object with a 'type'). Supported types: "
             "price_change, price_touch_level, price_break_level, price_enter_zone, "

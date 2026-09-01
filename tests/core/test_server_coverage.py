@@ -1381,6 +1381,7 @@ class TestMcpToolSchemas:
         assert props["timeframe"]["type"] == "string"
         assert "wait_next_bar" not in props
         assert watch_for["type"] == "array"
+        assert watch_for["default"] == []
         assert watch_items["discriminator"]["propertyName"] == "type"
         assert "price_break_level" in watch_items["discriminator"]["mapping"]
         assert end_on["items"] == {"$ref": "#/$defs/CandleCloseEventSpec"}
