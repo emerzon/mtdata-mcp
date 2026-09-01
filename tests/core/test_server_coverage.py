@@ -575,6 +575,34 @@ class TestCoerceKwargsForCallable:
         assert "symbol" not in kw
         assert "horizon" not in kw
 
+    def test_coerces_prevalidated_barrier_into_forecast_request(self):
+        from pydantic import TypeAdapter
+
+        from mtdata.core._mcp_tools import _request_model_signature_fields
+        from mtdata.forecast.requests import ForecastBarrierProbRequest
+        from mtdata.shared.schema import BarrierPairSpec
+
+        def fn(request: ForecastBarrierProbRequest): ...
+
+        params = _request_model_signature_fields(fn)
+        barrier_param = next(param for param in params if param.name == "barrier")
+        barrier = TypeAdapter(barrier_param.annotation).validate_python(
+            {
+                "kind": "tp_sl",
+                "unit": "pct",
+                "take_profit": 1.2,
+                "stop_loss": 0.75,
+            }
+        )
+        assert isinstance(barrier, BarrierPairSpec)
+
+        kw = {"symbol": "BTCUSD", "horizon": 18, "barrier": barrier}
+        self._call(fn, kw)
+
+        assert isinstance(kw["request"], ForecastBarrierProbRequest)
+        assert kw["request"].barrier is barrier
+        assert "barrier" not in kw
+
     def test_coerces_indicator_string_into_data_request_model(self):
         from mtdata.core.data.requests import DataFetchCandlesRequest
 

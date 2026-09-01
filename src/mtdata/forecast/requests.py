@@ -156,6 +156,11 @@ class SinglePriceBarrierSpec(BaseModel):
 
 
 def _normalize_forecast_barrier_spec(value: Any) -> Any:
+    # Transport adapters may validate a flattened barrier argument before they
+    # construct the enclosing request model. Keep this normalizer idempotent so
+    # those already-valid model instances survive the second validation pass.
+    if isinstance(value, (SinglePriceBarrierSpec, BarrierPairSpec)):
+        return value
     if isinstance(value, bool):
         raise ValueError(
             "barrier must be an object with kind='single_price' or kind='tp_sl'"

@@ -4,6 +4,7 @@ from pydantic import ValidationError
 from mtdata.forecast.requests import (
     ForecastBarrierOptimizeRequest,
     ForecastBarrierProbRequest,
+    SinglePriceBarrierSpec,
 )
 from mtdata.shared.schema import BarrierPairSpec
 
@@ -40,6 +41,26 @@ def test_forecast_barrier_prob_request_infers_complete_tp_sl_kind():
     request = ForecastBarrierProbRequest(symbol="EURUSD", barrier=barrier)
 
     assert request.model_dump()["barrier"]["kind"] == "tp_sl"
+
+
+def test_forecast_barrier_prob_request_accepts_prevalidated_tp_sl_barrier():
+    barrier = BarrierPairSpec.model_validate(_tp_sl_barrier())
+
+    request = ForecastBarrierProbRequest(symbol="EURUSD", barrier=barrier)
+
+    assert request.barrier is barrier
+
+
+def test_forecast_barrier_prob_request_accepts_prevalidated_single_price_barrier():
+    barrier = SinglePriceBarrierSpec(level=1.18)
+
+    request = ForecastBarrierProbRequest(
+        symbol="EURUSD",
+        method="closed_form",
+        barrier=barrier,
+    )
+
+    assert request.barrier is barrier
 
 
 def test_labels_barrier_pair_accepts_forecast_tp_sl_shape():
