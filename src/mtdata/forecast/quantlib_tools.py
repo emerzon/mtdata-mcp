@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import datetime as _dt
 import math
+import threading
+from functools import wraps
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
@@ -76,6 +78,27 @@ _HESTON_BARRIER_T_GRID = 100
 _HESTON_BARRIER_X_GRID = 100
 _HESTON_BARRIER_V_GRID = 50
 _BARRIER_MODELS = ("black_scholes_merton", "heston")
+_QUANTLIB_SETTINGS_LOCK = threading.RLock()
+
+
+def _isolated_quantlib_settings(func: Any) -> Any:
+    """Serialize QuantLib global settings and restore the caller's date."""
+
+    @wraps(func)
+    def _wrapped(*args: Any, **kwargs: Any) -> Any:
+        try:
+            import QuantLib as ql
+        except Exception:
+            return func(*args, **kwargs)
+        with _QUANTLIB_SETTINGS_LOCK:
+            settings = ql.Settings.instance()
+            previous_evaluation_date = settings.evaluationDate
+            try:
+                return func(*args, **kwargs)
+            finally:
+                settings.evaluationDate = previous_evaluation_date
+
+    return _wrapped
 
 
 def _build_bs_merton_process(
@@ -257,6 +280,7 @@ def _days_to_expiry(
     return int((expiry_date - valuation_day).days)
 
 
+@_isolated_quantlib_settings
 def price_barrier_option_quantlib(  # noqa: C901
     *,
     spot: float,
@@ -278,6 +302,7 @@ def price_barrier_option_quantlib(  # noqa: C901
     heston_theta: Optional[float] = None,
     heston_sigma: Optional[float] = None,
     heston_rho: Optional[float] = None,
+    barrier_already_hit: bool = False,
 ) -> Dict[str, Any]:
     """Price a European barrier option with QuantLib."""
     try:
@@ -432,6 +457,7 @@ def price_barrier_option_quantlib(  # noqa: C901
         barrier_type=barrier_type_norm,
         spot=spot_val,
         barrier=barrier_val,
+        barrier_already_hit=barrier_already_hit,
     )
     if barrier_status == "knocked_out":
         params_used = _barrier_option_params(
@@ -450,12 +476,18 @@ def price_barrier_option_quantlib(  # noqa: C901
             valuation_date=valuation_day.isoformat(),
             model=model_norm,
             heston_params=heston_params,
+            barrier_already_hit=barrier_already_hit,
         )
         knocked_out: Dict[str, Any] = {
             "success": True,
             "price": float(rebate_val),
             "status": "knocked_out",
             "option_status": "knocked_out",
+            "barrier_state_source": (
+                "explicit_prior_hit"
+                if barrier_already_hit
+                else "spot_at_or_beyond_barrier"
+            ),
             "valuation_date": valuation_day.isoformat(),
             "valuation_timezone": valuation_timezone,
             "valuation_date_source": valuation_date_source,
@@ -500,6 +532,7 @@ def price_barrier_option_quantlib(  # noqa: C901
             valuation_date_source=valuation_date_source,
             model_norm=model_norm,
             heston_params=heston_params,
+            barrier_already_hit=barrier_already_hit,
         )
         if (
             valuation_warning
@@ -668,6 +701,7 @@ def price_barrier_option_quantlib(  # noqa: C901
     return {
         "success": True,
         "price": float(npv),
+        "barrier_state_source": "assumed_unhit_at_valuation",
         "valuation_date": valuation_day.isoformat(),
         "valuation_timezone": valuation_timezone,
         "valuation_date_source": valuation_date_source,
@@ -718,6 +752,7 @@ def price_barrier_option_quantlib(  # noqa: C901
             valuation_date=valuation_day.isoformat(),
             model=model_norm,
             heston_params=heston_params,
+            barrier_already_hit=barrier_already_hit,
         ),
     }
 
@@ -743,6 +778,7 @@ def _price_knocked_in_as_vanilla(
     valuation_date_source: str,
     model_norm: str = "black_scholes_merton",
     heston_params: Optional[Dict[str, float]] = None,
+    barrier_already_hit: bool = False,
 ) -> Dict[str, Any]:
     """Price a barrier that has already knocked in as the equivalent vanilla."""
     ql_today = _quantlib_date(ql, valuation_day)
@@ -763,40 +799,78 @@ def _price_knocked_in_as_vanilla(
     )
     exercise = ql.EuropeanExercise(maturity)
     option = ql.VanillaOption(payoff, exercise)
-    if heston_params is not None:
-        process = _build_heston_process(
-            ql,
-            ql_today,
-            spot_val,
-            rf,
-            div,
-            heston_params["v0"],
-            heston_params["kappa"],
-            heston_params["theta"],
-            heston_params["sigma"],
-            heston_params["rho"],
-            day_count,
-        )
-        option.setPricingEngine(ql.AnalyticHestonEngine(ql.HestonModel(process)))
-    else:
+
+    def _set_engine(spot_local: float) -> None:
+        if heston_params is not None:
+            process = _build_heston_process(
+                ql,
+                ql_today,
+                spot_local,
+                rf,
+                div,
+                heston_params["v0"],
+                heston_params["kappa"],
+                heston_params["theta"],
+                heston_params["sigma"],
+                heston_params["rho"],
+                day_count,
+            )
+            option.setPricingEngine(ql.AnalyticHestonEngine(ql.HestonModel(process)))
+            return
         process = _build_bs_merton_process(
             ql,
             ql_today,
             calendar_obj,
-            spot_val,
+            spot_local,
             rf,
             div,
             vol,
             day_count,
         )
         option.setPricingEngine(ql.AnalyticEuropeanEngine(process))
+
+    def _price_with(spot_local: float) -> float:
+        _set_engine(spot_local)
+        return float(option.NPV())
+
     try:
-        npv = float(option.NPV())
-        delta = float(option.delta())
-        gamma = float(option.gamma())
-        vega = float(option.vega()) if heston_params is None else None
+        npv = _price_with(spot_val)
     except Exception as ex:
         return {"error": f"QuantLib pricing failed: {ex}"}
+
+    delta: Optional[float] = None
+    gamma: Optional[float] = None
+    vega: Optional[float] = None
+    greeks_warnings: List[str] = []
+    if heston_params is not None:
+        eps_s = max(1e-6, abs(float(spot_val)) * 1e-4)
+        try:
+            p_up = _price_with(float(spot_val) + eps_s)
+            p_dn = _price_with(float(spot_val) - eps_s)
+            delta = float((p_up - p_dn) / (2.0 * eps_s))
+            gamma = float((p_up - 2.0 * npv + p_dn) / (eps_s * eps_s))
+        except Exception as ex:
+            greeks_warnings.append(
+                f"Heston vanilla spot Greeks unavailable: finite differences failed ({ex})."
+            )
+        greeks_method = "knocked_in_heston_vanilla_central_difference"
+    else:
+        _set_engine(spot_val)
+        for greek_name in ("delta", "gamma", "vega"):
+            try:
+                value = float(getattr(option, greek_name)())
+            except Exception as ex:
+                greeks_warnings.append(
+                    f"{greek_name} unavailable for knocked-in vanilla pricing ({ex})."
+                )
+                continue
+            if greek_name == "delta":
+                delta = value
+            elif greek_name == "gamma":
+                gamma = value
+            else:
+                vega = value
+        greeks_method = "knocked_in_vanilla_analytic"
     finite_greeks = sum(
         value is not None and math.isfinite(value)
         for value in (delta, gamma, vega)
@@ -814,6 +888,11 @@ def _price_knocked_in_as_vanilla(
         "price": npv,
         "status": "knocked_in",
         "option_status": "knocked_in",
+        "barrier_state_source": (
+            "explicit_prior_hit"
+            if barrier_already_hit
+            else "spot_at_or_beyond_barrier"
+        ),
         "valuation_date": valuation_day.isoformat(),
         "valuation_timezone": valuation_timezone,
         "valuation_date_source": valuation_date_source,
@@ -823,11 +902,8 @@ def _price_knocked_in_as_vanilla(
         "gamma": gamma,
         "vega": vega,
         "greeks_status": greeks_status,
-        "greeks_method": (
-            "knocked_in_heston_vanilla"
-            if heston_params is not None
-            else "knocked_in_vanilla"
-        ),
+        "greeks_method": greeks_method,
+        **({"greeks_warnings": greeks_warnings} if greeks_warnings else {}),
         "pricing_assumptions": _quantlib_pricing_assumptions(
             _barrier_model_label(
                 model=model_norm,
@@ -853,6 +929,7 @@ def _price_knocked_in_as_vanilla(
             valuation_date=valuation_day.isoformat(),
             model=model_norm,
             heston_params=heston_params,
+            barrier_already_hit=barrier_already_hit,
         ),
     }
 
@@ -862,8 +939,11 @@ def _barrier_option_status(
     barrier_type: str,
     spot: float,
     barrier: float,
+    barrier_already_hit: bool = False,
 ) -> Optional[str]:
     kind = str(barrier_type)
+    if bool(barrier_already_hit):
+        return "knocked_out" if kind.endswith("_out") else "knocked_in"
     if kind.startswith("up_") and barrier <= spot:
         return "knocked_out" if kind.endswith("_out") else "knocked_in"
     if kind.startswith("down_") and barrier >= spot:
@@ -888,6 +968,7 @@ def _barrier_option_params(
     valuation_date: Optional[str] = None,
     model: str = "black_scholes_merton",
     heston_params: Optional[Dict[str, float]] = None,
+    barrier_already_hit: bool = False,
 ) -> Dict[str, Any]:
     out: Dict[str, Any] = {
         "spot": float(spot),
@@ -902,6 +983,7 @@ def _barrier_option_params(
         "calendar": str(calendar),
         "maturity_basis": str(maturity_basis),
         "model": str(model),
+        "barrier_already_hit": bool(barrier_already_hit),
         **({"valuation_date": valuation_date} if valuation_date else {}),
     }
     if heston_params:
@@ -1153,6 +1235,7 @@ def _heston_contract_quality(
     return failures, skew_seconds
 
 
+@_isolated_quantlib_settings
 def calibrate_heston_quantlib_from_options(  # noqa: C901
     *,
     symbol: str,

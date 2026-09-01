@@ -56,6 +56,22 @@ class TradeIdeaComposeRequest(BaseModel):
             "of equity). Used only for preview sizing."
         ),
     )
+    commission_bps_per_side: float = Field(
+        default=0.0,
+        ge=0.0,
+        description=(
+            "Commission per fill side in basis points; deducted twice from the "
+            "barrier expected-value gate."
+        ),
+    )
+    slippage_bps: float = Field(
+        default=0.0,
+        ge=0.0,
+        description=(
+            "Slippage per fill side in basis points; deducted twice from the "
+            "barrier expected-value gate."
+        ),
+    )
     as_of: Optional[str] = Field(
         default=None,
         description=(

@@ -81,6 +81,7 @@ _COMPACT_KEYS = (
     "geometry",
     "sizing",
     "gates",
+    "execution_costs",
     "preview",
     "partial_failure",
     "failed_sections",
@@ -471,6 +472,7 @@ def _barrier_expected_value_pct(
     stop_loss: Optional[float],
     prob_tp_first: Optional[float],
     prob_sl_first: Optional[float],
+    round_trip_cost_pct: float = 0.0,
 ) -> Optional[float]:
     """Return first-hit expected value using the idea's final exit geometry."""
     if (
@@ -484,7 +486,8 @@ def _barrier_expected_value_pct(
         return None
     reward_pct = abs(take_profit - entry) / entry * 100.0
     risk_pct = abs(entry - stop_loss) / entry * 100.0
-    return float(prob_tp_first * reward_pct - prob_sl_first * risk_pct)
+    gross_ev = prob_tp_first * reward_pct - prob_sl_first * risk_pct
+    return float(gross_ev - max(0.0, float(round_trip_cost_pct)))
 
 
 def _snap_exit(
@@ -845,6 +848,8 @@ def _compact_barriers(payload: Any, *, take_profit: Optional[float], stop_loss: 
             "probability_edge",
             "expected_value",
             "expected_value_pct",
+            "expected_value_gross_pct",
+            "expected_value_execution_cost_pct",
             "expected_value_basis",
             "tp_pct",
             "sl_pct",
@@ -1164,6 +1169,10 @@ def run_trade_idea_compose(  # noqa: C901
         "as_of": request.as_of,
         "detail": "compact",
     }
+    round_trip_cost_bps = 2.0 * (
+        float(request.commission_bps_per_side) + float(request.slippage_bps)
+    )
+    round_trip_cost_pct = round_trip_cost_bps / 100.0
     sections: Dict[str, Any] = {}
     failed: List[str] = []
     section_errors: Dict[str, Dict[str, Any]] = {}
@@ -1393,10 +1402,21 @@ def run_trade_idea_compose(  # noqa: C901
                 stop_loss=stop_loss,
                 prob_tp_first=tp_prob,
                 prob_sl_first=sl_prob,
+                round_trip_cost_pct=round_trip_cost_pct,
             )
             if isinstance(barriers_payload, dict) and expected_value_pct is not None:
                 barriers_payload["expected_value_pct"] = expected_value_pct
-                barriers_payload["expected_value_basis"] = "final_exit_geometry"
+                barriers_payload["expected_value_gross_pct"] = (
+                    expected_value_pct + round_trip_cost_pct
+                )
+                barriers_payload["expected_value_execution_cost_pct"] = (
+                    round_trip_cost_pct
+                )
+                barriers_payload["expected_value_basis"] = (
+                    "final_exit_geometry_net_of_configured_costs"
+                    if round_trip_cost_pct > 0.0
+                    else "final_exit_geometry"
+                )
             if expected_value_pct is None:
                 gates["barriers"] = _gate("fail", "barrier expected value unavailable")
             elif expected_value_pct <= 0.0:
@@ -1630,6 +1650,11 @@ def run_trade_idea_compose(  # noqa: C901
             stand_down_reasons=unique_reasons,
         ),
         "gates": gates,
+        "execution_costs": {
+            "commission_bps_per_side": float(request.commission_bps_per_side),
+            "slippage_bps_per_side": float(request.slippage_bps),
+            "round_trip_bps": round_trip_cost_bps,
+        },
     }
     if historical:
         idea["requested_as_of"] = request.as_of

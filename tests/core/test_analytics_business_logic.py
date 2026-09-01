@@ -2641,6 +2641,52 @@ def test_strategy_barrier_entry_uses_next_bar_open_after_gap() -> None:
     assert outcomes.tolist() == pytest.approx([0.0])
 
 
+def test_strategy_barrier_stop_gap_uses_opening_fill_loss() -> None:
+    frame = pd.DataFrame(
+        {
+            "open": [100.0, 100.0, 90.0],
+            "high": [100.0, 101.0, 91.0],
+            "low": [100.0, 99.0, 89.0],
+            "close": [100.0, 100.0, 90.0],
+        }
+    )
+    signal = pd.Series([1.0, np.nan, np.nan])
+
+    indices, outcomes = _barrier_returns(
+        frame,
+        signal,
+        horizon=2,
+        tp_pct=20.0,
+        sl_pct=5.0,
+    )
+
+    assert indices.tolist() == [0]
+    assert outcomes.tolist() == pytest.approx([-0.10])
+
+
+def test_strategy_barrier_stop_gap_precedes_same_bar_tp_policy() -> None:
+    frame = pd.DataFrame(
+        {
+            "open": [100.0, 100.0, 90.0],
+            "high": [100.0, 101.0, 125.0],
+            "low": [100.0, 99.0, 89.0],
+            "close": [100.0, 100.0, 110.0],
+        }
+    )
+    signal = pd.Series([1.0, np.nan, np.nan])
+
+    _, outcomes = _barrier_returns(
+        frame,
+        signal,
+        horizon=2,
+        tp_pct=20.0,
+        sl_pct=5.0,
+        same_bar_policy="tp_first",
+    )
+
+    assert outcomes.tolist() == pytest.approx([-0.10])
+
+
 def test_strategy_barrier_returns_do_not_overlap_persistent_signals() -> None:
     frame = pd.DataFrame(
         {

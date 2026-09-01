@@ -152,6 +152,9 @@ horizon barrier, use `sma_cross_event` or `ema_cross_event`.
 overbought zone. Each ranking exposes this contract in `signal_definition`
 (`state_reversal`, `cross_event`, `zone_entry_event`, or
 `forecast_threshold_anchor`).
+Event and forecast-threshold barrier outcomes enter at the next bar open. If a
+later bar opens beyond the stop, the realized loss uses that opening fill
+rather than capping the result at the requested stop percentage.
 
 Lookback accounting reports `evaluation_bars`, `warmup_bars`,
 `outcome_tail_bars`, and `fetch_bars` separately. Fetching

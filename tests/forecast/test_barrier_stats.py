@@ -152,6 +152,18 @@ class TestBarrierStats(unittest.TestCase):
         result = cross_seed_stability(results_by_seed, threshold_cv=0.10)
         
         self.assertFalse(result['stable'])
+
+    def test_cross_seed_stability_does_not_use_absolute_value_tolerance(self):
+        results_by_seed = {
+            42: {'ev': 0.01},
+            43: {'ev': 0.15},
+        }
+
+        result = cross_seed_stability(results_by_seed, threshold_cv=0.15)
+
+        self.assertFalse(result['stable'])
+        self.assertFalse(result['metrics']['ev']['stable'])
+        self.assertGreater(result['metrics']['ev']['cv'], 1.0)
     
     def test_bootstrap_metric_uncertainty(self):
         """Test bootstrap uncertainty estimation."""

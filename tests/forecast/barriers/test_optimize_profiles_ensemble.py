@@ -177,6 +177,59 @@ class TestBarrierOptimizeProfilesEnsemble(_BarrierTestBase):
         self.assertIsInstance(result["best"], dict)
         self.assertIn("ev", result["best"])
 
+    def test_ensemble_preserves_timeout_dominated_ev_gate(self):
+        self._set_flat_history(1.0)
+        paths = np.concatenate(
+            (
+                np.full((2, 2), 1.006),
+                np.full((20, 2), 0.994),
+                np.full((78, 2), 1.004),
+            ),
+            axis=0,
+        )
+        with patch(
+            f'{_BARRIER_OPT_ROOT}._simulate_gbm_mc',
+            return_value={"price_paths": paths},
+        ), patch(
+            f'{_BARRIER_OPT_ROOT}._simulate_bootstrap_mc',
+            return_value={"price_paths": paths},
+        ), patch(
+            f'{_BARRIER_OPT_ROOT}._get_live_reference_price',
+            return_value=(None, None),
+        ):
+            result = forecast_barrier_optimize(
+                symbol="EURUSD",
+                timeframe="H1",
+                horizon=2,
+                method="ensemble",
+                direction="long",
+                mode="pct",
+                tp_min=0.5,
+                tp_max=0.5,
+                tp_steps=1,
+                sl_min=0.5,
+                sl_max=0.5,
+                sl_steps=1,
+                params={
+                    "ensemble_methods": ["mc_gbm", "bootstrap"],
+                    "ensemble_agg": "median",
+                    "n_sims": 100,
+                    "spread_pct": 0.0,
+                    "commission_pct": 0.0,
+                    "slippage_pct": 0.0,
+                },
+                viable_only=False,
+            )
+
+        self.assertTrue(result["best"]["ev_timeout_dominated"])
+        self.assertGreater(result["best"]["timeout_mtm_contribution"], 0.0)
+        self.assertGreater(
+            result["best"]["timeout_mtm_contribution"],
+            result["best"]["ev_resolved_contribution"],
+        )
+        self.assertFalse(result["trade_gate_passed"])
+        self.assertIn("ev_timeout_dominated", result["actionability_flags"])
+
     def test_forecast_barrier_optimize_ensemble_fetches_history_once(self):
         self._set_flat_history(1.0)
         self.mock_fetch_history_opt.reset_mock()

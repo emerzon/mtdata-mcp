@@ -309,24 +309,31 @@ def run_forecast_barrier_optimize(
     if not isinstance(params_norm, dict):
         params_norm = {}
     cost_option_map = (
-        ("spread_bps", request.spread_bps, "spread_bps"),
-        ("slippage_bps", request.slippage_bps, "slippage_bps"),
-        ("commission_bps", request.commission_bps_per_side, "commission_bps_per_side"),
+        ("spread_bps", request.spread_bps, "spread_bps", 1.0),
+        ("slippage_bps", request.slippage_bps, "slippage_bps", 2.0),
+        (
+            "commission_bps",
+            request.commission_bps_per_side,
+            "commission_bps_per_side",
+            2.0,
+        ),
     )
-    for params_key, option_value, option_name in cost_option_map:
+    for params_key, option_value, option_name, round_trip_multiplier in cost_option_map:
         if option_value is None:
             continue
+        normalized_value = float(option_value) * float(round_trip_multiplier)
         existing = params_norm.get(params_key)
         if existing is not None:
             try:
-                same_value = float(existing) == float(option_value)
+                same_value = float(existing) == normalized_value
             except (TypeError, ValueError):
                 same_value = False
             if not same_value:
                 result = {
                     "error": (
                         f"Conflicting {option_name}: top-level {option_name}="
-                        f"{option_value} and params.{params_key}={existing}. "
+                        f"{option_value} per side (round-trip {normalized_value}) and "
+                        f"params.{params_key}={existing}. "
                         "Use one value or make them equal."
                     ),
                     "error_code": "invalid_input",
@@ -342,7 +349,7 @@ def run_forecast_barrier_optimize(
                     direction=request.direction,
                 )
                 return result
-        params_norm[params_key] = option_value
+        params_norm[params_key] = normalized_value
     params_norm["same_bar_policy"] = request.same_bar_policy
     for threshold_key in ("min_ev", "min_edge", "min_kelly"):
         threshold_value = getattr(request, threshold_key, None)

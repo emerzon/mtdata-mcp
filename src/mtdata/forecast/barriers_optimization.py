@@ -151,6 +151,7 @@ _BARRIER_OPTIMIZER_PARAM_KEYS = {
     "max_prob_no_hit",
     "min_barrier_multiplier",
     "min_barrier_pct",
+    "min_barrier_pips",
     "min_barrier_ticks",
     "min_edge",
     "min_ev",
@@ -615,6 +616,27 @@ def _candidate_hit_arrays(
     )
 
 
+def _candidate_resolution_timing(
+    first_tp: np.ndarray,
+    first_sl: np.ndarray,
+    wins: np.ndarray,
+    losses: np.ndarray,
+    ties: np.ndarray,
+    *,
+    horizon: int,
+    same_bar_policy: str,
+) -> Tuple[np.ndarray, np.ndarray]:
+    """Return policy-resolved rows and unconditional bars in trade."""
+    resolve_mask = wins | losses
+    if same_bar_policy != "neutral":
+        resolve_mask |= ties
+    time_in_trade = np.minimum(np.minimum(first_tp, first_sl) + 1, horizon)
+    if same_bar_policy == "neutral" and np.any(ties):
+        time_in_trade = np.array(time_in_trade, copy=True)
+        time_in_trade[ties] = horizon
+    return resolve_mask, time_in_trade
+
+
 def _evaluate_barrier_candidate(
     tp_unit: float,
     sl_unit: float,
@@ -695,6 +717,7 @@ def _evaluate_barrier_candidate(
         direction="long" if context.dir_long else "short",
         mode=context.mode_val,  # type: ignore[arg-type]
         tick_size=context.tick_size,
+        pip_size=context.pip_size,
         cost_per_trade=(context.ev_deduct_cost if context.has_trading_costs else 0.0),
         same_bar_policy=context.same_bar_policy,  # type: ignore[arg-type]
         gap_aware_stops=context.gap_aware_stops,
@@ -762,8 +785,15 @@ def _evaluate_barrier_candidate(
         ev_cond = 0.0
         kelly_cond = 0.0
 
-    resolve_mask = (first_tp < horizon_total) | (first_sl < horizon_total)
-    time_in_trade = np.minimum(np.minimum(first_tp, first_sl) + 1, horizon_total)
+    resolve_mask, time_in_trade = _candidate_resolution_timing(
+        first_tp,
+        first_sl,
+        wins,
+        losses,
+        ties,
+        horizon=horizon_total,
+        same_bar_policy=context.same_bar_policy,
+    )
     t_res_mean_all = float(np.mean(time_in_trade)) if time_in_trade.size else None
     t_res_med_all = float(np.median(time_in_trade)) if time_in_trade.size else None
     if np.any(resolve_mask):
@@ -860,10 +890,7 @@ def _evaluate_barrier_candidate(
         "ev_unresolved": ev_unresolved_net,
         "ev_unresolved_gross": ev_unresolved,
         "ev_unresolved_net": ev_unresolved_net,
-        "realized_loss_mean": (
-            float(np.mean(payoffs.realized_loss_units[losses]))
-            if np.any(losses) else None
-        ),
+        "realized_loss_mean": None,
         "gap_aware_stops": bool(context.gap_aware_stops),
         "ev_cond": ev_cond,
         "edge": edge,
@@ -886,6 +913,13 @@ def _evaluate_barrier_candidate(
         "t_hit_resolve_mean_all": t_res_mean_all,
         "t_hit_resolve_median_all": t_res_med_all,
     }
+    realized_loss_mask = losses | (
+        ties if context.same_bar_policy == "sl_first" else np.zeros_like(ties)
+    )
+    if np.any(realized_loss_mask):
+        result["realized_loss_mean"] = float(
+            np.mean(payoffs.realized_loss_units[realized_loss_mask])
+        )
     if profit_factor_note:
         result["profit_factor_note"] = profit_factor_note
     timeout_dominated = bool(
@@ -2121,6 +2155,23 @@ def forecast_barrier_optimize(  # noqa: C901
         effective_slippage_pct = slippage_pct_val + slippage_pips_val * pip_to_pct
         effective_commission_pct = commission_pct_val
 
+        # Explicit spread assumptions are modeled as a payoff deduction from
+        # entry-anchored paths. The live bid/ask fallback instead starts paths
+        # on the executable exit quote, so that spread must not also be
+        # subtracted from every payoff.
+        if spread_supplied and str(last_price_source or "").startswith("live_tick"):
+            simulation_reference_price = float(last_price)
+        spread_embedded_in_path_geometry = bool(
+            spread_source == "live_bid_ask"
+            and np.isfinite(float(simulation_reference_price))
+            and not np.isclose(
+                float(simulation_reference_price),
+                float(last_price),
+                rtol=0.0,
+                atol=max(abs(float(last_price)) * 1e-12, 1e-12),
+            )
+        )
+
         def _pct_to_pips(value: float) -> Optional[float]:
             if cost_pip_size is None or last_price <= 0.0:
                 return None
@@ -2147,12 +2198,20 @@ def forecast_barrier_optimize(  # noqa: C901
             cost_commission = commission_pct_val * pct_to_ticks
         dir_long = (direction_norm == 'long')
 
-        # Costs are applied symmetrically to net payoffs for both directions.
-        ev_deduct_cost = max(0.0, cost_spread + cost_slippage + cost_commission)
-
-        cost_per_trade = max(0.0, cost_spread + cost_slippage + cost_commission)
+        modeled_cost_per_trade = max(
+            0.0,
+            cost_spread + cost_slippage + cost_commission,
+        )
+        payoff_spread_cost = 0.0 if spread_embedded_in_path_geometry else cost_spread
+        # Only costs not already represented by executable quote geometry are
+        # deducted from path payoffs.
+        cost_per_trade = max(
+            0.0,
+            payoff_spread_cost + cost_slippage + cost_commission,
+        )
+        ev_deduct_cost = cost_per_trade
         has_trading_costs = bool(
-            cost_per_trade > 0.0
+            modeled_cost_per_trade > 0.0
             or spread_supplied
             or commission_supplied
             or slippage_supplied
@@ -2161,9 +2220,11 @@ def forecast_barrier_optimize(  # noqa: C901
             "complete": cost_model_complete,
             "missing_assumptions": missing_cost_assumptions,
             "known_costs_applied": has_trading_costs,
-            "cost_per_trade": _safe_float(cost_per_trade),
+            "cost_per_trade": _safe_float(modeled_cost_per_trade),
+            "payoff_deduction": _safe_float(cost_per_trade),
             "cost_unit": mode_val,
             "spread_source": spread_source,
+            "spread_embedded_in_path_geometry": spread_embedded_in_path_geometry,
             "spread_values_basis": "effective_normalized_total",
             "spread_pips": _safe_float(_pct_to_pips(effective_spread_pct)),
             "spread_bps": _safe_float(effective_spread_pct * 100.0),
@@ -2378,7 +2439,10 @@ def forecast_barrier_optimize(  # noqa: C901
                 'prob_win', 'prob_loss', 'prob_tp_first', 'prob_sl_first',
                 'prob_tp_strict_first', 'prob_sl_strict_first',
                 'prob_no_hit', 'prob_same_bar', 'prob_resolve', 'prob_unresolved',
-                'ev', 'ev_gross', 'ev_net', 'ev_unresolved', 'ev_cond', 'edge',
+                'ev', 'ev_gross', 'ev_net', 'ev_unresolved',
+                'ev_unresolved_gross', 'ev_unresolved_net',
+                'ev_resolved_contribution', 'timeout_mtm_contribution',
+                'same_bar_contribution', 'ev_cond', 'edge',
                 'kelly', 'kelly_cond',
                 'ev_per_bar', 'profit_factor', 'utility',
                 't_hit_tp_median', 't_hit_sl_median',
@@ -2469,6 +2533,20 @@ def forecast_barrier_optimize(  # noqa: C901
                 _cohere_ensemble_probability_row(
                     aggregate_row,
                     cost_per_trade=cost_per_trade,
+                )
+                aggregate_ev = _optional_finite_float(aggregate_row.get("ev"))
+                aggregate_timeout = _optional_finite_float(
+                    aggregate_row.get("timeout_mtm_contribution")
+                )
+                aggregate_resolved = _optional_finite_float(
+                    aggregate_row.get("ev_resolved_contribution")
+                )
+                aggregate_row["ev_timeout_dominated"] = bool(
+                    aggregate_ev is not None
+                    and aggregate_ev > 0.0
+                    and aggregate_timeout is not None
+                    and aggregate_timeout > 0.0
+                    and aggregate_timeout > max(float(aggregate_resolved or 0.0), 0.0)
                 )
                 for metric_name, se_name in (("ev", "ev_se"), ("edge", "edge_se")):
                     metric_values: List[float] = []
@@ -3241,6 +3319,7 @@ def forecast_barrier_optimize(  # noqa: C901
                 direction="long" if dir_long else "short",
                 mode=mode_val,  # type: ignore[arg-type]
                 tick_size=float(tick_size) if tick_size else 0.0,
+                pip_size=float(pip_size) if pip_size else None,
                 cost_per_trade=(cost_per_trade if has_trading_costs else 0.0),
                 same_bar_policy=same_bar_policy_value,
                 gap_aware_stops=eval_context.gap_aware_stops,
@@ -3251,11 +3330,12 @@ def forecast_barrier_optimize(  # noqa: C901
                 else convergence_payoffs.gross
             )
             cumulative_payoff = np.cumsum(path_payoff)
-            unit_to_return = (
-                0.01
-                if mode_val == 'pct'
-                else float(tick_size) / float(last_price)
-            )
+            if mode_val == 'pct':
+                unit_to_return = 0.01
+            elif mode_val == 'pips':
+                unit_to_return = float(pip_size) / float(last_price)
+            else:
+                unit_to_return = float(tick_size) / float(last_price)
             path_utility = np.log1p(
                 np.maximum(path_payoff * unit_to_return, -0.999999)
             )
@@ -3918,6 +3998,7 @@ def forecast_barrier_optimize(  # noqa: C901
                             direction=direction_norm,
                             mode=mode_val,
                             tick_size=float(tick_size) if tick_size else 0.0,
+                            pip_size=float(pip_size) if pip_size else None,
                             cost_per_trade=float(cost_per_trade),
                             same_bar_policy=same_bar_policy_value,
                             gap_aware_stops=eval_context.gap_aware_stops,

@@ -53,6 +53,27 @@ class TestBarrierOptimizeBasic(_BarrierTestBase):
         self.assertEqual(result["unknown_keys"], ["return_grid"])
         self.assertIn("top-level", result["remediation"])
 
+    def test_min_barrier_pips_is_accepted_as_optimizer_param(self):
+        result = forecast_barrier_optimize(
+            symbol="EURUSD",
+            timeframe="H1",
+            horizon=2,
+            method="mc_gbm_bb",
+            direction="long",
+            mode="pips",
+            tp_min=5.0,
+            tp_max=5.0,
+            tp_steps=1,
+            sl_min=5.0,
+            sl_max=5.0,
+            sl_steps=1,
+            params={"min_barrier_pips": 2.0, "n_sims": 20},
+            viable_only=False,
+        )
+
+        self.assertTrue(result["success"])
+        self.assertNotIn("unknown_keys", result)
+
     def test_forecast_barrier_optimize(self):
         result = forecast_barrier_optimize(
             symbol="EURUSD",

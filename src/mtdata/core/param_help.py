@@ -508,6 +508,10 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "Option knock-in/knock-out barrier price level, in the same units as spot "
         "and strike. This is a numeric parametric pricer; it does not fetch a symbol quote."
     ),
+    ("options_barrier_price", "barrier_already_hit"): (
+        "Set true when an existing monitored contract touched its barrier before "
+        "valuation, even if current spot has returned to the unbreached side."
+    ),
     ("options_barrier_price", "model"): (
         "Pricing model: black_scholes_merton (default analytic barrier with "
         "flat --volatility) or heston (FdHestonBarrierEngine using the five "
@@ -741,6 +745,14 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "Idea template: quick runs session, forecast, volatility, one barrier "
         "pair, and sizing; standard also adds confluence and snaps exits "
         "toward nearby structure."
+    ),
+    ("trade_idea_compose", "commission_bps_per_side"): (
+        "Commission for one fill side in basis points. The expected-value gate "
+        "deducts twice this amount for entry plus exit."
+    ),
+    ("trade_idea_compose", "slippage_bps"): (
+        "Slippage for one fill side in basis points. The expected-value gate "
+        "deducts twice this amount for entry plus exit."
     ),
     ("report_generate", "template"): (
         "Report template: minimal fast context+forecast (default), basic research with confluence, "

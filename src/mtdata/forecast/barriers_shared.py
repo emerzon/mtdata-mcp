@@ -689,6 +689,8 @@ def _build_actionability_payload(  # noqa: C901
 
     if isinstance(row, dict) and bool(row.get("phantom_profit_risk")):
         flags.append("phantom_profit_risk")
+    if isinstance(row, dict) and bool(row.get("ev_timeout_dominated")):
+        flags.append("ev_timeout_dominated")
     if bool(diag.get("ev_edge_conflict")):
         flags.append("ev_edge_conflict")
     if bool(diag.get("low_practical_win_probability")):
@@ -718,6 +720,7 @@ def _build_actionability_payload(  # noqa: C901
     if (
         status != "ok"
         or "phantom_profit_risk" in seen
+        or "ev_timeout_dominated" in seen
         or "ev_edge_conflict" in seen
         or "low_practical_win_probability" in seen
     ):
@@ -732,6 +735,11 @@ def _build_actionability_payload(  # noqa: C901
             actionability_reason = (
                 "Positive EV is dominated by unresolved paths with near-zero observed loss; "
                 "skip this setup."
+            )
+        elif "ev_timeout_dominated" in seen:
+            actionability_reason = (
+                "Positive EV is dominated by unresolved timeout mark-to-market rather "
+                "than resolved barrier outcomes; skip this setup."
             )
         elif "low_practical_win_probability" in seen:
             actionability_reason = (

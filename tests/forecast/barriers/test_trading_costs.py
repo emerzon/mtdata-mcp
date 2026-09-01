@@ -72,7 +72,7 @@ class TestBarrierTradingCosts(_BarrierTestBase):
                 symbol="EURUSD",
                 method="mc_gbm",
                 spread_bps=1.5,
-                slippage_bps=0.0,
+                slippage_bps=0.4,
                 commission_bps_per_side=0.25,
             ),
             parse_kv_or_json=lambda value: value or {},
@@ -80,9 +80,54 @@ class TestBarrierTradingCosts(_BarrierTestBase):
         )
 
         assert captured["spread_bps"] == 1.5
-        assert captured["slippage_bps"] == 0.0
-        assert captured["commission_bps"] == 0.25
+        assert captured["slippage_bps"] == 0.8
+        assert captured["commission_bps"] == 0.5
         assert out["success"] is True
+
+    def test_live_quote_spread_embedded_in_paths_is_not_deducted_twice(self):
+        paths = np.full((100, 1), float(self.df["close"].iloc[-1]))
+        with patch(
+            f"{_BARRIER_OPT_ROOT}._get_live_reference_price",
+            return_value=(1.0001, "live_tick_ask"),
+        ), patch(
+            f"{_BARRIER_OPT_ROOT}._live_reference_time_context",
+            return_value={
+                "reference_usable_for_live": True,
+                "reference_bid": 1.0,
+                "reference_ask": 1.0001,
+                "reference_spread_pct": 0.00999950002499875,
+            },
+        ), patch(
+            f"{_BARRIER_OPT_ROOT}._simulate_gbm_mc",
+            return_value={"price_paths": paths},
+        ):
+            result = forecast_barrier_optimize(
+                symbol="EURUSD",
+                timeframe="H1",
+                horizon=1,
+                method="mc_gbm",
+                direction="long",
+                mode="pct",
+                tp_min=1.0,
+                tp_max=1.0,
+                tp_steps=1,
+                sl_min=1.0,
+                sl_max=1.0,
+                sl_steps=1,
+                params={
+                    "commission_pct": 0.0,
+                    "slippage_pct": 0.0,
+                    "min_barrier_multiplier": 0.0,
+                },
+                viable_only=False,
+            )
+
+        costs = result["trading_costs"]
+        self.assertTrue(costs["spread_embedded_in_path_geometry"])
+        self.assertGreater(costs["cost_per_trade"], 0.0)
+        self.assertEqual(costs["payoff_deduction"], 0.0)
+        self.assertAlmostEqual(result["best"]["ev_net"], result["best"]["ev_gross"])
+        self.assertAlmostEqual(result["best"]["ev_net"], -0.009999000099991662)
 
     def test_live_quote_spread_is_applied_when_spread_is_omitted(self):
         paths = np.concatenate(

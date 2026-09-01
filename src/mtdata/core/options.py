@@ -816,6 +816,8 @@ def _apply_options_detail(
                 "spot_session",
                 "strike",
                 "barrier",
+                "barrier_already_hit",
+                "barrier_state_source",
                 "maturity_days",
                 "valuation_date",
                 "valuation_timezone",
@@ -1327,6 +1329,16 @@ def options_barrier_price(
     heston_theta: Optional[float] = None,
     heston_sigma: Optional[float] = None,
     heston_rho: Optional[float] = None,
+    barrier_already_hit: Annotated[
+        bool,
+        Field(
+            description=(
+                "Whether the barrier was touched before the valuation instant. "
+                "Set this for an existing monitored contract whose spot later "
+                "returned to the unbreached side."
+            )
+        ),
+    ] = False,
     detail: DetailLiteral = "compact",  # type: ignore
 ) -> Dict[str, Any]:
     """Price a barrier option using QuantLib with optional calendar overrides.
@@ -1424,6 +1436,7 @@ def options_barrier_price(
             heston_theta=heston_theta,
             heston_sigma=heston_sigma,
             heston_rho=heston_rho,
+            barrier_already_hit=barrier_already_hit,
         )
         if isinstance(payload, dict) and payload.get("success"):
             warnings_out = list(payload.get("warnings") or [])
@@ -1444,6 +1457,7 @@ def options_barrier_price(
                     "spot": float(spot),
                     "strike": float(strike),
                     "barrier": float(barrier),
+                    "barrier_already_hit": bool(barrier_already_hit),
                     "maturity_days": int(maturity_days),
                     "price_basis": (
                         "premium per underlying unit, in the same currency/units as "

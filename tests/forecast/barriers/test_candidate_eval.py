@@ -107,6 +107,7 @@ class TestUnresolvedTerminalPnl(unittest.TestCase):
         dir_long=True,
         last_price=1.1000,
         tick_size=0.0001,
+        pip_size=None,
         same_bar_policy="sl_first",
     ):
         from mtdata.forecast.barriers_optimization import _BarrierEvaluationContext
@@ -115,6 +116,7 @@ class TestUnresolvedTerminalPnl(unittest.TestCase):
             dir_long=dir_long,
             last_price=last_price,
             tick_size=tick_size,
+            pip_size=pip_size,
             rr_min_val=None,
             rr_max_val=None,
             has_trading_costs=False,
@@ -217,6 +219,65 @@ class TestUnresolvedTerminalPnl(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result["prob_same_bar"], 0.5)
         self.assertEqual(result["ev_unresolved"], 0.0)
+        self.assertIsNone(result["t_hit_resolve_mean"])
+        self.assertIsNone(result["t_hit_resolve_median"])
+        self.assertEqual(result["t_hit_resolve_mean_all"], 2.0)
+        self.assertEqual(result["t_hit_resolve_median_all"], 2.0)
+
+    def test_pip_timeout_payoff_uses_pip_size_not_tick_size(self):
+        from mtdata.forecast.barriers_optimization import (
+            _BarrierBridgeInputs,
+            _evaluate_barrier_candidate,
+        )
+
+        ctx = self._make_context(
+            mode="pips",
+            last_price=1.1000,
+            tick_size=0.00001,
+            pip_size=0.0001,
+        )
+        bridge = _BarrierBridgeInputs(
+            enabled=False, sigma=0.0, log_paths=None, uniform_tp=None, uniform_sl=None
+        )
+        paths = np.array([[1.1005]])
+
+        result, is_invalid = _evaluate_barrier_candidate(
+            10.0, 10.0, paths, context=ctx, bridge_inputs=bridge
+        )
+
+        self.assertFalse(is_invalid)
+        self.assertAlmostEqual(result["ev"], 5.0)
+        self.assertAlmostEqual(result["timeout_mtm_contribution"], 5.0)
+
+    def test_pip_gap_loss_uses_pip_size_not_tick_size(self):
+        from dataclasses import replace
+
+        from mtdata.forecast.barriers_optimization import (
+            _BarrierBridgeInputs,
+            _evaluate_barrier_candidate,
+        )
+
+        ctx = replace(
+            self._make_context(
+                mode="pips",
+                last_price=1.1000,
+                tick_size=0.00001,
+                pip_size=0.0001,
+            ),
+            gap_aware_stops=True,
+        )
+        bridge = _BarrierBridgeInputs(
+            enabled=False, sigma=0.0, log_paths=None, uniform_tp=None, uniform_sl=None
+        )
+        paths = np.array([[1.0980]])
+
+        result, is_invalid = _evaluate_barrier_candidate(
+            10.0, 10.0, paths, context=ctx, bridge_inputs=bridge
+        )
+
+        self.assertFalse(is_invalid)
+        self.assertAlmostEqual(result["ev"], -20.0)
+        self.assertAlmostEqual(result["realized_loss_mean"], 20.0)
 
     def test_neutral_ties_with_costs_are_in_ev_split(self):
         from dataclasses import replace

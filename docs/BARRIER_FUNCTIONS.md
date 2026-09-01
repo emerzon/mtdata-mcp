@@ -632,7 +632,7 @@ Choose what to optimize. Each objective answers a different trading question:
 | `ev_per_bar` | `EV / mean_time_in_trade_all_paths` | Fast trades, capital turnover |
 | `profit_factor` | `(P(tp_first)*net_TP) / (P(sl_first)*net_SL)` | Risk/reward ratio focus |
 | `min_loss_prob` | Minimize `P(loss)` | Capital preservation |
-| `utility` | `mean(log1p(path_payoff * unit_to_return))` with `unit_to_return=0.01` in pct mode (so `tp=0.5` is a 0.5% return, not 50%) | Risk-averse trading |
+| `utility` | `mean(log1p(path_payoff * unit_to_return))`; `unit_to_return` is `0.01` for pct, `pip_size / entry` for pips, and `tick_size / entry` for ticks | Risk-averse trading |
 
 #### Detailed Descriptions
 
@@ -738,6 +738,7 @@ Filter candidates before ranking:
 |------------|-------------|---------|
 | `min_prob_win` | Minimum tie-adjusted TP-first probability | `0.5` (50%) |
 | `max_prob_no_hit` | Maximum no-hit probability | `0.2` (20%) |
+| `min_barrier_pips` | Minimum TP and SL distance when `mode=pips` | `2.0` |
 | `max_median_time` | Maximum resolution time (bars) | `10` |
 
 **Example**:
@@ -1156,12 +1157,17 @@ mtdata-cli regime_detect EURUSD --timeframe H1 --method hmm --params "n_states=3
 **Solution**:
 - On a live request, the optimizer automatically applies a valid current bid/ask spread when no spread parameter is supplied.
 - Supply commission and slippage assumptions explicitly, including `0` when that is intentional. Historical requests also require an explicit spread assumption.
+- Top-level `--commission-bps-per-side` and `--slippage-bps` values are per fill side and are normalized to a two-sided round trip before optimization. Low-level `params` cost fields are already normalized totals.
 - The `trading_costs.complete` and `missing_assumptions` fields describe the effective model. An incomplete model can support research output, but cannot pass the trade gate.
 - `spread_pct`, `spread_bps`, and `spread_pips` are equivalent representations
   of the effective normalized spread; non-FX instruments report pips as null.
   The same rule applies to commission and slippage fields. Original user values
   remain under `trading_costs.explicit_inputs`, while live bid/ask fallback is
   identified by `spread_source=live_bid_ask`.
+- When live entry and exit quote sides differ, the spread is already embedded
+  by re-anchoring simulated paths to the executable exit quote. It remains in
+  `cost_per_trade` for reporting but is excluded from `payoff_deduction`, with
+  `spread_embedded_in_path_geometry=true`, so it is not charged twice.
 - `tp_ticks` / `sl_ticks` are `trade_tick_size` distances only (broker tick/point, not FX pips). Use `unit=pips` for conventional forex pips. They do **not** subtract spread.
 
 ```bash

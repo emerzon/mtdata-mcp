@@ -16,6 +16,9 @@ It is **not** a buy or sell instruction, and it **cannot** send a live order.
 
 ```bash
 mtdata-cli trade_idea_compose EURUSD --timeframe H1 --horizon 12 --template quick
+
+# Include per-side execution assumptions in the expected-value gate
+mtdata-cli trade_idea_compose EURUSD --direction long --commission-bps-per-side 0.25 --slippage-bps 0.5
 ```
 
 Read `direction`, `narrative`, `geometry`, `sizing.suggested_volume`, and `preview.preview_ok`. If `direction` is `stand_down`, the composer is telling you the idea did not clear its gates — not that you should fade it.
@@ -49,6 +52,11 @@ between forecast steps. It also stands down when the TP-first and SL-first
 probabilities, weighted by the final reward and risk distances, do not produce
 positive expected value. Raw TP-first probability is not compared with
 SL-first probability as though unequal exits had equal payoffs.
+Configured commission and slippage are per fill side. The composer deducts
+both on entry and exit before applying the expected-value gate. They default
+to zero, so provide realistic values when using the result for execution
+research. The response reports gross and net expected value under `barriers`
+and the normalized round-trip amount under `execution_costs`.
 
 Auto mode is therefore materially slower than `--direction long` or
 `--direction short`: it fits 50 rolling backtest forecasts before the current
@@ -86,6 +94,8 @@ timestamped forecast points.
 | `actionability` | Always `preview_only` or `research`. Never live. |
 | `idea_eligible` / `overall_gate_status` | Aggregate strategy and operational gate decision; only `true` / `pass` permits a preview-eligible idea |
 | `gates` | `pass` / `fail` / `skip` for quote, session, forecast, barriers, SL/TP, sizing, preview |
+| `execution_costs` | Per-side commission/slippage assumptions and their normalized round-trip total in basis points |
+| `barriers.expected_value_gross_pct` / `expected_value_pct` | Gross payoff-weighted edge and the net value after configured execution costs |
 | `preview.preview_ok` | Local dry-run order validation. It is false whenever the aggregate idea is ineligible and is never a broker fill. |
 | `as_of` / `assembled_at` / `data_as_of` | Live `as_of` is assembly time; `data_as_of` is the last closed-bar observation. Historical `as_of` follows `data_as_of`. |
 | `lineage` | Per-component source cutoff, data window, price anchor, and forecast target window |

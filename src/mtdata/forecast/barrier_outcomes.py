@@ -106,8 +106,9 @@ def barrier_path_payoffs(
     reward: float,
     risk: float,
     direction: Literal["long", "short"],
-    mode: Literal["pct", "ticks"],
+    mode: Literal["pct", "ticks", "pips"],
     tick_size: float,
+    pip_size: Optional[float] = None,
     cost_per_trade: float,
     same_bar_policy: Literal["sl_first", "tp_first", "neutral"],
     gap_aware_stops: bool = False,
@@ -122,10 +123,20 @@ def barrier_path_payoffs(
     if gap_aware_stops and same_bar_policy == "sl_first":
         loss_like = outcomes.losses | outcomes.ties
     if gap_aware_stops and np.any(loss_like):
-        tick_increment = float(tick_size) if mode != "pct" else 0.0
+        distance_increment = (
+            float(pip_size or 0.0)
+            if mode == "pips"
+            else float(tick_size)
+            if mode == "ticks"
+            else 0.0
+        )
         can_measure = (
             mode == "pct" and float(entry_price) > 0.0
-        ) or (mode != "pct" and np.isfinite(tick_increment) and tick_increment > 0.0)
+        ) or (
+            mode != "pct"
+            and np.isfinite(distance_increment)
+            and distance_increment > 0.0
+        )
         if can_measure:
             rows = np.flatnonzero(loss_like)
             exits = eval_paths[rows, outcomes.first_sl[rows]]
@@ -137,7 +148,7 @@ def barrier_path_payoffs(
             if mode == "pct":
                 observed_loss = signed_move / float(entry_price) * 100.0
             else:
-                observed_loss = signed_move / tick_increment
+                observed_loss = signed_move / distance_increment
             realized_loss[rows] = np.maximum(float(risk), observed_loss)
     gross[outcomes.losses] = -realized_loss[outcomes.losses]
 
@@ -159,8 +170,16 @@ def barrier_path_payoffs(
     )
     if mode == "pct":
         terminal = signed_terminal_move / float(entry_price) * 100.0
+    elif mode == "pips":
+        pip_increment = float(pip_size or 0.0)
+        if not np.isfinite(pip_increment) or pip_increment <= 0.0:
+            raise ValueError("pip_size must be positive and finite in pips mode.")
+        terminal = signed_terminal_move / pip_increment
     else:
-        terminal = signed_terminal_move / float(tick_size)
+        tick_increment = float(tick_size)
+        if not np.isfinite(tick_increment) or tick_increment <= 0.0:
+            raise ValueError("tick_size must be positive and finite in ticks mode.")
+        terminal = signed_terminal_move / tick_increment
     terminal_unresolved = np.where(outcomes.unresolved, terminal, 0.0)
     gross[outcomes.unresolved] = terminal[outcomes.unresolved]
 

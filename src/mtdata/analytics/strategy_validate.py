@@ -250,10 +250,22 @@ def _barrier_returns(
         result = None
         for step in range(horizon):
             outcome_idx = entry_idx + step
+            bar_open = float(df["open"].iloc[outcome_idx])
+            if not math.isfinite(bar_open) or bar_open <= 0.0:
+                bar_open = float(df["close"].iloc[outcome_idx])
             high = float(df["high"].iloc[outcome_idx])
             low = float(df["low"].iloc[outcome_idx])
             favorable = (high / entry - 1.0) if direction > 0 else (1.0 - low / entry)
             adverse = (1.0 - low / entry) if direction > 0 else (high / entry - 1.0)
+            opening_adverse = (
+                1.0 - bar_open / entry
+                if direction > 0
+                else bar_open / entry - 1.0
+            )
+            realized_stop_loss = max(sl, opening_adverse)
+            if opening_adverse >= sl:
+                result = -realized_stop_loss
+                break
             adverse_hit = adverse >= sl
             favorable_hit = favorable >= tp
             if adverse_hit and favorable_hit:
@@ -262,10 +274,10 @@ def _barrier_returns(
                 elif same_bar_policy == "neutral":
                     result = 0.0
                 else:
-                    result = -sl
+                    result = -realized_stop_loss
                 break
             if adverse_hit:
-                result = -sl
+                result = -realized_stop_loss
                 break
             if favorable_hit:
                 result = tp

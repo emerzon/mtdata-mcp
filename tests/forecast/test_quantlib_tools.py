@@ -115,6 +115,10 @@ def _make_fake_quantlib():  # noqa: C901
         def __init__(self, process):
             self.process = process
 
+    class _AnalyticEuropeanEngine:
+        def __init__(self, process):
+            self.process = process
+
     class _PlainVanillaPayoff:
         def __init__(self, option_type, strike):
             self.option_type = option_type
@@ -140,6 +144,35 @@ def _make_fake_quantlib():  # noqa: C901
             if self._engine is None:
                 return 0.0
             return max(0.0, 0.01 * self._engine.process.spot + 0.1 * self._engine.process.vol)
+
+    class _VanillaOption:
+        def __init__(self, payoff, exercise):
+            self.payoff = payoff
+            self.exercise = exercise
+            self._engine = None
+
+        def setPricingEngine(self, engine):
+            self._engine = engine
+
+        def NPV(self):
+            if self._engine is None:
+                return 0.0
+            return max(0.0, 0.01 * self._engine.process.spot + 0.1 * self._engine.process.vol)
+
+        def delta(self):
+            if isinstance(self._engine, _AnalyticHestonEngine):
+                raise RuntimeError("delta not provided")
+            return 0.01
+
+        def gamma(self):
+            if isinstance(self._engine, _AnalyticHestonEngine):
+                raise RuntimeError("gamma not provided")
+            return 0.0
+
+        def vega(self):
+            if isinstance(self._engine, _AnalyticHestonEngine):
+                raise RuntimeError("vega not provided")
+            return 0.1
 
     class _HestonProcess:
         def __init__(self, *args, **_kwargs):
@@ -224,6 +257,7 @@ def _make_fake_quantlib():  # noqa: C901
         PlainVanillaPayoff=_PlainVanillaPayoff,
         EuropeanExercise=_EuropeanExercise,
         BarrierOption=_BarrierOption,
+        VanillaOption=_VanillaOption,
         QuoteHandle=_QuoteHandle,
         SimpleQuote=_SimpleQuote,
         YieldTermStructureHandle=_YieldTermStructureHandle,
@@ -232,6 +266,7 @@ def _make_fake_quantlib():  # noqa: C901
         BlackConstantVol=_BlackConstantVol,
         BlackScholesMertonProcess=_BlackScholesMertonProcess,
         AnalyticBarrierEngine=_AnalyticBarrierEngine,
+        AnalyticEuropeanEngine=_AnalyticEuropeanEngine,
         HestonProcess=_HestonProcess,
         HestonModel=_HestonModel,
         AnalyticHestonEngine=_AnalyticHestonEngine,
@@ -430,6 +465,45 @@ def test_price_barrier_option_quantlib_returns_knocked_out_payoff(monkeypatch):
     assert out["vega"] == 0.0
     assert out["params_used"]["spot"] == 115.0
     assert out["params_used"]["barrier"] == 110.0
+
+
+def test_price_barrier_option_quantlib_accepts_explicit_prior_hit(monkeypatch):
+    monkeypatch.setitem(__import__("sys").modules, "QuantLib", _make_fake_quantlib())
+
+    out = qtools.price_barrier_option_quantlib(
+        spot=100.0,
+        strike=100.0,
+        barrier=110.0,
+        maturity_days=30,
+        option_type="call",
+        barrier_type="up_out",
+        barrier_already_hit=True,
+        valuation_date="2026-07-03",
+    )
+
+    assert out["success"] is True
+    assert out["status"] == "knocked_out"
+    assert out["barrier_state_source"] == "explicit_prior_hit"
+    assert out["params_used"]["barrier_already_hit"] is True
+
+
+def test_price_barrier_option_quantlib_restores_global_evaluation_date(monkeypatch):
+    fake = _make_fake_quantlib()
+    original_date = fake.Date(2, 1, 2025)
+    fake.Settings.instance().evaluationDate = original_date
+    monkeypatch.setitem(__import__("sys").modules, "QuantLib", fake)
+
+    out = qtools.price_barrier_option_quantlib(
+        spot=115.0,
+        strike=100.0,
+        barrier=110.0,
+        maturity_days=30,
+        barrier_type="up_out",
+        valuation_date="2026-07-03",
+    )
+
+    assert out["success"] is True
+    assert fake.Settings.instance().evaluationDate.ordinal == original_date.ordinal
 
 
 def test_calibrate_heston_quantlib_from_options_with_fake_backend(monkeypatch):
@@ -1230,6 +1304,39 @@ def test_price_barrier_option_quantlib_heston_mode(monkeypatch):
     assert "volatility" not in out["params_used"]
     assert out["vega"] is None
     assert out["greeks_status"] == "complete"
+
+
+def test_price_barrier_option_quantlib_heston_prior_knock_in_uses_finite_differences(
+    monkeypatch,
+):
+    monkeypatch.setitem(__import__("sys").modules, "QuantLib", _make_fake_quantlib())
+
+    out = qtools.price_barrier_option_quantlib(
+        spot=100.0,
+        strike=100.0,
+        barrier=120.0,
+        maturity_days=30,
+        option_type="call",
+        barrier_type="up_in",
+        barrier_already_hit=True,
+        model="heston",
+        heston_v0=0.04,
+        heston_kappa=1.5,
+        heston_theta=0.04,
+        heston_sigma=0.3,
+        heston_rho=-0.5,
+        valuation_date="2026-07-03",
+    )
+
+    assert out["success"] is True
+    assert out["status"] == "knocked_in"
+    assert out["price"] > 0.0
+    assert out["barrier_state_source"] == "explicit_prior_hit"
+    assert out["delta"] == pytest.approx(0.01)
+    assert out["gamma"] == pytest.approx(0.0, abs=1e-6)
+    assert out["vega"] is None
+    assert out["greeks_status"] == "complete"
+    assert out["greeks_method"] == "knocked_in_heston_vanilla_central_difference"
 
 
 def test_price_barrier_option_quantlib_rejects_heston_params_without_model():

@@ -559,6 +559,37 @@ def test_trade_idea_compose_barrier_gate_uses_payoff_weighted_value() -> None:
     assert idea["barriers"]["expected_value_pct"] < 0.0
 
 
+def test_trade_idea_compose_barrier_gate_deducts_round_trip_costs() -> None:
+    idea = run_trade_idea_compose(
+        TradeIdeaComposeRequest(
+            symbol="EURUSD",
+            direction="long",
+            commission_bps_per_side=5.0,
+            slippage_bps=0.0,
+        ),
+        call_section=_caller(
+            {
+                "session": _session(),
+                "forecast": _forecast(),
+                "volatility": _volatility(),
+                "barriers": _barriers(tp_first=0.55, sl_first=0.25),
+                "sizing": _sizing(),
+                "preview": _preview(),
+            }
+        ),
+    )
+
+    assert idea["direction"] == "stand_down"
+    assert idea["gates"]["barriers"]["status"] == "fail"
+    assert idea["barriers"]["expected_value_gross_pct"] > 0.0
+    assert idea["barriers"]["expected_value_pct"] < 0.0
+    assert idea["barriers"]["expected_value_execution_cost_pct"] == pytest.approx(0.1)
+    assert idea["barriers"]["expected_value_basis"] == (
+        "final_exit_geometry_net_of_configured_costs"
+    )
+    assert idea["execution_costs"]["round_trip_bps"] == pytest.approx(10.0)
+
+
 @pytest.mark.parametrize(("direction", "trend"), [("long", "up"), ("short", "down")])
 def test_trade_idea_compose_explicit_direction_fails_closed_when_barriers_are_weak(
     direction: str,

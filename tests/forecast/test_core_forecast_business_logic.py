@@ -5446,10 +5446,12 @@ def test_options_and_quantlib_tool_routing(monkeypatch):
         volatility=0.25,
         rebate=0.0,
         valuation_date="2026-07-03",
+        barrier_already_hit=True,
     )
     assert out["kind"] == "price"
     assert out["spot"] == 100.0
     assert out["valuation_date"] == "2026-07-03"
+    assert out["barrier_already_hit"] is True
 
     rejected = raw_price(
         spot=100.0,
@@ -5871,6 +5873,8 @@ def test_options_barrier_compact_keeps_numeric_pricing_inputs():
         "success": True,
         "option_status": "knocked_out",
         "status": "expired",
+        "barrier_already_hit": True,
+        "barrier_state_source": "explicit_prior_hit",
         "price": 1.23,
         "delta": 0.4,
         "params_used": {
@@ -5897,6 +5901,8 @@ def test_options_barrier_compact_keeps_numeric_pricing_inputs():
     }
     assert result["option_status"] == "knocked_out"
     assert result["status"] == "expired"
+    assert result["barrier_already_hit"] is True
+    assert result["barrier_state_source"] == "explicit_prior_hit"
 
 
 def test_options_tools_support_compact_and_full_detail(monkeypatch):

@@ -202,6 +202,9 @@ mtdata-cli options_barrier_price 150 --strike 145 --barrier 160 --maturity-days 
 
 # Heston finite-difference barrier using calibrated parameters
 mtdata-cli options_barrier_price 150 --strike 155 --barrier 140 --maturity-days 30 --barrier-type down_out --model heston --heston-v0 0.04 --heston-kappa 1.5 --heston-theta 0.04 --heston-sigma 0.3 --heston-rho -0.5 --json
+
+# Existing contract whose barrier was touched before valuation
+mtdata-cli options_barrier_price 150 --strike 145 --barrier 160 --maturity-days 60 --barrier-type up_in --barrier-already-hit true --json
 ```
 
 | Parameter | Default | Description |
@@ -212,6 +215,7 @@ mtdata-cli options_barrier_price 150 --strike 155 --barrier 140 --maturity-days 
 | `--maturity-days` | (required) | Time to maturity in calendar days |
 | `--option-type` | `call` | `call` or `put` |
 | `--barrier-type` | `up_out` | `up_in`, `up_out`, `down_in`, `down_out` |
+| `--barrier-already-hit` | `false` | Set `true` for an existing monitored contract whose barrier was touched before valuation, even when current spot has returned to the unbreached side |
 | `--risk-free-rate` | 0.02 | Risk-free rate (decimal) |
 | `--dividend-yield` | 0.0 | Dividend yield (decimal) |
 | `--volatility` | 0.2 | Black implied volatility (decimal, e.g., 0.2 = 20%). Used only with `--model black_scholes_merton` |
@@ -234,6 +238,12 @@ mtdata-cli options_barrier_price 150 --strike 155 --barrier 140 --maturity-days 
 **Returns:** Option price and Greeks (delta, gamma, vega). Gamma is quoted per
 squared underlying-price unit. Vega is quoted per `1.0` change in decimal
 volatility, so a one-volatility-point (`0.01`) scenario uses `vega * 0.01`.
+The pricer cannot reconstruct a contract's path from current spot alone.
+`barrier_state_source` therefore reports `explicit_prior_hit`,
+`spot_at_or_beyond_barrier`, or `assumed_unhit_at_valuation`. An already
+knocked-in Heston contract is priced as the equivalent European vanilla;
+delta and gamma use spot finite differences because QuantLib's analytic
+Heston engine does not expose those Greeks consistently.
 
 ---
 

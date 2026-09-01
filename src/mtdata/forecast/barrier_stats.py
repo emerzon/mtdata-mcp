@@ -253,8 +253,7 @@ def cross_seed_stability(
         std_val = float(np.std(values, ddof=1))
         scale = max(abs(mean_val), 1e-6)
         cv = std_val / scale
-        absolute_tolerance = float(threshold_cv * max(1.0, np.max(np.abs(values))))
-        stable = bool(std_val <= absolute_tolerance or cv < threshold_cv)
+        stable = bool(cv < threshold_cv)
         if not stable:
             all_stable = False
         
@@ -614,4 +613,3 @@ def statistical_power_analysis(
             else f"Low power ({power*100:.1f}%). Need ~{min_n_for_80_power} sims for 80% power."
         ),
     }
-
