@@ -8,10 +8,10 @@ from mtdata.core import web_api
 from mtdata.utils.mt5 import mt5_connection
 
 
-def test_history_timestamp_format_defaults_to_iso() -> None:
+def test_history_timestamp_format_defaults_to_iso_utc() -> None:
     parameter = inspect.signature(web_api.get_history).parameters["timestamp_format"]
 
-    assert parameter.default == "iso"
+    assert parameter.default == "iso_utc"
 
 
 def test_history_uses_start_end_ohlcv_and_preserves_canonical_compact_shape() -> None:
