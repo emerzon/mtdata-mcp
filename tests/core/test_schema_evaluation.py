@@ -111,6 +111,54 @@ def test_schema_evaluation_rejects_generated_placeholder_descriptions() -> None:
     )
 
 
+def test_schema_evaluation_rejects_unanchored_and_pcre_patterns() -> None:
+    def sample_tool(
+        symbols: str = "EURUSD",
+        json: bool = False,
+        output_fields: list[str] | None = None,
+    ):
+        return symbols, json, output_fields
+
+    findings: list[SchemaFinding] = []
+    _evaluate_tool(
+        "sample_tool",
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "properties": {
+                "symbols": {
+                    "type": "string",
+                    "pattern": r".*\S.*",
+                    "description": "Symbols to query.",
+                    "default": "EURUSD",
+                },
+                "json": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Return JSON.",
+                },
+                "output_fields": {
+                    "type": "array",
+                    "items": {"type": "string", "pattern": r"^\s+$"},
+                    "description": "Fields to return.",
+                },
+            },
+        },
+        sample_tool,
+        findings,
+    )
+
+    assert any(
+        finding.code == "unanchored_pattern" and finding.parameter == "symbols"
+        for finding in findings
+    )
+    assert any(
+        finding.code == "unsupported_pattern_escape"
+        and finding.parameter == "output_fields"
+        for finding in findings
+    )
+
+
 def test_schema_evaluation_rejects_pydantic_only_constraint_keywords() -> None:
     def sample_tool(
         limit: int = 10,
@@ -167,6 +215,11 @@ def test_public_schema_evaluation_has_no_unbounded_numeric_parameters() -> None:
         finding
         for finding in report.findings
         if finding.code == "non_json_schema_constraint"
+    ]
+    assert not [
+        finding
+        for finding in report.findings
+        if finding.code in {"unanchored_pattern", "unsupported_pattern_escape"}
     ]
 
 

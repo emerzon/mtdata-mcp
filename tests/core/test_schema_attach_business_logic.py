@@ -320,6 +320,9 @@ def test_attach_schemas_to_tools_patches_wait_event_with_discriminated_watch_spe
     assert symbols_array["minItems"] == 1
     assert symbols_array["maxItems"] == 12
     assert symbols_array["uniqueItems"] is True
+    assert symbols_array["items"]["pattern"] == schema_attach_mod._NONBLANK_PATTERN
+    assert symbols_array["items"]["pattern"].startswith("^")
+    assert symbols_array["items"]["pattern"].endswith("$")
     parameters = tool_obj.schema["parameters"]
     assert parameters["required"] == ["timeframe"]
     assert not {"if", "then", "else", "allOf"}.intersection(parameters)
@@ -364,3 +367,25 @@ def test_attach_schemas_to_tools_patches_trade_place(monkeypatch) -> None:
         {"type": "string"},
         {"type": "number"},
     ]
+
+
+def test_nonblank_schema_patterns_are_anchored_for_llama_cpp(monkeypatch) -> None:
+    tool_obj, _tool_func, _apply_calls = _attach_tool_schema(
+        monkeypatch,
+        "market_radar",
+        {
+            "parameters": {
+                "properties": {
+                    "symbols": {"type": "string"},
+                },
+                "required": [],
+            }
+        },
+    )
+
+    pattern = tool_obj.schema["parameters"]["properties"]["symbols"]["pattern"]
+    assert pattern == schema_attach_mod._NONBLANK_PATTERN
+    assert pattern.startswith("^")
+    assert pattern.endswith("$")
+    assert r"\S" not in pattern
+    assert r"\s" not in pattern

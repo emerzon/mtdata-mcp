@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import inspect
 import os
+import re
 from dataclasses import asdict, dataclass
 from typing import Any, Mapping
 
@@ -184,6 +185,7 @@ _NUMERIC_NAMES_REQUIRING_LOWER_BOUND = frozenset(
         "window",
     }
 )
+_PCRE_SHORTHAND_ESCAPE = re.compile(r"\\[sSdDwWbB]")
 
 
 def _finding(
@@ -262,6 +264,33 @@ def _pydantic_constraint_paths(
     return findings
 
 
+def _schema_pattern_paths(
+    value: Any,
+    path: tuple[str, ...] = (),
+) -> list[tuple[tuple[str, ...], str]]:
+    findings: list[tuple[tuple[str, ...], str]] = []
+    if isinstance(value, dict):
+        pattern = value.get("pattern")
+        if isinstance(pattern, str):
+            findings.append(((*path, "pattern"), pattern))
+        for key, item in value.items():
+            if key == "pattern":
+                continue
+            findings.extend(_schema_pattern_paths(item, (*path, str(key))))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            findings.extend(_schema_pattern_paths(item, (*path, str(index))))
+    return findings
+
+
+def _parameter_from_schema_path(path: tuple[str, ...]) -> str:
+    if "properties" in path:
+        index = path.index("properties")
+        if index + 1 < len(path):
+            return path[index + 1]
+    return ""
+
+
 def _runtime_parameters(func: Any) -> dict[str, inspect.Parameter]:
     signature = get_runtime_signature(func)
     return {
@@ -321,6 +350,34 @@ def _evaluate_tool(  # noqa: C901
                 "keyword and is ignored by JSON Schema validators."
             ),
         )
+
+    for path, pattern in _schema_pattern_paths(schema):
+        parameter = _parameter_from_schema_path(path)
+        location = "/" + "/".join(path)
+        if len(pattern) < 2 or not pattern.startswith("^") or not pattern.endswith("$"):
+            _finding(
+                findings,
+                "error",
+                "unanchored_pattern",
+                name,
+                parameter,
+                (
+                    f"Pattern {pattern!r} at {location} must be anchored with "
+                    "'^' and '$' for llama.cpp grammar conversion."
+                ),
+            )
+        elif _PCRE_SHORTHAND_ESCAPE.search(pattern):
+            _finding(
+                findings,
+                "error",
+                "unsupported_pattern_escape",
+                name,
+                parameter,
+                (
+                    f"Pattern {pattern!r} at {location} uses a PCRE shorthand "
+                    r"(\s, \S, \d, \w, or similar) that llama.cpp cannot convert."
+                ),
+            )
 
     for control in sorted(_OUTPUT_CONTROLS - properties.keys()):
         _finding(

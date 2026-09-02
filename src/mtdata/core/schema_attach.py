@@ -51,6 +51,20 @@ _BARRIER_PROB_METHODS = (
 )
 _BARRIER_OPTIMIZE_METHODS = (*BARRIER_MONTE_CARLO_METHODS, "ensemble")
 
+# llama.cpp grammar conversion requires ^...$ and rejects \s/\S. \xHH survives
+# JSON parsing; \t/\n/\r would become raw control characters and split GBNF rules.
+_SCHEMA_WS = r"\x09\x0A\x0D "
+_NONBLANK_PATTERN = rf"^.*[^{_SCHEMA_WS}].*$"
+_BLANK_PATTERN = rf"^[{_SCHEMA_WS}]*$"
+_MULTI_TOKEN_STRING_PATTERN = (
+    rf"^(.*,.*|.*[^{_SCHEMA_WS}]+[{_SCHEMA_WS}]+[^{_SCHEMA_WS}]+.*)$"
+)
+_TWO_COMMA_SEPARATED_TOKENS_PATTERN = (
+    rf"^[{_SCHEMA_WS}]*[^{_SCHEMA_WS},]+[{_SCHEMA_WS}]*,"
+    rf"[{_SCHEMA_WS}]*[^{_SCHEMA_WS},]+[{_SCHEMA_WS}]*$"
+)
+_CONTAINS_COMMA_OR_SEMICOLON_PATTERN = r"^.*[,;].*$"
+
 _SchemaPatcher = Callable[[Dict[str, Any]], None]
 
 
@@ -330,7 +344,7 @@ def _patch_trade_stress_test_schema(schema: Dict[str, Any]) -> None:
     additional["type"] = "number"
     additional["exclusiveMinimum"] = -100
     shocks["minProperties"] = 1
-    shocks["propertyNames"] = {"pattern": r".*\S.*"}
+    shocks["propertyNames"] = {"pattern": _NONBLANK_PATTERN}
 
 
 def _patch_forecast_barrier_prob_schema(schema: Dict[str, Any]) -> None:
@@ -551,13 +565,13 @@ def _patch_wait_event_schema(schema: Dict[str, Any]) -> None:
                     option["uniqueItems"] = True
                     option["items"] = {
                         "type": "string",
-                        "pattern": r".*\S.*",
+                        "pattern": _NONBLANK_PATTERN,
                     }
         elif symbols_schema.get("type") == "array":
             symbols_schema["uniqueItems"] = True
             symbols_schema["items"] = {
                 "type": "string",
-                "pattern": r".*\S.*",
+                "pattern": _NONBLANK_PATTERN,
             }
 
     params.pop("max_wait_seconds", None)
@@ -673,7 +687,7 @@ def _patch_selector_schema(schema: Dict[str, Any]) -> None:
     for field_name in ("symbols", "group"):
         field_schema = params.get(field_name)
         if isinstance(field_schema, dict):
-            field_schema["pattern"] = r".*\S.*"
+            field_schema["pattern"] = _NONBLANK_PATTERN
     _append_schema_rules(
         schema,
         _require_any("symbols", "group"),
@@ -685,14 +699,14 @@ def _patch_cross_correlation_schema(schema: Dict[str, Any]) -> None:
     params, _required = _schema_params(schema)
     symbols = params.get("symbols")
     if isinstance(symbols, dict):
-        symbols["pattern"] = r"^\s*[^,\s]+\s*,\s*[^,\s]+\s*$"
+        symbols["pattern"] = _TWO_COMMA_SEPARATED_TOKENS_PATTERN
 
 
 def _patch_nonblank_symbols_schema(schema: Dict[str, Any]) -> None:
     params, _required = _schema_params(schema)
     symbols = params.get("symbols")
     if isinstance(symbols, dict):
-        symbols["pattern"] = r".*\S.*"
+        symbols["pattern"] = _NONBLANK_PATTERN
 
 
 def _patch_cointegration_schema(schema: Dict[str, Any]) -> None:
@@ -728,7 +742,7 @@ def _patch_stationarity_schema(schema: Dict[str, Any]) -> None:
     params, _required = _schema_params(schema)
     tests = params.get("tests")
     if isinstance(tests, dict):
-        tests["pattern"] = r".*\S.*"
+        tests["pattern"] = _NONBLANK_PATTERN
     _append_schema_rules(
         schema,
         {
@@ -886,7 +900,7 @@ def _patch_screener_schema(schema: Dict[str, Any]) -> None:
                 "properties": {
                     "filters": {
                         "anyOf": [
-                            {"type": "string", "pattern": r"^\s*$"},
+                            {"type": "string", "pattern": _BLANK_PATTERN},
                             {"type": "object", "maxProperties": 0},
                         ]
                     },
@@ -900,8 +914,8 @@ def _patch_screener_schema(schema: Dict[str, Any]) -> None:
                     _forbid_fields("value_limit"),
                     {
                         "properties": {
-                            "search": {"pattern": r"^\s*$"},
-                            "filter_name": {"pattern": r"^\s*$"},
+                            "search": {"pattern": _BLANK_PATTERN},
+                            "filter_name": {"pattern": _BLANK_PATTERN},
                             "offset": {"const": 0},
                             "value_offset": {"const": 0},
                         }
@@ -974,7 +988,11 @@ def _patch_patterns_detect_schema(schema: Dict[str, Any]) -> None:
                             _explicit_value("ensemble", True),
                             {
                                 "required": ["engine"],
-                                "properties": {"engine": {"pattern": "[,;]"}},
+                                "properties": {
+                                    "engine": {
+                                        "pattern": _CONTAINS_COMMA_OR_SEMICOLON_PATTERN
+                                    }
+                                },
                             },
                         ]
                     },
@@ -1087,7 +1105,7 @@ def _patch_report_generate_schema(schema: Dict[str, Any]) -> None:
                                 {"type": "array", "minItems": 2},
                                 {
                                     "type": "string",
-                                    "pattern": r",|\S+\s+\S+",
+                                    "pattern": _MULTI_TOKEN_STRING_PATTERN,
                                 },
                             ]
                         }
@@ -1120,7 +1138,7 @@ def _patch_relative_strength_schema(schema: Dict[str, Any]) -> None:
         )
     symbols = params.get("symbols")
     if isinstance(symbols, dict):
-        symbols["pattern"] = r".*\S.*"
+        symbols["pattern"] = _NONBLANK_PATTERN
     _append_schema_rules(
         schema,
         _at_most_one("symbols", "group"),
@@ -1215,7 +1233,7 @@ def _patch_strategy_validate_schema(schema: Dict[str, Any]) -> None:
         if isinstance(candidate_props, dict):
             candidate_id = candidate_props.get("id")
             if isinstance(candidate_id, dict):
-                candidate_id["pattern"] = r".*\S.*"
+                candidate_id["pattern"] = _NONBLANK_PATTERN
         candidate["allOf"] = [
             {
                 "if": _explicit_value("type", "builtin_strategy"),
@@ -1229,7 +1247,7 @@ def _patch_strategy_validate_schema(schema: Dict[str, Any]) -> None:
                 "then": {
                     "required": ["method"],
                     "properties": {
-                        "method": {"type": "string", "pattern": r".*\S.*"}
+                        "method": {"type": "string", "pattern": _NONBLANK_PATTERN}
                     },
                 },
             },
@@ -1286,7 +1304,7 @@ def _patch_nonblank_method_items(schema: Dict[str, Any]) -> None:
     params, _required = _schema_params(schema)
     methods = params.get("methods")
     if isinstance(methods, dict):
-        methods["items"] = {"type": "string", "pattern": r".*\S.*"}
+        methods["items"] = {"type": "string", "pattern": _NONBLANK_PATTERN}
 
 
 def _patch_forecast_tuning_schema(schema: Dict[str, Any]) -> None:
@@ -1329,7 +1347,7 @@ def _patch_forecast_optimize_hints_schema(schema: Dict[str, Any]) -> None:
         methods.update(
             {
                 "minItems": 1,
-                "items": {"type": "string", "pattern": r".*\S.*"},
+                "items": {"type": "string", "pattern": _NONBLANK_PATTERN},
             }
         )
     _append_schema_rules(
