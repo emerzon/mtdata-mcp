@@ -652,6 +652,23 @@ def _account_order_ticket(row: Any) -> Optional[int]:
         _row_int(row, "ticket"),
     )
 
+
+def _deal_position_ticket(row: Any) -> Optional[int]:
+    """Return the position id on a history deal, not the deal ticket itself."""
+    return _first_int(
+        _row_int(row, "position_id"),
+        _row_int(row, "position"),
+        _row_int(row, "position_by_id"),
+    )
+
+
+def _snapshot_position_tickets(rows: List[Any]) -> set[int]:
+    return {
+        ticket
+        for ticket in (_row_int(row, "ticket") for row in rows)
+        if ticket is not None
+    }
+
 def _order_fill_volume(row: Any) -> Optional[float]:
     volume = _row_float(row, "volume")
     if volume is None:

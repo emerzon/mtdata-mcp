@@ -15,6 +15,7 @@ from mtdata.core.data.wait_events.account import (
     _accumulate_filled_volume,
     _build_account_history_state,
     _collect_new_account_history_rows,
+    _deal_position_ticket,
     _deal_volume_step,
     _evaluate_order_filled_event,
     _format_account_match,
@@ -38,6 +39,7 @@ from mtdata.core.data.wait_events.account import (
     _row_within_live_state_cutoff,
     _seed_account_history_keys,
     _seed_account_history_state,
+    _snapshot_position_tickets,
     _update_order_filled_snapshot_state,
 )
 from mtdata.core.data.wait_events.boundary import (
@@ -222,6 +224,7 @@ __all__ = [
     '_current_spread_metric',
     '_current_volume_metric',
     '_datetime_epoch_millis',
+    '_deal_position_ticket',
     '_deal_volume_step',
     '_default_watch_specs',
     '_duration_price_change_baseline_samples',
@@ -325,6 +328,7 @@ __all__ = [
     '_select_boundary_closed_candle_row',
     '_slice_prices_from_epoch',
     '_slice_ticks_from_epoch',
+    '_snapshot_position_tickets',
     '_spread_baseline_samples',
     '_spread_values_for_ticks',
     '_symbol_price_precision_from_gateway',

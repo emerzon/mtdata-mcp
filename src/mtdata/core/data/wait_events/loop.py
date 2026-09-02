@@ -16,6 +16,7 @@ from mtdata.core.data.requests import WaitEventRequest
 from mtdata.core.data.wait_events.account import (
     _build_account_history_state,
     _collect_new_account_history_rows,
+    _deal_position_ticket,
     _evaluate_order_filled_event,
     _format_account_match,
     _format_inferred_position_closed,
@@ -25,6 +26,7 @@ from mtdata.core.data.wait_events.account import (
     _is_order_cancelled,
     _matches_account_filters,
     _row_within_live_state_cutoff,
+    _snapshot_position_tickets,
     _update_order_filled_snapshot_state,
 )
 from mtdata.core.data.wait_events.boundary import (
@@ -709,20 +711,27 @@ def _evaluate_watch_events(  # noqa: C901
                 if _matches_account_filters(row, spec, gateway=gateway):
                     return _format_account_match(event_type, row, gateway=gateway)
         elif event_type == "position_opened":
+            current_positions = snapshot.get("positions", [])
+            baseline_positions = snapshot.get("baseline", {}).get("positions", [])
+            current_tickets = _snapshot_position_tickets(current_positions)
+            baseline_tickets = _snapshot_position_tickets(baseline_positions)
             for row in snapshot.get("history_deals", []):
                 if not _is_deal_entry_in(row, gateway=gateway):
                     continue
-                if _matches_account_filters(row, spec, gateway=gateway):
-                    return _format_account_match(event_type, row, gateway=gateway)
+                if not _matches_account_filters(row, spec, gateway=gateway):
+                    continue
+                position_ticket = _deal_position_ticket(row)
+                # Ignore entry deals for tickets already closed, or already
+                # open when the wait started.
+                if (
+                    position_ticket is None
+                    or position_ticket in baseline_tickets
+                    or position_ticket not in current_tickets
+                ):
+                    continue
+                return _format_account_match(event_type, row, gateway=gateway)
             if live_state_cutoff_utc is not None:
                 continue
-            current_positions = snapshot.get("positions", [])
-            baseline_positions = snapshot.get("baseline", {}).get("positions", [])
-            baseline_tickets = {
-                _row_int(row, "ticket")
-                for row in baseline_positions
-                if _row_int(row, "ticket") is not None
-            }
             for row in current_positions:
                 ticket = _row_int(row, "ticket")
                 if ticket in baseline_tickets:
@@ -739,11 +748,7 @@ def _evaluate_watch_events(  # noqa: C901
                 continue
             current_positions = snapshot.get("positions", [])
             baseline_positions = snapshot.get("baseline", {}).get("positions", [])
-            current_tickets = {
-                _row_int(row, "ticket")
-                for row in current_positions
-                if _row_int(row, "ticket") is not None
-            }
+            current_tickets = _snapshot_position_tickets(current_positions)
             for row in baseline_positions:
                 ticket = _row_int(row, "ticket")
                 if ticket is not None and ticket in current_tickets:

@@ -372,6 +372,231 @@ def test_run_wait_event_ignores_same_second_deal_history_at_startup_watermark() 
     assert result["status"] == "timeout"
     assert result["matched_event"] is None
 
+def test_run_wait_event_matches_position_opened_from_history_when_still_open() -> None:
+    started = datetime(2026, 3, 15, 12, 0, 0, tzinfo=timezone.utc)
+    gateway = SequenceGateway(
+        positions_seq=[
+            [],
+            [{"ticket": 9001, "symbol": "BTCUSD", "type": "sell"}],
+        ],
+        history_deals_seq=[
+            [],
+            [
+                {
+                    "ticket": 3001,
+                    "order": 9001,
+                    "position_id": 9001,
+                    "symbol": "BTCUSD",
+                    "entry": 0,
+                    "type": "sell",
+                    "comment": "fade 2nd failed high",
+                    "time": int(started.timestamp()) + 1,
+                }
+            ],
+        ],
+    )
+    clock = FakeClock(started)
+
+    result = run_wait_event(
+        WaitEventRequest(
+            watch_for=[{"type": "position_opened", "symbol": "BTCUSD"}],
+            poll_interval_seconds=1.0,
+            max_wait_seconds=5.0,
+        ),
+        gateway=gateway,
+        sleep_impl=clock.sleep,
+        monotonic_impl=clock.monotonic,
+        now_utc_impl=clock.now_utc,
+    )
+
+    assert result["status"] == "matched"
+    assert result["matched_event"]["type"] == "position_opened"
+    assert result["matched_event"]["position_ticket"] == 9001
+    assert result["matched_event"]["observed"]["comment"] == "fade 2nd failed high"
+
+
+def test_run_wait_event_matches_position_opened_from_live_state_without_history() -> None:
+    gateway = SequenceGateway(
+        positions_seq=[
+            [],
+            [{"ticket": 9001, "symbol": "BTCUSD", "type": "sell"}],
+        ],
+        history_deals_seq=[[], []],
+    )
+    clock = FakeClock(datetime(2026, 3, 15, 12, 0, 0, tzinfo=timezone.utc))
+
+    result = run_wait_event(
+        WaitEventRequest(
+            watch_for=[{"type": "position_opened", "symbol": "BTCUSD"}],
+            poll_interval_seconds=1.0,
+            max_wait_seconds=5.0,
+        ),
+        gateway=gateway,
+        sleep_impl=clock.sleep,
+        monotonic_impl=clock.monotonic,
+        now_utc_impl=clock.now_utc,
+    )
+
+    assert result["status"] == "matched"
+    assert result["matched_event"]["type"] == "position_opened"
+    assert result["matched_event"]["position_ticket"] == 9001
+
+
+def test_run_wait_event_ignores_closed_position_opened_history_replay() -> None:
+    started = datetime(2026, 9, 2, 18, 34, 42, 66571, tzinfo=timezone.utc)
+    dead_ticket = 4479856325
+    live_ticket = 4479915565
+    gateway = SequenceGateway(
+        positions_seq=[
+            [{"ticket": live_ticket, "symbol": "BTCUSD", "type": "sell"}],
+            [{"ticket": live_ticket, "symbol": "BTCUSD", "type": "sell"}],
+        ],
+        history_deals_seq=[
+            [],
+            [
+                {
+                    "ticket": 4268514558,
+                    "order": dead_ticket,
+                    "position_id": dead_ticket,
+                    "symbol": "BTCUSD",
+                    "entry": 0,
+                    "type": "sell",
+                    "magic": 234000,
+                    "reason": 3,
+                    "comment": "fade 2nd failed high",
+                    "time": started.timestamp() + 0.88,
+                }
+            ],
+        ],
+    )
+    clock = FakeClock(started)
+
+    result = run_wait_event(
+        WaitEventRequest(
+            watch_for=[
+                {"type": "position_closed", "symbol": "BTCUSD"},
+                {"type": "position_opened", "symbol": "BTCUSD"},
+                {"type": "sl_hit", "symbol": "BTCUSD"},
+                {"type": "tp_hit", "symbol": "BTCUSD"},
+            ],
+            poll_interval_seconds=0.1,
+            max_wait_seconds=0.2,
+        ),
+        gateway=gateway,
+        sleep_impl=clock.sleep,
+        monotonic_impl=clock.monotonic,
+        now_utc_impl=clock.now_utc,
+    )
+
+    assert result["status"] == "timeout"
+    assert result["matched_event"] is None
+
+
+def test_run_wait_event_ignores_entry_in_for_position_already_open_at_wait_start() -> None:
+    started = datetime(2026, 3, 15, 12, 0, 0, tzinfo=timezone.utc)
+    gateway = SequenceGateway(
+        positions_seq=[
+            [{"ticket": 9001, "symbol": "BTCUSD", "type": "sell"}],
+            [{"ticket": 9001, "symbol": "BTCUSD", "type": "sell"}],
+        ],
+        history_deals_seq=[
+            [],
+            [
+                {
+                    "ticket": 3001,
+                    "order": 9001,
+                    "position_id": 9001,
+                    "symbol": "BTCUSD",
+                    "entry": 0,
+                    "type": "sell",
+                    "time": int(started.timestamp()) + 1,
+                }
+            ],
+        ],
+    )
+    clock = FakeClock(started)
+
+    result = run_wait_event(
+        WaitEventRequest(
+            watch_for=[{"type": "position_opened", "symbol": "BTCUSD"}],
+            poll_interval_seconds=0.1,
+            max_wait_seconds=0.2,
+        ),
+        gateway=gateway,
+        sleep_impl=clock.sleep,
+        monotonic_impl=clock.monotonic,
+        now_utc_impl=clock.now_utc,
+    )
+
+    assert result["status"] == "timeout"
+    assert result["matched_event"] is None
+
+
+def test_run_wait_event_does_not_treat_open_and_close_flicker_as_position_opened() -> None:
+    started = datetime(2026, 3, 15, 12, 0, 0, tzinfo=timezone.utc)
+    gateway = SequenceGateway(
+        positions_seq=[[], []],
+        history_deals_seq=[
+            [],
+            [
+                {
+                    "ticket": 3001,
+                    "position_id": 9001,
+                    "symbol": "BTCUSD",
+                    "entry": 0,
+                    "type": "sell",
+                    "time": int(started.timestamp()) + 1,
+                },
+                {
+                    "ticket": 3002,
+                    "position_id": 9001,
+                    "symbol": "BTCUSD",
+                    "entry": 1,
+                    "type": "buy",
+                    "time": int(started.timestamp()) + 2,
+                },
+            ],
+        ],
+    )
+    clock = FakeClock(started)
+
+    opened = run_wait_event(
+        WaitEventRequest(
+            watch_for=[{"type": "position_opened", "symbol": "BTCUSD"}],
+            poll_interval_seconds=0.1,
+            max_wait_seconds=0.2,
+        ),
+        gateway=SequenceGateway(
+            positions_seq=list(gateway.positions_seq),
+            history_deals_seq=list(gateway.history_deals_seq),
+        ),
+        sleep_impl=clock.sleep,
+        monotonic_impl=clock.monotonic,
+        now_utc_impl=clock.now_utc,
+    )
+    closed_clock = FakeClock(started)
+    closed = run_wait_event(
+        WaitEventRequest(
+            watch_for=[{"type": "position_closed", "symbol": "BTCUSD"}],
+            poll_interval_seconds=1.0,
+            max_wait_seconds=5.0,
+        ),
+        gateway=SequenceGateway(
+            positions_seq=list(gateway.positions_seq),
+            history_deals_seq=list(gateway.history_deals_seq),
+        ),
+        sleep_impl=closed_clock.sleep,
+        monotonic_impl=closed_clock.monotonic,
+        now_utc_impl=closed_clock.now_utc,
+    )
+
+    assert opened["status"] == "timeout"
+    assert opened["matched_event"] is None
+    assert closed["status"] == "matched"
+    assert closed["matched_event"]["type"] == "position_closed"
+    assert closed["matched_event"]["observed"]["position_ticket"] == 9001
+
+
 def test_run_wait_event_matches_position_closed_when_position_disappears() -> None:
     gateway = SequenceGateway(
         positions_seq=[

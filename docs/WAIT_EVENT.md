@@ -116,6 +116,9 @@ mtdata-cli wait_event EURUSD --timeframe H1 --end-on '[{"type":"candle_close","t
   returns on the first match.
 - `accept_preexisting=true` returns immediately if a state-style watcher is
   already true at startup. The default waits for a *new* transition.
+- `position_opened` is a new still-open position after the wait starts. A
+  historical entry deal for a ticket that is already closed, or that was
+  already open when the wait began, is ignored.
 - Put candle-close boundaries in `end_on`, not in `watch_for`.
 - `--detail full` adds elapsed timing diagnostics and poll counts without
   exposing internal timing controls.
