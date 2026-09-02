@@ -416,7 +416,40 @@ def test_price_change_does_not_replay_preexisting_match_when_rearmed() -> None:
     assert second["matched"] is False
 
 
-def test_wait_event_fails_closed_when_history_quote_diverges() -> None:
+@pytest.mark.parametrize(
+    ("history_mid", "live_mid", "spread", "point", "tick_size"),
+    [
+        (1.10000, 1.10035, 0.00010, 0.00001, 0.00001),
+        (109500.00, 109571.64, 5.00, 0.01, 0.01),
+        (180.00, 180.55, 0.02, 0.01, 0.01),
+    ],
+)
+def test_quote_agreement_tolerance_scales_with_market(
+    history_mid: float,
+    live_mid: float,
+    spread: float,
+    point: float,
+    tick_size: float,
+) -> None:
+    half_spread = spread / 2.0
+    history_row = {"bid": history_mid - half_spread, "ask": history_mid + half_spread}
+    live_row = {"bid": live_mid - half_spread, "ask": live_mid + half_spread}
+    symbol_info = SimpleNamespace(point=point, trade_tick_size=tick_size)
+
+    tolerance = wait_events_mod._quote_agreement_tolerance(
+        history_row=history_row,
+        live_row=live_row,
+        symbol_info=symbol_info,
+    )
+
+    assert tolerance >= tick_size
+    assert tolerance >= point
+    assert tolerance >= spread * 0.25
+    assert tolerance >= max(abs(history_mid), abs(live_mid)) * 5e-5
+    assert abs(live_mid - history_mid) > tolerance
+
+
+def test_wait_event_splices_live_quote_when_history_lags() -> None:
     clock = FakeClock(datetime(2026, 3, 15, 12, 0, 0, tzinfo=timezone.utc))
     base_epoch = int(clock.now_utc().timestamp()) - 2
     ticks = [
@@ -463,8 +496,150 @@ def test_wait_event_fails_closed_when_history_quote_diverges() -> None:
         now_utc_impl=clock.now_utc,
     )
 
-    assert result["error_code"] == "wait_event_quote_divergence"
-    assert result["diagnostics"]["difference"] == pytest.approx(3.0)
+    assert result.get("error_code") != "wait_event_quote_divergence"
+    assert result["status"] == "timeout"
+    assert result["matched"] is False
+
+
+@pytest.mark.parametrize(
+    ("symbol", "history_mid", "live_mid", "level", "spread", "point"),
+    [
+        ("EURUSD", 1.10000, 1.10080, 1.10040, 0.00010, 0.00001),
+        ("BTCUSD", 109500.00, 109571.64, 109530.00, 5.00, 0.01),
+        ("AAPL", 180.00, 180.55, 180.25, 0.02, 0.01),
+    ],
+)
+def test_wait_event_uses_live_quote_across_markets(
+    symbol: str,
+    history_mid: float,
+    live_mid: float,
+    level: float,
+    spread: float,
+    point: float,
+) -> None:
+    clock = FakeClock(datetime(2026, 3, 15, 12, 0, 0, tzinfo=timezone.utc))
+    base_epoch = int(clock.now_utc().timestamp()) - 2
+    half_spread = spread / 2.0
+    ticks = [
+        {
+            "time": base_epoch + idx,
+            "time_msc": (base_epoch + idx) * 1000,
+            "bid": history_mid - half_spread,
+            "ask": history_mid + half_spread,
+            "last": history_mid,
+            "volume": 1.0,
+        }
+        for idx in range(3)
+    ]
+
+    class DivergentGateway(SequenceGateway):
+        def symbol_info_tick(self, symbol_name):
+            return SimpleNamespace(
+                time=int(clock.now_utc().timestamp()),
+                bid=live_mid - half_spread,
+                ask=live_mid + half_spread,
+            )
+
+        def symbol_info(self, symbol_name):
+            return SimpleNamespace(point=point, trade_tick_size=point)
+
+    result = run_wait_event(
+        WaitEventRequest(
+            watch_for=[
+                {
+                    "type": "price_touch_level",
+                    "symbol": symbol,
+                    "level": level,
+                    "direction": "up",
+                    "price_source": "mid",
+                }
+            ],
+            poll_interval_seconds=0.5,
+            max_wait_seconds=1.0,
+            accept_preexisting=True,
+        ),
+        gateway=DivergentGateway(ticks_by_symbol={symbol: ticks}),
+        sleep_impl=clock.sleep,
+        monotonic_impl=clock.monotonic,
+        now_utc_impl=clock.now_utc,
+    )
+
+    assert result.get("error_code") != "wait_event_quote_divergence"
+    assert result["status"] == "already_satisfied"
+    assert result["matched_event"]["type"] == "price_touch_level"
+    assert result["matched_event"]["observed"]["current_price"] == pytest.approx(live_mid)
+
+
+def test_wait_event_does_not_splice_when_history_matches_live_quote() -> None:
+    clock = FakeClock(datetime(2026, 3, 15, 12, 0, 0, tzinfo=timezone.utc))
+    now_epoch = int(clock.now_utc().timestamp())
+    ticks = [
+        {
+            "time": now_epoch - 2 + idx,
+            "time_msc": (now_epoch - 2 + idx) * 1000,
+            "bid": 1.10000,
+            "ask": 1.10010,
+            "last": 1.10005,
+            "volume": 1.0,
+        }
+        for idx in range(3)
+    ]
+    market_state = {
+        "EURUSD": {
+            "ticks": wait_events_mod._normalize_tick_rows(ticks),
+            "last_epoch": float(ticks[-1]["time"]),
+        }
+    }
+    tick_count_before = len(market_state["EURUSD"]["ticks"])
+    gateway = SequenceGateway(ticks_by_symbol={"EURUSD": ticks})
+
+    wait_events_mod._reconcile_market_state_quotes(
+        gateway=gateway,
+        market_state=market_state,
+        market_specs=[{"symbol": "EURUSD", "type": "price_change"}],
+        observed_at_utc=clock.now_utc(),
+    )
+
+    assert len(market_state["EURUSD"]["ticks"]) == tick_count_before
+
+
+def test_wait_event_keeps_history_when_live_quote_is_inverted() -> None:
+    clock = FakeClock(datetime(2026, 3, 15, 12, 0, 0, tzinfo=timezone.utc))
+    now_epoch = int(clock.now_utc().timestamp())
+    ticks = [
+        {
+            "time": now_epoch - 1,
+            "time_msc": (now_epoch - 1) * 1000,
+            "bid": 109500.0,
+            "ask": 109505.0,
+            "last": 109502.5,
+            "volume": 1.0,
+        }
+    ]
+    market_state = {
+        "BTCUSD": {
+            "ticks": wait_events_mod._normalize_tick_rows(ticks),
+            "last_epoch": float(ticks[-1]["time"]),
+        }
+    }
+
+    class InvertedGateway(SequenceGateway):
+        def symbol_info_tick(self, symbol):
+            return SimpleNamespace(time=now_epoch, bid=109580.0, ask=109500.0)
+
+        def symbol_info(self, symbol):
+            return SimpleNamespace(point=0.01, trade_tick_size=0.01)
+
+    wait_events_mod._reconcile_market_state_quotes(
+        gateway=InvertedGateway(ticks_by_symbol={"BTCUSD": ticks}),
+        market_state=market_state,
+        market_specs=[{"symbol": "BTCUSD", "type": "price_touch_level"}],
+        observed_at_utc=clock.now_utc(),
+    )
+
+    last_tick = market_state["BTCUSD"]["ticks"][-1]
+    assert last_tick["bid"] == pytest.approx(109500.0)
+    assert last_tick["ask"] == pytest.approx(109505.0)
 
 def test_run_wait_event_matches_volume_spike() -> None:
     clock = FakeClock(datetime(2026, 3, 15, 12, 0, 0, tzinfo=timezone.utc))

@@ -48,6 +48,7 @@ from mtdata.core.data.wait_events.ticks import (
     _finite_number,
     _format_utc_iso,
     _market_symbols,
+    _normalize_tick_rows,
     _normalize_utc_datetime,
     _refresh_market_state,
     _row_int,
@@ -60,6 +61,8 @@ from mtdata.utils.market_metadata import build_tick_freshness_context
 from mtdata.utils.time import format_epoch_utc
 
 _WAIT_EVENT_IDENTITY_FIELDS = ("symbol", "ticket", "order_ticket", "position_ticket")
+_QUOTE_AGREEMENT_SPREAD_FRACTION = 0.25
+_QUOTE_AGREEMENT_RELATIVE_FRACTION = 5e-5
 _CLOSED_SESSION_TIMEOUT_FIELDS = (
     "market_status",
     "market_status_reason",
@@ -224,6 +227,12 @@ def run_wait_event_loop(  # noqa: C901
     )
     if isinstance(market_state, dict) and "error" in market_state:
         return market_state
+    _reconcile_market_state_quotes(
+        gateway=gateway,
+        market_state=market_state,
+        market_specs=market_specs,
+        observed_at_utc=started_at_utc,
+    )
     if (timeout_result := _timeout_if_expired()) is not None:
         return timeout_result
     if not request.accept_preexisting:
@@ -642,14 +651,12 @@ def _collect_snapshot(
         )
         if isinstance(refreshed, dict) and "error" in refreshed:
             return refreshed
-        alignment_error = _market_quote_alignment_error(
+        _reconcile_market_state_quotes(
             gateway=gateway,
             market_state=refreshed,
             market_specs=market_specs,
             observed_at_utc=observed_at_utc,
         )
-        if alignment_error is not None:
-            return alignment_error
         market_data: Dict[str, Any] = {}
         for symbol in _market_symbols(market_specs):
             state = refreshed.get(symbol) or {}
@@ -1208,77 +1215,187 @@ def _quote_mid_from_row(row: Any) -> Optional[float]:
         return (bid + ask) / 2.0
     return bid if bid is not None else ask
 
-def _quote_alignment_tolerance(
+
+def _quote_is_two_sided(row: Any) -> bool:
+    bid = _finite_number(_row_value(row, "bid"))
+    ask = _finite_number(_row_value(row, "ask"))
+    return bid is not None and ask is not None and ask >= bid
+
+
+def _quote_agreement_tolerance(
     *,
     history_row: Any,
     live_row: Any,
     symbol_info: Any,
 ) -> float:
-    candidates: List[float] = []
+    """Return a market-agnostic band for 'same executable quote'.
+
+    The band is the max of a fraction of spread, one tick/point, and a small
+    relative fraction of mid so FX, crypto, and cash equities share one rule.
+    """
+    candidates: List[float] = [1e-8]
+    mids: List[float] = []
     for row in (history_row, live_row):
         bid = _finite_number(_row_value(row, "bid"))
         ask = _finite_number(_row_value(row, "ask"))
         if bid is not None and ask is not None and ask >= bid:
-            candidates.append((ask - bid) * 12.0)
-    for attr, multiplier in (("trade_tick_size", 10.0), ("point", 20.0)):
+            candidates.append((ask - bid) * _QUOTE_AGREEMENT_SPREAD_FRACTION)
+        mid = _quote_mid_from_row(row)
+        if mid is not None:
+            mids.append(abs(mid))
+    for attr in ("trade_tick_size", "point"):
         try:
             value = float(getattr(symbol_info, attr, 0.0) or 0.0)
         except Exception:
             value = 0.0
         if math.isfinite(value) and value > 0.0:
-            candidates.append(value * multiplier)
-    return max(candidates or [1e-8])
+            candidates.append(value)
+    if mids:
+        candidates.append(max(mids) * _QUOTE_AGREEMENT_RELATIVE_FRACTION)
+    return max(candidates)
 
-def _market_quote_alignment_error(
+
+def _executable_quotes_agree(
+    history_row: Any,
+    live_row: Any,
+    *,
+    symbol_info: Any,
+) -> bool:
+    history_mid = _quote_mid_from_row(history_row)
+    live_mid = _quote_mid_from_row(live_row)
+    if history_mid is None or live_mid is None:
+        return False
+    tolerance = _quote_agreement_tolerance(
+        history_row=history_row,
+        live_row=live_row,
+        symbol_info=symbol_info,
+    )
+    if abs(history_mid - live_mid) > tolerance:
+        return False
+    history_bid = _finite_number(_row_value(history_row, "bid"))
+    history_ask = _finite_number(_row_value(history_row, "ask"))
+    live_bid = _finite_number(_row_value(live_row, "bid"))
+    live_ask = _finite_number(_row_value(live_row, "ask"))
+    if None in (history_bid, history_ask, live_bid, live_ask):
+        return True
+    return (
+        abs(history_bid - live_bid) <= tolerance
+        and abs(history_ask - live_ask) <= tolerance
+    )
+
+
+def _live_quote_is_spliceable(live_row: Any, *, last_tick: Any) -> bool:
+    bid = _finite_number(_row_value(live_row, "bid"))
+    ask = _finite_number(_row_value(live_row, "ask"))
+    live_two_sided = bid is not None and ask is not None and ask >= bid
+    if live_two_sided:
+        return True
+    if bid is not None and ask is not None and ask < bid:
+        return False
+    if bid is None and ask is None:
+        return False
+    return not _quote_is_two_sided(last_tick)
+
+
+def _executable_quote_tick_from_live_row(
+    live_row: Any,
+    *,
+    observed_at_utc: datetime,
+    last_tick: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    payload = _quote_payload_from_row(live_row)
+    if not payload:
+        return None
+    live_epoch = _finite_number(_row_value(live_row, "time"))
+    if live_epoch is None:
+        live_epoch = _finite_number(_row_value(live_row, "epoch"))
+    live_msc = _finite_number(_row_value(live_row, "time_msc"))
+    observed_epoch = observed_at_utc.timestamp()
+    epoch = float(live_epoch) if live_epoch is not None else observed_epoch
+    time_msc = int(live_msc) if live_msc is not None else int(round(epoch * 1000.0))
+    epoch = max(epoch, observed_epoch)
+    time_msc = max(time_msc, int(round(epoch * 1000.0)))
+    if last_tick is not None:
+        last_epoch = _finite_number(last_tick.get("epoch"))
+        last_msc = _finite_number(last_tick.get("time_msc"))
+        if last_msc is not None and time_msc <= int(last_msc):
+            time_msc = int(last_msc) + 1
+            epoch = time_msc / 1000.0
+        elif last_epoch is not None and epoch <= float(last_epoch):
+            epoch = float(last_epoch) + 0.001
+            time_msc = max(time_msc, int(round(epoch * 1000.0)))
+            if last_msc is not None and time_msc <= int(last_msc):
+                time_msc = int(last_msc) + 1
+                epoch = time_msc / 1000.0
+    normalized = _normalize_tick_rows(
+        [
+            {
+                "time": epoch,
+                "time_msc": time_msc,
+                "bid": payload.get("bid", float("nan")),
+                "ask": payload.get("ask", float("nan")),
+                "last": _row_value(live_row, "last"),
+                "volume": _row_value(live_row, "volume"),
+                "volume_real": _row_value(live_row, "volume_real"),
+                "flags": _row_int(live_row, "flags") or 0,
+            }
+        ]
+    )
+    return normalized[0] if normalized else None
+
+
+def _reconcile_market_state_quotes(
     *,
     gateway: Any,
     market_state: Dict[str, Any],
     market_specs: List[Dict[str, Any]],
     observed_at_utc: datetime,
-) -> Optional[Dict[str, Any]]:
-    """Fail closed when history ticks diverge from the executable quote."""
+) -> None:
+    """Keep window history, but make 'now' the executable quote when they differ.
+
+    Tick history answers rolling watchers. The live tick is the book an order
+    would hit. When those feeds disagree, splice the live quote onto the series
+    instead of aborting. The agreement band scales with spread, tick size, and
+    price so FX, crypto, and cash equities share one rule.
+    """
+    if not isinstance(market_state, dict):
+        return
     for symbol in _market_symbols(market_specs):
-        history_row = _latest_quote_row_from_market_state(
-            market_state,
-            symbol=symbol,
-        )
+        state = market_state.get(symbol)
+        if not isinstance(state, dict):
+            state = {
+                "ticks": [],
+                "last_epoch": observed_at_utc.timestamp(),
+            }
+            market_state[symbol] = state
         live_row = _latest_quote_row_from_gateway(gateway, symbol=symbol)
-        history_mid = _quote_mid_from_row(history_row)
-        live_mid = _quote_mid_from_row(live_row)
-        if history_mid is None or live_mid is None:
+        ticks = list(state.get("ticks") or [])
+        last_tick = ticks[-1] if ticks else None
+        if live_row is None or not _live_quote_is_spliceable(
+            live_row,
+            last_tick=last_tick,
+        ):
             continue
         try:
             symbol_info = gateway.symbol_info(symbol)
         except Exception:
             symbol_info = None
-        tolerance = _quote_alignment_tolerance(
-            history_row=history_row,
-            live_row=live_row,
+        if last_tick is not None and _executable_quotes_agree(
+            last_tick,
+            live_row,
             symbol_info=symbol_info,
-        )
-        difference = abs(history_mid - live_mid)
-        if difference <= tolerance:
+        ):
             continue
-        history_epoch = _finite_number(_row_value(history_row, "epoch"))
-        live_epoch = _finite_number(_row_value(live_row, "time"))
-        return {
-            "error": (
-                f"Wait-event tick history for {symbol} diverges from the executable "
-                f"quote by {difference:g}, above the {tolerance:g} alignment tolerance."
-            ),
-            "error_code": "wait_event_quote_divergence",
-            "diagnostics": {
-                "symbol": symbol,
-                "history_mid": history_mid,
-                "live_mid": live_mid,
-                "difference": difference,
-                "tolerance": tolerance,
-                "history_tick_epoch": history_epoch,
-                "live_tick_epoch": live_epoch,
-                "observed_at_utc": _format_utc_iso(observed_at_utc),
-            },
-        }
-    return None
+        spliced = _executable_quote_tick_from_live_row(
+            live_row,
+            observed_at_utc=observed_at_utc,
+            last_tick=last_tick,
+        )
+        if spliced is None:
+            continue
+        ticks.append(spliced)
+        state["ticks"] = ticks
+        state["last_epoch"] = float(spliced["epoch"])
 
 def _quote_payload_from_row(row: Any) -> Dict[str, Any]:
     if row is None:
