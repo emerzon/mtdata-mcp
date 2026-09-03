@@ -12,15 +12,6 @@ from ..utils.coercion import coerce_finite_float
 from ..utils.security import redact_url_credentials
 from .backtest import _backtest_units
 from .backtest import forecast_backtest as _forecast_backtest
-from .optimize import (
-    build_comprehensive_search_space as _build_search_space,
-)
-from .optimize import (
-    composite_fitness_score as _composite_fitness,
-)
-from .optimize import (
-    extract_method_params_from_genotype as _extract_params,
-)
 from .tuning_contract import (
     MIN_ANNUALIZED_TUNING_TRADES,
     TRADING_TUNING_METRICS,
@@ -1349,6 +1340,16 @@ def genetic_search_optimize_hints(  # noqa: C901
     evaluations_attempted = 0
     timed_out = False
 
+    from .optimize import (
+        build_comprehensive_search_space as _build_search_space,
+    )
+    from .optimize import (
+        composite_fitness_score as _composite_fitness,
+    )
+    from .optimize import (
+        extract_method_params_from_genotype as _extract_params,
+    )
+
     # Build search space if not provided
     if search_space is None:
         search_space = _build_search_space(
@@ -1358,8 +1359,7 @@ def genetic_search_optimize_hints(  # noqa: C901
     else:
         # Ensure comprehensive space has required keys
         if '_method_spaces' not in search_space:
-            from .tune import default_search_space as _default_spaces
-            search_space['_method_spaces'] = _default_spaces(methods=methods)
+            search_space['_method_spaces'] = default_search_space(methods=methods)
 
     # Extract genetic gene specs
     tf_choices = search_space.get('timeframe', {}).get(
