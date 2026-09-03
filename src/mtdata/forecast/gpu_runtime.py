@@ -13,6 +13,7 @@ GPU_BACKED_FORECAST_METHODS = frozenset(
         "chronos2",
         "chronos_bolt",
         "timesfm",
+        "timesfm3",
         "nhits",
         "nbeatsx",
         "tft",

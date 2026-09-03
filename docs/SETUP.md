@@ -45,7 +45,7 @@ timezones, website and assistant entry points.
 | Full research stack used by most docs | `pip install -r requirements.txt` |
 | Web API / UI backend only | `pip install -e .[web]` |
 | Heavy forecast extras | `pip install -e .[forecast-classical]` and/or `pip install -e .[forecast-foundation]` |
-| TimesFM | `pip install -e .[forecast-timesfm]` (PyPI release) |
+| TimesFM | `pip install -e ".[forecast-timesfm]"` (PyPI 3.x; still runs TimesFM 2.5) |
 | CNBC news | `pip install -e .[news-ycnbc]` (PyPI `ycnbc`) |
 | Manual experiments (`stock-pattern`) | Install only when needed |
 
@@ -81,7 +81,7 @@ For the validated research/web environment used in local development and most do
 pip install -r requirements.txt
 ```
 
-This path intentionally stays on package-index releases. TimesFM 2.0.2 is now included from PyPI; the CNBC extra (`ycnbc`) stays opt-in via `[news-ycnbc]`, and the manual `stock-pattern` add-on stays out of the default install.
+This path intentionally stays on package-index releases. TimesFM 3.0.1 is now included from PyPI (the extra still runs TimesFM 2.5); the CNBC extra (`ycnbc`) stays opt-in via `[news-ycnbc]`, and the manual `stock-pattern` add-on stays out of the default install.
 NeuralForecast-based models are also kept out of this default path: on Windows Python 3.14, `neuralforecast` cannot resolve because its required `ray` dependency does not publish Windows wheels for 3.14 (Ray has cp314 wheels for Linux/macOS only). Treat `nhits`, `tft`, `patchtst`, and `nbeatsx` as manual/nonstandard setup.
 
 ## Deeper detail: optional extras
@@ -98,8 +98,8 @@ The base package is intentionally lean. Install extras as needed:
   `pip install -e .[forecast-classical]`
 - Foundation-model forecasting (Chronos / Chronos-Bolt):
   `pip install -e .[forecast-foundation]`
-- TimesFM (PyPI):
-  `pip install -e .[forecast-timesfm]`
+- TimesFM 2.5 + 3.0 (PyPI `timesfm>=3.0.1`):
+  `pip install -e ".[forecast-timesfm]"`
 - Web API:
   `pip install -e .[web]`
 - Dimensionality reduction (UMAP):
@@ -124,7 +124,7 @@ Feature notes:
 - Dimred UMAP (Web UI / analysis): `umap-learn` via `pip install -e .[dimred-ext]` (also included in `[all]`)
 - Foundation models:
   - Chronos (`chronos2`, `chronos_bolt`): `chronos-forecasting`, `torch`
-  - TimesFM (`timesfm`): `timesfm>=2.0.2`, `torch` (install with `pip install -e .[forecast-timesfm]`; also included in `[all]`)
+  - TimesFM (`timesfm` = 2.5 Apache-2.0 weights, `timesfm3` = 3.0 non-commercial weights): `timesfm>=3.0.1`, `torch` (install with `pip install -e ".[forecast-timesfm]"`; also included in `[all]`). TimesFM 3.0 default weights are not for commercial or production use.
   - GluonTS 0.17 now resolves on Python 3.14, but mtdata has no GluonTS/Lag-Llama adapter; those methods are not shipped
 - Forecasting libraries: `statsforecast>=2.1.1`, `sktime>=1.1.0`, `mlforecast` (plus `lightgbm` for GBMs)
 - Volatility (GARCH/ARCH): `arch`

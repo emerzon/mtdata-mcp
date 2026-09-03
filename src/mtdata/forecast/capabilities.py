@@ -9,7 +9,7 @@ from .exceptions import ForecastError
 from .forecast_registry import ForecastRegistry, get_forecast_methods_data
 from .interface import ForecastCapabilityDescriptor
 
-_PRETRAINED_METHODS = {"chronos2", "chronos_bolt", "timesfm"}
+_PRETRAINED_METHODS = {"chronos2", "chronos_bolt", "timesfm", "timesfm3"}
 
 # Meaningful descriptions for StatsForecast models
 _STATSFORECAST_MODEL_DESCRIPTIONS = {

@@ -92,6 +92,7 @@ def _suppress_noisy_third_party_logs() -> None:
         ("huggingface_hub", logging.WARNING),
         ("timesfm", logging.WARNING),
         ("timesfm_2p5_torch", logging.WARNING),
+        ("timesfm3", logging.WARNING),
         ("torch", logging.WARNING),
         ("torchao", logging.ERROR),
         ("torch.distributed", logging.ERROR),

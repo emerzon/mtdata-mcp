@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import gc
+import logging
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -16,6 +17,13 @@ from .pretrained_helpers import (
     process_quantile_levels,
     safe_import_modules,
 )
+
+logger = logging.getLogger(__name__)
+
+_TIMESFM3_DEFAULT_CHECKPOINT = "google/timesfm-3.0-pytorch"
+_TIMESFM3_QUANTILE_LEVELS = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
+_TIMESFM3_WEIGHTS_LICENSE = "timesfm-non-commercial-license-v1.0"
+_TIMESFM3_LICENSE_WARNED = False
 
 
 class PretrainedMethod(ForecastMethod):
@@ -991,10 +999,186 @@ def _load_timesfm_checkpoint(wrapper: Any, params: Dict[str, Any]) -> Optional[s
     return path
 
 
+def _is_timesfm_2p5_torch_class_name(name: str) -> bool:
+    lname = str(name or "").lower().replace(".", "_")
+    if "timesfm3" in lname or "3p0" in lname or "3_0" in lname:
+        return False
+    if "2p5" in lname or "2_5" in lname:
+        return True
+    return "timesfm" in lname and "torch" in lname
+
+
+def _warn_timesfm3_license_once() -> None:
+    global _TIMESFM3_LICENSE_WARNED
+    if _TIMESFM3_LICENSE_WARNED:
+        return
+    _TIMESFM3_LICENSE_WARNED = True
+    logger.warning(
+        "TimesFM 3.0 pretrained weights are licensed under %s "
+        "(non-commercial, non-production). Use method 'timesfm' (TimesFM 2.5) "
+        "when that restriction matters.",
+        _TIMESFM3_WEIGHTS_LICENSE,
+    )
+
+
+def _as_2d_time_major(value: Any, name: str) -> Optional[np.ndarray]:
+    if value is None:
+        return None
+    arr = np.asarray(value, dtype=np.float32)
+    if arr.size == 0:
+        return None
+    if arr.ndim == 1:
+        arr = arr.reshape(-1, 1)
+    if arr.ndim != 2:
+        raise RuntimeError(
+            f"timesfm3 error: {name} must be 1-D or 2-D, got shape {arr.shape}"
+        )
+    return arr
+
+
+def _align_trailing_rows(arr: np.ndarray, length: int) -> np.ndarray:
+    n = int(arr.shape[0])
+    width = int(arr.shape[1])
+    target = max(0, int(length))
+    if n == target:
+        return arr
+    if n > target:
+        return arr[-target:]
+    pad = np.zeros((target - n, width), dtype=arr.dtype)
+    return np.vstack([pad, arr])
+
+
+def _timesfm3_covariates(
+    exog_used: Any,
+    exog_future: Any,
+    context_len: int,
+    horizon: int,
+) -> Tuple[Optional[np.ndarray], Optional[np.ndarray]]:
+    hist = _as_2d_time_major(exog_used, "exog_used")
+    future = _as_2d_time_major(exog_future, "exog_future")
+    if hist is None and future is None:
+        return None, None
+    ctx = max(1, int(context_len))
+    fh = max(1, int(horizon))
+    if hist is not None and future is not None:
+        if int(hist.shape[1]) != int(future.shape[1]):
+            raise RuntimeError(
+                f"timesfm3 error: exog_used features ({hist.shape[1]}) "
+                f"do not match exog_future features ({future.shape[1]})"
+            )
+        hist_win = _align_trailing_rows(hist, ctx)
+        future_win = future[:fh] if int(future.shape[0]) > fh else future
+        if int(future_win.shape[0]) < fh:
+            pad = np.zeros(
+                (fh - int(future_win.shape[0]), int(future_win.shape[1])),
+                dtype=future_win.dtype,
+            )
+            future_win = np.vstack([future_win, pad])
+        past_future = np.concatenate([hist_win, future_win], axis=0).T
+        return None, past_future
+    if hist is not None:
+        return _align_trailing_rows(hist, ctx).T, None
+    raise RuntimeError(
+        "timesfm3 error: exog_future requires matching historical exog_used "
+        "to build past-and-future covariates"
+    )
+
+
+def _timesfm3_feature_attestation(
+    hist: Optional[np.ndarray],
+    future: Optional[np.ndarray],
+) -> Optional[Dict[str, Any]]:
+    if hist is None or future is None:
+        return None
+    n_features = int(hist.shape[1])
+    return {
+        "status": "consumed",
+        "historical_consumed": True,
+        "future_consumed": True,
+        "historical_rows": int(hist.shape[0]),
+        "future_rows": int(future.shape[0]),
+        "n_features": n_features,
+        "adapter_columns": [f"x{index}" for index in range(n_features)],
+    }
+
+
+def _timesfm3_quantile_map(
+    qarr: Any,
+    requested: List[float],
+    horizon: int,
+) -> Dict[str, List[float]]:
+    fq: Dict[str, List[float]] = {}
+    if qarr is None or not requested:
+        return fq
+    arr = np.asarray(qarr, dtype=float)
+    if arr.ndim == 3:
+        arr = arr[0]
+    if arr.ndim != 2:
+        return fq
+    q_count = int(arr.shape[-1])
+    levels = list(_TIMESFM3_QUANTILE_LEVELS[:q_count])
+    level_idx = {round(float(level), 1): i for i, level in enumerate(levels)}
+    for q in requested:
+        try:
+            qf = float(q)
+        except (TypeError, ValueError):
+            continue
+        idx = level_idx.get(round(qf, 1))
+        if idx is None or idx >= q_count:
+            continue
+        col = arr[: int(horizon), idx]
+        fq[f"{qf:.1f}"] = [float(v) for v in np.asarray(col, dtype=float).tolist()]
+    return fq
+
+
+def _timesfm3_point_forecast(output: Any, horizon: int) -> Optional[np.ndarray]:
+    forecast_arr = getattr(output, "forecast", None)
+    if forecast_arr is None and isinstance(output, dict):
+        forecast_arr = output.get("forecast")
+    if forecast_arr is None and isinstance(output, (tuple, list)) and output:
+        forecast_arr = output[0]
+    if forecast_arr is None:
+        return None
+    arr = np.asarray(forecast_arr, dtype=float)
+    if arr.ndim == 2:
+        arr = arr[0]
+    if arr.ndim != 1:
+        arr = np.ravel(arr)
+    return adjust_forecast_length(arr, int(horizon))
+
+
+def _timesfm3_model_config_kwargs(params: Dict[str, Any], device_name: str) -> Dict[str, Any]:
+    checkpoint = str(
+        params.get("checkpoint_path")
+        or params.get("model_name")
+        or params.get("model_id")
+        or _TIMESFM3_DEFAULT_CHECKPOINT
+    ).strip() or _TIMESFM3_DEFAULT_CHECKPOINT
+    kwargs: Dict[str, Any] = {
+        "checkpoint_path": checkpoint,
+        "device": device_name,
+    }
+    batch = params.get("per_core_batch_size")
+    if batch is not None and str(batch).strip():
+        kwargs["per_core_batch_size"] = int(batch)
+    for key in ("cache_dir", "token", "revision"):
+        value = params.get(key)
+        if value is not None and str(value).strip():
+            kwargs[key] = value
+    if "local_files_only" in params:
+        kwargs["local_files_only"] = _truthy(params.get("local_files_only"))
+    if "force_download" in params:
+        kwargs["force_download"] = _truthy(params.get("force_download"))
+    return kwargs
+
+
 @ForecastRegistry.register("timesfm")
 class TimesFMMethod(PretrainedMethod):
     CAPABILITY_REQUIRES = ("timesfm", "torch")
-    CAPABILITY_NOTES = "Uses the TimesFM 2.x PyPI API with the TimesFM 2.5 PyTorch checkpoint."
+    CAPABILITY_NOTES = (
+        "Uses the TimesFM 2.5 PyTorch checkpoint (Apache-2.0) via the timesfm PyPI package. "
+        "Install with pip install -e \".[forecast-timesfm]\"."
+    )
     PARAMS: List[Dict[str, Any]] = [
         {"name": "device", "type": "str|null", "description": "Compute device (cpu/cuda)."},
         {"name": "model_class", "type": "str|null", "description": "TimesFM torch class name override."},
@@ -1063,10 +1247,10 @@ class TimesFMMethod(PretrainedMethod):
             candidates = [c for c in candidates if isinstance(c, str) and c.strip()]
             for mod in timesfm_modules:
                 for name in candidates:
-                    if hasattr(mod, name):
+                    if hasattr(mod, name) and _is_timesfm_2p5_torch_class_name(name):
                         return getattr(mod, name), name
 
-            # Fallback: scan for a plausible torch pipeline class.
+            # Fallback: scan for a 2.5 torch pipeline class. Skip TimesFM 3.x names.
             for mod in timesfm_modules:
                 try:
                     items = vars(mod).items()
@@ -1074,6 +1258,8 @@ class TimesFMMethod(PretrainedMethod):
                     continue
                 for name, obj in items:
                     if not isinstance(name, str):
+                        continue
+                    if not _is_timesfm_2p5_torch_class_name(name):
                         continue
                     lname = name.lower()
                     if "timesfm" in lname and "torch" in lname and isinstance(obj, type):
@@ -1141,8 +1327,9 @@ class TimesFMMethod(PretrainedMethod):
         _Cls, _cls_name = _resolve_timesfm_torch_class(timesfm_modules, str(requested_class) if requested_class else None)
         if _Cls is None or not callable(_Cls):
             raise RuntimeError(
-                "timesfm installed but no torch pipeline class was found. "
-                "Install timesfm[torch]>=2.0.2 and ensure a compatible torch is installed."
+                "timesfm installed but no TimesFM 2.5 torch pipeline class was found. "
+                "Install timesfm[torch]>=3.0.1 (2.5 classes live in the same package) "
+                "and ensure a compatible torch is installed."
             )
 
         _mdl = None
@@ -1251,6 +1438,156 @@ class TimesFMMethod(PretrainedMethod):
                         empty_cache()
             except Exception:
                 pass
+
+
+@ForecastRegistry.register("timesfm3")
+class TimesFM3Method(PretrainedMethod):
+    """TimesFM 3.0 pretrained foundation model (univariate + optional covariates)."""
+
+    CAPABILITY_REQUIRES = ("timesfm>=3.0.1", "torch")
+    CAPABILITY_NOTES = (
+        "Uses TimesFM 3.0 (`google/timesfm-3.0-pytorch`) via timesfm>=3.0.1. "
+        "Pretrained weights are under timesfm-non-commercial-license-v1.0 "
+        "(non-commercial, non-production). Use method `timesfm` (TimesFM 2.5, Apache-2.0) "
+        "for production. Install with pip install -e \".[forecast-timesfm]\"."
+    )
+    PARAMS: List[Dict[str, Any]] = [
+        {"name": "device", "type": "str|null", "description": "Compute device (cpu/cuda)."},
+        {"name": "model_name", "type": "str|null", "description": "Hugging Face repo id (default: google/timesfm-3.0-pytorch)."},
+        {"name": "checkpoint_path", "type": "str|null", "description": "Local checkpoint path or Hugging Face repo id."},
+        {"name": "context_length", "type": "int|null", "description": "Context window length."},
+        {"name": "quantiles", "type": "list|null", "description": "Quantile levels to return (0.1-0.9)."},
+        {"name": "per_core_batch_size", "type": "int|null", "description": "Inference batch size (default: 4)."},
+        {"name": "local_files_only", "type": "bool", "description": "Use only cached Hugging Face files when loading the checkpoint."},
+        {"name": "force_download", "type": "bool", "description": "Force Hugging Face checkpoint re-download."},
+        {"name": "use_symmetric_averaging", "type": "bool", "description": "Average a series with its negation (default: false)."},
+        {"name": "make_positive", "type": "bool", "description": "Clamp forecasts of non-negative series at zero (default: false)."},
+    ]
+
+    @property
+    def name(self) -> str:
+        return "timesfm3"
+
+    @property
+    def required_packages(self) -> List[str]:
+        return ["timesfm", "torch"]
+
+    @property
+    def supports_historical_exog(self) -> bool:
+        return True
+
+    @property
+    def supports_future_exog(self) -> bool:
+        return True
+
+    def forecast(  # noqa: C901
+        self,
+        series: pd.Series,
+        horizon: int,
+        seasonality: int,
+        params: Dict[str, Any],
+        exog_future: Optional[pd.DataFrame] = None,
+        **kwargs: Any,
+    ) -> ForecastResult:
+        p = params or {}
+        ctx_len = int(p.get("context_length", 0) or 0)
+        quantiles = process_quantile_levels(p.get("quantiles"), self.name)
+        vals = series.values
+        n = len(vals)
+        context = extract_context_window(vals, ctx_len, n, dtype=np.float32)
+        context_used = int(len(context))
+        modules, import_error = safe_import_modules(["timesfm3", "torch"], "timesfm3")
+        if import_error:
+            raise RuntimeError(import_error)
+        _torch = modules["torch"]
+        _timesfm3 = modules["timesfm3"]
+        _Forecaster = getattr(_timesfm3, "TimesFM3Forecaster", None)
+        _ModelConfig = getattr(_timesfm3, "ModelConfig", None)
+        if _Forecaster is None or _ModelConfig is None:
+            try:
+                _forecaster_mod = __import__(
+                    "timesfm3.timesfm3_forecaster",
+                    fromlist=["TimesFM3Forecaster", "ModelConfig"],
+                )
+                _Forecaster = getattr(_forecaster_mod, "TimesFM3Forecaster", _Forecaster)
+                _ModelConfig = getattr(_forecaster_mod, "ModelConfig", _ModelConfig)
+            except Exception as ex:
+                raise RuntimeError(
+                    "timesfm3 installed but TimesFM3Forecaster/ModelConfig is missing. "
+                    "Install timesfm[torch]>=3.0.1."
+                ) from ex
+        if not callable(_Forecaster) or not callable(_ModelConfig):
+            raise RuntimeError(
+                "timesfm3 installed but TimesFM3Forecaster/ModelConfig is missing. "
+                "Install timesfm[torch]>=3.0.1."
+            )
+
+        _device_name = _resolve_timesfm_device(p.get("device"), _torch)
+        cfg_kwargs = _timesfm3_model_config_kwargs(p, _device_name)
+        checkpoint = str(cfg_kwargs.get("checkpoint_path") or _TIMESFM3_DEFAULT_CHECKPOINT)
+        batch_size = int(cfg_kwargs.get("per_core_batch_size") or 4)
+        cache_key = f"timesfm3::{checkpoint}::{_device_name}::{batch_size}"
+
+        def _loader() -> Any:
+            _warn_timesfm3_license_once()
+            config = _ModelConfig(**cfg_kwargs)
+            return _Forecaster(config)
+
+        try:
+            _mdl, cache_meta = model_cache.get_or_load(cache_key, _loader)
+            hist = _as_2d_time_major(kwargs.get("exog_used"), "exog_used")
+            future = _as_2d_time_major(exog_future, "exog_future")
+            past_only, past_future = _timesfm3_covariates(
+                hist,
+                future,
+                context_used,
+                int(horizon),
+            )
+            predict_kwargs: Dict[str, Any] = {
+                "horizon": int(horizon),
+                "return_quantiles": bool(quantiles),
+                "use_symmetric_averaging": _truthy(p.get("use_symmetric_averaging")),
+                "make_positive": _truthy(p.get("make_positive")),
+            }
+            if past_only is not None:
+                predict_kwargs["past_only_covariates"] = past_only
+            if past_future is not None:
+                predict_kwargs["past_future_covariates"] = past_future
+            output = _mdl.predict(np.asarray(context, dtype=np.float32), **predict_kwargs)
+            f_vals = _timesfm3_point_forecast(output, int(horizon))
+            if f_vals is None:
+                raise RuntimeError("timesfm3 error: no point forecast produced")
+            fq: Dict[str, List[float]] = {}
+            if quantiles:
+                qarr = getattr(output, "quantiles", None)
+                if qarr is None and isinstance(output, dict):
+                    qarr = output.get("quantiles")
+                fq = _timesfm3_quantile_map(qarr, list(quantiles), int(horizon))
+            params_used = build_params_used(
+                {
+                    "timesfm_model": "TimesFM3Forecaster",
+                    "device": str(_device_name),
+                    "checkpoint_path": checkpoint,
+                    "weights_license": _TIMESFM3_WEIGHTS_LICENSE,
+                    "cache": (cache_meta or {}).get("cache"),
+                },
+                quantiles_dict=fq,
+                context_length=int(ctx_len or context_used or n),
+            )
+            metadata: Dict[str, Any] = {"quantiles": fq}
+            attestation = _timesfm3_feature_attestation(hist, future)
+            if attestation is not None:
+                metadata["diagnostics"] = {"feature_consumption": attestation}
+            return ForecastResult(
+                forecast=f_vals,
+                params_used=params_used,
+                metadata=metadata,
+            )
+        except Exception as ex:
+            if str(ex).startswith("timesfm3 error:"):
+                raise
+            raise RuntimeError(f"timesfm3 error: {ex}") from ex
+
 
 ## Note: Moirai is available via `sktime`'s `MOIRAIForecaster` when its optional
 ## dependencies are installed. mtdata no longer ships a separate `moirai` method.

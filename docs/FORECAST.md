@@ -67,7 +67,7 @@ Full per-method keys, defaults, and dependencies: [forecast/METHODS.md](forecast
 | **Statistical** | `sf_autoarima`, `sf_autoets`, `sf_autotheta` | Auto-tuning, medium horizons |
 | **ML-Based** | `mlf_lightgbm`, `mlf_rf` | Non-linear patterns, feature engineering |
 | **Neural** | `nhits`, `tft`, `patchtst`, `nbeatsx` | Deep learning, long horizons; manual `neuralforecast` install required |
-| **Foundation** | `chronos2`, `chronos_bolt`, `timesfm` | Pretrained models (optional deps) |
+| **Foundation** | `chronos2`, `chronos_bolt`, `timesfm`, `timesfm3` | Pretrained models (optional deps) |
 | **Simulation** | `mc_gbm`, `hmm_mc` | Risk sizing, barrier analysis |
 | **Ensemble** | `ensemble` | Combine multiple models |
 
@@ -149,12 +149,13 @@ mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 24 --library pretra
 mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 24 --library pretrained --method chronos_bolt
 ```
 
-**TimesFM** — Google's foundation model (TimesFM 2.x adapter).
+**TimesFM** — Google's foundation model. `timesfm` is TimesFM 2.5 (Apache-2.0 weights, the production option). `timesfm3` is TimesFM 3.0; its default weights are non-commercial and non-production.
 ```bash
 mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 24 --library pretrained --method timesfm
+mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 24 --library pretrained --method timesfm3
 ```
 
-*Requires: `pip install -e .[forecast-timesfm]`.*
+*Requires: `pip install -e ".[forecast-timesfm]"` (TimesFM 3.x, which still runs 2.5).*
 
 GPU-backed forecast calls run in a short-lived child process by default
 (`MTDATA_FORECAST_PROCESS_ISOLATION=gpu`). This lets the child exit after

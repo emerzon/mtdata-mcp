@@ -362,3 +362,11 @@ def test_chronos_aliases_report_distinct_names():
     assert c2.name == "chronos2"
     assert cb.name == "chronos_bolt"
     assert c2.name != cb.name
+
+
+def test_timesfm_versions_report_distinct_names():
+    t25 = fr.ForecastRegistry.get("timesfm")
+    t3 = fr.ForecastRegistry.get("timesfm3")
+    assert t25.name == "timesfm"
+    assert t3.name == "timesfm3"
+    assert t25.name != t3.name

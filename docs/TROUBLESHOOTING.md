@@ -155,7 +155,7 @@ pip install -e ".[dimred-ext]"         # For UMAP dimred (Web UI / analysis); or
 pip install QuantLib                   # For barrier option pricing & Heston calibration
 pip install optuna                     # For Bayesian hyperparameter tuning
 pip install neuralforecast torch       # For neural models; fails on Windows Python 3.14 (no ray win/cp314 wheel)
-pip install -e .[forecast-timesfm]     # From the repo root; installs TimesFM 2.x from PyPI
+pip install -e ".[forecast-timesfm]"   # From the repo root; installs TimesFM 3.x from PyPI (2.5 + 3.0 APIs)
 ```
 
 ### "Import error" or "Module not found"

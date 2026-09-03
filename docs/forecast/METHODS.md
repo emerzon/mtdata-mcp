@@ -29,7 +29,7 @@ Exp. smoothing/ARIMA: ses, holt, holt_winters_add, holt_winters_mul, ets, arima,
 Monte Carlo         : mc_gbm, hmm_mc
 Analog / ensemble   : analog, ensemble
 Machine learning    : mlforecast, mlf_rf, mlf_lightgbm
-Foundation (pretr.) : chronos2, chronos_bolt, timesfm
+Foundation (pretr.) : chronos2, chronos_bolt, timesfm, timesfm3
 Neural              : nhits, nbeatsx, tft, patchtst
 StatsForecast       : statsforecast + sf_* family (sf_autoarima, sf_autoets, sf_theta, …)
 Sktime              : sktime + skt_theta, skt_naive, skt_autoets
@@ -49,7 +49,7 @@ The `sf_*` and `skt_*` families are convenience aliases that pin a specific mode
 | Analog | `analog` | native | none (scipy/numpy/pandas) |
 | Ensemble | `ensemble` | native | none |
 | Machine learning | `mlforecast`, `mlf_rf`, `mlf_lightgbm` | mlforecast | `mlforecast` + `scikit-learn` / `lightgbm` |
-| Foundation | `chronos2`, `chronos_bolt`, `timesfm` | pretrained | `chronos` / `timesfm` (+ `torch`) |
+| Foundation | `chronos2`, `chronos_bolt`, `timesfm`, `timesfm3` | pretrained | `chronos` / `timesfm` (+ `torch`) |
 | Neural | `nhits`, `nbeatsx`, `tft`, `patchtst` | neuralforecast | `neuralforecast` (+ `torch`) |
 | StatsForecast | `statsforecast`, `sf_*` | statsforecast | `statsforecast` |
 | Sktime | `sktime`, `skt_*` | sktime | `sktime` |
@@ -149,10 +149,12 @@ Zero-shot pretrained forecasters. These download model weights on first use and 
 |--------|----------------------|-------|
 | `chronos2` | `model_name=amazon/chronos-2` | Amazon Chronos-2 |
 | `chronos_bolt` | `model_name=amazon/chronos-bolt-base` | Faster Chronos-Bolt |
-| `timesfm` | model defaults | Google TimesFM (install via `pip install -e .[forecast-timesfm]`) |
+| `timesfm` | model defaults | Google TimesFM 2.5 (Apache-2.0 weights). Install via `pip install -e ".[forecast-timesfm]"` |
+| `timesfm3` | `model_name=google/timesfm-3.0-pytorch` | Google TimesFM 3.0. Same extra as `timesfm`. **Weights are non-commercial / non-production**; use `timesfm` when that restriction matters. |
 
 ```bash
 mtdata-cli forecast_generate EURUSD --library pretrained --method chronos2 --horizon 24
+mtdata-cli forecast_generate EURUSD --library pretrained --method timesfm3 --horizon 24
 ```
 
 ---

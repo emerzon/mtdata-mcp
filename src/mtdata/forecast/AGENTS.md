@@ -62,7 +62,7 @@ Price forecasting pipeline: preprocessing → method selection → execution →
 | `sktime.py` | — | sktime model wrappers | forecast-classical |
 | `mlforecast.py` | — | LightGBM via mlforecast | forecast-classical |
 | `neural.py` | — | Neural network models | forecast-foundation |
-| `pretrained.py` | 1277 | Chronos, TimesFM | forecast-foundation |
+| `pretrained.py` | — | Chronos, TimesFM 2.5, TimesFM 3 | forecast-foundation |
 | `pretrained_helpers.py` | — | Pretrained model utilities | forecast-foundation |
 | `analog.py` | — | Analog/pattern-matching forecast | core |
 | `monte_carlo.py` | — | MC-specific forecast method | core |

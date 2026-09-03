@@ -713,6 +713,7 @@ _FALLBACK_FORECAST_METHODS: Tuple[str, ...] = (
     "chronos2",
     "chronos_bolt",
     "timesfm",
+    "timesfm3",
     "ensemble",
     "analog",
 )

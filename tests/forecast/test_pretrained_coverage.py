@@ -138,6 +138,56 @@ _timesfm_2p5_torch = _make_module("timesfm.timesfm_2p5.timesfm_2p5_torch")
 _timesfm_configs = _make_module("timesfm.configs")
 _timesfm_configs.ForecastConfig = _FakeForecastConfig
 
+class _FakeTimesFM3Torch:
+    def __init__(self, **kw):
+        raise AssertionError("TimesFM 2.5 adapter must not instantiate TimesFM3Torch")
+
+_timesfm.TimesFM3Torch = _FakeTimesFM3Torch
+
+# --- timesfm3 stub ---------------------------------------------------------
+_timesfm3 = _make_module("timesfm3")
+_timesfm3_forecaster = _make_module("timesfm3.timesfm3_forecaster")
+
+
+class _FakeTimesFM3Config:
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+        self.checkpoint_path = kw.get("checkpoint_path", "google/timesfm-3.0-pytorch")
+        self.device = kw.get("device")
+        self.per_core_batch_size = kw.get("per_core_batch_size", 4)
+
+
+class _FakeTimesFM3Output:
+    def __init__(self, forecast, quantiles=None):
+        self.forecast = forecast
+        self.quantiles = quantiles
+
+
+class _FakeTimesFM3Forecaster:
+    instances = 0
+    last_predict = None
+
+    def __init__(self, config=None, **kw):
+        type(self).instances += 1
+        self.config = config
+        self.kw = kw
+
+    def predict(self, context, horizon=12, **kwargs):
+        type(self).last_predict = {
+            "context": np.asarray(context),
+            "horizon": int(horizon),
+            **kwargs,
+        }
+        h = int(horizon)
+        return _FakeTimesFM3Output(np.ones(h), np.ones((h, 9)))
+
+
+_timesfm3.TimesFM3Forecaster = _FakeTimesFM3Forecaster
+_timesfm3.ModelConfig = _FakeTimesFM3Config
+_timesfm3_forecaster.TimesFM3Forecaster = _FakeTimesFM3Forecaster
+_timesfm3_forecaster.ModelConfig = _FakeTimesFM3Config
+_timesfm3_forecaster.ForecastOutput = _FakeTimesFM3Output
+
 # --- Register all stubs in sys.modules ------------------------------------
 # Stubs are installed at module level for the initial import, then
 # re-installed before each test (via autouse fixture) to survive cleanup
@@ -154,6 +204,8 @@ _NON_TORCH_STUBS = {
     "timesfm.timesfm_2p5": _timesfm_2p5,
     "timesfm.timesfm_2p5.timesfm_2p5_torch": _timesfm_2p5_torch,
     "timesfm.configs": _timesfm_configs,
+    "timesfm3": _timesfm3,
+    "timesfm3.timesfm3_forecaster": _timesfm3_forecaster,
 }
 
 # Install stubs for the module-level import of pretrained
@@ -168,6 +220,7 @@ from mtdata.forecast.interface import ForecastResult
 from mtdata.forecast.methods.pretrained import (
     ChronosBoltMethod,
     PretrainedMethod,
+    TimesFM3Method,
     TimesFMMethod,
     _build_chronos_inputs,
     _ensure_chronos2_history_df,
@@ -822,3 +875,186 @@ class TestPretrainedErrorContext:
 
         assert isinstance(exc_info.value.__cause__, ValueError)
         assert str(exc_info.value.__cause__) == "predict failed"
+
+
+@pytest.mark.usefixtures("_with_torch_stubs")
+class TestTimesFM3Method:
+    def setup_method(self):
+        self.method = TimesFM3Method()
+        _FakeTimesFM3Forecaster.instances = 0
+        _FakeTimesFM3Forecaster.last_predict = None
+        pretrained_module.model_cache.clear()
+        pretrained_module._TIMESFM3_LICENSE_WARNED = False
+
+    def test_name_and_packages(self):
+        assert self.method.name == "timesfm3"
+        assert "timesfm" in self.method.required_packages
+        assert self.method.supports_historical_exog is True
+        assert self.method.supports_future_exog is True
+
+    def test_forecast_basic(self):
+        res = self.method.forecast(_series(), horizon=10, seasonality=1, params={})
+        assert isinstance(res, ForecastResult)
+        assert res.forecast is not None
+        assert len(res.forecast) == 10
+        assert res.params_used["timesfm_model"] == "TimesFM3Forecaster"
+        assert res.params_used["weights_license"] == "timesfm-non-commercial-license-v1.0"
+        assert res.params_used["checkpoint_path"] == "google/timesfm-3.0-pytorch"
+
+    def test_forecast_with_context_length(self):
+        res = self.method.forecast(
+            _series(200), horizon=8, seasonality=1, params={"context_length": 64}
+        )
+        assert res.forecast is not None
+        assert len(_FakeTimesFM3Forecaster.last_predict["context"]) == 64
+
+    def test_forecast_with_quantiles(self):
+        res = self.method.forecast(
+            _series(), horizon=6, seasonality=1, params={"quantiles": [0.1, 0.5, 0.9]}
+        )
+        assert res.forecast is not None
+        quantiles = (res.metadata or {}).get("quantiles") or {}
+        assert set(quantiles) >= {"0.1", "0.5", "0.9"}
+        assert len(quantiles["0.5"]) == 6
+        assert _FakeTimesFM3Forecaster.last_predict["return_quantiles"] is True
+
+    def test_default_flags_disable_evaluator_benchmark_defaults(self):
+        self.method.forecast(_series(), horizon=4, seasonality=1, params={})
+        call = _FakeTimesFM3Forecaster.last_predict
+        assert call["use_symmetric_averaging"] is False
+        assert call["make_positive"] is False
+
+    def test_past_only_covariates_transpose(self):
+        exog = np.arange(20, dtype=float).reshape(10, 2)
+        self.method.forecast(
+            _series(10),
+            horizon=3,
+            seasonality=1,
+            params={},
+            exog_used=exog,
+        )
+        past_only = _FakeTimesFM3Forecaster.last_predict["past_only_covariates"]
+        assert past_only.shape == (2, 10)
+        np.testing.assert_allclose(past_only, exog.T)
+
+    def test_feature_consumption_attestation(self):
+        hist = np.ones((10, 2), dtype=float)
+        future = np.full((4, 2), 2.0, dtype=float)
+        res = self.method.forecast(
+            _series(10),
+            horizon=4,
+            seasonality=1,
+            params={},
+            exog_used=hist,
+            exog_future=future,
+        )
+        consumed = ((res.metadata or {}).get("diagnostics") or {}).get("feature_consumption")
+        assert consumed == {
+            "status": "consumed",
+            "historical_consumed": True,
+            "future_consumed": True,
+            "historical_rows": 10,
+            "future_rows": 4,
+            "n_features": 2,
+            "adapter_columns": ["x0", "x1"],
+        }
+
+    def test_past_future_covariates_concat(self):
+        hist = np.ones((10, 2), dtype=float)
+        future = np.full((4, 2), 2.0, dtype=float)
+        self.method.forecast(
+            _series(10),
+            horizon=4,
+            seasonality=1,
+            params={},
+            exog_used=hist,
+            exog_future=future,
+        )
+        call = _FakeTimesFM3Forecaster.last_predict
+        assert "past_only_covariates" not in call
+        past_future = call["past_future_covariates"]
+        assert past_future.shape == (2, 14)
+        np.testing.assert_allclose(past_future[:, :10], 1.0)
+        np.testing.assert_allclose(past_future[:, 10:], 2.0)
+
+    def test_covariate_feature_mismatch_raises(self):
+        with pytest.raises(RuntimeError, match="do not match"):
+            self.method.forecast(
+                _series(8),
+                horizon=3,
+                seasonality=1,
+                params={},
+                exog_used=np.ones((8, 2)),
+                exog_future=np.ones((3, 3)),
+            )
+
+    def test_future_exog_without_history_raises(self):
+        with pytest.raises(RuntimeError, match="requires matching historical"):
+            self.method.forecast(
+                _series(8),
+                horizon=3,
+                seasonality=1,
+                params={},
+                exog_future=np.ones((3, 2)),
+            )
+
+    def test_cache_reuses_forecaster(self):
+        self.method.forecast(_series(), horizon=5, seasonality=1, params={})
+        self.method.forecast(_series(), horizon=5, seasonality=1, params={})
+        assert _FakeTimesFM3Forecaster.instances == 1
+
+    def test_none_point_forecast_raises(self):
+        orig = _FakeTimesFM3Forecaster.predict
+
+        def _none(self_mdl, context, horizon=12, **kwargs):
+            return _FakeTimesFM3Output(None, None)
+
+        _FakeTimesFM3Forecaster.predict = _none
+        try:
+            with pytest.raises(RuntimeError, match="no point forecast"):
+                self.method.forecast(_series(), horizon=5, seasonality=1, params={})
+        finally:
+            _FakeTimesFM3Forecaster.predict = orig
+
+    def test_import_error_raises(self):
+        saved = sys.modules.get("timesfm3")
+        sys.modules["timesfm3"] = None
+        try:
+            m = TimesFM3Method()
+            with pytest.raises(RuntimeError, match="timesfm3 requires"):
+                m.forecast(_series(), horizon=5, seasonality=1, params={})
+        finally:
+            sys.modules["timesfm3"] = saved
+
+    def test_root_cause_preserved(self):
+        orig = _FakeTimesFM3Forecaster.predict
+
+        def _boom(self_mdl, context, horizon=12, **kwargs):
+            raise ValueError("decode failed")
+
+        _FakeTimesFM3Forecaster.predict = _boom
+        try:
+            with pytest.raises(RuntimeError, match="timesfm3 error: decode failed") as exc_info:
+                self.method.forecast(_series(), horizon=5, seasonality=1, params={})
+            assert isinstance(exc_info.value.__cause__, ValueError)
+        finally:
+            _FakeTimesFM3Forecaster.predict = orig
+
+
+@pytest.mark.usefixtures("_with_torch_stubs")
+def test_timesfm_2p5_does_not_select_timesfm3_class():
+    saved_torch = getattr(_timesfm_torch, "TimesFM_2p5_200M_torch", None)
+    saved_2p5 = getattr(_timesfm_2p5_torch, "TimesFM_2p5_200M_torch", None)
+    try:
+        if saved_torch is not None:
+            delattr(_timesfm_torch, "TimesFM_2p5_200M_torch")
+        if saved_2p5 is not None:
+            delattr(_timesfm_2p5_torch, "TimesFM_2p5_200M_torch")
+        method = TimesFMMethod()
+        with pytest.raises(RuntimeError, match="no TimesFM 2.5"):
+            method.forecast(_series(), horizon=5, seasonality=1, params={})
+    finally:
+        if saved_torch is not None:
+            _timesfm_torch.TimesFM_2p5_200M_torch = saved_torch
+        if saved_2p5 is not None:
+            _timesfm_2p5_torch.TimesFM_2p5_200M_torch = saved_2p5

@@ -124,7 +124,7 @@ class TestBuildComprehensiveSearchSpace:
             'ses',
             'holt',
         }
-        assert not ({'chronos_bolt', 'chronos2', 'timesfm'} & set(space['method']['choices']))
+        assert not ({'chronos_bolt', 'chronos2', 'timesfm', 'timesfm3'} & set(space['method']['choices']))
 
     def test_custom_timeframes(self):
         space = build_comprehensive_search_space(timeframes=['H1', 'D1'])

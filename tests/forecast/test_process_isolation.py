@@ -73,6 +73,7 @@ def test_should_not_isolate_inside_child(monkeypatch):
 
 def test_capability_style_method_names_count_as_gpu_methods():
     assert forecast_method_may_use_gpu("pretrained:chronos2")
+    assert forecast_method_may_use_gpu("pretrained:timesfm3")
     assert forecast_method_may_use_gpu(
         "ensemble",
         {"methods": ["theta", "pretrained:timesfm"]},

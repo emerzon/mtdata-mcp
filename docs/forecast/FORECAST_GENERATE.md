@@ -232,24 +232,28 @@ Foundation models pre-trained on large time series datasets.
 
 On the supported Python 3.14 install path:
 - `chronos2` and `chronos_bolt` are part of the package-index install path
-- `timesfm` uses the package-index 2.x release via its dedicated extra
+- `timesfm` and `timesfm3` share the TimesFM extra (`timesfm[torch]>=3.0.1`)
 
 ```bash
 mtdata-cli forecast_generate EURUSD --library pretrained --method chronos2
 mtdata-cli forecast_generate EURUSD --library pretrained --method chronos_bolt
 mtdata-cli forecast_generate EURUSD --library pretrained --method timesfm
+mtdata-cli forecast_generate EURUSD --library pretrained --method timesfm3
 ```
 
 Tip: `mtdata-cli forecast_list_library_models pretrained` shows requirements for your current environment.
 
 **Dependencies (by model):**
 - `chronos2` / `chronos_bolt`: `chronos-forecasting`, `torch`
-- `timesfm`: `timesfm`, `torch` (install with `pip install -e .[forecast-timesfm]`)
+- `timesfm` / `timesfm3`: `timesfm`, `torch` (install with `pip install -e ".[forecast-timesfm]"`)
 
 **Parameters:**
 - Common: `context_length`, `quantiles`
 - Chronos: `model_name`, `device_map`
-- TimesFM: `device`, `model_class`
+- TimesFM 2.5 (`timesfm`): `device`, `model_class`
+- TimesFM 3.0 (`timesfm3`): `device`, `model_name` / `checkpoint_path` (default `google/timesfm-3.0-pytorch`)
+
+TimesFM 3.0 pretrained weights are under a non-commercial, non-production license. Prefer `timesfm` (2.5, Apache-2.0) when you need a production-licensed checkpoint.
 
 ### sktime (`--library sktime`)
 
@@ -307,7 +311,8 @@ mtdata-cli forecast_generate EURUSD --library mlforecast --method LGBMRegressor
 |-------|-------------|----------------|
 | `chronos2` | Amazon Chronos-II | `context_length=512` |
 | `chronos_bolt` | Fast Chronos variant | `context_length=256` |
-| `timesfm` | TimesFM (foundation model adapter) | `context_length=512` |
+| `timesfm` | TimesFM 2.5 (Apache-2.0 weights) | `context_length=512` |
+| `timesfm3` | TimesFM 3.0 (non-commercial weights) | `context_length=512` |
 
 ---
 

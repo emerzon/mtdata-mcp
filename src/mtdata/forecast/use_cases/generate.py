@@ -53,7 +53,7 @@ from mtdata.utils.coercion import coerce_finite_float as _finite_float
 logger = logging.getLogger("mtdata.forecast.use_cases")
 
 _VOLATILITY_PROXY_METHODS = {"arima", "sarima", "ets", "theta"}
-_PRETRAINED_FORECAST_METHODS = ("chronos2", "chronos_bolt", "timesfm")
+_PRETRAINED_FORECAST_METHODS = ("chronos2", "chronos_bolt", "timesfm", "timesfm3")
 _DEFAULT_VOLATILITY_PROXY = "squared_return"
 
 

@@ -91,6 +91,8 @@ def test_pretrained_capabilities_include_registry_backed_read_surface_metadata()
     assert "amazon/chronos-bolt-base" in by_method["chronos_bolt"]["notes"]
     assert by_method["timesfm"]["requires"] == ["timesfm", "torch"]
     assert "PyPI" in by_method["timesfm"]["notes"]
+    assert by_method["timesfm3"]["requires"] == ["timesfm>=3.0.1", "torch"]
+    assert "non-commercial" in by_method["timesfm3"]["notes"]
 
 
 def test_explicit_library_rejects_foreign_method_aliases():

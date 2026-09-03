@@ -190,9 +190,9 @@ A standard random-walk-with-drift model for prices: continuous paths, log-return
 Defaults and when-to-use details: [BARRIER_FUNCTIONS.md](BARRIER_FUNCTIONS.md).
 
 ### Chronos / foundation models
-**Foundation models** (Chronos, Chronos-Bolt, TimesFM, …) are pre-trained on huge collections of series, then applied to your symbol with little or no task-specific training — analogous to large language models for text.
+**Foundation models** (Chronos, Chronos-Bolt, TimesFM, TimesFM 3, …) are pre-trained on huge collections of series, then applied to your symbol with little or no task-specific training — analogous to large language models for text.
 
-**When to use:** Strong baselines without hand-tuning ARIMA orders; needs optional deps (`chronos-forecasting`, `torch`; TimesFM via extra).
+**When to use:** Strong baselines without hand-tuning ARIMA orders; needs optional deps (`chronos-forecasting`, `torch`; TimesFM via extra). TimesFM 3.0 (`timesfm3`) adds covariate support; its default weights are non-commercial / non-production — use `timesfm` (2.5) when that restriction matters.
 
 **Example:**
 ```bash

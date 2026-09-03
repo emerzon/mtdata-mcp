@@ -79,7 +79,8 @@ forecast-foundation = [
 ]
 forecast-timesfm = [
     "torch>=2.13.0,<3",
-    "timesfm[torch]>=2.0.2,<3",
+    "timesfm[torch]>=3.0.1,<4",
+    "safetensors>=0.5.3",
 ]
 patterns-ext = [
     # stock-pattern has no setup.py/pyproject.toml; manual install required (see docs/SETUP.md)
@@ -120,7 +121,8 @@ all = [
     "chronos-forecasting>=2.3.1",
     "transformers>=5.15.1,<6",
     "huggingface-hub>=1.28.0,<2",
-    "timesfm[torch]>=2.0.2,<3",
+    "timesfm[torch]>=3.0.1,<4",
+    "safetensors>=0.5.3",
     "tsdownsample>=0.1.5.1",
     "hnswlib==0.8.0",
     "fastapi>=0.141.1",
@@ -146,7 +148,8 @@ all-git = [
     "chronos-forecasting>=2.3.1",
     "transformers>=5.15.1,<6",
     "huggingface-hub>=1.28.0,<2",
-    "timesfm[torch]>=2.0.2,<3",
+    "timesfm[torch]>=3.0.1,<4",
+    "safetensors>=0.5.3",
     "tsdownsample>=0.1.5.1",
     "hnswlib==0.8.0",
     "fastapi>=0.141.1",

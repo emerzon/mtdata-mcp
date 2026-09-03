@@ -21,6 +21,7 @@ from .tuning_contract import (
 _NOISY_FORECAST_TUNE_LOGGERS = (
     "timesfm",
     "timesfm_2p5_torch",
+    "timesfm3",
     "torchao",
     "torch._dynamo",
     "torch._inductor",
@@ -308,6 +309,9 @@ _DEFAULT_SPACES_METHOD_SCOPED: Dict[str, Dict[str, Any]] = {
         "context_length": {"type": "int", "min": 64, "max": 320},
     },
     "timesfm": {
+        "context_length": {"type": "int", "min": 64, "max": 320},
+    },
+    "timesfm3": {
         "context_length": {"type": "int", "min": 64, "max": 320},
     },
     # Ensemble (not implemented): placeholder

@@ -113,6 +113,7 @@ METHOD_DESCRIPTIONS: Dict[str, str] = {
     "chronos2": "Chronos-2 pretrained foundation model for probabilistic time-series forecasts.",
     "chronos_bolt": "Chronos Bolt pretrained foundation model for fast time-series forecasts.",
     "timesfm": "TimesFM pretrained foundation model for long-context time-series forecasts.",
+    "timesfm3": "TimesFM 3.0 pretrained foundation model for univariate forecasts with optional covariates.",
 }
 
 _FORECAST_METHOD_MODULES = (
@@ -263,6 +264,17 @@ def _check_chronos_runtime_support() -> Tuple[bool, List[str]]:
 
 
 @lru_cache(maxsize=1)
+def _check_timesfm3_runtime_support() -> Tuple[bool, List[str]]:
+    """TimesFM 3.0 lives in the timesfm>=3.0.1 distribution as the timesfm3 package."""
+    try:
+        if _importlib_util.find_spec("timesfm3") is None:
+            return False, ["timesfm>=3.0.1"]
+    except Exception:
+        return False, ["timesfm>=3.0.1"]
+    return True, []
+
+
+@lru_cache(maxsize=1)
 def _check_neuralforecast_runtime_support() -> Tuple[bool, List[str]]:
     """Check for the modern NeuralForecast API without importing torch."""
     try:
@@ -331,6 +343,11 @@ def _check_requirements(method: str, requires: List[str]) -> Tuple[bool, List[st
         if not neural_ok:
             available = False
             extra_reqs.extend(neural_reqs)
+    if method == "timesfm3":
+        timesfm3_ok, timesfm3_reqs = _check_timesfm3_runtime_support()
+        if not timesfm3_ok:
+            available = False
+            extra_reqs.extend(timesfm3_reqs)
     for extra in extra_reqs:
         name = str(extra).strip()
         if not name or name in seen:
