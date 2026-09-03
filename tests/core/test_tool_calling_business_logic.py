@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from pydantic import BaseModel
+import pytest
+from pydantic import BaseModel, ValidationError
 
 from mtdata.core.tool_calling import call_tool_sync_structured
 
@@ -21,3 +22,19 @@ def test_call_tool_sync_structured_builds_request_model_from_keyword_fields() ->
     )
 
     assert out == {"symbol": "EURUSD", "limit": 10}
+
+
+def test_call_tool_sync_structured_propagates_request_validation_errors() -> None:
+    def _tool(request: _DummyRequest):
+        return request.limit
+
+    with pytest.raises(ValidationError):
+        call_tool_sync_structured(_tool, limit="not-an-int")
+
+
+def test_call_tool_sync_structured_propagates_scalar_coercion_errors() -> None:
+    def _tool(limit: int):
+        return limit
+
+    with pytest.raises(ValueError, match="expected integer"):
+        call_tool_sync_structured(_tool, limit="nope")

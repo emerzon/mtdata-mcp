@@ -7,7 +7,7 @@ from typing import Any
 
 from pydantic import BaseModel, ValidationError
 
-from ._mcp_tools import _get_pydantic_model_fields
+from ._mcp_tools import _coerce_kwargs_for_callable, _get_pydantic_model_fields
 
 
 def unwrap_tool_callable(func: Any) -> Any:
@@ -79,12 +79,7 @@ def _coerce_tool_kwargs(target: Any, kwargs: dict[str, Any]) -> dict[str, Any]:
         raise
     except Exception:
         pass
-    try:
-        from ._mcp_tools import _coerce_kwargs_for_callable
-
-        _coerce_kwargs_for_callable(target, coerced)
-    except Exception:
-        pass
+    _coerce_kwargs_for_callable(target, coerced)
     return coerced
 
 
