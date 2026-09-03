@@ -536,6 +536,7 @@ def build_level_confluence_payload(
     tolerance_points: Optional[float] = None,
     price_increment: Optional[float] = None,
     max_levels: int = 5,
+    side: str = "both",
     max_distance_pct: Optional[float] = 5.0,
     min_source_families: int = 2,
     detail: str = "compact",
@@ -610,6 +611,31 @@ def build_level_confluence_payload(
         for group in clusters
     ]
     formatted.sort(key=lambda cluster: (-float(cluster.get("score", 0.0)), abs(float(cluster.get("distance_pct") or 0.0))))
+    side_filter = str(side or "both").strip().lower()
+    role_aliases = {
+        "support": "below",
+        "resistance": "above",
+        "below": "below",
+        "above": "above",
+    }
+    wanted_role = role_aliases.get(side_filter)
+    if wanted_role is not None:
+        formatted = [
+            cluster
+            for cluster in formatted
+            if cluster.get("role") == wanted_role
+        ]
+    elif side_filter not in {"", "both"}:
+        return {
+            "success": False,
+            "error": (
+                f"Invalid side '{side}'. Use both, above, below, support, or resistance."
+            ),
+            "error_code": "invalid_parameter",
+            "parameter": "side",
+            "value": side,
+            "remediation": "Pass side=both, above/resistance, or below/support.",
+        }
     limit = max(1, int(max_levels))
     top_clusters = formatted[:limit]
     level_counts = {

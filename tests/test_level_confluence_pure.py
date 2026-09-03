@@ -66,6 +66,42 @@ def test_confluence_clusters_pivot_sr_and_fibonacci_levels():
     assert cluster["reasons"]
 
 
+def test_confluence_side_filter_keeps_only_requested_role():
+    payload = build_level_confluence_payload(
+        symbol="EURUSD",
+        pivot_timeframe="D1",
+        sr_timeframe="H1",
+        reference_price=1.08,
+        tolerance_pct=0.15,
+        pivot_methods=[
+            {
+                "method": "classic",
+                "levels": {"R1": 1.0850, "S1": 1.0750},
+                "pivot": 1.08,
+            }
+        ],
+        support_resistance_payload={
+            "success": True,
+            "symbol": "EURUSD",
+            "timeframe": "H1",
+            "levels": [
+                {"type": "resistance", "value": 1.0852, "score": 4.0, "touches": 3},
+                {"type": "support", "value": 1.0748, "score": 4.0, "touches": 3},
+            ],
+        },
+        max_levels=5,
+        side="support",
+        max_distance_pct=2.0,
+        min_source_families=1,
+        detail="compact",
+    )
+
+    assert payload["success"] is True
+    assert payload["levels"]
+    assert all(cluster["role"] == "below" for cluster in payload["levels"])
+    assert payload["level_coverage"]["above"] == 0
+
+
 def test_confluence_compact_omits_verbose_source_narration():
     payload = build_level_confluence_payload(
         symbol="EURUSD",
