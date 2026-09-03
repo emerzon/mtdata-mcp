@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 from pydantic import ValidationError
 
 from ...services.data_service import fetch_candles, fetch_ticks
+from ...shared.constants import TIMEFRAME_SECONDS
 from ...shared.schema import DetailLiteral, TimeframeLiteral
 from ...utils.mt5 import (
     ensure_mt5_connection_or_raise,
@@ -31,6 +32,7 @@ __all__ = ['data_fetch_candles', 'data_fetch_ticks', 'wait_event']
 logger = logging.getLogger(__name__)
 
 _WAIT_EVENT_BOUNDARY_TYPES = {"candle_close"}
+_WAIT_EVENT_BOUNDARY_KEYS = frozenset({"type", "timeframe", "buffer_seconds"})
 _WAIT_EVENT_SPEC_HINT = (
     'Use event names like order_filled or JSON objects like {"type":"order_filled",'
     '"symbol":"EURUSD"}; use candle_close for candle-boundary waits.'
@@ -38,6 +40,30 @@ _WAIT_EVENT_SPEC_HINT = (
 _WAIT_EVENT_TIMEFRAME_HINT = (
     "Set timeframe to the candle horizon that bounds the wait."
 )
+
+
+def _coerce_wait_event_spec_dict(
+    spec: Dict[str, Any],
+    *,
+    field_name: str,
+) -> Dict[str, Any]:
+    out = dict(spec)
+    event_type = out.get("type")
+    if isinstance(event_type, str) and event_type.strip():
+        out["type"] = event_type.strip()
+        return out
+    timeframe = out.get("timeframe")
+    if isinstance(timeframe, str):
+        timeframe_key = timeframe.strip().upper()
+        if timeframe_key in TIMEFRAME_SECONDS:
+            out["timeframe"] = timeframe_key
+            out["type"] = "candle_close"
+            return out
+    keys = {str(key) for key in out}
+    if field_name == "end_on" and keys <= _WAIT_EVENT_BOUNDARY_KEYS:
+        out["type"] = "candle_close"
+        return out
+    return out
 
 
 def _normalize_wait_event_public_specs(
@@ -48,7 +74,9 @@ def _normalize_wait_event_public_specs(
     if value is None:
         return None, None
     if isinstance(value, dict):
-        return [dict(value)], None
+        if not value:
+            return None, None
+        return [_coerce_wait_event_spec_dict(value, field_name=field_name)], None
     if isinstance(value, str):
         text = value.strip()
         if not text:
@@ -59,6 +87,9 @@ def _normalize_wait_event_public_specs(
             except Exception as exc:
                 return None, f"wait_event {field_name} JSON is invalid: {exc}"
             return _normalize_wait_event_public_specs(parsed, field_name=field_name)
+        timeframe_key = text.upper()
+        if timeframe_key in TIMEFRAME_SECONDS:
+            return [{"type": "candle_close", "timeframe": timeframe_key}], None
         return [{"type": text}], None
     if isinstance(value, (list, tuple)):
         out: List[Dict[str, Any]] = []
@@ -132,7 +163,20 @@ def _wait_event_validation_error(exc: ValidationError) -> tuple[str, str]:
     spec_error = False
     for item in errors:
         loc = ".".join(str(part) for part in item.get("loc", ()))
-        msg = str(item.get("msg") or "Invalid value.")
+        error_type = str(item.get("type") or "")
+        if error_type == "union_tag_not_found":
+            msg = (
+                "missing 'type'; use event names like order_filled or "
+                '{"type":"order_filled"}'
+            )
+        elif error_type == "union_tag_invalid":
+            tag = (item.get("ctx") or {}).get("tag")
+            msg = (
+                f"unknown event type {tag!r}; use order_filled, candle_close, "
+                "or another supported type"
+            )
+        else:
+            msg = str(item.get("msg") or "Invalid value.")
         if loc.split(".", 1)[0] in {"watch_for", "end_on"}:
             spec_error = True
         messages.append(f"{loc}: {msg}" if loc else msg)

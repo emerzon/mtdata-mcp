@@ -1385,6 +1385,9 @@ class TestMcpToolSchemas:
         assert watch_items["discriminator"]["propertyName"] == "type"
         assert "price_break_level" in watch_items["discriminator"]["mapping"]
         assert end_on["items"] == {"$ref": "#/$defs/CandleCloseEventSpec"}
+        order_filled = (schema.get("$defs") or {})["OrderFilledEventSpec"]
+        assert "type" in order_filled["required"]
+        assert "default" not in order_filled["properties"]["type"]
         assert "max_wait_seconds" not in props
         assert "poll_interval_seconds" not in props
         assert "timeframe" in schema["required"]

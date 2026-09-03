@@ -305,7 +305,15 @@ def test_attach_schemas_to_tools_patches_wait_event_with_discriminated_watch_spe
         if isinstance(option, dict)
     )
     assert end_on["items"] == {"$ref": "#/$defs/CandleCloseEventSpec"}
+    assert "type" in price_break_level["required"]
     assert "level" in price_break_level["required"]
+    assert "default" not in price_break_level["properties"]["type"]
+    order_filled = tool_obj.schema["$defs"]["OrderFilledEventSpec"]
+    assert order_filled["required"] == ["type"]
+    assert "default" not in order_filled["properties"]["type"]
+    candle_close = tool_obj.schema["$defs"]["CandleCloseEventSpec"]
+    assert "type" in candle_close["required"]
+    assert "default" not in candle_close["properties"]["type"]
     assert "max_wait_seconds" not in params
     assert "poll_interval_seconds" not in params
     symbols_schema = params["symbols"]

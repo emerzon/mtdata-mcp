@@ -6,8 +6,30 @@ from unittest.mock import patch
 import pytest
 from pydantic import ValidationError
 
-from mtdata.core.data import wait_events
+from mtdata.core.data import _normalize_wait_event_public_specs, wait_events
 from mtdata.core.data.requests import WaitEventRequest
+
+
+def test_normalize_wait_event_public_specs_empty_object_is_no_watchers() -> None:
+    assert _normalize_wait_event_public_specs({}, field_name="watch_for") == (None, None)
+    assert _normalize_wait_event_public_specs([{}], field_name="watch_for") == ([], None)
+
+
+def test_normalize_wait_event_public_specs_infers_candle_close_from_timeframe() -> None:
+    specs, error = _normalize_wait_event_public_specs(
+        {"timeframe": "H4"},
+        field_name="watch_for",
+    )
+
+    assert error is None
+    assert specs == [{"type": "candle_close", "timeframe": "H4"}]
+
+
+def test_normalize_wait_event_public_specs_timeframe_string_is_candle_close() -> None:
+    specs, error = _normalize_wait_event_public_specs("h4", field_name="watch_for")
+
+    assert error is None
+    assert specs == [{"type": "candle_close", "timeframe": "H4"}]
 
 
 def test_wait_event_request_defaults_watch_for_to_empty_list() -> None:
@@ -379,6 +401,67 @@ def test_wait_event_symbol_less_timeframe_builds_boundary_only_request(
     assert [(item.type, item.timeframe) for item in request.end_on] == [
         ("candle_close", "H1")
     ]
+
+
+@patch("mtdata.core.data.create_mt5_gateway", return_value=object())
+@patch("mtdata.core.data._compact_wait_event_public_result", side_effect=lambda result, **_: result)
+@patch("mtdata.core.data.run_wait_event", return_value={"success": True})
+def test_wait_event_empty_watch_for_object_is_boundary_only(
+    mock_run_wait,
+    _mock_compact,
+    _mock_gateway,
+) -> None:
+    result = _raw_wait_event()(timeframe="H4", watch_for={})
+
+    assert result == {"success": True}
+    request = mock_run_wait.call_args.args[0]
+    assert request.timeframe == "H4"
+    assert request.watch_for == []
+    assert [(item.type, item.timeframe) for item in request.end_on] == [
+        ("candle_close", "H4")
+    ]
+
+
+@patch("mtdata.core.data.create_mt5_gateway", return_value=object())
+@patch("mtdata.core.data._compact_wait_event_public_result", side_effect=lambda result, **_: result)
+@patch("mtdata.core.data.run_wait_event", return_value={"success": True})
+def test_wait_event_type_less_timeframe_watch_for_is_candle_close(
+    mock_run_wait,
+    _mock_compact,
+    _mock_gateway,
+) -> None:
+    result = _raw_wait_event()(timeframe="H4", watch_for=[{"timeframe": "H4"}])
+
+    assert result == {"success": True}
+    request = mock_run_wait.call_args.args[0]
+    assert request.watch_for == []
+    assert [(item.type, item.timeframe) for item in request.end_on] == [
+        ("candle_close", "H4")
+    ]
+
+
+@patch("mtdata.core.data.create_mt5_gateway", return_value=object())
+@patch("mtdata.core.data._compact_wait_event_public_result", side_effect=lambda result, **_: result)
+@patch("mtdata.core.data.run_wait_event", return_value={"success": True})
+def test_wait_event_empty_watch_for_item_is_boundary_only(
+    mock_run_wait,
+    _mock_compact,
+    _mock_gateway,
+) -> None:
+    result = _raw_wait_event()(timeframe="H4", watch_for=[{}])
+
+    assert result == {"success": True}
+    request = mock_run_wait.call_args.args[0]
+    assert request.watch_for == []
+
+
+@patch("mtdata.core.data.create_mt5_gateway", return_value=object())
+def test_wait_event_missing_watch_type_returns_clear_error(_mock_gateway) -> None:
+    result = _raw_wait_event()(timeframe="H4", watch_for=[{"symbol": "EURUSD"}])
+
+    assert result["error_code"] == "wait_event_invalid_watch_spec"
+    assert "missing 'type'" in result["error"]
+    assert "hint" in result
 
 
 def test_wait_event_public_signature_requires_timeframe_and_hides_timing_controls() -> None:

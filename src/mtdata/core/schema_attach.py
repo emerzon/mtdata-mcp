@@ -544,12 +544,40 @@ def _patch_trade_close_schema(schema: Dict[str, Any]) -> None:
     )
 
 
+def _require_wait_event_discriminator(schema: Dict[str, Any]) -> None:
+    """Force event-spec `type` to be required so clients cannot omit it.
+
+    Pydantic defaults `type` on each tagged-union member, which makes JSON
+    Schema treat `{}` as valid. MCP clients then send watch_for=[{}] and the
+    runtime discriminator fails with union_tag_not_found.
+    """
+    defs = schema.get("$defs")
+    if not isinstance(defs, dict):
+        return
+    for spec in defs.values():
+        if not isinstance(spec, dict):
+            continue
+        properties = spec.get("properties")
+        if not isinstance(properties, dict):
+            continue
+        type_schema = properties.get("type")
+        if not isinstance(type_schema, dict) or "const" not in type_schema:
+            continue
+        type_schema.pop("default", None)
+        required = spec.get("required")
+        if not isinstance(required, list):
+            spec["required"] = ["type"]
+        elif "type" not in required:
+            required.insert(0, "type")
+
+
 def _patch_wait_event_schema(schema: Dict[str, Any]) -> None:
     from .data.requests import WaitEventRequest
 
     params_obj = _schema_obj(schema)
     params, _required_params = _schema_params(schema)
     wait_event_schema = WaitEventRequest.model_json_schema()
+    _require_wait_event_discriminator(wait_event_schema)
     wait_event_props = wait_event_schema.get("properties")
     if not isinstance(wait_event_props, dict):
         return
@@ -594,6 +622,7 @@ def _patch_wait_event_schema(schema: Dict[str, Any]) -> None:
         schema_defs = schema.setdefault("$defs", {})
         if isinstance(schema_defs, dict):
             schema_defs.update(copy.deepcopy(defs))
+    _require_wait_event_discriminator(schema)
 
 
 def _append_schema_rules(schema: Dict[str, Any], *rules: Dict[str, Any]) -> None:
