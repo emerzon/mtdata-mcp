@@ -15,6 +15,7 @@ from pydantic import (
 from ...shared.schema import DetailLiteral, TimeframeLiteral, normalize_required_symbol
 from ...utils.barriers import normalize_trade_direction_alias
 from ...utils.coercion import UNPARSED_BOOL, parse_strict_bool
+from ...utils.time import MAX_TRADING_MINUTES_BACK
 from . import validation
 from .sizing import MAX_KELLY_R_MULTIPLE
 from .time import ExpirationValue
@@ -460,10 +461,12 @@ class TradeHistoryRequest(_SideNormalizedRequest):
     order_ticket: Optional[MT5Ticket] = None
     minutes_back: Optional[int] = Field(
         default=None,
+        ge=1,
+        le=MAX_TRADING_MINUTES_BACK,
         description=(
             "History lookback in minutes. Defaults to 10080 minutes (7 days) "
             "when start, end, and minutes_back are omitted. Maximum is "
-            "10512000 minutes (20 years)."
+            f"{MAX_TRADING_MINUTES_BACK} minutes (20 years)."
         ),
     )
     limit: int = Field(
@@ -525,10 +528,12 @@ class TradeJournalAnalyzeRequest(_SideNormalizedRequest):
     deal_ticket: Optional[MT5Ticket] = None
     minutes_back: Optional[int] = Field(
         default=None,
+        ge=1,
+        le=MAX_TRADING_MINUTES_BACK,
         description=(
             "Journal history lookback in minutes. Defaults to 10080 minutes "
             "(7 days) when start, end, and minutes_back are omitted. Maximum is "
-            "10512000 minutes (20 years)."
+            f"{MAX_TRADING_MINUTES_BACK} minutes (20 years)."
         ),
     )
     limit: int = Field(

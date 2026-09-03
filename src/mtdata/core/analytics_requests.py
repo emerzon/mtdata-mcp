@@ -15,6 +15,7 @@ from ..shared.schema import (
     reject_removed_field,
     validate_complete_time_window,
 )
+from ..utils.time import MAX_TRADING_MINUTES_BACK
 from ..utils.utils import _parse_end_datetime, _parse_start_datetime
 
 _MT5_UINT64_MAX = (1 << 64) - 1
@@ -59,9 +60,11 @@ class MarketMicrostructureRequest(BaseModel):
     minutes_back: int = Field(
         60,
         gt=0,
+        le=MAX_TRADING_MINUTES_BACK,
         description=(
             "Look back this many minutes from end/now instead of using start. "
-            "Defaults to 60 when start/end are omitted."
+            "Defaults to 60 when start/end are omitted. Maximum is "
+            f"{MAX_TRADING_MINUTES_BACK} minutes (20 years)."
         ),
     )
     max_ticks: int = Field(10_000, ge=20, le=50_000)
@@ -86,9 +89,10 @@ class TradeExecutionQualityRequest(BaseModel):
     minutes_back: int = Field(
         10_080,
         gt=0,
+        le=MAX_TRADING_MINUTES_BACK,
         description=(
             "Execution-history lookback in minutes (default 10080 = 7 days). "
-            "Maximum is 10512000 minutes (20 years)."
+            f"Maximum is {MAX_TRADING_MINUTES_BACK} minutes (20 years)."
         ),
     )
     symbol: Optional[str] = None

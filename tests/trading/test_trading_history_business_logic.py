@@ -2552,34 +2552,18 @@ def test_trade_journal_analyze_reports_explicit_minutes_back_window() -> None:
 def test_trade_journal_analyze_rejects_non_positive_minutes_back(
     minutes_back: int,
 ) -> None:
-    with patch(
-        "mtdata.core.trading.account._run_trade_history_request",
-    ) as history:
-        out = trade_journal_analyze(minutes_back=minutes_back, __cli_raw=True)
-
-    assert out["success"] is False
-    assert out["error"] == "minutes_back must be a positive integer."
-    assert "minutes_back_effective" not in out
-    history.assert_not_called()
+    with pytest.raises(ValidationError):
+        TradeJournalAnalyzeRequest(minutes_back=minutes_back)
 
 
 def test_trade_journal_analyze_rejects_overflowing_minutes_back() -> None:
-    with patch(
-        "mtdata.core.trading.account._run_trade_history_request",
-    ) as history:
-        out = trade_journal_analyze(minutes_back=999_999_999_999, __cli_raw=True)
-
-    assert out["success"] is False
-    assert out["error_code"] == "invalid_minutes_back"
-    assert out["details"]["minutes_back"] == 999_999_999_999
-    history.assert_not_called()
+    with pytest.raises(ValidationError, match="less than or equal"):
+        TradeJournalAnalyzeRequest(minutes_back=999_999_999_999)
 
 
 def test_trade_history_rejects_overflowing_minutes_back() -> None:
-    out = trade_history(minutes_back=999_999_999_999, __cli_raw=True)
-
-    assert out["success"] is False
-    assert out["error_code"] == "invalid_minutes_back"
+    with pytest.raises(ValidationError, match="less than or equal"):
+        TradeHistoryRequest(minutes_back=999_999_999_999)
 
 
 def test_trade_journal_ranked_lists_do_not_duplicate_full_item_rows() -> None:

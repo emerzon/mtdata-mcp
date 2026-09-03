@@ -1181,6 +1181,10 @@ def _patch_portfolio_risk_decompose_schema(schema: Dict[str, Any]) -> None:
 
 
 def _patch_market_microstructure_schema(schema: Dict[str, Any]) -> None:
+    params, _required = _schema_params(schema)
+    minutes_back = params.get("minutes_back")
+    if isinstance(minutes_back, dict):
+        minutes_back["maximum"] = 10_512_000
     _append_schema_rules(
         schema,
         {"dependentRequired": {"start": ["end"], "end": ["start"]}},

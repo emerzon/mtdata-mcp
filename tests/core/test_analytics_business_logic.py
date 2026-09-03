@@ -456,6 +456,11 @@ def test_microstructure_request_rejects_invalid_windows(kwargs) -> None:
         MarketMicrostructureRequest(symbol="EURUSD", **kwargs)
 
 
+def test_microstructure_request_rejects_overflowing_minutes_back() -> None:
+    with pytest.raises(ValidationError, match="less than or equal"):
+        MarketMicrostructureRequest(symbol="EURUSD", minutes_back=999_999_999_999)
+
+
 def test_execution_quality_request_rejects_unordered_window() -> None:
     with pytest.raises(ValueError, match="start must be earlier"):
         TradeExecutionQualityRequest(
@@ -1907,14 +1912,8 @@ def test_execution_quality_zero_fills_are_an_empty_state() -> None:
 
 
 def test_execution_quality_rejects_overflowing_minutes_back() -> None:
-    result = analyze_execution_quality(
-        TradeExecutionQualityRequest(minutes_back=999_999_999_999),
-        FakeGateway(),
-    )
-
-    assert result["success"] is False
-    assert result["error_code"] == "invalid_minutes_back"
-    assert result["details"]["minutes_back"] == 999_999_999_999
+    with pytest.raises(ValidationError, match="less than or equal"):
+        TradeExecutionQualityRequest(minutes_back=999_999_999_999)
 
 
 def test_execution_quality_duration_display_preserves_subsecond_resolution() -> None:
