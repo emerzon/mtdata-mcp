@@ -760,6 +760,11 @@ def test_market_snapshot_compact_projects_hmm_regime_fields(monkeypatch):
         return {
             "success": True,
             "method": "hmm",
+            "current_regime": {
+                "label": "bullish_steady",
+                "state_label_canonical": "bullish",
+                "regime_confidence": 0.81,
+            },
             "summary": {
                 "last_state": 2,
                 "state_shares": {"0": 0.25, "2": 0.75},
@@ -778,6 +783,14 @@ def test_market_snapshot_compact_projects_hmm_regime_fields(monkeypatch):
 
     assert result["sections_summarized"] == ["regime"]
     assert result["snapshot"]["regime"] == {
+        "current_regime": {
+            "label": "bullish_steady",
+            "state_label_canonical": "bullish",
+            "regime_confidence": 0.81,
+        },
+        "label": "bullish_steady",
+        "state_label_canonical": "bullish",
+        "regime_confidence": 0.81,
         "state": 2,
         "state_shares": {"0": 0.25, "2": 0.75},
         "reliability_label": "medium",

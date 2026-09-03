@@ -824,6 +824,17 @@ def _snapshot_summary_payload(sections: Dict[str, Any]) -> Dict[str, Any]:  # no
             for key in ("current_regime", "regime", "label", "probabilities", "confidence")
             if key in regime
         }
+        current = regime.get("current_regime")
+        if isinstance(current, dict):
+            for key in (
+                "label",
+                "state_label_canonical",
+                "window_bias",
+                "trend_strength",
+                "regime_confidence",
+            ):
+                if current.get(key) not in (None, ""):
+                    compact_regime.setdefault(key, current[key])
         regime_summary = regime.get("summary")
         if isinstance(regime_summary, dict):
             for source_key, output_key in (
@@ -937,7 +948,7 @@ def _call_section(name: str, symbol: str, timeframe: str, horizon: int, detail: 
                 symbol=symbol,
                 timeframe=timeframe,
                 method="hmm",
-                detail="summary",
+                detail="compact",
             )
         if name == "forecast":
             from .forecast import forecast_generate
@@ -978,7 +989,7 @@ def market_snapshot(
       bars (``input_bar_policy=closed_bars_only``), max_levels=4
     - patterns: candlestick mode only, detail=summary, lookback=150, top_k=3,
       last_n_bars=3
-    - regime (opt-in): HMM only, detail=summary
+    - regime (opt-in): HMM only, detail=compact (labeled current regime)
     - forecast (opt-in): Theta only, detail=compact; ``horizon`` applies here only
 
     Top-level ``detail`` mainly shapes the assembled snapshot envelope: compact
