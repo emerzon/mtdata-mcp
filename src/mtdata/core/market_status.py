@@ -138,7 +138,7 @@ def _format_duration(minutes: int) -> str:
     hours = minutes // 60
     mins = minutes % 60
     if mins == 0:
-        return f"{hours}h{'ours' if hours > 1 else 'our'}"
+        return f"{hours} hour{'s' if hours != 1 else ''}"
     return f"{hours}h {mins}min{'s' if mins != 1 else ''}"
 
 

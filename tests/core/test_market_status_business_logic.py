@@ -15,6 +15,14 @@ def _unwrap(fn):
     return fn
 
 
+def test_format_duration_uses_readable_hour_units() -> None:
+    assert market_status_mod._format_duration(1) == "1min"
+    assert market_status_mod._format_duration(2) == "2mins"
+    assert market_status_mod._format_duration(60) == "1 hour"
+    assert market_status_mod._format_duration(120) == "2 hours"
+    assert market_status_mod._format_duration(90) == "1h 30mins"
+
+
 def test_market_status_tool_supports_detail_contract() -> None:
     raw = _unwrap(market_status_mod.market_status)
     params = list(signature(raw).parameters.values())
