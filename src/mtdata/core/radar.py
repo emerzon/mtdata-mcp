@@ -102,6 +102,13 @@ class MarketRadarRequest(BaseModel):
             "is the unfiltered leaderboard."
         ),
     )
+    rank_order: Literal["auto", "asc", "desc", "ascending", "descending"] = Field(
+        default="auto",
+        description=(
+            "Sort direction for rank_by. Ignored when rank_by=watchlist. "
+            "auto follows market_scan (desc except spread_pct)."
+        ),
+    )
     limit: int = Field(
         default=RADAR_MAX_SYMBOLS,
         ge=1,
@@ -411,6 +418,8 @@ def run_market_radar(
         "detail": request.detail,
         "allow_partial": allow_partial,
     }
+    if request.rank_by != "watchlist":
+        scan_kwargs["rank_order"] = request.rank_order
     scan = caller("scan", scan_kwargs)
     if _scan_rows(scan) or not seeded:
         payload = assemble_radar_payload(

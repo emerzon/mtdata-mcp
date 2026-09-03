@@ -113,6 +113,26 @@ def test_market_radar_keeps_watchlist_order() -> None:
     assert result["rows"][1]["quote_not_live_ready"] is False
 
 
+def test_market_radar_forwards_rank_order_to_scan() -> None:
+    captured: Dict[str, Any] = {}
+
+    def caller(name: str, kwargs: Dict[str, Any]) -> Any:
+        captured.update(kwargs)
+        return _scan_rows("EURUSD", "GBPUSD")
+
+    run_market_radar(
+        MarketRadarRequest(
+            symbols="EURUSD,GBPUSD",
+            rank_by="price_change_pct",
+            rank_order="asc",
+        ),
+        call_section=caller,
+    )
+
+    assert captured["rank_by"] == "price_change_pct"
+    assert captured["rank_order"] == "asc"
+
+
 def test_compact_radar_row_keeps_tradability_flags_consistent() -> None:
     compact = compact_radar_row(
         {

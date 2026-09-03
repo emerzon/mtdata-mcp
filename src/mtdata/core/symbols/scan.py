@@ -364,6 +364,7 @@ def _build_market_scan_spread_row(
         bid=bid,
         ask=ask,
         quote_source_conflict=quote_source.get("quote_source_conflict"),
+        point=point,
     )
 
     row = _market_scan_base_row(symbol)
