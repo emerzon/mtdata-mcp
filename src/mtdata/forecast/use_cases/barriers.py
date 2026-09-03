@@ -12,6 +12,7 @@ from mtdata.core.execution_logging import (
     log_operation_finish,
     log_operation_start,
 )
+from mtdata.forecast.barrier_constants import BARRIER_MONTE_CARLO_METHODS
 from mtdata.forecast.barriers_shared import (
     BARRIER_EDGE_DEFINITION,
     barrier_method_error,
@@ -76,16 +77,7 @@ def run_forecast_barrier_prob(
         method_val = str(method_val).lower().strip()
     else:
         method_val = normalized
-    mc_methods = {
-        "auto",
-        "bootstrap",
-        "garch",
-        "heston",
-        "hmm_mc",
-        "jump_diffusion",
-        "mc_gbm",
-        "mc_gbm_bb",
-    }
+    mc_methods = set(BARRIER_MONTE_CARLO_METHODS)
     log_operation_start(
         logger,
         operation="forecast_barrier_prob",
