@@ -441,12 +441,14 @@ _FINVIZ_SCREEN_COMPACT_FIELDS_BY_VIEW = {
         "change_pct",
         "volume",
         "market_cap",
+        "market_cap_formatted",
         "pe_ratio",
     ),
     "valuation": (
         "symbol",
         "price",
         "market_cap",
+        "market_cap_formatted",
         "pe_ratio",
         "forward_pe",
         "peg",
@@ -916,6 +918,10 @@ def _compact_finviz_screen_row(
             or field in _FINVIZ_FUNDAMENTAL_NUMERIC_KEYS
         )
     }
+    if "market_cap" in out and "market_cap_formatted" not in out:
+        formatted = _format_finviz_large_number(out.get("market_cap"))
+        if formatted is not None:
+            out["market_cap_formatted"] = formatted
     return out
 
 

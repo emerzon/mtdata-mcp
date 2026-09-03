@@ -3099,6 +3099,23 @@ class TestFinvizTools:
             "price_to_book": 1.46,
         }
 
+    def test_finviz_screen_compact_adds_formatted_market_cap(self):
+        from mtdata.core.finviz.common import _compact_finviz_screen_row
+
+        row = {
+            "symbol": "AAPL",
+            "price": 190.0,
+            "change_pct": 1.2,
+            "volume": 10_000_000,
+            "market_cap": 1_202_480_000_000,
+            "pe_ratio": 28.4,
+        }
+
+        compact = _compact_finviz_screen_row(row, view="overview")
+
+        assert compact["market_cap"] == 1_202_480_000_000
+        assert compact["market_cap_formatted"] == "1.2T"
+
     @patch('mtdata.core.finviz.screen.screen_stocks')
     def test_finviz_screen_tool_defaults_to_20_rows(self, mock_screen):
         from mtdata.core.finviz import finviz_screen
