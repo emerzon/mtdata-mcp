@@ -64,17 +64,16 @@ _OPTION_ALIAS_DEST_PREFIX = "_cli_option_"
 
 _COMMAND_REQUIRED_OPTIONS: set[tuple[str, str]] = {
     ("trade_modify", "ticket"),
-    ("trade_stress_test", "shocks"),
 }
 
 _NAMED_ONLY_REQUIRED_PARAMS: set[tuple[str, str]] = {
     ("trade_modify", "ticket"),
-    ("trade_stress_test", "shocks"),
 }
 
 _PRESERVE_OMITTED_DEFAULT_PARAMS: set[tuple[str, str]] = {
     ("data_fetch_candles", "limit"),
     ("data_fetch_ticks", "limit"),
+    ("forecast_barrier_optimize", "grid_style"),
     ("forecast_train", "wait"),
     ("market_microstructure_analyze", "minutes_back"),
     ("trade_execution_quality", "minutes_back"),

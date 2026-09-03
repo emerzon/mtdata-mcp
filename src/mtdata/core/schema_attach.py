@@ -400,7 +400,10 @@ def _patch_forecast_barrier_optimize_schema(schema: Dict[str, Any]) -> None:
         {
             "if": _explicit_value("grid_style", "preset"),
             "then": {"required": ["preset"]},
-            "else": _forbid_fields("preset"),
+        },
+        {
+            "if": _explicit_enum("grid_style", ["fixed", "volatility", "ratio"]),
+            "then": _forbid_fields("preset"),
         },
     )
 

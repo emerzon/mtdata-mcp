@@ -96,6 +96,12 @@ def test_barrier_optimize_request_requires_named_preset() -> None:
     assert request.preset == "intraday"
 
 
+def test_barrier_optimize_request_promotes_omitted_grid_style_when_preset_set() -> None:
+    request = ForecastBarrierOptimizeRequest(symbol="EURUSD", preset="intraday")
+    assert request.grid_style == "preset"
+    assert request.preset == "intraday"
+
+
 @pytest.mark.parametrize("value", [-1.0, float("nan"), float("inf")])
 def test_backtest_requests_reject_invalid_slippage(value) -> None:
     with pytest.raises(ValidationError, match="slippage_bps"):

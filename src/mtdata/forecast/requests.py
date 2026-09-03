@@ -971,7 +971,12 @@ class ForecastBarrierOptimizeRequest(_PublicForecastRequest):
     def _reject_removed_output(cls, values: Any) -> Any:
         values = reject_removed_field(values, field_name="output", replacement="detail")
         values = reject_removed_field(values, field_name="output_mode", replacement="detail")
-        return reject_removed_field(values, field_name="format", replacement="json")
+        values = reject_removed_field(values, field_name="format", replacement="json")
+        if isinstance(values, dict) and values.get("preset") not in (None, ""):
+            if "grid_style" not in values:
+                values = dict(values)
+                values["grid_style"] = "preset"
+        return values
 
     @field_validator("direction", mode="before")
     @classmethod

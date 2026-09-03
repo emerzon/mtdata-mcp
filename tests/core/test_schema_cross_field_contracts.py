@@ -356,6 +356,12 @@ SCHEMA_CONTRACT_CASES = [
         {"symbol": "EURUSD", "grid_style": "preset"},
     ),
     (
+        "barrier-grid-preset-implied-style",
+        "forecast_barrier_optimize",
+        {"symbol": "EURUSD", "preset": "intraday"},
+        {"symbol": "EURUSD", "grid_style": "fixed", "preset": "intraday"},
+    ),
+    (
         "trade-place-market-price",
         "trade_place",
         {"symbol": "EURUSD", "volume": 0.1, "order_type": "BUY"},

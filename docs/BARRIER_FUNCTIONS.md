@@ -643,7 +643,7 @@ Pre-configured ranges for trading styles
 **Use case**: Quick setup for standard trading styles
 
 Note:
-- `--preset` is required with `--grid-style preset` and is rejected with every other grid style. There is no implicit preset.
+- `--preset` implies `--grid-style preset` when `--grid-style` is omitted. Explicit `--grid-style fixed|volatility|ratio` still rejects `--preset`.
 - Presets are stored in percentage terms.
 - In `mode=ticks`, the optimizer converts those preset percentages to tick-size distances using the current reference price.
 - That means named presets in tick mode are not portable across different price levels.
