@@ -1102,6 +1102,57 @@ def test_market_status_symbol_mode_uses_recent_candles_for_weekend_session(
     assert result["reason"] == "market_closed"
 
 
+def test_market_status_symbol_mode_prefers_closed_session_over_stale_age(
+    monkeypatch,
+) -> None:
+    raw = _unwrap(market_status_mod.market_status)
+    fixed_now = datetime(2026, 9, 2, 21, 0, tzinfo=timezone.utc)
+
+    class FixedDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_now.replace(tzinfo=None) if tz is None else fixed_now.astimezone(tz)
+
+    class Gateway:
+        SYMBOL_TRADE_MODE_FULL = 4
+        SYMBOL_TRADE_MODE_DISABLED = 0
+        SYMBOL_TRADE_MODE_CLOSEONLY = 3
+        SYMBOL_TRADE_MODE_LONGONLY = 1
+        SYMBOL_TRADE_MODE_SHORTONLY = 2
+
+        def ensure_connection(self):
+            return None
+
+        def symbol_info(self, symbol):
+            return SimpleNamespace(name=symbol, visible=True, trade_mode=4)
+
+        def symbol_info_tick(self, symbol):
+            return SimpleNamespace(
+                time=fixed_now.timestamp() - 20_000,
+                bid=223.7,
+                ask=223.8,
+            )
+
+    monkeypatch.setattr(market_status_mod, "datetime", FixedDateTime)
+    monkeypatch.setattr(market_status_mod, "create_mt5_gateway", lambda **kwargs: Gateway())
+    monkeypatch.setattr(
+        market_status_mod,
+        "_infer_symbol_schedule_from_recent_candles",
+        lambda *_args, **_kwargs: {
+            "source": "recent_m1_candles",
+            "confidence": "inferred",
+            "current_time_in_active_session": False,
+            "trades_on_weekends": False,
+            "inferred_24_7": False,
+        },
+    )
+
+    result = raw(symbol="TSLA.NAS")
+
+    assert result["status"] == "session_closed"
+    assert result["reason"] == "not_in_recent_session"
+
+
 def test_recent_sunday_reopen_is_not_classified_as_weekend_trading() -> None:
     sunday_open = datetime(2026, 7, 12, 21, 0, tzinfo=timezone.utc)
     gateway = SimpleNamespace(
