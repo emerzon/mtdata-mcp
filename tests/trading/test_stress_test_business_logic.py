@@ -63,6 +63,16 @@ def test_trade_stress_test_accepts_percent_suffix() -> None:
     assert request.shocks == {"EURUSD": -2.0}
 
 
+def test_trade_stress_test_shock_pct_applies_uniform_wildcard() -> None:
+    request = TradeStressTestRequest(shock_pct=-2)
+    assert request.shocks == {"*": -2.0}
+
+
+def test_trade_stress_test_rejects_shock_pct_with_shocks() -> None:
+    with pytest.raises(ValidationError, match="not both"):
+        TradeStressTestRequest(shocks={"EURUSD": -1}, shock_pct=-2)
+
+
 def test_trade_stress_test_rejects_non_numeric_shock_with_value() -> None:
     with pytest.raises(ValidationError, match="Invalid shock value"):
         TradeStressTestRequest(shocks={"EURUSD": "two"})

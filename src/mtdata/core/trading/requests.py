@@ -742,14 +742,15 @@ class TradeVarCvarRequest(BaseModel):
 
 
 class TradeStressTestRequest(BaseModel):
-    shocks: Dict[str, float] = Field(
-        ...,
+    shocks: Optional[Dict[str, float]] = Field(
+        default=None,
         description=(
             "Per-symbol percentage price shocks, for example {'EURUSD': -2.0}. "
             "Use '*' as a fallback shock for symbols without an explicit entry. "
             "Each shock must be finite and greater than -100. A total wipeout "
             "is not representable at -100 because that would imply a zero or "
-            "negative price; use a near-total shock such as -99.99 instead."
+            "negative price; use a near-total shock such as -99.99 instead. "
+            "Omit when shock_pct is set."
         ),
         json_schema_extra={
             "additionalProperties": {
@@ -758,12 +759,21 @@ class TradeStressTestRequest(BaseModel):
             }
         },
     )
+    shock_pct: Optional[float] = Field(
+        default=None,
+        description=(
+            "Uniform percentage shock applied to every open position. "
+            "Equivalent to shocks={'*': shock_pct}."
+        ),
+    )
     include_unshocked: bool = False
     detail: DetailLiteral = "compact"
 
     @field_validator("shocks", mode="before")
     @classmethod
-    def _validate_shocks(cls, value: Dict[str, float]) -> Dict[str, float]:
+    def _validate_shocks(cls, value: Any) -> Any:
+        if value is None:
+            return None
         if not isinstance(value, dict) or not value:
             raise ValueError("shocks must contain at least one symbol or '*' fallback.")
         normalized: Dict[str, float] = {}
@@ -787,6 +797,35 @@ class TradeStressTestRequest(BaseModel):
                 raise ValueError("shock percentages must be finite and greater than -100.")
             normalized[symbol] = shock
         return normalized
+
+    @field_validator("shock_pct")
+    @classmethod
+    def _validate_shock_pct(cls, value: Optional[float]) -> Optional[float]:
+        if value is None:
+            return None
+        if not math.isfinite(value) or value <= -100.0:
+            raise ValueError("shock_pct must be finite and greater than -100.")
+        return value
+
+    @model_validator(mode="before")
+    @classmethod
+    def _promote_uniform_shock(cls, values: Any) -> Any:
+        if not isinstance(values, dict):
+            return values
+        shocks = values.get("shocks")
+        shock_pct = values.get("shock_pct")
+        if shocks not in (None, {}) and shock_pct is not None:
+            raise ValueError("Pass shocks or shock_pct, not both.")
+        if shocks not in (None, {}):
+            return values
+        if shock_pct is None:
+            raise ValueError(
+                "Provide shocks as a symbol-to-percent mapping or shock_pct "
+                "for a uniform portfolio shock."
+            )
+        promoted = dict(values)
+        promoted["shocks"] = {"*": shock_pct}
+        return promoted
 
 
 class TradeGetOpenRequest(_DirectionalSideNormalizedRequest):

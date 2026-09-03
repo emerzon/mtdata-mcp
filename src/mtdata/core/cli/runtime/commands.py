@@ -691,8 +691,8 @@ def create_command_function(  # noqa: C901
                                 _build_cli_error(
                                     "shocks must be a mapping of symbols to percentage shocks "
                                     "(JSON object or KV like EURUSD=-2). "
-                                    "Examples: '{\"*\":-2}', '{\"EURUSD\":-1,\"XAUUSD\":-3}', "
-                                    "or 'EURUSD=-2%'."
+                                    "Examples: '{\"*\":-2}', 'EURUSD=-2%', '*=-2', "
+                                    "or --shock-pct -2."
                                 ),
                                 args=args,
                                 cmd_name=cmd_name,

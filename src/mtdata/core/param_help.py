@@ -937,10 +937,14 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "Limit price activated by a BUY_STOP_LIMIT or SELL_STOP_LIMIT trigger."
     ),
     ("trade_stress_test", "shocks"): (
-        "JSON object mapping symbols to percentage shocks greater than -100. "
-        "Examples: '{\"*\":-2}' or '{\"EURUSD\":-1,\"XAUUSD\":-3}'. "
+        "Symbol-to-percent mapping, as JSON or KV. Examples: '{\"*\":-2}', "
+        "'EURUSD=-2%', or '*=-2'. Prefer --shock-pct for a uniform shock. "
         "-100 is rejected because it would imply a zero or negative price; "
         "use a near-total shock such as -99.99 to model almost complete loss."
+    ),
+    ("trade_stress_test", "shock_pct"): (
+        "Uniform percentage shock for every open position, for example -2. "
+        "Equivalent to --shocks '*=-2'."
     ),
     ("trade_place", "require_sl_tp"): (
         "Require both stop_loss and take_profit for market and pending orders."
