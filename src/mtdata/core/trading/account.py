@@ -176,9 +176,12 @@ def _run_trade_history_request(request: TradeHistoryRequest) -> Any:
         older: List[Dict[str, Any]] = []
         for position in open_positions:
             try:
-                opened_epoch = float(getattr(position, "time", 0.0) or 0.0)
+                opened_raw = float(getattr(position, "time", 0.0) or 0.0)
             except (TypeError, ValueError):
                 continue
+            if opened_raw <= 0:
+                continue
+            opened_epoch = _mt5_epoch_to_utc(opened_raw)
             if opened_epoch <= 0 or opened_epoch >= cutoff:
                 continue
             if (

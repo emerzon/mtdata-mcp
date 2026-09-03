@@ -425,7 +425,38 @@ def test_trade_history_warns_when_default_window_misses_open_event() -> None:
     assert out["history_incomplete_for_open_positions"] is True
     assert out["open_positions_outside_history_window_count"] == 1
     assert out["open_positions_outside_history_window"][0]["ticket"] == 42
+    assert out["open_positions_outside_history_window"][0]["opened_at"] == (
+        datetime.fromtimestamp(old_epoch, tz=timezone.utc)
+        .isoformat(timespec="minutes")
+        .replace("+00:00", "Z")
+    )
     assert "default 7-day history window" in out["warnings"][0]
+
+
+def test_trade_history_normalizes_open_position_server_time_to_utc() -> None:
+    mt5, prev = _install_mock_mt5()
+    mt5.history_deals_get.return_value = []
+    server_epoch = (datetime.now(timezone.utc) - timedelta(days=8)).timestamp()
+    utc_epoch = server_epoch - 3 * 3600
+    mt5.positions_get.return_value = [
+        SimpleNamespace(ticket=42, symbol="EURUSD", time=server_epoch)
+    ]
+
+    with patch(
+        "mtdata.core.trading.account._mt5_epoch_to_utc",
+        side_effect=lambda epoch, **_kwargs: float(epoch) - 3 * 3600,
+    ):
+        out = trade_history(history_kind="deals", __cli_raw=True)
+    if prev is not None:
+        sys.modules["MetaTrader5"] = prev
+
+    opened = out["open_positions_outside_history_window"][0]
+    assert opened["ticket"] == 42
+    assert opened["opened_at"] == (
+        datetime.fromtimestamp(utc_epoch, tz=timezone.utc)
+        .isoformat(timespec="minutes")
+        .replace("+00:00", "Z")
+    )
 
 
 def test_trade_history_labels_account_currency_money_fields() -> None:
