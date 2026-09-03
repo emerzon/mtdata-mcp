@@ -34,6 +34,24 @@ def test_calendar_range_uses_finviz_adapter(monkeypatch) -> None:
     assert captured["currency"] == "USD"
 
 
+def test_calendar_forwards_comma_separated_impact(monkeypatch) -> None:
+    captured = {}
+
+    def _fake_run_finviz_calendar(**kwargs):
+        captured.update(kwargs)
+        return {"success": True, "items": [], "count": 0}
+
+    monkeypatch.setattr(
+        "mtdata.core.finviz.run_finviz_calendar",
+        _fake_run_finviz_calendar,
+    )
+
+    result = _unwrap(calendar)(kind="economic", impact="high,medium")
+
+    assert result["success"] is True
+    assert captured["impact"] == "high,medium"
+
+
 def test_calendar_period_view_requires_earnings() -> None:
     result = _unwrap(calendar)(kind="economic", view="period")
 

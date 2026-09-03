@@ -282,6 +282,10 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "today). Timestamps keep their time-of-day and filter scheduled_at; "
         "date-only values select the America/New_York calendar day."
     ),
+    ("calendar", "impact"): (
+        "Economic impact filter: low, medium, or high. Comma-separate levels "
+        "such as high,medium. Omit to include every impact level."
+    ),
     ("calendar", "country"): (
         "Economic country filter such as US. Finviz currently covers US "
         "releases; a non-US code is valid but an empty table does not mean "

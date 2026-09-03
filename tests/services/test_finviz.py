@@ -833,6 +833,19 @@ class TestFinvizService:
         assert result_high["total"] == 1
         assert len(result_high["items"]) == 1
 
+        result_high_medium = get_economic_calendar(
+            impact="high,medium",
+            limit=10,
+            page=1,
+            date_from="2026-01-05",
+            date_to="2026-01-06",
+        )
+        assert result_high_medium["success"] is True
+        assert result_high_medium["impact"] == "high,medium"
+        assert result_high_medium["total"] == 2
+        events = {item["event"] for item in result_high_medium["items"]}
+        assert events == {"Nonfarm Payrolls", "ISM Services"}
+
     @patch("mtdata.services.finviz.api._fetch_finviz_economic_calendar_items")
     def test_economic_calendar_merges_stable_ids_before_pagination(
         self,

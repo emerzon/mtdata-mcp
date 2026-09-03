@@ -479,7 +479,7 @@ PARAM_HINTS = {
     "view": "Screener view: overview, valuation, financial, ownership, performance, technical.",
     "option": "Insider activity type: latest, top week, top owner trade, insider buy, insider sale.",
     "period": "Finviz earnings period: This Week, Next Week, Previous Week, This Month.",
-    "impact": "Economic calendar impact filter: low, medium, high.",
+    "impact": "Economic calendar impact filter: low, medium, high, or comma-separated (high,medium).",
     "page": PARAMETER_HELP["page"],
     "name": "Name of the item to describe.",
     "tolerance_pct": (

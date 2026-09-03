@@ -190,7 +190,7 @@ mtdata-cli calendar --kind earnings --view period --period this-week --include-e
 | `--kind` | `economic` | `economic`, `earnings`, or `dividends`. |
 | `--view` | `range` | `range` is the date-range table. `period` is the compact earnings window and requires `--kind earnings`. |
 | `--period` | `this-week` | With `--view period`: `this-week`, `next-week`, `previous-week`, `this-month`. |
-| `--impact` | (all) | Economic only: `low`, `medium`, `high`. |
+| `--impact` | (all) | Economic only: `low`, `medium`, `high`, or comma-separated such as `high,medium`. |
 | `--country` / `--currency` | (none) | Economic only, for example `US` / `USD`. Finviz currently covers US releases; a non-US filter can return an empty table even when that region has events. |
 | `--start` / `--end` | live window | Inclusive `YYYY-MM-DD`, ISO timestamp, or relative date. Date-only values select the `America/New_York` day; timestamps keep their time-of-day and filter `scheduled_at`. |
 | `--upcoming` | live default | Economic only: keep unreleased events. Defaults on when no date range is passed, off for an explicit range. |

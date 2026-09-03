@@ -1310,16 +1310,22 @@ def get_economic_calendar(
     """Get Finviz economic calendar (macro releases)."""
     safe_limit, safe_page = _sanitize_pagination(limit, page)
 
-    impact_norm: Optional[Literal["low", "medium", "high"]] = None
+    impact_levels: Optional[list[str]] = None
     if impact is not None:
-        impact_norm = impact.strip().lower()  # type: ignore[assignment]
         allowed = {"low", "medium", "high"}
-        if impact_norm not in allowed:
+        parts = [
+            part.strip().lower()
+            for part in str(impact).split(",")
+            if part.strip()
+        ]
+        invalid = [part for part in parts if part not in allowed]
+        if not parts or invalid:
             return {
-                "error": "Invalid impact '{impact}'. Expected one of: low, medium, high".format(
+                "error": "Invalid impact '{impact}'. Expected one or more of: low, medium, high".format(
                     impact=impact
                 )
             }
+        impact_levels = list(dict.fromkeys(parts))
     try:
         # Finviz migrated the calendar UI to client-side rendering; the legacy
         # finvizfinance HTML table parser often returns no rows. Prefer the JSON API.
@@ -1351,12 +1357,14 @@ def get_economic_calendar(
             events
         )
 
-        if impact_norm is not None:
-            impact_value = {"low": 1, "medium": 2, "high": 3}[impact_norm]
+        if impact_levels is not None:
+            impact_values = {
+                {"low": 1, "medium": 2, "high": 3}[level] for level in impact_levels
+            }
             events = [
                 e
                 for e in events
-                if _calendar_importance_value(e.get("importance")) == impact_value
+                if _calendar_importance_value(e.get("importance")) in impact_values
             ]
 
         events.sort(
@@ -1373,6 +1381,7 @@ def get_economic_calendar(
         items_list = events[start_idx:end_idx]
 
         message = None
+        impact_norm = ",".join(impact_levels) if impact_levels else None
         if impact_norm and total == 0:
             message = "No economic releases matched impact='{impact}'".format(impact=impact_norm)
 

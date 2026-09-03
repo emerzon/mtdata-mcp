@@ -526,6 +526,12 @@ def resolve_param_kwargs(
         kwargs["choices"] = choices
         kwargs["type"] = _case_insensitive_choice_parser(choices)
 
+    if choice_override_key == ("calendar", "impact"):
+        impact_choices = ["low", "medium", "high"]
+        kwargs["type"] = _comma_aware_choice_parser(impact_choices)
+        kwargs["metavar"] = "{low,medium,high}"
+        kwargs.pop("choices", None)
+
     if choice_override_key == ("temporal_analyze", "group_by"):
         parse_group_by = kwargs["type"]
 

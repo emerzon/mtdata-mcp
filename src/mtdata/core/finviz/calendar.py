@@ -1678,7 +1678,7 @@ def run_finviz_calendar(
 
 def finviz_calendar(
     calendar: Literal["economic", "earnings", "dividends"] = "economic",  # type: ignore
-    impact: Optional[Literal["low", "medium", "high"]] = None,
+    impact: Optional[str] = None,
     country: Optional[str] = None,
     currency: Optional[str] = None,
     start: Optional[str] = None,
@@ -1699,7 +1699,8 @@ def finviz_calendar(
     calendar : str
         Calendar type: "economic", "earnings", or "dividends".
     impact : str, optional
-        Economic only: filter by impact level: "low", "medium", or "high".
+        Economic only: filter by impact level. Accepts low, medium, high, or a
+        comma-separated list such as high,medium.
     country : str, optional
         Economic only: filter by country name or code (for example "US").
     currency : str, optional

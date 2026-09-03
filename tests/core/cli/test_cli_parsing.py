@@ -2747,6 +2747,18 @@ class TestResolveParamKwargs:
         with pytest.raises(SystemExit):
             parser.parse_args(['{"*":-2}'])
 
+    def test_calendar_impact_accepts_comma_separated_levels(self):
+        param = {
+            "name": "impact",
+            "type": Optional[str],
+            "required": False,
+            "default": None,
+        }
+        kwargs, _ = _resolve_param_kwargs(param, None, cmd_name="calendar")
+        assert "choices" not in kwargs
+        assert kwargs["type"]("high,medium") == "high,medium"
+        assert kwargs["type"]("HIGH") == "high"
+
     def test_calendar_start_help_is_command_specific(self):
         param = {
             "name": "start",

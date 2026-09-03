@@ -64,11 +64,12 @@ def calendar(
         ),
     ] = None,
     impact: Annotated[
-        Optional[Literal["low", "medium", "high"]],
+        Optional[str],
         Field(
             description=(
-                "Economic impact filter. Only valid when kind=economic; "
-                "other kinds reject this parameter."
+                "Economic impact filter: low, medium, high, or a comma-separated "
+                "list such as high,medium. Only valid when kind=economic; omit "
+                "to include every impact level."
             )
         ),
     ] = None,
