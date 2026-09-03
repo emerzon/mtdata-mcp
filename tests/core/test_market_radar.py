@@ -165,6 +165,23 @@ def test_market_radar_keeps_compact_clock_skew_evidence() -> None:
     assert row["quote_timestamp_skew_seconds"] == 3.0
 
 
+def test_compact_radar_row_keeps_bar_vs_live_direction_divergence() -> None:
+    row = compact_radar_row(
+        {
+            "symbol": "EURUSD",
+            "bid": 1.1,
+            "ask": 1.2,
+            "price_change_pct": -0.02,
+            "live_price_change_pct": 0.02,
+            "direction_divergence": "bar_down_live_up",
+            "quote_usable_for_live_trading": True,
+        }
+    )
+
+    assert row is not None
+    assert row["direction_divergence"] == "bar_down_live_up"
+
+
 def test_compact_radar_row_drops_quote_source_conflict_blob() -> None:
     row = compact_radar_row(
         {

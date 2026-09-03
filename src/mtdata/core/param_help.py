@@ -50,7 +50,8 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
     ),
     ("data_fetch_candles", "timestamp_format"): (
         "Format each candle's `time` value: iso for ISO in CLIENT_TZ "
-        "(iso_utc / iso_offset in the payload), iso_utc for UTC Z strings, "
+        "(Z when CLIENT_TZ is UTC; the envelope then labels timestamp_format "
+        "iso_utc, otherwise iso_offset), iso_utc for UTC Z strings, "
         "or epoch for UTC epoch seconds."
     ),
     ("data_fetch_candles", "selection"): (
@@ -59,8 +60,9 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "range is provided, otherwise the latest candles are returned."
     ),
     ("data_fetch_ticks", "timestamp_format"): (
-        "Format each MT5 tick event's `time` value as ISO in CLIENT_TZ "
-        "(iso_utc / iso_offset in the payload), iso_utc for UTC Z strings, "
+        "Format each MT5 tick event's `time` value: iso for ISO in CLIENT_TZ "
+        "(Z when CLIENT_TZ is UTC; the envelope then labels timestamp_format "
+        "iso_utc, otherwise iso_offset), iso_utc for UTC Z strings, "
         "or UTC epoch seconds."
     ),
     ("data_fetch_ticks", "selection"): (
@@ -667,7 +669,9 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
     ),
     ("market_scan", "rank_by"): (
         "Ranking metric. Default abs_price_change_pct uses completed-bar closes, "
-        "not live bid/ask. Use abs_live_price_change_pct to rank by executable quotes."
+        "not live bid/ask. Use abs_live_price_change_pct to rank by executable quotes. "
+        "market_scan is the filtered screener; symbols_top_markets is the unfiltered "
+        "leaderboard; market_radar is a named-watchlist quote board."
     ),
     ("market_scan", "rank_order"): (
         "Sort direction for ranked rows: auto, asc/ascending, or desc/descending. "
@@ -794,7 +798,8 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "spread/spread_pct, tick_volume, price_change/price_change_pct, "
         "or abs_price_change/abs_price_change_pct. Row time follows data_source: "
         "live_tick (quote time) for spread rankings, otherwise the selected "
-        "timeframe's completed-bar time."
+        "timeframe's completed-bar time. Use market_scan to filter the universe; "
+        "use market_radar for a named watchlist."
     ),
     ("symbols_top_markets", "limit"): (
         "Max symbols for the selected ranking; per leaderboard when rank_by=all."

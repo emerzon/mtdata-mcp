@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import math
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Tuple
 
 from ...shared.constants import BROKER_VOLUME_UNIT
 from ...utils.market_metadata import build_tick_freshness_context
@@ -33,6 +33,31 @@ from .use_cases.history import _DEFAULT_TRADE_HISTORY_LOOKBACK_DAYS
 logger = logging.getLogger(__name__)
 
 
+def _apply_open_position_quote_freshness(
+    item: Dict[str, Any],
+    freshness: Mapping[str, Any],
+) -> None:
+    for key in (
+        "data_age_seconds",
+        "data_stale",
+        "usable_for_live_trading",
+        "freshness_state",
+        "freshness_reason",
+        "timestamp_ahead_of_wall_clock",
+        "timestamp_in_future",
+        "timestamp_skew_seconds",
+        "timestamp_skew_tolerance_seconds",
+        "market_status",
+        "market_status_reason",
+        "freshness",
+    ):
+        if key in freshness:
+            item[key] = freshness[key]
+    item["quote_stale"] = freshness.get("data_stale") is True
+    if freshness.get("data_age_seconds") is not None:
+        item["quote_age_seconds"] = freshness["data_age_seconds"]
+
+
 def _attach_open_position_quote_context(
     payload: Dict[str, Any],
     gateway: Any,
@@ -44,6 +69,7 @@ def _attach_open_position_quote_context(
     if not isinstance(items, list):
         return
     stale_count = 0
+    stale_tickets: List[Any] = []
     enriched_count = 0
     live_usable_count = 0
     resolved_account_currency = (
@@ -182,32 +208,25 @@ def _attach_open_position_quote_context(
         item["price_current_basis"] = "broker_price_current"
         item["quote_time"] = format_epoch_utc(quote_epoch)
         item.update(quote_source)
-        for key in (
-            "data_age_seconds",
-            "data_stale",
-            "usable_for_live_trading",
-            "freshness_state",
-            "freshness_reason",
-            "timestamp_ahead_of_wall_clock",
-            "timestamp_in_future",
-            "timestamp_skew_seconds",
-            "timestamp_skew_tolerance_seconds",
-            "market_status",
-            "market_status_reason",
-            "freshness",
-        ):
-            if key in freshness:
-                item[key] = freshness[key]
+        _apply_open_position_quote_freshness(item, freshness)
         enriched_count += 1
-        stale_count += int(freshness.get("data_stale") is True)
+        if item["quote_stale"]:
+            stale_count += 1
+            ticket = item.get("ticket")
+            if ticket is not None:
+                stale_tickets.append(ticket)
         live_usable_count += int(freshness.get("usable_for_live_trading") is True)
     if enriched_count:
-        payload["quote_freshness_summary"] = {
+        summary: Dict[str, Any] = {
             "positions_enriched": enriched_count,
             "stale_quotes": stale_count,
             "live_usable_quotes": live_usable_count,
             "recent_or_delayed_quotes": enriched_count - stale_count - live_usable_count,
+            "totals_include_stale_quotes": True,
         }
+        if stale_tickets:
+            summary["stale_tickets"] = stale_tickets
+        payload["quote_freshness_summary"] = summary
     if notional_fields_attached:
         units = payload.setdefault("units", {})
         if isinstance(units, dict):
@@ -238,6 +257,8 @@ def _project_open_position_rows(payload: Dict[str, Any], *, request: Any) -> Non
         "price_current",
         "price_current_basis",
         "quote_time",
+        "quote_stale",
+        "quote_age_seconds",
         "data_age_seconds",
         "data_stale",
         "freshness_state",

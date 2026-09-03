@@ -238,6 +238,7 @@ def test_root_help_groups_commands_by_tools_list_category():
     rendered = format_root_help("mtdata-cli")
     lines = rendered.splitlines()
     names = known_command_names()
+    assert "Exit codes: 0 ok; 1 tool/provider error; 2 usage/parse error." in rendered
 
     for category in TOOL_CATEGORY_IDS:
         expected = [name for name in names if tool_catalog_category(name) == category]

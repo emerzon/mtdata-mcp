@@ -59,6 +59,7 @@ _ROW_KEYS = (
     "bar_freshness",
     "price_change_pct",
     "live_price_change_pct",
+    "direction_divergence",
     "rsi",
     "sma",
     "sma_distance_pct",
@@ -96,7 +97,9 @@ class MarketRadarRequest(BaseModel):
         default="watchlist",
         description=(
             "watchlist keeps the requested order. Other values rank the same "
-            "compact scan fields as market_scan."
+            "compact scan fields as market_scan. market_radar is a named "
+            "watchlist; market_scan filters a universe; symbols_top_markets "
+            "is the unfiltered leaderboard."
         ),
     )
     limit: int = Field(

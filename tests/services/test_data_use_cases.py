@@ -3396,7 +3396,14 @@ def test_run_data_fetch_ticks_compact_summarizes_quality_without_verbose_warning
     assert result["data"][4]["mid_inferred"] is True
     assert "data_quality" not in result
     assert "last_unavailable" not in result
-    assert len(result["warnings"]) == 2
+    assert result["warnings"][:2] == [
+        "Some tick snapshots omitted a bid or ask value.",
+        "Broker tick data did not provide a usable last price; last is null.",
+    ]
+    assert any(
+        "null (one-sided update) and must not be treated as zero cost" in str(item)
+        for item in result["warnings"]
+    )
 
 
 def test_run_data_fetch_ticks_compact_marks_normal_quote_only_feed_ok():
@@ -3473,6 +3480,10 @@ def test_run_data_fetch_ticks_compact_quality_uses_valid_spreads_not_field_prese
         if row.get("spread_sample_eligible", row.get("spread_snapshot_valid"))
     )
     assert round((eligible / len(result["data"])) * 100.0, 2) == result["valid_spread_sample_pct"]
+    assert any(
+        "null (one-sided update) and must not be treated as zero cost" in str(item)
+        for item in result.get("warnings") or []
+    )
 
 
 def test_run_data_fetch_ticks_compact_downgrades_one_locked_spread_in_three():
@@ -3510,6 +3521,11 @@ def test_run_data_fetch_ticks_compact_downgrades_one_locked_spread_in_three():
         "notes": "valid_spreads=2/3",
     }
     assert result["data"][1]["spread_snapshot_valid"] is False
+    assert result["warnings"] == [
+        "Tick spread is unavailable for 1 of 3 row(s); those "
+        "spread values are null (one-sided update) and must not be treated "
+        "as zero cost."
+    ]
 
 
 def test_run_data_fetch_ticks_summary_keeps_live_usability_verdicts():

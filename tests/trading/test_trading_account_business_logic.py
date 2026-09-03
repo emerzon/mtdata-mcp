@@ -1325,8 +1325,11 @@ def test_open_position_quote_context_discloses_basis_and_staleness() -> None:
     assert row["quote_time"].endswith("Z")
     assert row["data_age_seconds"] == 600.0
     assert row["data_stale"] is True
+    assert row["quote_stale"] is True
+    assert row["quote_age_seconds"] == 600.0
     assert row["usable_for_live_trading"] is False
     assert payload["quote_freshness_summary"]["stale_quotes"] == 1
+    assert payload["quote_freshness_summary"]["totals_include_stale_quotes"] is True
 
 
 def test_open_position_quote_summary_does_not_count_recent_quote_as_live() -> None:
@@ -1353,6 +1356,7 @@ def test_open_position_quote_summary_does_not_count_recent_quote_as_live() -> No
         "stale_quotes": 0,
         "live_usable_quotes": 0,
         "recent_or_delayed_quotes": 1,
+        "totals_include_stale_quotes": True,
     }
 
 

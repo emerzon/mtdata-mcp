@@ -415,17 +415,32 @@ def _shape_trading(
     if isinstance(quote_summary, Mapping):
         stale_quotes = quote_summary.get("stale_quotes")
         if isinstance(stale_quotes, int) and stale_quotes > 0:
+            stale_tickets = quote_summary.get("stale_tickets")
+            if not isinstance(stale_tickets, list):
+                stale_tickets = [
+                    item.get("ticket")
+                    for item in payload.get("items") or []
+                    if isinstance(item, Mapping)
+                    and (
+                        item.get("quote_stale") is True
+                        or item.get("data_stale") is True
+                    )
+                    and item.get("ticket") is not None
+                ]
             append_output_warning(
                 out,
                 OutputWarning(
                     code="stale_position_quotes",
                     scope=tool_name,
                     message=(
-                        "Some position quotes are stale and must not drive live execution."
+                        "Some position quotes are stale and must not drive live "
+                        "execution. Totals still include those rows."
                     ),
                     context={
                         "stale_quotes": stale_quotes,
                         "positions_checked": quote_summary.get("positions_enriched"),
+                        "stale_tickets": stale_tickets or None,
+                        "totals_include_stale_quotes": True,
                     },
                 ),
             )
@@ -488,9 +503,17 @@ def _compact_trade_rows(payload: MutableMapping[str, Any]) -> None:
         if not isinstance(item, Mapping):
             compact_items.append(item)
             continue
-        compact_items.append(
-            {key: value for key, value in item.items() if key not in row_omit}
-        )
+        compact = {
+            key: value for key, value in item.items() if key not in row_omit
+        }
+        if "quote_stale" not in compact and item.get("data_stale") is not None:
+            compact["quote_stale"] = item.get("data_stale") is True
+        if (
+            "quote_age_seconds" not in compact
+            and item.get("data_age_seconds") is not None
+        ):
+            compact["quote_age_seconds"] = item.get("data_age_seconds")
+        compact_items.append(compact)
     payload["items"] = compact_items
 
 
@@ -1311,6 +1334,7 @@ def _compact_symbol_description(payload: MutableMapping[str, Any]) -> None:
         "point",
         "price_change_basis",
         "price_change_pct",
+        "price_change_pct_unit",
         "spread_pips",
         "time",
         "trade_contract_size",
@@ -2231,8 +2255,6 @@ def _compact_trade_session_context(payload: MutableMapping[str, Any]) -> None:
         payload.pop("assembled_at", None)
     if payload.get("timezone") == "UTC":
         payload.pop("timezone", None)
-    if payload.get("state_scope") == "symbol":
-        payload.pop("state_scope", None)
     trade_ready = payload.get("trade_ready")
     if isinstance(trade_ready, Mapping):
         compact_ready = dict(trade_ready)

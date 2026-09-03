@@ -94,13 +94,21 @@ def test_open_positions_compact_replaces_per_row_freshness_with_one_warning() ->
     assert "row_key" not in result
     assert result["as_of"] == "2026-08-29T12:00:00Z"
     assert all("data_stale" not in row for row in result["items"])
+    assert result["items"][0]["quote_stale"] is True
+    assert result["items"][0]["quote_age_seconds"] == 900
+    assert result["items"][1]["quote_stale"] is False
     assert result["warnings"] == [
         {
             "code": "stale_position_quotes",
             "scope": "trade_get_open",
-            "message": "Some position quotes are stale and must not drive live execution.",
+            "message": (
+                "Some position quotes are stale and must not drive live "
+                "execution. Totals still include those rows."
+            ),
             "stale_quotes": 1,
             "positions_checked": 2,
+            "stale_tickets": [1],
+            "totals_include_stale_quotes": True,
         }
     ]
 

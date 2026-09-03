@@ -645,10 +645,10 @@ def test_compact_trade_session_context_removes_only_duplicate_state() -> None:
     assert "is_live" not in compact["quote_quality"]
     assert "usable_for_live_trading" not in compact["quote_quality"]
     assert compact["quote_quality"]["warnings"][0]["message"] == "Quote is stale."
+    assert compact["state_scope"] == "symbol"
     assert {
         "assembled_at",
         "timezone",
-        "state_scope",
         "execution_preconditions_allow_open",
         "trade_mode_allows_opening",
         "open_positions_count",
@@ -657,4 +657,4 @@ def test_compact_trade_session_context_removes_only_duplicate_state() -> None:
         "now_tradable",
         "other_positions_count",
     }.isdisjoint(compact)
-    assert _json_size(compact) <= _json_size(raw) * 0.78
+    assert _json_size(compact) <= _json_size(raw) * 0.80

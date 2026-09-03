@@ -2142,6 +2142,11 @@ def _finalize_volatility_output(
         "volatility_unit_note",
         "Volatility values are decimal return fractions; *_pct aliases are percentages.",
     )
+    if out.get("bars_per_year") not in (None, ""):
+        out.setdefault(
+            "annualization_formula",
+            "volatility_per_bar * sqrt(bars_per_year)",
+        )
     for source_key, pct_key in (
         ("volatility_per_bar", "volatility_per_bar_pct"),
         ("volatility_annualized", "volatility_annualized_pct"),

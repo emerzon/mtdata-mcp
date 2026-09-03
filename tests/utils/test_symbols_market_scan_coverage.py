@@ -976,6 +976,7 @@ def test_market_scan_live_change_discloses_forming_bar_reversal() -> None:
     assert row["live_price_change_basis"] == (
         "previous_completed_close_to_live_quote_mid"
     )
+    assert row["direction_divergence"] == "bar_up_live_down"
 
 
 def test_market_scan_rsi_is_independent_of_generic_lookback(monkeypatch):
@@ -2866,3 +2867,5 @@ class TestMarketScan:
         assert result["success"] is True
         assert result["meta"]["request"]["scope"] == "group"
         assert [row["symbol"] for row in result["meta"]["stats"]["skipped_examples"]] == ["EURUSD", "usdjpy"]
+        assert result["summary"]["skipped_examples"] == result["meta"]["stats"]["skipped_examples"]
+        assert result["summary"]["skipped_reason_counts"]

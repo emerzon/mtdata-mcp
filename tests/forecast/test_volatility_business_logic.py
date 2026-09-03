@@ -160,6 +160,7 @@ def test_finalize_volatility_output_compact_omits_explanatory_fields():
         "volatility_annualized": 0.5,
         "volatility_horizon": 0.02,
         "volatility_horizon_annualized": 0.8,
+        "bars_per_year": 6240.0,
         "params_used": {"lookback": 100, "lambda_": 0.94},
         "params_explained": {"lambda_": "decay explanation"},
     }
@@ -170,6 +171,7 @@ def test_finalize_volatility_output_compact_omits_explanatory_fields():
     assert compact["volatility_per_bar"] == pytest.approx(0.01)
     assert compact["volatility_horizon"] == pytest.approx(0.02)
     assert compact["volatility_unit"] == "return_fraction"
+    assert compact["annualization_formula"] == "volatility_per_bar * sqrt(bars_per_year)"
     assert "volatility_per_bar_pct" not in compact
     assert "volatility_annualized_pct" not in compact
     assert "volatility_unit_note" not in compact

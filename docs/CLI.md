@@ -255,6 +255,11 @@ mtdata-cli regime_detect EURUSD --method hmm
 mtdata-cli data_fetch_candles EURUSD --limit 100
 ```
 
+FX aliases such as `EUR/USD` and `eurusd` resolve to the broker name
+(`EURUSD`). When the input differs from the resolved contract, the payload
+echoes both `symbol` and `symbol_input`. Equity suffixes are load-bearing:
+`TSLA.NAS` and `TSLA.NAS-24` are different contracts.
+
 ### Timeframe
 Specify market data granularity with `--timeframe`:
 ```bash

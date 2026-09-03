@@ -1054,6 +1054,18 @@ def _attach_market_scan_live_change(row: Dict[str, Any]) -> None:
     row["live_price_change_basis"] = (
         "previous_completed_close_to_live_quote_mid"
     )
+    bar_change = _market_scan_float(row.get("price_change_pct"))
+    live_change = _market_scan_float(row.get("live_price_change_pct"))
+    if (
+        bar_change is not None
+        and live_change is not None
+        and bar_change != 0.0
+        and live_change != 0.0
+        and (bar_change > 0) != (live_change > 0)
+    ):
+        bar_dir = "up" if bar_change > 0 else "down"
+        live_dir = "up" if live_change > 0 else "down"
+        row["direction_divergence"] = f"bar_{bar_dir}_live_{live_dir}"
 
 def _market_scan_quote_exclusion_reason(row: Dict[str, Any]) -> str:
     if isinstance(row.get("quote_source_conflict"), dict):
@@ -1105,6 +1117,7 @@ _TOP_MARKETS_COMPACT_BAR_HEADERS = [
     "tick_volume",
     "price_change_pct",
     "live_price_change_pct",
+    "direction_divergence",
 ]
 
 _TOP_MARKETS_COMPACT_HEADERS = [
@@ -1121,6 +1134,7 @@ _TOP_MARKETS_COMPACT_HEADERS = [
     "tick_volume",
     "price_change_pct",
     "live_price_change_pct",
+    "direction_divergence",
 ]
 
 _TOP_MARKETS_FULL_BASE_HEADERS = [
@@ -1199,6 +1213,7 @@ _TOP_MARKETS_FULL_BAR_HEADERS = [
     "real_volume",
     "price_change_pct",
     "live_price_change_pct",
+    "direction_divergence",
     "live_price_change_basis",
 ]
 
@@ -3185,6 +3200,7 @@ def market_scan(  # noqa: C901
             matched_rows: List[Dict[str, Any]] = []
             skipped_examples: List[Dict[str, str]] = []
             skipped_symbols = 0
+            skipped_reason_counts: Dict[str, int] = {}
             evaluated_symbols = 0
             quote_eligibility_excluded = 0
             quote_eligibility_reasons: Dict[str, int] = {}
@@ -3193,6 +3209,10 @@ def market_scan(  # noqa: C901
             def _record_issue(symbol_name: str, reason: str) -> None:
                 nonlocal skipped_symbols
                 skipped_symbols += 1
+                reason_key = str(reason or "unknown")
+                skipped_reason_counts[reason_key] = (
+                    skipped_reason_counts.get(reason_key, 0) + 1
+                )
                 if len(skipped_examples) < 10:
                     skipped_examples.append({"symbol": symbol_name, "reason": reason})
 
@@ -3377,6 +3397,7 @@ def market_scan(  # noqa: C901
                 "price_point",
                 "price_change_pct",
                 "live_price_change_pct",
+                "direction_divergence",
                 "live_price_change_basis",
                 "gap_pct",
                 "tick_volume",
@@ -3407,6 +3428,7 @@ def market_scan(  # noqa: C901
                 "quote_usable_for_live_trading",
                 "price_change_pct",
                 "live_price_change_pct",
+                "direction_divergence",
                 "spread_pips",
                 "spread_pct",
             ]
@@ -3457,6 +3479,7 @@ def market_scan(  # noqa: C901
                 "filtered_out_symbols": max(0, evaluated_symbols - total_matches),
                 "skipped_symbols": skipped_symbols,
                 "skipped_examples": skipped_examples,
+                "skipped_reason_counts": skipped_reason_counts,
                 "quote_eligibility_excluded_symbols": quote_eligibility_excluded,
                 "query_latency_ms": round((time.perf_counter() - started_at) * 1000.0, 3),
             }
@@ -3570,6 +3593,15 @@ def market_scan(  # noqa: C901
             }
             if rank_order_value != effective_rank_order:
                 out["rank_order_requested"] = rank_order_value
+            if skipped_examples:
+                out["summary"]["skipped_examples"] = skipped_examples
+            if skipped_reason_counts:
+                out["summary"]["skipped_reason_counts"] = dict(
+                    sorted(
+                        skipped_reason_counts.items(),
+                        key=lambda item: (-item[1], item[0]),
+                    )
+                )
             compact_warnings = compact_shared_fields.pop("warnings", None)
             out.update(compact_shared_fields)
             if compact_warnings:

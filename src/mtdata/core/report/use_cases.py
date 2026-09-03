@@ -2238,6 +2238,10 @@ def run_report_generate(  # noqa: C901
                     summ.append(f"close={price_text}")
                     market_summary["close"] = price
                     market_summary["price_source"] = "last_completed_candle_close"
+                    close_as_of = last.get("time")
+                    if close_as_of not in (None, ""):
+                        market_summary["close_as_of"] = close_as_of
+                        market_summary["close_bar_state"] = "completed"
                     if price_precision is not None:
                         market_summary["price_precision"] = price_precision
                 if price is not None and ema20 is not None and ema50 is not None:
@@ -2724,14 +2728,22 @@ def run_report_generate(  # noqa: C901
                         if isinstance(price_precision, int)
                         else format_number(market_summary.get("close"))
                     )
+                    as_of = market_summary.get("close_as_of")
+                    as_of_suffix = (
+                        f" as of {as_of} (completed bar)"
+                        if as_of not in (None, "")
+                        else ""
+                    )
                     if trend_note == "mixed":
                         narrative_parts.append(
-                            f"Last close {close_text} (mixed vs EMA20/EMA50)."
+                            f"Last close {close_text}{as_of_suffix} (mixed vs EMA20/EMA50)."
                         )
                     elif trend_note:
-                        narrative_parts.append(f"Last close {close_text} ({trend_note}).")
+                        narrative_parts.append(
+                            f"Last close {close_text}{as_of_suffix} ({trend_note})."
+                        )
                     else:
-                        narrative_parts.append(f"Last close {close_text}.")
+                        narrative_parts.append(f"Last close {close_text}{as_of_suffix}.")
                 forecast_summary = summary_structured.get("forecast")
                 if isinstance(forecast_summary, dict) and forecast_summary.get("method"):
                     direction = forecast_summary.get("direction")

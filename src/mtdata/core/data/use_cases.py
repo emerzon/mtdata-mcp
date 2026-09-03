@@ -2745,6 +2745,29 @@ def _compact_tick_rows_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     quality = _compact_tick_quality(payload)
     if quality:
         compact["quality"] = quality
+    invalid_spread_rows = 0
+    compact_rows = compact.get("data")
+    if isinstance(compact_rows, list):
+        invalid_spread_rows = sum(
+            1
+            for row in compact_rows
+            if isinstance(row, dict) and row.get("spread_snapshot_valid") is False
+        )
+    if invalid_spread_rows:
+        warning = (
+            "Tick spread is unavailable for "
+            f"{invalid_spread_rows} of {len(compact_rows)} row(s); those "
+            "spread values are null (one-sided update) and must not be treated "
+            "as zero cost."
+        )
+        existing = compact.get("warnings")
+        if isinstance(existing, list):
+            if warning not in existing:
+                compact["warnings"] = [*existing, warning]
+        elif existing:
+            compact["warnings"] = [existing, warning]
+        else:
+            compact["warnings"] = [warning]
     return compact
 
 
