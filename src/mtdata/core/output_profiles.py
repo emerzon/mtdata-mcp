@@ -266,7 +266,6 @@ _TICK_COMPACT_OMIT = frozenset(
         "tick_count",
         "tick_count_event_basis",
         "units",
-        "valid_spread_sample_pct",
         "volume_fields",
     }
 )
@@ -569,7 +568,7 @@ def _shape_analysis_info(
         _compact_catalog_payload(out, tool_name=tool_name)
     if tool_name in _TASK_TOOLS:
         _compact_task_payload(out)
-    _compact_analysis_token_payload(out, tool_name=tool_name)
+    _compact_analysis_token_payload(out, tool_name=tool_name, detail=detail)
     _normalize_warnings(out)
     if freshness and (warning := freshness.to_warning()):
         append_output_warning(out, warning)
@@ -1038,16 +1037,32 @@ def _drop_redundant_note(payload: MutableMapping[str, Any]) -> None:
             return
 
 
-def _compact_model_inventory(payload: MutableMapping[str, Any]) -> None:
+def _compact_model_inventory(
+    payload: MutableMapping[str, Any],
+    *,
+    detail: str = "compact",
+) -> None:
     models = payload.get("models")
     if not isinstance(models, list):
         return
+    standard = str(detail or "").strip().lower() == "standard"
     compact_models: list[Any] = []
     for model in models:
         if not isinstance(model, Mapping):
             compact_models.append(model)
             continue
         row = {"model_id": model.get("model_id")}
+        if standard:
+            for key in (
+                "method",
+                "data_scope",
+                "created_at",
+                "horizon",
+                "request_compatibility_status",
+                "store_compatibility_status",
+            ):
+                if model.get(key) not in (None, ""):
+                    row[key] = model[key]
         request_status = str(model.get("request_compatibility_status") or "").lower()
         if request_status and request_status not in {"ok", "ready"}:
             row["request_compatibility_status"] = model.get(
@@ -1860,9 +1875,10 @@ def _compact_analysis_token_payload(
     payload: MutableMapping[str, Any],
     *,
     tool_name: str,
+    detail: str = "compact",
 ) -> None:
     if tool_name == "forecast_models_list":
-        _compact_model_inventory(payload)
+        _compact_model_inventory(payload, detail=detail)
     elif tool_name == "seasonality_detect":
         _compact_seasonality(payload)
     elif tool_name == "volatility_term_structure":
@@ -2783,6 +2799,8 @@ def _shape_ticks(payload: Mapping[str, Any], *, detail: str) -> Dict[str, Any]:
     source = SourceContext.from_payload(payload)
     for key in LEGACY_FRESHNESS_FIELDS | LEGACY_TIME_FIELDS | _TICK_COMPACT_OMIT:
         out.pop(key, None)
+    if out.get("valid_spread_sample_pct") in {100, 100.0}:
+        out.pop("valid_spread_sample_pct", None)
     out.pop("meta", None)
     out.pop("source", None)
     if source:

@@ -226,6 +226,46 @@ def test_compact_ticks_omit_healthy_freshness_and_keep_provider_only() -> None:
     }
 
 
+def test_compact_ticks_keep_incomplete_spread_sample_percentage() -> None:
+    payload = {
+        "success": True,
+        "symbol": "EURUSD",
+        "data": [{"time": "2026-08-29T04:00:00Z", "bid": 1.1, "ask": 1.1}],
+        "quote_completeness_pct": 100.0,
+        "valid_spread_sample_pct": 66.67,
+        "source": {"provider": "mt5"},
+    }
+
+    result = shape_public_tool_output(
+        payload,
+        tool_name="data_fetch_ticks",
+        detail="compact",
+    )
+
+    assert result["quote_completeness_pct"] == 100.0
+    assert result["valid_spread_sample_pct"] == 66.67
+
+
+def test_compact_ticks_omit_complete_spread_sample_percentage() -> None:
+    payload = {
+        "success": True,
+        "symbol": "EURUSD",
+        "data": [{"time": "2026-08-29T04:00:00Z", "bid": 1.1, "ask": 1.2}],
+        "quote_completeness_pct": 100.0,
+        "valid_spread_sample_pct": 100.0,
+        "source": {"provider": "mt5"},
+    }
+
+    result = shape_public_tool_output(
+        payload,
+        tool_name="data_fetch_ticks",
+        detail="compact",
+    )
+
+    assert "valid_spread_sample_pct" not in result
+    assert result["quote_completeness_pct"] == 100.0
+
+
 def test_compact_symbol_description_does_not_mislabel_quote_conflict_as_stale() -> None:
     payload = {
         "success": True,

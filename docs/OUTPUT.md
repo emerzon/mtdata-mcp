@@ -109,10 +109,11 @@ Notes:
 
 Compact catalogs and analyses also omit default filter echoes, static formula or
 unit legends, repeated counts, and instructional prose when the structured
-result already carries the same information. Model inventory rows normally
-contain just the reusable `model_id`; an incompatible row retains its status
-and reason. Empty task or trading collections return the collection without a
-second prose explanation.
+result already carries the same information. Model inventory compact rows
+contain the reusable `model_id`; an incompatible row retains its status and
+reason. `detail=standard` adds method, data_scope, created_at, and horizon.
+Empty task or trading collections return the collection without a second prose
+explanation.
 
 Repeated row constants may be lifted to the response root. For example,
 `symbols_top_markets` reports a shared timeframe and data source once, while

@@ -1380,10 +1380,12 @@ def forecast_models_list(
     Optionally filter by public method name (for example sf_naive), adapter
     family (for example statsforecast), data_scope, symbol, or timeframe.
     Expired artifacts are intentionally excluded; use a dry-run
-    ``forecast_models_cleanup`` call to inspect them. Use ``detail='full'`` to
-    include stored model metadata. Results use deterministic model-id ordering
-    and are paged with ``limit``/``offset``. The default returns at most ten
-    rows; pass ``limit=50`` (or another explicit cap) for a larger page.
+    ``forecast_models_cleanup`` call to inspect them. Compact lists reusable
+    ``model_id`` values. ``detail='standard'`` adds method, data_scope,
+    created_at, and horizon. Use ``detail='full'`` for stored model metadata.
+    Results use deterministic model-id ordering and are paged with
+    ``limit``/``offset``. The default returns at most ten rows; pass
+    ``limit=50`` (or another explicit cap) for a larger page.
     """
     def _execute() -> Dict[str, Any]:
         detail_mode = _detail_mode(detail)

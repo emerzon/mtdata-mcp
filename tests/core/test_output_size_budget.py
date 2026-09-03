@@ -167,6 +167,43 @@ def test_compact_model_inventory_keeps_ids_and_only_exception_details() -> None:
     assert _json_size(compact) <= _json_size(raw) * 0.4
 
 
+def test_standard_model_inventory_keeps_operational_columns() -> None:
+    raw = {
+        "success": True,
+        "detail": "standard",
+        "models": [
+            {
+                "model_id": "theta/EURUSD_H1/one",
+                "method": "theta",
+                "data_scope": "EURUSD_H1",
+                "created_at": "2026-08-28T10:00:00Z",
+                "horizon": 12,
+                "request_compatibility_status": "ready",
+                "store_compatibility_status": "ok",
+            }
+        ],
+        "source": {"provider": "local_model_store"},
+    }
+
+    standard = shape_public_tool_output(
+        raw,
+        tool_name="forecast_models_list",
+        detail="standard",
+    )
+
+    assert standard["models"] == [
+        {
+            "model_id": "theta/EURUSD_H1/one",
+            "method": "theta",
+            "data_scope": "EURUSD_H1",
+            "created_at": "2026-08-28T10:00:00Z",
+            "horizon": 12,
+            "request_compatibility_status": "ready",
+            "store_compatibility_status": "ok",
+        }
+    ]
+
+
 def test_compact_market_snapshot_drops_prose_but_keeps_execution_gates() -> None:
     warning = {
         "code": "data_stale",
