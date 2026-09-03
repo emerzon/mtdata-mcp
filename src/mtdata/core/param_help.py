@@ -282,6 +282,16 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "today). Timestamps keep their time-of-day and filter scheduled_at; "
         "date-only values select the America/New_York calendar day."
     ),
+    ("calendar", "country"): (
+        "Economic country filter such as US. Finviz currently covers US "
+        "releases; a non-US code is valid but an empty table does not mean "
+        "that region has no events."
+    ),
+    ("calendar", "currency"): (
+        "Economic currency filter such as USD. Finviz currently covers US "
+        "releases; a non-USD code is valid but an empty table does not mean "
+        "that currency has a clear calendar."
+    ),
     ("calendar", "upcoming"): (
         "When omitted with no start/end, economic calendar defaults to upcoming "
         "unreleased events. Pass false to include already-printed releases."

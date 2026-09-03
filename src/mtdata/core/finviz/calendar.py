@@ -717,6 +717,7 @@ def _compact_finviz_earnings_items(items: Any) -> List[Any]:
 
 
 _FINVIZ_CALENDAR_COUNTRY_PREFIXES = (
+    ("HOLIDAYSUNITED", "United States", "US"),
     ("UNITEDSTA", "United States", "US"),
     ("USA", "United States", "US"),
     ("USD", "United States", "US"),
@@ -778,6 +779,8 @@ _FINVIZ_CALENDAR_SOURCE_ID_COUNTRIES = {
     "PCEPI": ("United States", "US"),
     "PCEPILFE": ("United States", "US"),
     "PCE": ("United States", "US"),
+    "TBIMTOT": ("United States", "US"),
+    "TBEXTOT": ("United States", "US"),
 }
 _FINVIZ_CALENDAR_CURRENCY_TO_COUNTRY_CODE = {
     "USD": "US",
@@ -1145,6 +1148,13 @@ def _apply_finviz_calendar_empty_hint(
         )
         out["filtered_released_count"] = int(filtered_released_count)
         return
+    if str(out.get("country_filter") or "").strip().upper() not in {"", "US"}:
+        out["hint"] = (
+            "Finviz economic calendar is US-centric; an empty result for a "
+            "non-US country/currency filter does not mean that region has no "
+            "releases. Relax the country/currency filter or use a US/USD filter."
+        )
+        return
     out["hint"] = "Relax impact, country, currency, start, or end filters."
 
 
@@ -1376,6 +1386,17 @@ def _normalize_finviz_calendar_payload(
                 and str(item.get("country_code") or "").upper()
                 == str(country_code_filter).upper()
             ]
+            if (
+                str(country_code_filter).strip().upper() != "US"
+                and not matched_items
+            ):
+                _append_finviz_warning(
+                    out,
+                    "Finviz economic calendar currently covers US releases. "
+                    f"No events were attributed to country_filter="
+                    f"{str(country_code_filter).upper()}; an empty match does "
+                    "not mean that region has no scheduled releases.",
+                )
             retained_high_impact = []
             for item in high_impact_unclassified:
                 retained = dict(item)
@@ -1437,6 +1458,8 @@ def _normalize_finviz_calendar_payload(
         )
         out["count"] = len(out["items"])
         out["row_key"] = "items"
+        if country_code_filter:
+            out["country_filter"] = str(country_code_filter).upper()
         if out["count"] == 0:
             _apply_finviz_calendar_empty_hint(
                 out,

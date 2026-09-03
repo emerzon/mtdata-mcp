@@ -354,6 +354,17 @@ def test_economic_calendar_maps_major_us_provider_ids() -> None:
         "USURTOT": ("United States", "US"),
         "Unemployment Rate": ("United States", "US"),
     }
+    assert _infer_finviz_calendar_country(
+        {"source_id": "HOLIDAYSUNITED STAT"}
+    ) == ("United States", "US")
+    assert _infer_finviz_calendar_country({"source_id": "TBIMTOT"}) == (
+        "United States",
+        "US",
+    )
+    assert _infer_finviz_calendar_country({"source_id": "TBEXTOT"}) == (
+        "United States",
+        "US",
+    )
 
 
 def test_country_filter_keeps_usurtot_and_high_impact_unknown() -> None:
@@ -400,6 +411,40 @@ def test_country_filter_keeps_usurtot_and_high_impact_unknown() -> None:
     assert result["unclassified_events_count"] == 1
     assert result["excluded_events"][0]["event"] == "Mystery Medium"
     assert result["excluded_events"][0]["reason"] == "unknown_country_attribution"
+
+
+def test_non_us_country_filter_warns_when_feed_has_no_matching_events() -> None:
+    from mtdata.core.finviz.calendar import _normalize_finviz_calendar_payload
+
+    result = _normalize_finviz_calendar_payload(
+        {
+            "success": True,
+            "items": [
+                {
+                    "event": "Unemployment Rate",
+                    "date": "2026-09-04T12:30:00Z",
+                    "source_id": "USURTOT",
+                    "importance": 3,
+                }
+            ],
+            "total": 1,
+        },
+        calendar_type="economic",
+        upcoming_only=False,
+        source_is_unpaged=True,
+        limit=20,
+        page=1,
+        country_code_filter="DE",
+    )
+
+    assert result["count"] == 0
+    assert result["country_filter"] == "DE"
+    assert result["success"] is not False
+    assert any(
+        "US releases" in str(warning)
+        for warning in (result.get("warnings") or [])
+    )
+    assert "does not mean that region has no" in result["hint"]
 
 
 def test_economic_calendar_units_follow_row_unit_not_percent() -> None:

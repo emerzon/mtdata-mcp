@@ -74,11 +74,21 @@ def calendar(
     ] = None,
     country: Annotated[
         Optional[str],
-        Field(description="Economic country filter, such as US."),
+        Field(
+            description=(
+                "Economic country filter, such as US. Finviz currently covers "
+                "US releases; non-US codes are accepted but may match nothing."
+            )
+        ),
     ] = None,
     currency: Annotated[
         Optional[str],
-        Field(description="Economic currency filter, such as USD."),
+        Field(
+            description=(
+                "Economic currency filter, such as USD. Finviz currently covers "
+                "US releases; non-USD codes are accepted but may match nothing."
+            )
+        ),
     ] = None,
     start: Annotated[
         Optional[str],
