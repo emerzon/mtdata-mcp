@@ -26,6 +26,7 @@ from ..shared.schema import (
 from ..shared.schema import (
     get_function_info as _get_function_info,
 )
+from ..utils.time import MAX_TRADING_MINUTES_BACK
 from ._mcp_tools import _is_public_tool_name, get_mcp_registry
 from .param_help import COMMAND_PARAM_HELP_OVERRIDES
 
@@ -267,7 +268,7 @@ def _patch_trade_history_schema(schema: Dict[str, Any]) -> None:
         )
     minutes_back = params.get("minutes_back")
     if isinstance(minutes_back, dict):
-        minutes_back.update({"minimum": 1, "maximum": 10_512_000})
+        minutes_back.update({"minimum": 1, "maximum": MAX_TRADING_MINUTES_BACK})
     side = params.get("side")
     if isinstance(side, dict):
         side["pattern"] = (
@@ -301,7 +302,7 @@ def _patch_trade_journal_schema(schema: Dict[str, Any]) -> None:
     params, _required_params = _schema_params(schema)
     minutes_back = params.get("minutes_back")
     if isinstance(minutes_back, dict):
-        minutes_back.update({"minimum": 1, "maximum": 10_512_000})
+        minutes_back.update({"minimum": 1, "maximum": MAX_TRADING_MINUTES_BACK})
     _append_schema_rules(schema, _at_most_one("start", "minutes_back"))
 
 
@@ -1216,7 +1217,7 @@ def _patch_market_microstructure_schema(schema: Dict[str, Any]) -> None:
     params, _required = _schema_params(schema)
     minutes_back = params.get("minutes_back")
     if isinstance(minutes_back, dict):
-        minutes_back["maximum"] = 10_512_000
+        minutes_back["maximum"] = MAX_TRADING_MINUTES_BACK
     _append_schema_rules(
         schema,
         {"dependentRequired": {"start": ["end"], "end": ["start"]}},
@@ -1235,7 +1236,7 @@ def _patch_execution_quality_schema(schema: Dict[str, Any]) -> None:
     params, _required = _schema_params(schema)
     minutes_back = params.get("minutes_back")
     if isinstance(minutes_back, dict):
-        minutes_back["maximum"] = 10_512_000
+        minutes_back["maximum"] = MAX_TRADING_MINUTES_BACK
     markout_seconds = params.get("markout_seconds")
     if isinstance(markout_seconds, dict):
         markout_seconds.update(
