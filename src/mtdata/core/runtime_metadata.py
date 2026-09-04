@@ -254,23 +254,6 @@ def _coerce_optional_int(value: Any) -> Optional[int]:
     return None
 
 
-def display_timezone_label(
-    *,
-    use_client_tz: bool,
-    fallback: str = "client_local",
-    resolve_client_tz: Any = None,
-    client_tz: Any = None,
-) -> str:
-    from ..utils.time import display_timezone_label as _display_timezone_label
-
-    return _display_timezone_label(
-        use_client_tz=use_client_tz,
-        fallback=fallback,
-        resolve_client_tz=resolve_client_tz,
-        client_tz=client_tz,
-    )
-
-
 def build_runtime_timezone_meta(
     result: Any,
     *,

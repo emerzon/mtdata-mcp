@@ -53,13 +53,14 @@ from ..utils.time import (
     _format_time_second_explicit_local,
     _resolve_client_tz,
     _use_client_tz,
+    display_timezone_label,
 )
 from ._mcp_instance import mcp
 from .error_envelope import build_error_payload
 from .execution_logging import run_logged_operation
 from .mt5_gateway import create_mt5_gateway
 from .output_contract import ensure_common_meta, normalize_output_verbosity_detail
-from .runtime_metadata import attach_mt5_source, display_timezone_label
+from .runtime_metadata import attach_mt5_source
 
 logger = logging.getLogger(__name__)
 _MARKET_DEPTH_ENABLE_ENV = "MTDATA_ENABLE_MARKET_DEPTH_FETCH"

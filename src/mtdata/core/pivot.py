@@ -61,6 +61,7 @@ from ..utils.time import (
     _resolve_client_tz,
     _use_client_tz,
     bar_close_epoch,
+    display_timezone_label,
     format_datetime_utc,
     format_epoch_utc,
     parse_iso_utc,
@@ -77,7 +78,7 @@ from ._mcp_instance import mcp
 from .error_envelope import build_error_payload
 from .mt5_gateway import create_mt5_gateway
 from .output_contract import attach_completed_bar_input_policy
-from .runtime_metadata import display_timezone_label, run_mt5_logged_operation
+from .runtime_metadata import run_mt5_logged_operation
 from .volume_profile import compute_volume_profile_payload
 
 logger = logging.getLogger(__name__)
