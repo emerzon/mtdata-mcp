@@ -107,9 +107,6 @@ def _nonempty_symbol_string(value: Any) -> Optional[str]:
     text = str(value).strip()
     return text or None
 
-def _client_timezone_label(client_tz: Any) -> str:
-    return timezone_label(client_tz, default="UTC")
-
 _SYMBOL_DESCRIBE_PRICE_FIELDS = frozenset(
     {
         "bidlow",
@@ -1462,7 +1459,7 @@ def symbols_describe(  # noqa: C901
             payload = {
                 "success": True,
                 "symbol": symbol_name or _nonempty_symbol_string(symbol) or symbol,
-                "timezone": _client_timezone_label(client_tz),
+                "timezone": timezone_label(client_tz, default="UTC"),
                 "details": symbol_data,
                 "source": build_mt5_source_provenance(mt5_gateway),
             }

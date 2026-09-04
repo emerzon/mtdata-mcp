@@ -201,10 +201,6 @@ def _default_temporal_lookback(timeframe: str, group_by: str) -> int:
     )
 
 
-def _timezone_label(value: Any, *, default: str = "UTC") -> str:
-    return timezone_label(value, default=default)
-
-
 def _temporal_edge_status(rows: Any, best: Dict[str, Any]) -> str:
     means = [
         float(row.get("avg_return_pct") or 0.0)
@@ -1276,7 +1272,7 @@ def temporal_analyze(  # noqa: C901
                 timezone_source = (
                     "client_config" if client_tz is not None else "default_utc"
                 )
-            tz_name = _timezone_label(analysis_tz)
+            tz_name = timezone_label(analysis_tz)
             context["timezone"] = tz_name
             context["timezone_source"] = timezone_source
             return_mode_value = str(return_mode or "").strip().lower()
