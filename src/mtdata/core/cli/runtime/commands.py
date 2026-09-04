@@ -708,18 +708,16 @@ def create_command_function(  # noqa: C901
                     if extra:
                         if param_name == "denoise" and isinstance(arg_value, dict):
                             from mtdata.utils.denoise.api import (
-                                normalize_denoise_pipeline_values,
-                                split_denoise_companion_params,
+                                apply_denoise_companion_params,
                             )
 
-                            pipeline_values, method_values = (
-                                split_denoise_companion_params(extra)
-                            )
                             try:
-                                pipeline_values = normalize_denoise_pipeline_values(
-                                    pipeline_values,
+                                apply_denoise_companion_params(
+                                    arg_value,
+                                    extra,
                                     coerce_scalar=coerce_cli_scalar,
                                     normalize_columns=normalize_cli_list_value,
+                                    merge=merge_dict,
                                 )
                             except ValueError as exc:
                                 render_cli_result(
@@ -728,14 +726,6 @@ def create_command_function(  # noqa: C901
                                     cmd_name=cmd_name,
                                 )
                                 return 2
-                            arg_value.update(pipeline_values)
-                            method_params = arg_value.get("params")
-                            if not isinstance(method_params, dict):
-                                method_params = {}
-                            if method_values:
-                                arg_value["params"] = merge_dict(
-                                    method_params, method_values
-                                )
                         elif arg_value is None or arg_value == {}:
                             arg_value = extra
                         elif isinstance(arg_value, dict):

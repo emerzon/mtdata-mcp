@@ -1807,3 +1807,15 @@ class TestDenoiseCompanionParams:
                 normalize_columns=lambda value: value,
             )
 
+    def test_apply_merges_pipeline_and_method_params(self):
+        denoise = {"method": "ema", "params": {"span": 10}}
+        result = denoise_api.apply_denoise_companion_params(
+            denoise,
+            {"keep_original": "true", "span": "24"},
+            coerce_scalar=lambda value: {"true": True, "false": False}.get(value, value),
+            normalize_columns=lambda value: value,
+            merge=lambda dst, src: {**dst, **src},
+        )
+        assert result["keep_original"] is True
+        assert result["params"] == {"span": "24"}
+

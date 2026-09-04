@@ -1218,10 +1218,7 @@ def _apply_denoise_companion_params(
     *,
     parser: argparse.ArgumentParser,
 ) -> Optional[Dict[str, Any]]:
-    from mtdata.utils.denoise.api import (
-        normalize_denoise_pipeline_values,
-        split_denoise_companion_params,
-    )
+    from mtdata.utils.denoise.api import apply_denoise_companion_params
 
     if not isinstance(denoise_params, str) or not denoise_params.strip():
         return denoise
@@ -1233,22 +1230,16 @@ def _apply_denoise_companion_params(
         )
     if not isinstance(denoise, dict):
         return extra
-    pipeline_values, method_values = split_denoise_companion_params(extra)
     try:
-        pipeline_values = normalize_denoise_pipeline_values(
-            pipeline_values,
+        return apply_denoise_companion_params(
+            denoise,
+            extra,
             coerce_scalar=_coerce_cli_scalar,
             normalize_columns=_normalize_cli_list_value,
+            merge=_merge_dict,
         )
     except ValueError as exc:
         parser.error(str(exc))
-    denoise.update(pipeline_values)
-    if method_values:
-        method_params = denoise.get("params")
-        if not isinstance(method_params, dict):
-            method_params = {}
-        denoise["params"] = _merge_dict(method_params, method_values)
-    return denoise
 
 
 _FORECAST_TYPED_ARG_SPECS: Dict[str, Dict[str, Any]] = {

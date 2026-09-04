@@ -94,6 +94,34 @@ def split_denoise_companion_params(
     return pipeline, method
 
 
+def apply_denoise_companion_params(
+    denoise: Dict[str, Any],
+    extra: Mapping[str, Any],
+    *,
+    coerce_scalar: Callable[[str], Any],
+    normalize_columns: Callable[[Any], Any],
+    merge: Callable[[Dict[str, Any], Dict[str, Any]], Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Merge companion KV params into a denoise spec.
+
+    Pipeline keys update the spec itself. Remaining keys merge into
+    ``params``. Raises ``ValueError`` when pipeline values fail validation.
+    """
+    pipeline_values, method_values = split_denoise_companion_params(extra)
+    pipeline_values = normalize_denoise_pipeline_values(
+        pipeline_values,
+        coerce_scalar=coerce_scalar,
+        normalize_columns=normalize_columns,
+    )
+    denoise.update(pipeline_values)
+    if method_values:
+        method_params = denoise.get("params")
+        if not isinstance(method_params, dict):
+            method_params = {}
+        denoise["params"] = merge(method_params, method_values)
+    return denoise
+
+
 def normalize_denoise_pipeline_values(
     pipeline_values: Mapping[str, Any],
     *,
