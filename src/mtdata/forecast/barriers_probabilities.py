@@ -63,10 +63,6 @@ from .monte_carlo import simulate_hmm_mc as _simulate_hmm_mc
 from .monte_carlo import simulate_jump_diffusion_mc as _simulate_jump_diffusion_mc
 
 
-def _barrier_param_keys(method: str) -> set[str]:
-    return barrier_simulation_param_keys(method)
-
-
 def _abs_barrier_side_error(
     *,
     price: float,
@@ -172,7 +168,7 @@ def forecast_barrier_hit_probabilities(  # noqa: C901
             return {"error": barrier_method_error(method)}
         parameter_error = unknown_mapping_keys_error(
             p,
-            _barrier_param_keys(method_key),
+            barrier_simulation_param_keys(method_key),
             subject=f"barrier params for method '{method_key}'",
         )
         if parameter_error is not None:
