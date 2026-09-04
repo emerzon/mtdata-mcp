@@ -438,9 +438,3 @@ def append_output_warning(
     payload["warnings"] = rows
 
 
-def strip_legacy_fields(
-    payload: Mapping[str, Any],
-    fields: frozenset[str],
-) -> Dict[str, Any]:
-    """Return a shallow copy without a migrated legacy root-field family."""
-    return {key: value for key, value in payload.items() if key not in fields}
