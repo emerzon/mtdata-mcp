@@ -211,7 +211,7 @@ def _run_data_fetch_candles_impl(
     connection_error = _ensure_gateway_connection(gateway)
     if connection_error is not None:
         return connection_error
-    future_bound = _future_candle_bound(request)
+    future_bound = _future_bound(request)
     if future_bound is not None:
         field, value = future_bound
         details: Dict[str, Any] = {
@@ -2233,7 +2233,7 @@ def _run_data_fetch_ticks_impl(
     fetch_ticks_impl: Any,
     effective_limit: Optional[int] = None,
 ) -> Dict[str, Any]:
-    future_bound = _future_tick_bound(request)
+    future_bound = _future_bound(request)
     if future_bound is not None:
         field, value = future_bound
         details: Dict[str, Any] = {
@@ -2533,37 +2533,7 @@ def _normalize_tick_query_error(
     )
 
 
-def _future_candle_bound(
-    request: DataFetchCandlesRequest,
-) -> Optional[tuple[str, str]]:
-    now_utc = datetime.now(timezone.utc)
-    now_naive = now_utc.replace(tzinfo=None)
-    for field in ("start", "end"):
-        value = getattr(request, field, None)
-        if value in (None, ""):
-            continue
-        parsed = (
-            _parse_start_datetime(str(value))
-            if field == "start"
-            else _parse_end_datetime(str(value))
-        )
-        if parsed is None:
-            continue
-        if parsed.tzinfo is not None:
-            parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
-        if parsed <= now_naive:
-            continue
-        if field == "end" and _is_in_progress_calendar_day_end(
-            str(value), parsed, now_naive
-        ):
-            continue
-        return field, str(value)
-    return None
-
-
-def _future_tick_bound(
-    request: DataFetchTicksRequest,
-) -> Optional[tuple[str, str]]:
+def _future_bound(request: Any) -> Optional[tuple[str, str]]:
     now_utc = datetime.now(timezone.utc)
     now_naive = now_utc.replace(tzinfo=None)
     for field in ("start", "end"):
@@ -2590,7 +2560,7 @@ def _future_tick_bound(
 
 
 def _tick_request_is_future_only(request: DataFetchTicksRequest) -> bool:
-    return _future_tick_bound(request) is not None
+    return _future_bound(request) is not None
 
 
 def _attach_tick_pagination(
