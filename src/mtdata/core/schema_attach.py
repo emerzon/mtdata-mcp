@@ -259,6 +259,36 @@ def _patch_data_fetch_ticks_schema(schema: Dict[str, Any]) -> None:
     )
 
 
+def _constrain_minutes_back(params: Dict[str, Any]) -> None:
+    minutes_back = params.get("minutes_back")
+    if isinstance(minutes_back, dict):
+        minutes_back.update({"minimum": 1, "maximum": MAX_TRADING_MINUTES_BACK})
+
+
+def _tuning_metric_cost_and_steps_rules(
+    metric_field: str,
+    trading_metrics: Iterable[str],
+    annualized_metrics: Iterable[str],
+    *,
+    min_annualized_steps: int,
+) -> tuple[Dict[str, Any], Dict[str, Any], Dict[str, Any]]:
+    return (
+        _as_of_excludes_range(),
+        {
+            "if": _explicit_enum(metric_field, sorted(trading_metrics)),
+            "then": {"required": ["spread_bps", "commission_bps_per_side"]},
+        },
+        {
+            "if": _explicit_enum(metric_field, sorted(annualized_metrics)),
+            "then": {
+                "properties": {
+                    "steps": {"minimum": min_annualized_steps}
+                }
+            },
+        },
+    )
+
+
 def _patch_trade_history_schema(schema: Dict[str, Any]) -> None:
     params, _required_params = _schema_params(schema)
     if "cursor" in params:
@@ -266,9 +296,7 @@ def _patch_trade_history_schema(schema: Dict[str, Any]) -> None:
             "Opaque keyset cursor from pagination.next_cursor; reuse it with "
             "the same history kind, filters, time controls, and order."
         )
-    minutes_back = params.get("minutes_back")
-    if isinstance(minutes_back, dict):
-        minutes_back.update({"minimum": 1, "maximum": MAX_TRADING_MINUTES_BACK})
+    _constrain_minutes_back(params)
     side = params.get("side")
     if isinstance(side, dict):
         side["pattern"] = (
@@ -300,9 +328,7 @@ def _patch_trade_history_schema(schema: Dict[str, Any]) -> None:
 
 def _patch_trade_journal_schema(schema: Dict[str, Any]) -> None:
     params, _required_params = _schema_params(schema)
-    minutes_back = params.get("minutes_back")
-    if isinstance(minutes_back, dict):
-        minutes_back.update({"minimum": 1, "maximum": MAX_TRADING_MINUTES_BACK})
+    _constrain_minutes_back(params)
     _append_schema_rules(schema, _at_most_one("start", "minutes_back"))
 
 
@@ -1354,19 +1380,12 @@ def _patch_forecast_tuning_schema(schema: Dict[str, Any]) -> None:
     _patch_nonblank_method_items(schema)
     _append_schema_rules(
         schema,
-        _as_of_excludes_range(),
-        {
-            "if": _explicit_enum("metric", sorted(TRADING_TUNING_METRICS)),
-            "then": {"required": ["spread_bps", "commission_bps_per_side"]},
-        },
-        {
-            "if": _explicit_enum("metric", sorted(ANNUALIZED_TUNING_METRICS)),
-            "then": {
-                "properties": {
-                    "steps": {"minimum": MIN_ANNUALIZED_TUNING_TRADES}
-                }
-            },
-        },
+        *_tuning_metric_cost_and_steps_rules(
+            "metric",
+            TRADING_TUNING_METRICS,
+            ANNUALIZED_TUNING_METRICS,
+            min_annualized_steps=MIN_ANNUALIZED_TUNING_TRADES,
+        ),
     )
 
 
@@ -1377,7 +1396,7 @@ def _patch_forecast_optimize_hints_schema(schema: Dict[str, Any]) -> None:
         TRADING_TUNING_METRICS,
     )
 
-    trading_metrics = sorted((*TRADING_TUNING_METRICS, "composite"))
+    trading_metrics = (*TRADING_TUNING_METRICS, "composite")
     params, _required = _schema_params(schema)
     methods = params.get("methods")
     if isinstance(methods, dict):
@@ -1389,21 +1408,12 @@ def _patch_forecast_optimize_hints_schema(schema: Dict[str, Any]) -> None:
         )
     _append_schema_rules(
         schema,
-        _as_of_excludes_range(),
-        {
-            "if": _explicit_enum("fitness_metric", trading_metrics),
-            "then": {"required": ["spread_bps", "commission_bps_per_side"]},
-        },
-        {
-            "if": _explicit_enum(
-                "fitness_metric", sorted(ANNUALIZED_TUNING_METRICS)
-            ),
-            "then": {
-                "properties": {
-                    "steps": {"minimum": MIN_ANNUALIZED_TUNING_TRADES}
-                }
-            },
-        },
+        *_tuning_metric_cost_and_steps_rules(
+            "fitness_metric",
+            trading_metrics,
+            ANNUALIZED_TUNING_METRICS,
+            min_annualized_steps=MIN_ANNUALIZED_TUNING_TRADES,
+        ),
         {
             "if": {"required": ["fitness_weights"]},
             "then": {
