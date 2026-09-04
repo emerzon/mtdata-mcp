@@ -260,7 +260,7 @@ class ModelStore:
 
                 # Atomic write: artifact
                 artifact_path = model_dir / "model.bin"
-                self._atomic_write_bytes(artifact_path, artifact_bytes)
+                atomic_write_bytes(artifact_path, artifact_bytes)
 
                 # Build handle
                 now = time.time()
@@ -288,7 +288,7 @@ class ModelStore:
                     "artifact_sha256": hashlib.sha256(artifact_bytes).hexdigest(),
                 }
                 meta_path = model_dir / "metadata.json"
-                self._atomic_write_text(
+                atomic_write_text(
                     meta_path, json.dumps(meta_dict, indent=2, default=str),
                 )
 
@@ -622,7 +622,7 @@ class ModelStore:
         )
         meta_path = model_dir / "metadata.json"
         try:
-            self._atomic_write_text(
+            atomic_write_text(
                 meta_path, json.dumps(meta, indent=2, default=str),
             )
         except Exception as exc:
@@ -732,16 +732,6 @@ class ModelStore:
             if acquired:
                 self._release_file_lock(fd)
             os.close(fd)
-
-    @staticmethod
-    def _atomic_write_bytes(target: Path, data: bytes) -> None:
-        """Write *data* atomically via temp file + ``os.replace``."""
-        atomic_write_bytes(target, data)
-
-    @staticmethod
-    def _atomic_write_text(target: Path, text: str) -> None:
-        """Write *text* atomically via temp file + ``os.replace``."""
-        atomic_write_text(target, text)
 
     def _remove_dir(self, path: Path) -> bool:
         try:

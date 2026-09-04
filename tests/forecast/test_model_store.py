@@ -447,7 +447,9 @@ class TestModelStoreAtomicWrite(unittest.TestCase):
     def test_artifact_metadata_generation_mismatch_is_rejected(self):
         self.store.save("m", "d", "p", b"generation-one")
         model_dir = self.store._model_dir("m", "d", "p")
-        self.store._atomic_write_bytes(
+        from mtdata.utils.atomic_io import atomic_write_bytes
+
+        atomic_write_bytes(
             model_dir / "model.bin", b"generation-two"
         )
 
