@@ -29,3 +29,9 @@ def test_forex_pip_helpers_tolerate_computed_point_values() -> None:
 def test_forex_pip_helpers_do_not_assign_pips_to_cfds() -> None:
     assert forex_points_per_pip("XAUUSD", point=0.01, digits=2) is None
     assert forex_pip_size("US500", point=0.01, digits=2) is None
+
+
+def test_forex_pip_helpers_accept_broker_prefixed_pairs() -> None:
+    assert forex_points_per_pip("mEURUSD", point=0.00001, digits=5) == 10.0
+    assert forex_points_per_pip("FX_EURUSD", point=0.00001, digits=5) == 10.0
+    assert forex_pip_size("USDZAR.pro", point=0.00001, digits=5) == 0.0001
