@@ -219,12 +219,6 @@ def _format_time_minimal_local(epoch_seconds: float) -> str:
         return _format_time_minimal(epoch_seconds)
 
 
-# Backward-compatible aliases for callers that historically used "explicit"
-# to mean the same minute-resolution representation.
-_format_time_explicit = _format_time_minimal
-_format_time_explicit_local = _format_time_minimal_local
-
-
 def _format_time_second_explicit(epoch_seconds: float) -> str:
     """Format UTC epoch seconds at quote/event precision."""
     dt = datetime.fromtimestamp(epoch_seconds, tz=timezone.utc)

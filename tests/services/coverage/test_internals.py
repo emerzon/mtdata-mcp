@@ -795,7 +795,7 @@ class TestFetchRatesWithWarmup(unittest.TestCase):
             },
         ]
         mock_from.return_value = rates
-        from mtdata.utils.time import _format_time_explicit
+        from mtdata.utils.time import _format_time_minimal
 
         with (
             patch(f"{_DS}.FETCH_RETRY_ATTEMPTS", 1),
@@ -815,12 +815,12 @@ class TestFetchRatesWithWarmup(unittest.TestCase):
 
         self.assertIsNone(result)
         self.assertIn("latest completed bar is", err)
-        self.assertIn(_format_time_explicit(completed_open), err)
+        self.assertIn(_format_time_minimal(completed_open), err)
         self.assertIn("forming bar", err)
-        self.assertIn(_format_time_explicit(forming_open), err)
+        self.assertIn(_format_time_minimal(forming_open), err)
         self.assertIn("include_incomplete=true", err)
         prefix, _sep, _rest = err.partition("forming bar")
-        self.assertNotIn(_format_time_explicit(forming_open), prefix)
+        self.assertNotIn(_format_time_minimal(forming_open), prefix)
 
     @patch(_RATES_FROM)
     def test_include_incomplete_does_not_relax_unverified_stale_policy(self, mock_from):

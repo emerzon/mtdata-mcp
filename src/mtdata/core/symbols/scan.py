@@ -66,7 +66,7 @@ from ...utils.symbol import (
     _normalize_group_path_query,
 )
 from ...utils.time import (
-    _format_time_explicit,
+    _format_time_minimal,
     _format_time_second_explicit,
     bar_close_epoch,
 )
@@ -524,7 +524,7 @@ def _project_market_scan_completed_bars(
         {
             "timeframe": timeframe,
             "data_source": f"{timeframe}_bars",
-            "time": _format_time_explicit(bar_time) if bar_time is not None else None,
+            "time": _format_time_minimal(bar_time) if bar_time is not None else None,
             **_market_scan_bar_freshness_fields(
                 bar_time,
                 timeframe=timeframe,
@@ -2381,8 +2381,8 @@ def symbols_top_markets(  # noqa: C901
                     limit=max(1, ranking_universe_size),
                 ),
                 "sampling_window": {
-                    "started_at": _format_time_explicit(scan_started_epoch),
-                    "ended_at": _format_time_explicit(scan_finished_epoch),
+                    "started_at": _format_time_minimal(scan_started_epoch),
+                    "ended_at": _format_time_minimal(scan_finished_epoch),
                     "duration_seconds": round(
                         max(0.0, scan_finished_epoch - scan_started_epoch),
                         3,

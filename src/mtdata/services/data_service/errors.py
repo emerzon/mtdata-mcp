@@ -12,7 +12,7 @@ from ...utils.mt5 import (
     get_symbol_info_cached,
     mt5,
 )
-from ...utils.time import _format_time_explicit
+from ...utils.time import _format_time_minimal
 from ...utils.utils import _utc_epoch_seconds
 from .query import _candle_query_applied, _parse_fetch_datetime_arg
 
@@ -175,7 +175,7 @@ def _build_no_data_error_with_context(
             last_time = datetime.fromtimestamp(last_epoch, tz=dt_timezone.utc)
 
             details["available_range"] = {
-                "latest": _format_time_explicit(last_epoch),
+                "latest": _format_time_minimal(last_epoch),
                 "earliest": None,
                 "earliest_status": "not_scanned",
             }
@@ -191,8 +191,8 @@ def _build_no_data_error_with_context(
                     elif req_start is not None:
                         req_start = req_start.astimezone(dt_timezone.utc)
                     if req_start and req_start > last_time:
-                        error_msg = f"No data available - requested start date is after latest available data ({_format_time_explicit(last_epoch)})"
-                        details["suggestion"] = f"Use start='{_format_time_explicit(last_epoch)}' or earlier"
+                        error_msg = f"No data available - requested start date is after latest available data ({_format_time_minimal(last_epoch)})"
+                        details["suggestion"] = f"Use start='{_format_time_minimal(last_epoch)}' or earlier"
                 except Exception:
                     pass
     except Exception:

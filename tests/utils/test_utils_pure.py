@@ -10,7 +10,6 @@ from mtdata.utils.coercion import coerce_scalar
 from mtdata.utils.coercion import safe_float as _safe_float
 from mtdata.utils.time import (
     _format_datetime_second_explicit,
-    _format_time_explicit,
     _format_time_minimal,
 )
 from mtdata.utils.utils import (
@@ -187,7 +186,7 @@ class TestFormatTimeMinimal:
         assert "2024-01-01" in result
 
     def test_explicit_utc_timestamp_has_timezone_marker(self):
-        result = _format_time_explicit(1704067200)
+        result = _format_time_minimal(1704067200)
         assert result == "2024-01-01T00:00Z"
 
     def test_explicit_second_timestamp_assumes_utc_for_naive_datetime(self):

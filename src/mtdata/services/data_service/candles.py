@@ -86,8 +86,8 @@ from ...utils.ohlcv import validate_and_clean_ohlcv_frame
 from ...utils.simplify import _normalize_simplify_spec, _simplify_dataframe_rows_ext
 from ...utils.time import (
     _format_datetime_minute_explicit,
-    _format_time_explicit,
-    _format_time_explicit_local,
+    _format_time_minimal,
+    _format_time_minimal_local,
     _resolve_client_tz,
     bar_close_epoch,
     display_timezone_label,
@@ -611,10 +611,10 @@ def _fetch_rates_with_warmup(  # noqa: C901
         if diagnostics is not None:
             diagnostics["range_fetch"] = {
                 "provider_bounded": False,
-                "provider_start": _format_time_explicit(
+                "provider_start": _format_time_minimal(
                     _utc_epoch_seconds(from_date_internal)
                 ),
-                "requested_start": _format_time_explicit(
+                "requested_start": _format_time_minimal(
                     _utc_epoch_seconds(from_date)
                 ),
                 "provider_row_budget": requested_rows,
@@ -644,7 +644,7 @@ def _fetch_rates_with_warmup(  # noqa: C901
                     diagnostics["range_fetch"].update(
                         {
                             "provider_bounded": len(filtered) >= requested_rows,
-                            "provider_end": _format_time_explicit(expected_end_ts),
+                            "provider_end": _format_time_minimal(expected_end_ts),
                             "provider_end_bounded": True,
                             "selection_anchor": "end",
                         }
@@ -673,7 +673,7 @@ def _fetch_rates_with_warmup(  # noqa: C901
                 if qualifying >= candles + extra_bars or candidate_end >= to_date:
                     if diagnostics is not None:
                         diagnostics["range_fetch"]["provider_end"] = (
-                            _format_time_explicit(_utc_epoch_seconds(candidate_end))
+                            _format_time_minimal(_utc_epoch_seconds(candidate_end))
                         )
                         diagnostics["range_fetch"]["provider_end_bounded"] = (
                             candidate_end < to_date
@@ -731,13 +731,13 @@ def _fetch_rates_with_warmup(  # noqa: C901
         if diagnostics is not None:
             diagnostics["range_fetch"] = {
                 "provider_bounded": False,
-                "provider_start": _format_time_explicit(
+                "provider_start": _format_time_minimal(
                     _utc_epoch_seconds(from_date_internal)
                 ),
-                "requested_start": _format_time_explicit(
+                "requested_start": _format_time_minimal(
                     _utc_epoch_seconds(from_date)
                 ),
-                "requested_end": _format_time_explicit(expected_end_ts),
+                "requested_end": _format_time_minimal(expected_end_ts),
                 "requested_end_source": "wall_clock_now",
                 "provider_row_budget": requested_rows,
             }
@@ -767,7 +767,7 @@ def _fetch_rates_with_warmup(  # noqa: C901
                         {
                             "provider_bounded": len(filtered)
                             >= candles + extra_bars,
-                            "provider_end": _format_time_explicit(expected_end_ts),
+                            "provider_end": _format_time_minimal(expected_end_ts),
                             "provider_end_bounded": True,
                             "selection_anchor": "end",
                         }
@@ -799,7 +799,7 @@ def _fetch_rates_with_warmup(  # noqa: C901
                                 "provider_bounded": bool(
                                     provider_end_bounded and qualifying >= candles
                                 ),
-                                "provider_end": _format_time_explicit(
+                                "provider_end": _format_time_minimal(
                                     _utc_epoch_seconds(candidate_end)
                                 ),
                                 "provider_end_bounded": provider_end_bounded,
@@ -997,13 +997,13 @@ def _fetch_rates_with_warmup(  # noqa: C901
     ):
         message = (
             f"Data appears stale for {symbol} {timeframe}: latest completed bar is "
-            f"from {_format_time_explicit(stale_last_t)}. Market may be closed; "
+            f"from {_format_time_minimal(stale_last_t)}. Market may be closed; "
             "set allow_stale=true to retrieve the latest "
             "available completed historical bars."
         )
         if stale_forming_t is not None:
             message += (
-                f" A forming bar at {_format_time_explicit(stale_forming_t)} was "
+                f" A forming bar at {_format_time_minimal(stale_forming_t)} was "
                 "observed and skipped; pass include_incomplete=true to include it."
             )
         return None, message
@@ -1083,7 +1083,7 @@ def _format_rate_times(epoch_series: pd.Series, *, use_client_tz: bool) -> pd.Se
         )
     )
     if bool(formatted.isna().any()):
-        formatter = _format_time_explicit_local if use_client_tz else _format_time_explicit
+        formatter = _format_time_minimal_local if use_client_tz else _format_time_minimal
         fallback = epochs.map(lambda value: formatter(float(value)) if pd.notna(value) else None)
         formatted = formatted.where(~formatted.isna(), fallback)
     return formatted
@@ -1773,11 +1773,11 @@ def _describe_session_gap(
         return None
 
     if use_client_tz:
-        from_disp = _format_time_explicit_local(prev_t)
-        to_disp = _format_time_explicit_local(curr_t)
+        from_disp = _format_time_minimal_local(prev_t)
+        to_disp = _format_time_minimal_local(curr_t)
     else:
-        from_disp = _format_time_explicit(prev_t)
-        to_disp = _format_time_explicit(curr_t)
+        from_disp = _format_time_minimal(prev_t)
+        to_disp = _format_time_minimal(curr_t)
 
     missing_bars_est = max(1, int(round(gap_seconds / expected_bar_seconds)) - 1)
     prev_dt = datetime.fromtimestamp(prev_t, tz=dt_timezone.utc)

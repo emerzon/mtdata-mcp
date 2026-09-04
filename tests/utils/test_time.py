@@ -74,7 +74,6 @@ def test_client_local_formatters_share_resolved_timezone(monkeypatch) -> None:
 
     assert time_utils._use_client_tz() is True
     assert time_utils._format_time_minimal_local(0) == "1970-01-01T05:30+05:30"
-    assert time_utils._format_time_explicit_local(0) == "1970-01-01T05:30+05:30"
 
 
 def test_format_relative_time_handles_past_future_and_large_units() -> None:
