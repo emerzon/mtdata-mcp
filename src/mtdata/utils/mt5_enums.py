@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 _ABBREVIATIONS = {"SL", "TP", "SO", "IOC", "FOK", "BOC", "GTC", "EA", "DMA"}
+_PREFIX_CONSTANTS_CACHE: Dict[Tuple[int, str], Dict[int, str]] = {}
 _CANONICAL_ENUM_NAMES: Dict[str, Dict[int, str]] = {
     "SYMBOL_TRADE_EXECUTION_": {
         0: "SYMBOL_TRADE_EXECUTION_REQUEST",
@@ -43,6 +44,10 @@ def _prettify_constant_name(name: str, prefix: str) -> str:
 
 
 def _constants_by_prefix(mt5_module: Any, prefix: str) -> Dict[int, str]:
+    cache_key = (id(mt5_module), str(prefix))
+    cached = _PREFIX_CONSTANTS_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
     out: Dict[int, str] = {}
     sources = [mt5_module]
     adapter = getattr(mt5_module, "adapter", None)
@@ -58,6 +63,7 @@ def _constants_by_prefix(mt5_module: Any, prefix: str) -> Dict[int, str]:
                 continue
             if isinstance(value, int):
                 out[int(value)] = str(attr)
+    _PREFIX_CONSTANTS_CACHE[cache_key] = out
     return out
 
 
