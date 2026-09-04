@@ -30,7 +30,6 @@ from mtdata.core.trading.use_cases.common import (
     _human_join,
     _linearized_account_currency_notional,
     _round_optional_number,
-    _validate_trading_symbol,
     logger,
 )
 from mtdata.services.data_service.candles import _is_last_bar_forming
@@ -1120,7 +1119,7 @@ def run_trade_risk_analyze(  # noqa: C901
         gateway.ensure_connection()
     except MT5ConnectionError as exc:
         return _finish({"error": str(exc)})
-    symbol_error = _validate_trading_symbol(gateway, request.symbol)
+    symbol_error = validation._validate_trading_symbol(gateway, request.symbol)
     if symbol_error is not None:
         return _finish(symbol_error)
 
@@ -3289,7 +3288,7 @@ def run_trade_var_cvar_calculate(  # noqa: C901
     except MT5ConnectionError as exc:
         return _finish({"error": str(exc)})
 
-    symbol_error = _validate_trading_symbol(gateway, request.symbol)
+    symbol_error = validation._validate_trading_symbol(gateway, request.symbol)
     if symbol_error is not None:
         return _finish(symbol_error)
 

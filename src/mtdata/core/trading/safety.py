@@ -68,16 +68,16 @@ def _safe_float_attr(obj: Any, name: str) -> Optional[float]:
     return validation._safe_float_attr(obj, name, None)
 
 
-def _normalize_stop_loss_value(value: Optional[float]) -> Optional[float]:
-    if value is None:
-        return None
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return None
-    if not math.isfinite(numeric) or math.isclose(numeric, 0.0, abs_tol=1e-12):
-        return None
-    return numeric
+def _normalize_stop_loss_value(
+    value: Optional[float],
+    *,
+    symbol_info: Any = None,
+) -> Optional[float]:
+    point = _safe_float_attr(symbol_info, "point") if symbol_info is not None else None
+    return validation._normalize_protection_level(
+        value,
+        tol=validation._protection_level_tolerance(point=float(point or 0.0)),
+    )
 
 
 def _normalize_symbol(value: Any) -> str:
@@ -758,7 +758,9 @@ def _estimate_order_risk_currency(
     side: str,
     wrong_side_policy: Literal["reject", "secured", "overrun"] = "reject",
 ) -> tuple[Optional[float], Optional[str]]:
-    normalized_stop_loss = _normalize_stop_loss_value(stop_loss)
+    normalized_stop_loss = _normalize_stop_loss_value(
+        stop_loss, symbol_info=symbol_info
+    )
     if normalized_stop_loss is None:
         return None, "stop_loss_missing"
 
@@ -803,16 +805,11 @@ def _pending_order_volume(order: Any) -> Optional[float]:
     return None
 
 
-def _resolve_pending_order_side(order: Any) -> Optional[str]:
+def _resolve_pending_order_side(order: Any, mt5: Any = None) -> Optional[str]:
     order_type = _safe_float_attr(order, "type")
     if order_type is None:
         return None
-    type_value = int(order_type)
-    if type_value in {2, 4, 6}:
-        return "BUY"
-    if type_value in {3, 5, 7}:
-        return "SELL"
-    return None
+    return validation._pending_order_side(order_type, mt5)
 
 
 def _sum_existing_exposure_lots(
@@ -1480,8 +1477,12 @@ def pending_order_risk_increased(
     candidate_stop_loss: Optional[float],
 ) -> bool:
     """Return True when a pending-order modification increases downside risk."""
-    current_sl = _normalize_stop_loss_value(existing_stop_loss)
-    next_sl = _normalize_stop_loss_value(candidate_stop_loss)
+    current_sl = _normalize_stop_loss_value(
+        existing_stop_loss, symbol_info=symbol_info
+    )
+    next_sl = _normalize_stop_loss_value(
+        candidate_stop_loss, symbol_info=symbol_info
+    )
     current_entry = coerce_finite_float(existing_entry_price)
     next_entry = coerce_finite_float(candidate_entry_price)
 

@@ -900,35 +900,6 @@ def _compact_close_preview_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def _validate_trading_symbol(gateway: Any, symbol: Optional[str]) -> Optional[Dict[str, Any]]:
-    symbol_value = str(symbol or "").strip()
-    if not symbol_value:
-        return None
-    symbol_info = getattr(gateway, "symbol_info", None)
-    if not callable(symbol_info):
-        return None
-    try:
-        info = symbol_info(symbol_value)
-        if info is None:
-            symbol_select = getattr(gateway, "symbol_select", None)
-            if callable(symbol_select) and symbol_select(symbol_value, True):
-                info = symbol_info(symbol_value)
-    except Exception:
-        return None
-    if info is not None:
-        return None
-    return {
-        "success": False,
-        "error": f"Symbol '{symbol_value}' was not found by MT5.",
-        "error_code": "symbol_not_found",
-        "symbol": symbol_value,
-        "remediation": (
-            "Use symbols_list to find the broker's exact symbol name and suffix."
-        ),
-        "related_tools": ["symbols_list"],
-    }
-
-
 def _epoch_series_to_utc_and_text(
     raw_series: Any,
     *,

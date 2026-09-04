@@ -1886,14 +1886,6 @@ def _place_pending_order(  # noqa: C901
             initial_tick = mt5.symbol_info_tick(symbol)
             if initial_tick is None:
                 return {"error": f"Failed to get current price for {symbol}"}
-            freshness_error = validation._validate_tick_freshness(
-                initial_tick,
-                symbol=symbol,
-                max_age_seconds=_TRADE_TICK_MAX_AGE_SECONDS,
-                required=False,
-            )
-            if freshness_error is not None:
-                return freshness_error
 
             deviation_validated, deviation_error = validation._validate_deviation(deviation)
             if deviation_error:
@@ -1958,14 +1950,6 @@ def _place_pending_order(  # noqa: C901
             live_tick = mt5.symbol_info_tick(symbol) or initial_tick
             if live_tick is None:
                 return {"error": f"Failed to refresh current price for {symbol}"}
-            freshness_error = validation._validate_tick_freshness(
-                live_tick,
-                symbol=symbol,
-                max_age_seconds=_TRADE_TICK_MAX_AGE_SECONDS,
-                required=False,
-            )
-            if freshness_error is not None:
-                return freshness_error
             bid = validation._safe_float_attr(live_tick, "bid")
             ask = validation._safe_float_attr(live_tick, "ask")
             price_tol = point * 0.1 if point > 0 else 1e-9
@@ -2060,14 +2044,6 @@ def _place_pending_order(  # noqa: C901
             send_tick = mt5.symbol_info_tick(symbol)
             if send_tick is None:
                 return {"error": f"Failed to refresh current price for {symbol}"}
-            freshness_error = validation._validate_tick_freshness(
-                send_tick,
-                symbol=symbol,
-                max_age_seconds=_TRADE_TICK_MAX_AGE_SECONDS,
-                required=False,
-            )
-            if freshness_error is not None:
-                return freshness_error
             send_level_error = validation._validate_pending_order_levels(
                 symbol_info=symbol_info,
                 tick=send_tick,

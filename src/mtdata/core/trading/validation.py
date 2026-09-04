@@ -108,6 +108,14 @@ def _tick_bid_ask(tick: Any) -> Tuple[Optional[float], Optional[float]]:
     )
 
 
+def _canonical_enum_token(text: str) -> str:
+    """Normalize hyphen/space/underscore spellings to a single enum token."""
+    normalized = text.upper().replace("-", "_").replace(" ", "_")
+    while "__" in normalized:
+        normalized = normalized.replace("__", "_")
+    return normalized
+
+
 def _normalize_order_type_input(order_type: Any) -> Tuple[Optional[str], Optional[str]]:
     """Normalize order_type inputs from MCP clients into canonical MT5 order names."""
     if order_type is None:
@@ -126,9 +134,7 @@ def _normalize_order_type_input(order_type: Any) -> Tuple[Optional[str], Optiona
     if isinstance(scalar, (int, float)) and not isinstance(scalar, bool):
         return None, f"Unsupported order_type '{order_type}'. Use canonical string order types."
 
-    normalized = text.upper().replace("-", "_").replace(" ", "_")
-    while "__" in normalized:
-        normalized = normalized.replace("__", "_")
+    normalized = _canonical_enum_token(text)
     if normalized in _SUPPORTED_ORDER_TYPES:
         return normalized, None
 
@@ -153,9 +159,7 @@ def _normalize_trade_side_filter(side: Any) -> Tuple[Optional[str], Optional[str
     if not text:
         return None, None
 
-    normalized = text.upper().replace("-", "_").replace(" ", "_")
-    while "__" in normalized:
-        normalized = normalized.replace("__", "_")
+    normalized = _canonical_enum_token(text)
     if normalized in {"BUY", "SELL", "LONG", "SHORT"}:
         return normalized, None
     return None, "side must be BUY, SELL, LONG, or SHORT."
@@ -386,6 +390,29 @@ def _resolve_position_side(position: Any, mt5: Any = None) -> Optional[str]:
     if position_type == int(position_type_buy):
         return "BUY"
     if position_type == int(position_type_sell):
+        return "SELL"
+    return None
+
+
+def _pending_order_side(order_type: Any, mt5: Any = None) -> Optional[str]:
+    """Resolve a pending MT5 order type to ``BUY`` or ``SELL``."""
+    try:
+        type_value = int(order_type)
+    except (TypeError, ValueError):
+        return None
+    buy_types = {
+        _safe_int_attr(mt5, "ORDER_TYPE_BUY_LIMIT", 2),
+        _safe_int_attr(mt5, "ORDER_TYPE_BUY_STOP", 4),
+        _safe_int_attr(mt5, "ORDER_TYPE_BUY_STOP_LIMIT", 6),
+    }
+    sell_types = {
+        _safe_int_attr(mt5, "ORDER_TYPE_SELL_LIMIT", 3),
+        _safe_int_attr(mt5, "ORDER_TYPE_SELL_STOP", 5),
+        _safe_int_attr(mt5, "ORDER_TYPE_SELL_STOP_LIMIT", 7),
+    }
+    if type_value in buy_types:
+        return "BUY"
+    if type_value in sell_types:
         return "SELL"
     return None
 
@@ -1138,6 +1165,35 @@ def _validate_basic_protection_levels(
                 "take_profit": tp,
             }
     return None
+
+
+def _validate_trading_symbol(gateway: Any, symbol: Optional[str]) -> Optional[Dict[str, Any]]:
+    symbol_value = str(symbol or "").strip()
+    if not symbol_value:
+        return None
+    symbol_info = getattr(gateway, "symbol_info", None)
+    if not callable(symbol_info):
+        return None
+    try:
+        info = symbol_info(symbol_value)
+        if info is None:
+            symbol_select = getattr(gateway, "symbol_select", None)
+            if callable(symbol_select) and symbol_select(symbol_value, True):
+                info = symbol_info(symbol_value)
+    except Exception:
+        return None
+    if info is not None:
+        return None
+    return {
+        "success": False,
+        "error": f"Symbol '{symbol_value}' was not found by MT5.",
+        "error_code": "symbol_not_found",
+        "symbol": symbol_value,
+        "remediation": (
+            "Use symbols_list to find the broker's exact symbol name and suffix."
+        ),
+        "related_tools": ["symbols_list"],
+    }
 
 
 def _prevalidate_trade_place_market_input(

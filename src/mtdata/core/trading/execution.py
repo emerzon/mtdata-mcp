@@ -18,8 +18,6 @@ from .safety import (
     _build_guardrail_block,
     _guardrail_snapshot,
     _guardrails_ignored_for_demo,
-    _normalize_stop_loss_value,
-    _resolve_pending_order_side,
     evaluate_trade_guardrails,
     load_guardrail_book_snapshots,
     pending_order_risk_increased,
@@ -32,19 +30,6 @@ from .validation import (
 )
 
 logger = logging.getLogger(__name__)
-
-
-def _resolve_position_side(position: Any, mt5: Any) -> Optional[str]:
-    return validation._resolve_position_side(position, mt5)
-
-
-def _trading_symbol_or_error(mt5: Any, symbol: Optional[str]) -> Optional[Dict[str, Any]]:
-    symbol_value = str(symbol or "").strip()
-    if not symbol_value:
-        return None
-    from mtdata.core.trading.use_cases.common import _validate_trading_symbol
-
-    return _validate_trading_symbol(mt5, symbol_value)
 
 
 def _position_matches_any_ticket(position: Any, ticket_values: set[int]) -> bool:
@@ -443,37 +428,6 @@ def _protection_removed_fields(
     return removed
 
 
-def _modify_freshness_block(
-    freshness_error: Dict[str, Any],
-    *,
-    dry_run: bool,
-    ticket: Any,
-    symbol: str,
-    applied_sl: Any = None,
-    applied_tp: Any = None,
-    protection_removed: Optional[List[str]] = None,
-) -> Dict[str, Any]:
-    if not dry_run:
-        return freshness_error
-    out: Dict[str, Any] = {
-        "success": False,
-        "dry_run": True,
-        "preview_ok": False,
-        "would_send_order": False,
-        "error_code": "preview_blocked",
-        "ticket": ticket,
-        "symbol": symbol,
-        **freshness_error,
-    }
-    if applied_sl is not None:
-        out["applied_sl"] = applied_sl
-    if applied_tp is not None:
-        out["applied_tp"] = applied_tp
-    if protection_removed:
-        out["protection_removed"] = list(protection_removed)
-    return out
-
-
 def _modify_position(  # noqa: C901
     ticket: Union[int, str],
     stop_loss: Optional[Union[int, float]] = None,
@@ -582,31 +536,12 @@ def _modify_position(  # noqa: C901
                     dry_run=dry_run,
                 )
 
-            side = _resolve_position_side(position, mt5)
+            side = validation._resolve_position_side(position, mt5)
             if side is None:
                 return {"error": "Unable to determine position side for protection validation."}
             tick = mt5.symbol_info_tick(position.symbol)
             if tick is None:
                 return {"error": f"Failed to get current price for {position.symbol}"}
-            freshness_error = validation._validate_tick_freshness(
-                tick,
-                symbol=position.symbol,
-                max_age_seconds=_CLOSE_TICK_MAX_AGE_SECONDS,
-                required=False,
-            )
-            if freshness_error is not None:
-                return _modify_freshness_block(
-                    freshness_error,
-                    dry_run=dry_run,
-                    ticket=ticket_id,
-                    symbol=position.symbol,
-                    applied_sl=0.0 if explicit_remove_sl else desired_sl,
-                    applied_tp=0.0 if explicit_remove_tp else desired_tp,
-                    protection_removed=_protection_removed_fields(
-                        explicit_remove_sl,
-                        explicit_remove_tp,
-                    ),
-                )
             live_protection_error = validation._validate_live_protection_levels(
                 symbol_info=symbol_info,
                 tick=tick,
@@ -878,19 +813,6 @@ def _modify_pending_order(  # noqa: C901
             tick = mt5.symbol_info_tick(order.symbol)
             if tick is None:
                 return {"error": f"Failed to get current price for {order.symbol}"}
-            freshness_error = validation._validate_tick_freshness(
-                tick,
-                symbol=order.symbol,
-                max_age_seconds=_CLOSE_TICK_MAX_AGE_SECONDS,
-                required=False,
-            )
-            if freshness_error is not None:
-                return _modify_freshness_block(
-                    freshness_error,
-                    dry_run=dry_run,
-                    ticket=ticket_id,
-                    symbol=order.symbol,
-                )
             order_type_value = validation._safe_int_attr(order, "type", -1)
             stop_limit_types = {
                 validation._safe_int_attr(mt5, "ORDER_TYPE_BUY_STOP_LIMIT", 6),
@@ -1012,7 +934,7 @@ def _modify_pending_order(  # noqa: C901
             )
             candidate_stop_loss = None if request_sl == 0.0 else float(request_sl)
             current_stop_loss = existing_sl
-            side = _resolve_pending_order_side(order)
+            side = validation._pending_order_side(order_type_value, mt5)
             if side is None:
                 return {
                     "error": f"Unsupported pending order type {order_type_value}.",
@@ -1032,9 +954,13 @@ def _modify_pending_order(  # noqa: C901
                 candidate_entry_price=candidate_entry_price,
                 candidate_stop_loss=candidate_stop_loss,
             )
+            price_tol = _protection_level_tolerance(
+                point=float(getattr(symbol_info, "point", 0.0) or 0.0)
+            )
             unquantifiable_stop = (
-                _normalize_stop_loss_value(current_stop_loss) is None
-                and _normalize_stop_loss_value(candidate_stop_loss) is None
+                _normalize_protection_level(current_stop_loss, tol=price_tol) is None
+                and _normalize_protection_level(candidate_stop_loss, tol=price_tol)
+                is None
             )
             guardrail_config = _guardrail_snapshot(trade_guardrails_config)
             if (
@@ -1186,14 +1112,6 @@ def _modify_pending_order(  # noqa: C901
             send_tick = mt5.symbol_info_tick(order.symbol)
             if send_tick is None:
                 return {"error": f"Failed to refresh current price for {order.symbol}"}
-            freshness_error = validation._validate_tick_freshness(
-                send_tick,
-                symbol=order.symbol,
-                max_age_seconds=_CLOSE_TICK_MAX_AGE_SECONDS,
-                required=False,
-            )
-            if freshness_error is not None:
-                return freshness_error
             send_level_error = validation._validate_pending_order_levels(
                 symbol_info=symbol_info,
                 tick=send_tick,
@@ -1421,7 +1339,7 @@ def _execute_single_close(  # noqa: C901
     Returns a result dict suitable for inclusion in the bulk-close results list.
     Handles tick refresh on requote/price-change and comment fallback.
     """
-    position_side = _resolve_position_side(position, mt5)
+    position_side = validation._resolve_position_side(position, mt5)
     if position_side is None:
         return {
             "ticket": getattr(position, "ticket", None),
@@ -1807,7 +1725,7 @@ def _close_position_preview_row(position: Any, mt5: Any) -> Dict[str, Any]:
         for key, value in {
             "ticket": getattr(position, "ticket", None),
             "symbol": getattr(position, "symbol", None),
-            "side": _resolve_position_side(position, mt5),
+            "side": validation._resolve_position_side(position, mt5),
             "volume": getattr(position, "volume", None),
             "profit": getattr(position, "profit", None),
             "price_open": getattr(position, "price_open", None),
@@ -2019,7 +1937,7 @@ def _close_positions(  # noqa: C901
                 side_filter,
                 side_filter,
             )
-            symbol_error = _trading_symbol_or_error(mt5, symbol)
+            symbol_error = validation._validate_trading_symbol(mt5, symbol)
             if symbol_error is not None:
                 return symbol_error
 
@@ -2602,7 +2520,7 @@ def _cancel_pending(  # noqa: C901
                         f"{validation.MT5_UINT64_MAX}, inclusive."
                     )
                 }
-            symbol_error = _trading_symbol_or_error(mt5, symbol)
+            symbol_error = validation._validate_trading_symbol(mt5, symbol)
             if symbol_error is not None:
                 return symbol_error
             # 1. Fetch orders based on criteria

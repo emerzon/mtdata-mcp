@@ -19,7 +19,6 @@ from mtdata.core.trading.requests import TradeHistoryRequest
 from mtdata.core.trading.use_cases.common import (
     _epoch_series_to_utc_and_text,
     _trade_rows_to_dataframe,
-    _validate_trading_symbol,
     logger,
 )
 from mtdata.utils.continuation import (
@@ -430,7 +429,7 @@ def run_trade_history(  # noqa: C901
                 operation="trade_history",
             )
         )
-    symbol_error = _validate_trading_symbol(gateway, request.symbol)
+    symbol_error = validation._validate_trading_symbol(gateway, request.symbol)
     if symbol_error is not None:
         return _finish(symbol_error)
 
