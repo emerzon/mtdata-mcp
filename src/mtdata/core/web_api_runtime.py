@@ -16,7 +16,11 @@ from fastapi.responses import HTMLResponse
 from starlette.responses import JSONResponse, Response
 from starlette.staticfiles import StaticFiles
 
-from ..bootstrap.runtime import WebApiRuntimeSettings, load_web_api_runtime_settings
+from ..bootstrap.runtime import (
+    WebApiRuntimeSettings,
+    _validate_cors_origins,
+    load_web_api_runtime_settings,
+)
 from .error_envelope import build_error_payload
 from .output_serialization import dumps_json
 from .request_context import current_request_id, normalize_request_id, request_id_scope
@@ -66,10 +70,7 @@ def create_web_api_app(settings: WebApiRuntimeSettings | None = None) -> FastAPI
     origins = list(runtime.cors_origins)
     if not origins:
         origins = ["http://127.0.0.1:5173", "http://localhost:5173"]
-    if any(str(origin).strip() == "*" for origin in origins):
-        raise ValueError(
-            "CORS_ORIGINS cannot include '*' while credentialed requests are enabled; specify explicit origins."
-        )
+    _validate_cors_origins(tuple(str(origin) for origin in origins))
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
