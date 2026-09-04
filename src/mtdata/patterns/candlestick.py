@@ -21,10 +21,7 @@ from ..utils.utils import (
     _table_from_rows,
 )
 from .common import (
-    closed_bar_cutoff_epoch,
     data_quality_warnings,
-    keep_bars_closed_at_or_before,
-    should_drop_last_live_bar,
 )
 from .enrichment import (
     _apply_confidence_delta,
@@ -73,12 +70,7 @@ def _candlestick_volume_warmup_bars(config: Optional[Dict[str, Any]]) -> int:
 
 
 ta: Any = None
-mt5: Any = None
 TIMEFRAME_MAP: Optional[Dict[str, Any]] = None
-_mt5_copy_rates_from: Any = None
-_mt5_copy_rates_range: Any = None
-_rates_to_df: Any = None
-_symbol_ready_guard: Any = None
 _CANDLESTICK_PATTERN_METHOD_CACHE: Optional[Tuple[str, ...]] = None
 _CANDLESTICK_PATTERN_METHOD_CACHE_KEY: Optional[str] = None
 _CANDLESTICK_PATTERN_METHOD_CACHE_LOCK = Lock()
@@ -374,24 +366,9 @@ def _candlestick_span_bars(pattern_name: str) -> int:
 
 
 def _ensure_candlestick_runtime() -> None:
-    global \
-        ta, \
-        mt5, \
-        TIMEFRAME_MAP, \
-        _mt5_copy_rates_from, \
-        _mt5_copy_rates_range, \
-        _rates_to_df, \
-        _symbol_ready_guard
+    global ta, TIMEFRAME_MAP
 
-    if (
-        ta is not None
-        and mt5 is not None
-        and TIMEFRAME_MAP is not None
-        and _mt5_copy_rates_from is not None
-        and _mt5_copy_rates_range is not None
-        and _rates_to_df is not None
-        and _symbol_ready_guard is not None
-    ):
+    if ta is not None and TIMEFRAME_MAP is not None:
         return
 
     with _CANDLESTICK_PATTERN_METHOD_CACHE_LOCK:
@@ -406,45 +383,10 @@ def _ensure_candlestick_runtime() -> None:
                         "pandas_ta not found. Install 'pandas-ta-classic' (or 'pandas-ta')."
                     ) from e
             ta = ta_mod
-        if mt5 is None:
-            try:
-                from ..utils.mt5 import mt5 as mt5_mod
-            except ModuleNotFoundError as e:
-                raise ModuleNotFoundError(
-                    "MetaTrader5 not found. Install 'MetaTrader5' to use candlestick detection."
-                ) from e
-            mt5 = mt5_mod
         if TIMEFRAME_MAP is None:
             from ..shared.constants import TIMEFRAME_MAP as timeframe_map
 
             TIMEFRAME_MAP = timeframe_map
-        if (
-            _mt5_copy_rates_from is None
-            or _mt5_copy_rates_range is None
-            or _rates_to_df is None
-            or _symbol_ready_guard is None
-        ):
-            from ..utils.mt5 import (
-                _mt5_copy_rates_from as copy_rates_from,
-            )
-            from ..utils.mt5 import (
-                _mt5_copy_rates_range as copy_rates_range,
-            )
-            from ..utils.mt5 import (
-                _rates_to_df as rates_to_df,
-            )
-            from ..utils.mt5 import (
-                _symbol_ready_guard as symbol_ready_guard,
-            )
-
-            if _mt5_copy_rates_from is None:
-                _mt5_copy_rates_from = copy_rates_from
-            if _mt5_copy_rates_range is None:
-                _mt5_copy_rates_range = copy_rates_range
-            if _rates_to_df is None:
-                _rates_to_df = rates_to_df
-            if _symbol_ready_guard is None:
-                _symbol_ready_guard = symbol_ready_guard
 
 
 def _discover_candlestick_pattern_methods(ta_accessor: Any) -> Tuple[str, ...]:
@@ -953,7 +895,6 @@ def detect_candlestick_patterns(  # noqa: C901
     except ValueError as exc:
         return {"error": str(exc)}
 
-    mt5_timeframe = TIMEFRAME_MAP[timeframe]
     utc_now = datetime.now(timezone.utc)
     start_dt = _parse_start_datetime(start) if start else None
     if start and start_dt is None:
@@ -962,47 +903,26 @@ def detect_candlestick_patterns(  # noqa: C901
     if end and end_dt is None:
         return {"error": "Invalid end time."}
     if start_dt is not None and end_dt is None:
+        end = utc_now.isoformat()
         end_dt = utc_now.replace(tzinfo=None)
     if start_dt is not None and end_dt is not None and start_dt > end_dt:
         return {"error": "start must be before or equal to end."}
 
     warmup_bars = _candlestick_volume_warmup_bars(config)
-    fetch_count = int(limit) + int(warmup_bars) + 1
-    with _symbol_ready_guard(symbol) as (err, _info):
-        if err:
-            return {"error": err}
-        if start_dt is not None:
-            rates = _mt5_copy_rates_range(symbol, mt5_timeframe, start_dt, end_dt)
-        elif end_dt is not None:
-            rates = _mt5_copy_rates_from(
-                symbol, mt5_timeframe, end_dt, fetch_count
-            )
-        else:
-            rates = _mt5_copy_rates_from(
-                symbol, mt5_timeframe, utc_now, fetch_count
-            )
+    fetch_count = int(limit) + int(warmup_bars)
+    from ..services.data_service.candles import fetch_history_frame
 
-    if rates is None:
-        return {"error": f"Failed to get rates for {symbol}: {mt5.last_error()}"}
-    if len(rates) == 0:
-        return {"error": "No candle data available"}
-
-    df = _rates_to_df(rates)
-    from ..services.data_service.candles import _resolve_live_bar_reference_epoch
-
-    cutoff_epoch = closed_bar_cutoff_epoch(end_dt, utc_now)
-    if cutoff_epoch is not None:
-        df = keep_bars_closed_at_or_before(df, timeframe, cutoff_epoch)
-        drop_reference_epoch = cutoff_epoch
-    else:
-        drop_reference_epoch = _resolve_live_bar_reference_epoch(symbol, timeframe)
-    if should_drop_last_live_bar(
-        df,
-        timeframe,
-        now_utc=utc_now,
-        current_time_epoch=drop_reference_epoch,
-    ):
-        df = df.iloc[:-1].copy()
+    try:
+        df = fetch_history_frame(
+            symbol,
+            timeframe,
+            fetch_count,
+            start=start,
+            end=end,
+            include_incomplete=False,
+        )
+    except (RuntimeError, ValueError) as exc:
+        return {"error": str(exc)}
     denoise_warnings: List[str] = []
     if denoise:
         try:

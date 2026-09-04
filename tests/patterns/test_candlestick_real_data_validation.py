@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Iterable, Optional, Tuple
 
@@ -64,11 +63,6 @@ def _pick_symbol_with_data(
     return None, None
 
 
-@contextmanager
-def _always_ready_guard(*_args, **_kwargs):
-    yield None, None
-
-
 def test_candlestick_patterns_are_present_on_real_data(monkeypatch):
     if not mt5.initialize():
         pytest.skip("MT5 terminal not available for real-data validation")
@@ -84,8 +78,10 @@ def test_candlestick_patterns_are_present_on_real_data(monkeypatch):
     limit = min(1000, len(rates))
     rates_slice = rates[-limit:]
 
-    monkeypatch.setattr(candlestick_mod, "_mt5_copy_rates_from", lambda *_a, **_k: rates_slice)
-    monkeypatch.setattr(candlestick_mod, "_symbol_ready_guard", _always_ready_guard)
+    monkeypatch.setattr(
+        "mtdata.services.data_service.candles.fetch_history_frame",
+        lambda *_a, **_k: _rates_to_df(rates_slice),
+    )
     monkeypatch.setattr(candlestick_mod, "_use_client_tz", lambda: False)
 
     res = candlestick_mod.detect_candlestick_patterns(

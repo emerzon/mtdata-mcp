@@ -1,6 +1,5 @@
 """Candlestick pattern tests."""
 
-from contextlib import contextmanager
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -27,11 +26,6 @@ def patterns_detect(**kwargs):
     if request is None:
         request = PatternsDetectRequest(**kwargs)
     return core_patterns.patterns_detect(request=request, __cli_raw=raw_output)
-
-
-@contextmanager
-def _always_ready_guard(*_args, **_kwargs):
-    yield None, None
 
 
 def _install_fake_aggregate_backend(monkeypatch, *, catalog, signals):
@@ -66,10 +60,6 @@ def _install_fake_aggregate_backend(monkeypatch, *, catalog, signals):
 
     monkeypatch.setattr(candlestick_mod, "_ensure_candlestick_runtime", lambda: None)
     monkeypatch.setattr(candlestick_mod, "TIMEFRAME_MAP", {"H1": 1})
-    monkeypatch.setattr(candlestick_mod, "_symbol_ready_guard", _always_ready_guard)
-    monkeypatch.setattr(
-        candlestick_mod, "_mt5_copy_rates_from", lambda *_a, **_k: [object(), object()]
-    )
     monkeypatch.setattr(
         candlestick_mod,
         "_get_candlestick_pattern_methods",
@@ -81,9 +71,9 @@ def _install_fake_aggregate_backend(monkeypatch, *, catalog, signals):
         SimpleNamespace(CDL_PATTERN_NAMES=list(catalog)),
     )
     monkeypatch.setattr(
-        candlestick_mod,
-        "_rates_to_df",
-        lambda _rates: _FakeFrame(
+        data_service_mod,
+        "fetch_history_frame",
+        lambda *_a, **_k: _FakeFrame(
             {
                 "time": [1_700_000_000.0, 1_700_003_600.0],
                 "open": [100.0, 101.0],
@@ -92,11 +82,6 @@ def _install_fake_aggregate_backend(monkeypatch, *, catalog, signals):
                 "close": [100.5, 101.5],
             }
         ),
-    )
-    monkeypatch.setattr(
-        data_service_mod,
-        "_resolve_live_bar_reference_epoch",
-        lambda *_a, **_k: None,
     )
     return calls
 
@@ -307,16 +292,26 @@ def test_detect_candlestick_patterns_rejects_out_of_range_min_strength():
 
 
 def test_detect_candlestick_patterns_does_not_flatten_unexpected_errors(monkeypatch):
-    monkeypatch.setattr(candlestick_mod, "_symbol_ready_guard", _always_ready_guard)
+    monkeypatch.setattr(candlestick_mod, "_ensure_candlestick_runtime", lambda: None)
+    monkeypatch.setattr(candlestick_mod, "TIMEFRAME_MAP", {"H1": 1})
     monkeypatch.setattr(
-        candlestick_mod, "_mt5_copy_rates_from", lambda *_a, **_k: [object()]
+        data_service_mod,
+        "fetch_history_frame",
+        lambda *_a, **_k: pd.DataFrame(
+            {
+                "time": [1_700_000_000.0, 1_700_003_600.0],
+                "open": [100.0, 101.0],
+                "high": [101.0, 102.0],
+                "low": [99.0, 100.0],
+                "close": [100.5, 101.5],
+            }
+        ),
     )
     monkeypatch.setattr(
         candlestick_mod,
-        "_rates_to_df",
-        lambda _rates: (_ for _ in ()).throw(RuntimeError("boom")),
+        "_get_candlestick_pattern_methods",
+        lambda _temp: (_ for _ in ()).throw(RuntimeError("boom")),
     )
-    monkeypatch.setattr(candlestick_mod, "TIMEFRAME_MAP", {"H1": 1})
 
     with pytest.raises(RuntimeError, match="boom"):
         candlestick_mod.detect_candlestick_patterns(
@@ -360,17 +355,13 @@ def test_detect_candlestick_patterns_prefilters_methods_by_whitelist(monkeypatch
 
     monkeypatch.setattr(candlestick_mod, "_ensure_candlestick_runtime", lambda: None)
     monkeypatch.setattr(candlestick_mod, "TIMEFRAME_MAP", {"H1": 1})
-    monkeypatch.setattr(candlestick_mod, "_symbol_ready_guard", _always_ready_guard)
-    monkeypatch.setattr(
-        candlestick_mod, "_mt5_copy_rates_from", lambda *_a, **_k: [object(), object()]
-    )
     monkeypatch.setattr(
         candlestick_mod,
         "_get_candlestick_pattern_methods",
         lambda _temp: ["cdl_alpha", "cdl_beta"],
     )
 
-    def _fake_rates_to_df(_rates):
+    def _fake_rates_to_df(*_a, **_k):
         frame = _FakeFrame(
             {
                 "time": [1_700_000_000.0, 1_700_003_600.0],
@@ -383,7 +374,7 @@ def test_detect_candlestick_patterns_prefilters_methods_by_whitelist(monkeypatch
         frame._calls = calls
         return frame
 
-    monkeypatch.setattr(candlestick_mod, "_rates_to_df", _fake_rates_to_df)
+    monkeypatch.setattr(data_service_mod, "fetch_history_frame", _fake_rates_to_df)
 
     res = candlestick_mod.detect_candlestick_patterns(
         symbol="EURUSD",
@@ -432,17 +423,13 @@ def test_detect_candlestick_patterns_whitelist_accepts_display_names(monkeypatch
 
     monkeypatch.setattr(candlestick_mod, "_ensure_candlestick_runtime", lambda: None)
     monkeypatch.setattr(candlestick_mod, "TIMEFRAME_MAP", {"H1": 1})
-    monkeypatch.setattr(candlestick_mod, "_symbol_ready_guard", _always_ready_guard)
-    monkeypatch.setattr(
-        candlestick_mod, "_mt5_copy_rates_from", lambda *_a, **_k: [object(), object()]
-    )
     monkeypatch.setattr(
         candlestick_mod,
         "_get_candlestick_pattern_methods",
         lambda _temp: ["cdl_belthold", "cdl_doji"],
     )
 
-    def _fake_rates_to_df(_rates):
+    def _fake_rates_to_df(*_a, **_k):
         frame = _FakeFrame(
             {
                 "time": [1_700_000_000.0, 1_700_003_600.0],
@@ -455,7 +442,7 @@ def test_detect_candlestick_patterns_whitelist_accepts_display_names(monkeypatch
         frame._calls = calls
         return frame
 
-    monkeypatch.setattr(candlestick_mod, "_rates_to_df", _fake_rates_to_df)
+    monkeypatch.setattr(data_service_mod, "fetch_history_frame", _fake_rates_to_df)
 
     res = candlestick_mod.detect_candlestick_patterns(
         symbol="EURUSD",
@@ -481,19 +468,15 @@ def test_detect_candlestick_patterns_whitelist_error_lists_detectors(monkeypatch
 
     monkeypatch.setattr(candlestick_mod, "_ensure_candlestick_runtime", lambda: None)
     monkeypatch.setattr(candlestick_mod, "TIMEFRAME_MAP", {"H1": 1})
-    monkeypatch.setattr(candlestick_mod, "_symbol_ready_guard", _always_ready_guard)
-    monkeypatch.setattr(
-        candlestick_mod, "_mt5_copy_rates_from", lambda *_a, **_k: [object(), object()]
-    )
     monkeypatch.setattr(
         candlestick_mod,
         "_get_candlestick_pattern_methods",
         lambda _temp: ["cdl_doji", "cdl_hammer"],
     )
     monkeypatch.setattr(
-        candlestick_mod,
-        "_rates_to_df",
-        lambda _rates: _FakeFrame(
+        data_service_mod,
+        "fetch_history_frame",
+        lambda *_a, **_k: _FakeFrame(
             {
                 "time": [1_700_000_000.0, 1_700_003_600.0],
                 "open": [100.0, 101.0],
@@ -693,17 +676,13 @@ def test_detect_candlestick_patterns_top_k_uses_semantic_strength(monkeypatch):
 
     monkeypatch.setattr(candlestick_mod, "_ensure_candlestick_runtime", lambda: None)
     monkeypatch.setattr(candlestick_mod, "TIMEFRAME_MAP", {"H1": 1})
-    monkeypatch.setattr(candlestick_mod, "_symbol_ready_guard", _always_ready_guard)
-    monkeypatch.setattr(
-        candlestick_mod, "_mt5_copy_rates_from", lambda *_a, **_k: [object(), object()]
-    )
     monkeypatch.setattr(
         candlestick_mod,
         "_get_candlestick_pattern_methods",
         lambda _temp: ["cdl_doji", "cdl_engulfing"],
     )
 
-    def _fake_rates_to_df(_rates):
+    def _fake_rates_to_df(*_a, **_k):
         return _FakeFrame(
             {
                 "time": [1_700_000_000.0, 1_700_003_600.0],
@@ -714,7 +693,7 @@ def test_detect_candlestick_patterns_top_k_uses_semantic_strength(monkeypatch):
             }
         )
 
-    monkeypatch.setattr(candlestick_mod, "_rates_to_df", _fake_rates_to_df)
+    monkeypatch.setattr(data_service_mod, "fetch_history_frame", _fake_rates_to_df)
 
     res = candlestick_mod.detect_candlestick_patterns(
         symbol="EURUSD",
@@ -755,17 +734,13 @@ def test_detect_candlestick_patterns_dedupes_redundant_same_window_hits(monkeypa
 
     monkeypatch.setattr(candlestick_mod, "_ensure_candlestick_runtime", lambda: None)
     monkeypatch.setattr(candlestick_mod, "TIMEFRAME_MAP", {"H1": 1})
-    monkeypatch.setattr(candlestick_mod, "_symbol_ready_guard", _always_ready_guard)
-    monkeypatch.setattr(
-        candlestick_mod, "_mt5_copy_rates_from", lambda *_a, **_k: [object(), object()]
-    )
     monkeypatch.setattr(
         candlestick_mod,
         "_get_candlestick_pattern_methods",
         lambda _temp: ["cdl_outside", "cdl_engulfing"],
     )
 
-    def _fake_rates_to_df(_rates):
+    def _fake_rates_to_df(*_a, **_k):
         return _FakeFrame(
             {
                 "time": [1_700_000_000.0, 1_700_003_600.0],
@@ -776,7 +751,7 @@ def test_detect_candlestick_patterns_dedupes_redundant_same_window_hits(monkeypa
             }
         )
 
-    monkeypatch.setattr(candlestick_mod, "_rates_to_df", _fake_rates_to_df)
+    monkeypatch.setattr(data_service_mod, "fetch_history_frame", _fake_rates_to_df)
 
     res = candlestick_mod.detect_candlestick_patterns(
         symbol="EURUSD",
@@ -816,30 +791,25 @@ def test_detect_candlestick_patterns_drops_still_forming_last_bar(monkeypatch):
 
     monkeypatch.setattr(candlestick_mod, "_ensure_candlestick_runtime", lambda: None)
     monkeypatch.setattr(candlestick_mod, "TIMEFRAME_MAP", {"H1": 1})
-    monkeypatch.setattr(candlestick_mod, "_symbol_ready_guard", _always_ready_guard)
     requested_counts = []
 
-    def _copy_rates_from(*args, **_kwargs):
-        requested_counts.append(args[-1])
-        return [object(), object(), object()]
-
-    monkeypatch.setattr(candlestick_mod, "_mt5_copy_rates_from", _copy_rates_from)
-    monkeypatch.setattr(
-        candlestick_mod, "_get_candlestick_pattern_methods", lambda _temp: ["cdl_alpha"]
-    )
-
-    def _fake_rates_to_df(_rates):
+    def _fetch_history_frame(_symbol, _timeframe, count, **kwargs):
+        requested_counts.append(count)
+        assert kwargs.get("include_incomplete") is False
         return _FakeFrame(
             {
-                "time": [now_ts - 7200.0, now_ts - 3600.0, now_ts - 1800.0],
-                "open": [100.0, 101.0, 102.0],
-                "high": [101.0, 102.0, 103.0],
-                "low": [99.0, 100.0, 101.0],
-                "close": [100.5, 101.5, 102.5],
+                "time": [now_ts - 7200.0, now_ts - 3600.0],
+                "open": [100.0, 101.0],
+                "high": [101.0, 102.0],
+                "low": [99.0, 100.0],
+                "close": [100.5, 101.5],
             }
         )
 
-    monkeypatch.setattr(candlestick_mod, "_rates_to_df", _fake_rates_to_df)
+    monkeypatch.setattr(
+        candlestick_mod, "_get_candlestick_pattern_methods", lambda _temp: ["cdl_alpha"]
+    )
+    monkeypatch.setattr(data_service_mod, "fetch_history_frame", _fetch_history_frame)
 
     res = candlestick_mod.detect_candlestick_patterns(
         symbol="EURUSD",
@@ -854,7 +824,7 @@ def test_detect_candlestick_patterns_drops_still_forming_last_bar(monkeypatch):
 
     assert res["success"] is True
     assert requested_counts == [
-        2 + candlestick_mod._candlestick_volume_warmup_bars(None) + 1
+        2 + candlestick_mod._candlestick_volume_warmup_bars(None)
     ]
     assert res["candles"] == 2
     assert res["lookback_satisfied"] is True
@@ -901,37 +871,32 @@ def test_detect_candlestick_patterns_historical_end_uses_closed_bar_cutoff(
         for hour in range(8, 14)
     ]
 
+    expected_last = datetime(
+        2026, 8, 14, expected_hour, 0, tzinfo=timezone.utc
+    )
+    closed_opens = [ts for ts in opens if ts <= expected_last.timestamp()]
+
+    def _fetch_history_frame(_symbol, _timeframe, _count, **kwargs):
+        assert kwargs.get("end") == end
+        assert kwargs.get("include_incomplete") is False
+        return _FakeFrame(
+            {
+                "time": closed_opens,
+                "open": [100.0 + index for index in range(len(closed_opens))],
+                "high": [101.0 + index for index in range(len(closed_opens))],
+                "low": [99.0 + index for index in range(len(closed_opens))],
+                "close": [100.5 + index for index in range(len(closed_opens))],
+            }
+        )
+
     monkeypatch.setattr(candlestick_mod, "datetime", _FrozenDateTime)
     monkeypatch.setattr(candlestick_mod, "_ensure_candlestick_runtime", lambda: None)
     monkeypatch.setattr(candlestick_mod, "_use_client_tz", lambda: False)
     monkeypatch.setattr(candlestick_mod, "TIMEFRAME_MAP", {"H1": 1})
-    monkeypatch.setattr(candlestick_mod, "_symbol_ready_guard", _always_ready_guard)
-    monkeypatch.setattr(
-        candlestick_mod,
-        "_mt5_copy_rates_from",
-        lambda *_a, **_k: [object()] * len(opens),
-    )
     monkeypatch.setattr(
         candlestick_mod, "_get_candlestick_pattern_methods", lambda _temp: ["cdl_alpha"]
     )
-    monkeypatch.setattr(
-        candlestick_mod,
-        "_rates_to_df",
-        lambda _rates: _FakeFrame(
-            {
-                "time": opens,
-                "open": [100.0 + index for index in range(len(opens))],
-                "high": [101.0 + index for index in range(len(opens))],
-                "low": [99.0 + index for index in range(len(opens))],
-                "close": [100.5 + index for index in range(len(opens))],
-            }
-        ),
-    )
-    monkeypatch.setattr(
-        data_service_mod,
-        "_resolve_live_bar_reference_epoch",
-        lambda *_a, **_k: datetime(2026, 8, 14, 15, 0, tzinfo=timezone.utc).timestamp(),
-    )
+    monkeypatch.setattr(data_service_mod, "fetch_history_frame", _fetch_history_frame)
 
     res = candlestick_mod.detect_candlestick_patterns(
         symbol="EURUSD",
@@ -953,7 +918,7 @@ def test_detect_candlestick_patterns_historical_end_uses_closed_bar_cutoff(
     assert res["data"][0]["end_index"] == res["candles"] - 1
 
 
-def test_detect_candlestick_patterns_uses_broker_tick_reference_for_live_bar_trim(
+def test_detect_candlestick_patterns_requests_closed_history_bars(
     monkeypatch,
 ):
     class _FakeFrame(pd.DataFrame):
@@ -979,33 +944,23 @@ def test_detect_candlestick_patterns_uses_broker_tick_reference_for_live_bar_tri
 
     monkeypatch.setattr(candlestick_mod, "_ensure_candlestick_runtime", lambda: None)
     monkeypatch.setattr(candlestick_mod, "TIMEFRAME_MAP", {"H1": 1})
-    monkeypatch.setattr(candlestick_mod, "_symbol_ready_guard", _always_ready_guard)
-    monkeypatch.setattr(
-        candlestick_mod,
-        "_mt5_copy_rates_from",
-        lambda *_a, **_k: [object(), object(), object()],
-    )
     monkeypatch.setattr(
         candlestick_mod, "_get_candlestick_pattern_methods", lambda _temp: ["cdl_alpha"]
     )
 
-    def _fake_rates_to_df(_rates):
+    def _fetch_history_frame(_symbol, _timeframe, _count, **kwargs):
+        assert kwargs.get("include_incomplete") is False
         return _FakeFrame(
             {
-                "time": [last_bar_open - 7200.0, last_bar_open - 3600.0, last_bar_open],
-                "open": [100.0, 101.0, 102.0],
-                "high": [101.0, 102.0, 103.0],
-                "low": [99.0, 100.0, 101.0],
-                "close": [100.5, 101.5, 102.5],
+                "time": [last_bar_open - 7200.0, last_bar_open - 3600.0],
+                "open": [100.0, 101.0],
+                "high": [101.0, 102.0],
+                "low": [99.0, 100.0],
+                "close": [100.5, 101.5],
             }
         )
 
-    monkeypatch.setattr(candlestick_mod, "_rates_to_df", _fake_rates_to_df)
-    monkeypatch.setattr(
-        data_service_mod,
-        "_resolve_live_bar_reference_epoch",
-        lambda *_a, **_k: last_bar_open + 120.0,
-    )
+    monkeypatch.setattr(data_service_mod, "fetch_history_frame", _fetch_history_frame)
 
     res = candlestick_mod.detect_candlestick_patterns(
         symbol="EURUSD",
@@ -1044,17 +999,11 @@ def test_detect_candlestick_patterns_exposes_raw_signal_and_quality_warning(
 
     monkeypatch.setattr(candlestick_mod, "_ensure_candlestick_runtime", lambda: None)
     monkeypatch.setattr(candlestick_mod, "TIMEFRAME_MAP", {"H1": 1})
-    monkeypatch.setattr(candlestick_mod, "_symbol_ready_guard", _always_ready_guard)
-    monkeypatch.setattr(
-        candlestick_mod,
-        "_mt5_copy_rates_from",
-        lambda *_a, **_k: [object(), object(), object()],
-    )
     monkeypatch.setattr(
         candlestick_mod, "_get_candlestick_pattern_methods", lambda _temp: ["cdl_alpha"]
     )
 
-    def _fake_rates_to_df(_rates):
+    def _fake_rates_to_df(*_a, **_k):
         return _FakeFrame(
             {
                 "time": [1_700_000_000.0, 1_700_003_600.0, 1_700_007_200.0],
@@ -1065,7 +1014,7 @@ def test_detect_candlestick_patterns_exposes_raw_signal_and_quality_warning(
             }
         )
 
-    monkeypatch.setattr(candlestick_mod, "_rates_to_df", _fake_rates_to_df)
+    monkeypatch.setattr(data_service_mod, "fetch_history_frame", _fake_rates_to_df)
 
     res = candlestick_mod.detect_candlestick_patterns(
         symbol="EURUSD",
@@ -1103,15 +1052,11 @@ def test_detect_candlestick_patterns_adds_volume_and_regime_enrichment(monkeypat
 
     monkeypatch.setattr(candlestick_mod, "_ensure_candlestick_runtime", lambda: None)
     monkeypatch.setattr(candlestick_mod, "TIMEFRAME_MAP", {"H1": 1})
-    monkeypatch.setattr(candlestick_mod, "_symbol_ready_guard", _always_ready_guard)
-    monkeypatch.setattr(
-        candlestick_mod, "_mt5_copy_rates_from", lambda *_a, **_k: [object()] * 5
-    )
     monkeypatch.setattr(
         candlestick_mod, "_get_candlestick_pattern_methods", lambda _temp: ["cdl_alpha"]
     )
 
-    def _fake_rates_to_df(_rates):
+    def _fake_rates_to_df(*_a, **_k):
         rows = 25
         return _FakeFrame(
             {
@@ -1124,7 +1069,7 @@ def test_detect_candlestick_patterns_adds_volume_and_regime_enrichment(monkeypat
             }
         )
 
-    monkeypatch.setattr(candlestick_mod, "_rates_to_df", _fake_rates_to_df)
+    monkeypatch.setattr(data_service_mod, "fetch_history_frame", _fake_rates_to_df)
 
     res = candlestick_mod.detect_candlestick_patterns(
         symbol="EURUSD",
@@ -1172,17 +1117,13 @@ def test_detect_candlestick_patterns_reapplies_min_strength_after_enrichment(
 
     monkeypatch.setattr(candlestick_mod, "_ensure_candlestick_runtime", lambda: None)
     monkeypatch.setattr(candlestick_mod, "TIMEFRAME_MAP", {"H1": 1})
-    monkeypatch.setattr(candlestick_mod, "_symbol_ready_guard", _always_ready_guard)
-    monkeypatch.setattr(
-        candlestick_mod, "_mt5_copy_rates_from", lambda *_a, **_k: [object()] * 25
-    )
     monkeypatch.setattr(
         candlestick_mod,
         "_get_candlestick_pattern_methods",
         lambda _temp: ["cdl_engulfing"],
     )
 
-    def _fake_rates_to_df(_rates):
+    def _fake_rates_to_df(*_a, **_k):
         rows = 25
         return _FakeFrame(
             {
@@ -1195,7 +1136,7 @@ def test_detect_candlestick_patterns_reapplies_min_strength_after_enrichment(
             }
         )
 
-    monkeypatch.setattr(candlestick_mod, "_rates_to_df", _fake_rates_to_df)
+    monkeypatch.setattr(data_service_mod, "fetch_history_frame", _fake_rates_to_df)
 
     res = candlestick_mod.detect_candlestick_patterns(
         symbol="EURUSD",
@@ -1351,18 +1292,13 @@ def test_candlestick_volume_confirmation_stable_with_declared_warmup(monkeypatch
 
     monkeypatch.setattr(candlestick_mod, "_ensure_candlestick_runtime", lambda: None)
     monkeypatch.setattr(candlestick_mod, "TIMEFRAME_MAP", {"H1": 1})
-    monkeypatch.setattr(candlestick_mod, "_symbol_ready_guard", _always_ready_guard)
     monkeypatch.setattr(
         candlestick_mod, "_get_candlestick_pattern_methods", lambda _temp: ["cdl_alpha"]
     )
 
-    def _copy_rates_from(*args, **_kwargs):
-        return [object()] * int(args[-1])
-
-    monkeypatch.setattr(candlestick_mod, "_mt5_copy_rates_from", _copy_rates_from)
-
-    def _fake_rates_to_df(rates):
-        rows = min(len(rates), history)
+    def _fake_rates_to_df(*args, **kwargs):
+        count = int(args[2])
+        rows = min(count, history)
         start = history - rows
         return _FakeFrame(
             {
@@ -1375,7 +1311,7 @@ def test_candlestick_volume_confirmation_stable_with_declared_warmup(monkeypatch
             }
         )
 
-    monkeypatch.setattr(candlestick_mod, "_rates_to_df", _fake_rates_to_df)
+    monkeypatch.setattr(data_service_mod, "fetch_history_frame", _fake_rates_to_df)
 
     config = {
         "use_volume_confirmation": True,
