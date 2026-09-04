@@ -54,7 +54,7 @@ from ...utils.simplify import (
     _select_indices_for_timeseries,
     _simplify_dataframe_rows_ext,
 )
-from ...utils.tick_flags import is_mt5_trade_event
+from ...utils.tick_flags import _mt5_flag_value, is_mt5_trade_event
 from ...utils.time import _resolve_client_tz, display_timezone_label, format_epoch_utc
 from ...utils.utils import (
     _format_numeric_rows_from_df,
@@ -423,10 +423,7 @@ def _live_tick_spread_reference(
 
 
 def _mt5_tick_flag_value(name: str, default: int) -> int:
-    try:
-        return int(getattr(mt5, name))
-    except (TypeError, ValueError, AttributeError):
-        return int(default)
+    return _mt5_flag_value(mt5, name, default)
 
 
 def _tick_flag_definitions() -> tuple[tuple[int, str, str], ...]:

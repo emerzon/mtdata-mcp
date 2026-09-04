@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 
 from ..shared.constants import TIMEFRAME_MAP
+from ..utils.tick_flags import bid_ask_flags
 from ..utils.time import MAX_TRADING_MINUTES_BACK, bar_close_epoch, format_datetime_utc
 from ..utils.utils import (
     _parse_end_datetime,
@@ -241,14 +242,7 @@ def _tick_frame(gateway: Any, symbol: str, start: datetime, end: datetime, max_t
         if column not in df:
             df[column] = 0.0
         df[column] = _finite(df[column]).fillna(0.0)
-    try:
-        bid_flag = int(getattr(gateway, "TICK_FLAG_BID", 2) or 2)
-    except (TypeError, ValueError):
-        bid_flag = 2
-    try:
-        ask_flag = int(getattr(gateway, "TICK_FLAG_ASK", 4) or 4)
-    except (TypeError, ValueError):
-        ask_flag = 4
+    bid_flag, ask_flag = bid_ask_flags(gateway)
     flag_values = df["flags"].astype(np.int64)
     one_sided_update = ((flag_values & bid_flag) != 0) != (
         (flag_values & ask_flag) != 0

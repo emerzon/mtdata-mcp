@@ -11,6 +11,7 @@ from .market_metadata import (
     TICK_FUTURE_TOLERANCE_SECONDS,
     build_tick_freshness_context,
 )
+from .tick_flags import bid_ask_flags
 
 QUOTE_EXECUTION_READINESS_BASIS = (
     "quote_age_market_session_and_positive_spread"
@@ -460,14 +461,7 @@ def _is_one_sided_quote_update(gateway: Any, tick: Any) -> bool:
         flags = int(raw_flags) if isinstance(raw_flags, (Real, str)) else 0
     except (TypeError, ValueError):
         return False
-    try:
-        bid_flag = int(getattr(gateway, "TICK_FLAG_BID", 2) or 2)
-    except (TypeError, ValueError):
-        bid_flag = 2
-    try:
-        ask_flag = int(getattr(gateway, "TICK_FLAG_ASK", 4) or 4)
-    except (TypeError, ValueError):
-        ask_flag = 4
+    bid_flag, ask_flag = bid_ask_flags(gateway)
     return bool(flags & bid_flag) != bool(flags & ask_flag)
 
 
