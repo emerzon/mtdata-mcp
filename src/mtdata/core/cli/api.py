@@ -45,7 +45,7 @@ from .._mcp_tools import (
 )
 from .._mcp_tools import get_tool_registry as get_registered_tools
 from ..error_envelope import build_error_payload, normalize_error_payload
-from ..output_contract import ensure_common_meta, resolve_output_contract
+from ..output_contract import resolve_output_contract
 from ..output_serialization import json_default as _json_default
 from ..request_context import ensure_request_id_scope
 from .catalog import (
@@ -742,21 +742,6 @@ def _render_cli_result(result: Any, *, args: Any, cmd_name: str) -> Any:
     if output:
         _write_cli_text(output)
     return result
-
-
-def _attach_cli_meta(
-    result: Any,
-    *,
-    cmd_name: Optional[str],
-    verbose: bool,
-) -> Any:
-    """Compatibility adapter for callers of the former CLI-only shaper."""
-    enriched = ensure_common_meta(result, tool_name=cmd_name)
-    return shape_public_tool_output(
-        enriched,
-        tool_name=cmd_name,
-        detail="full" if verbose else "compact",
-    )
 
 
 def _result_has_tool_error(result: Any) -> bool:

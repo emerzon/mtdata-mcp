@@ -3017,21 +3017,22 @@ class TestEdgeCases:
         result = _json_default(b"\xff\xfe")
         assert isinstance(result, str)
 
-    def test_attach_cli_meta_with_none_cmd(self):
-        from mtdata.core.cli.api import _attach_cli_meta
+    def test_shape_public_tool_output_with_none_cmd(self):
+        from mtdata.core._mcp_tools import shape_public_tool_output
+
         r = {"data": 1}
-        out = _attach_cli_meta(r, cmd_name=None, verbose=True)
+        out = shape_public_tool_output(r, tool_name=None, detail="full")
         assert "cli_meta" not in out
         assert "tool" not in out["meta"]
         assert "runtime" in out["meta"]
 
-    def test_attach_cli_meta_normalizes_news_without_import_error(self):
-        from mtdata.core.cli.api import _attach_cli_meta
+    def test_shape_public_tool_output_normalizes_news_without_import_error(self):
+        from mtdata.core._mcp_tools import shape_public_tool_output
 
-        out = _attach_cli_meta(
+        out = shape_public_tool_output(
             {"success": True, "general_news": [], "symbol_news": []},
-            cmd_name="news",
-            verbose=False,
+            tool_name="news",
+            detail="compact",
         )
 
         assert out["success"] is True

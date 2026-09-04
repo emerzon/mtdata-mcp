@@ -37,7 +37,7 @@ from mtdata.core.cli.api import (
     _resolve_cli_formatter,
     _write_cli_text,
 )
-from mtdata.core.cli.formatting import _format_result_minimal
+from mtdata.utils.minimal_output import format_result_minimal
 
 # ========================================================================
 # _json_default
@@ -131,22 +131,25 @@ def test_render_cli_result_does_not_mutate_input(capsys) -> None:
 
 
 # ========================================================================
-# _format_result_minimal
+# format_result_minimal
 # ========================================================================
 
 
 class TestFormatResultMinimal:
     def test_string_passthrough(self):
-        result = _format_result_minimal("hello")
+        result = format_result_minimal("hello")
         assert isinstance(result, str)
 
     def test_none_returns_empty(self):
-        result = _format_result_minimal(None)
+        result = format_result_minimal(None)
         assert result == ""
 
-    @patch("mtdata.core.cli.formatting._shared_minimal", side_effect=Exception("boom"))
-    def test_fallback_on_exception(self, mock_shared):
-        result = _format_result_minimal({"key": "value"})
+    @patch(
+        "mtdata.utils.minimal_output._resolve_tool_name",
+        side_effect=Exception("boom"),
+    )
+    def test_fallback_on_exception(self, mock_resolve):
+        result = format_result_minimal({"key": "value"})
         assert "key" in result
 
 

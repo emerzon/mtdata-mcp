@@ -1,5 +1,4 @@
 from mtdata.core._mcp_tools import shape_public_tool_output
-from mtdata.core.cli.formatting import _attach_cli_meta
 from mtdata.core.output_contract import resolve_output_contract
 
 
@@ -42,16 +41,18 @@ def test_public_shaper_retains_full_metadata() -> None:
     assert full["meta"]["tool"] == "market_ticker"
 
 
-def test_cli_compatibility_wrapper_uses_canonical_shaper() -> None:
+def test_compact_shaper_matches_explicit_compact_detail() -> None:
     payload = {
         "success": True,
         "meta": {"diagnostics": {"latency_ms": 2}},
     }
 
-    assert _attach_cli_meta(payload, cmd_name="market_ticker", verbose=False) == (
-        shape_public_tool_output(
-            payload,
-            tool_name="market_ticker",
-            detail="compact",
-        )
+    assert shape_public_tool_output(
+        payload,
+        tool_name="market_ticker",
+        detail="compact",
+    ) == shape_public_tool_output(
+        payload,
+        tool_name="market_ticker",
+        contract_state=resolve_output_contract({}, detail="compact"),
     )

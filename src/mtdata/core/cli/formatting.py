@@ -9,7 +9,6 @@ from ...utils.minimal_output import (
 from ...utils.minimal_output import (
     format_result_minimal as _shared_minimal,
 )
-from .._mcp_tools import shape_public_tool_output
 from ..output_serialization import dumps_json as _dumps_json
 from .catalog import current_cli_program_name
 from .output_format import (
@@ -18,27 +17,6 @@ from .output_format import (
     normalize_cli_output_format,
     resolve_cli_output_format_env,
 )
-
-
-def _format_result_minimal(
-    result: Any,
-    verbose: bool = True,
-    *,
-    preserve_payload_shape: bool = False,
-) -> str:
-    try:
-        return _shared_minimal(
-            result,
-            verbose=verbose,
-            preserve_payload_shape=preserve_payload_shape,
-        )
-    except Exception:
-        return str(result) if result is not None else ""
-
-
-def _normalize_cli_formatter(fmt: Any) -> str:
-    return normalize_cli_output_format(fmt)
-
 
 _SYMBOL_SEARCH_CALL_PATTERN = re.compile(
     r"symbols_list\(search_term=(?P<quote>['\"])(?P<term>.*?)(?P=quote)\)"
@@ -79,7 +57,7 @@ def _format_result_for_cli(
     precision: Any = None,
     preserve_payload_shape: bool = False,
 ) -> str:
-    fmt_s = _normalize_cli_formatter(fmt)
+    fmt_s = normalize_cli_output_format(fmt)
     precision_policy = resolve_output_precision(
         None,
         tool_name=cmd_name,
@@ -112,11 +90,14 @@ def _format_result_for_cli(
             preserve_payload_shape=preserve_payload_shape,
         )
     except TypeError:
-        return _format_result_minimal(
-            prepared,
-            verbose=verbose,
-            preserve_payload_shape=preserve_payload_shape,
-        )
+        try:
+            return _shared_minimal(
+                prepared,
+                verbose=verbose,
+                preserve_payload_shape=preserve_payload_shape,
+            )
+        except Exception:
+            return str(prepared) if prepared is not None else ""
 
 
 def _prune_compact_runtime_meta(result: Any) -> Any:
@@ -155,10 +136,6 @@ def _prune_compact_runtime_meta(result: Any) -> Any:
     else:
         out.pop("meta", None)
     return out
-
-
-def _round_cli_float(value: Any, *, digits: int) -> Any:
-    return round_finite(value, digits, on_invalid="passthrough")
 
 
 def _price_precision_from_cli_quote(quote: Any) -> Optional[int]:
@@ -217,7 +194,9 @@ def _normalize_market_ticker_cli_payload(
             ("spread_cost_per_lot", 6),
         ):
             if field in out:
-                out[field] = _round_cli_float(out.get(field), digits=digits)
+                out[field] = round_finite(
+                    out.get(field), digits, on_invalid="passthrough"
+                )
 
     out.pop("time_display", None)
     out.pop("spread_display", None)
@@ -645,13 +624,3 @@ def _prepare_cli_payload(
         prepared = _prune_compact_runtime_meta(prepared)
 
     return prepared
-
-
-def _attach_cli_meta(result: Any, *, cmd_name: Optional[str], verbose: bool) -> Any:
-    """Compatibility wrapper around the canonical public-result shaper."""
-    detail = "full" if verbose else "compact"
-    return shape_public_tool_output(
-        result,
-        tool_name=cmd_name,
-        detail=detail,
-    )
