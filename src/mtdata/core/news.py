@@ -9,6 +9,7 @@ from typing import Annotated, Any, Dict, Literal, Optional, Union
 
 from pydantic import Field
 
+from ..services.research.capabilities import UnifiedNewsSourcePin
 from ..services.research.payload import stamp_provider
 from ..services.unified_news import fetch_unified_news
 from ..utils.time import (
@@ -1072,7 +1073,7 @@ def news(
     offset: Annotated[int, Field(ge=0)] = 0,
     limit_per_bucket: Optional[int] = None,
     source: Annotated[
-        Literal["auto", "finviz", "mt5", "ycnbc"],
+        UnifiedNewsSourcePin,
         Field(
             description=(
                 "Adapter pin. auto merges every available source. ycnbc requires "

@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, Iterable, Iterator, Optional, Sequence
 
 from ..bootstrap.settings import news_embeddings_config
+from .news_text import normalize_news_text
 
 if TYPE_CHECKING:
     from .unified_news import InstrumentContext, NewsItem
@@ -27,7 +28,7 @@ _EMBEDDING_SERVICE: Optional["NewsEmbeddingService"] = None
 
 
 def _safe_text(value: Any) -> str:
-    return str(value or "").strip()
+    return str(normalize_news_text(value) or "").strip()
 
 
 def _normalize_text_key(value: str) -> str:

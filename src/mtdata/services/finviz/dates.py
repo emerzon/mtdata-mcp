@@ -101,8 +101,10 @@ def parse_finviz_datetime(
     value: Any,
     *,
     allow_fuzzy: bool = False,
+    now: Optional[datetime.datetime] = None,
 ) -> Optional[datetime.datetime]:
     """Parse a Finviz wall-clock value and return an aware UTC datetime."""
+    clock_only = False
     if isinstance(value, datetime.datetime):
         parsed = value
     elif isinstance(value, str):
@@ -119,9 +121,15 @@ def parse_finviz_datetime(
                 "%Y-%m-%d",
                 "%b %d '%y",
                 "%b %d %Y",
+                "%I:%M%p",
+                "%I:%M %p",
             ):
                 try:
-                    parsed = datetime.datetime.strptime(text, fmt)
+                    parsed = datetime.datetime.strptime(
+                        text.upper() if fmt.startswith("%I") else text,
+                        fmt,
+                    )
+                    clock_only = fmt.startswith("%I")
                     break
                 except ValueError:
                     continue
@@ -137,7 +145,23 @@ def parse_finviz_datetime(
     else:
         return None
     if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=_FINVIZ_CALENDAR_TZ)
+        if clock_only:
+            current = now or datetime.datetime.now(datetime.timezone.utc)
+            if current.tzinfo is None:
+                current = current.replace(tzinfo=datetime.timezone.utc)
+            reference = current.astimezone(_FINVIZ_CALENDAR_TZ)
+            parsed = datetime.datetime.combine(
+                reference.date(),
+                parsed.time(),
+                tzinfo=_FINVIZ_CALENDAR_TZ,
+            )
+            if parsed.astimezone(datetime.timezone.utc) > (
+                reference.astimezone(datetime.timezone.utc)
+                + datetime.timedelta(hours=1)
+            ):
+                parsed -= datetime.timedelta(days=1)
+        else:
+            parsed = parsed.replace(tzinfo=_FINVIZ_CALENDAR_TZ)
     return parsed.astimezone(datetime.timezone.utc)
 
 

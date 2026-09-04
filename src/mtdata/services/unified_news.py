@@ -8,7 +8,7 @@ import re
 from collections import Counter
 from copy import deepcopy
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from enum import IntEnum
 from time import monotonic
 from typing import (
@@ -26,6 +26,7 @@ from zoneinfo import ZoneInfo
 
 from ..shared.symbols import FIAT_CURRENCY_CODES as _CURRENCY_CODES
 from ..utils.mt5 import ensure_mt5_connection_or_raise, get_symbol_info_cached, mt5
+from ..utils.time import parse_relative_time
 from .finviz import (
     get_crypto_performance,
     get_economic_calendar,
@@ -672,8 +673,6 @@ def _maybe_parse_datetime(value: Any) -> Optional[datetime]:
         "%Y-%m-%dT%H:%M:%S%z",
         "%Y-%m-%dT%H:%M:%S",
         "%Y-%m-%d",
-        "%b %d '%y",
-        "%b %d %Y",
     ):
         try:
             parsed = datetime.strptime(text.replace("Z", "+0000"), fmt)
@@ -737,41 +736,8 @@ def _normalize_event_for(value: Any) -> str:
     return text
 
 
-def _parse_relative_time(value: str) -> Optional[datetime]:
-    text = _safe_text(value).lower()
-    if not text:
-        return None
-    now = datetime.now(timezone.utc)
-    if text == "just now":
-        return now
-    if text == "yesterday":
-        return now - timedelta(days=1)
-    if text.startswith("-"):
-        return None
-    match = re.fullmatch(
-        r"(\d+)\s+(minute|hour|day|week|month)s?\s+ago",
-        text,
-    )
-    if not match:
-        return None
-    amount = int(match.group(1))
-    unit = match.group(2)
-    try:
-        if unit == "minute":
-            return now - timedelta(minutes=amount)
-        if unit == "hour":
-            return now - timedelta(hours=amount)
-        if unit == "day":
-            return now - timedelta(days=amount)
-        if unit == "week":
-            return now - timedelta(weeks=amount)
-        return now - timedelta(days=30 * amount)
-    except OverflowError:
-        return None
-
-
 def _parse_published_text(value: str) -> Optional[datetime]:
-    parsed = _parse_relative_time(value)
+    parsed = parse_relative_time(value)
     if parsed is not None:
         return parsed
     return _maybe_parse_datetime(value)

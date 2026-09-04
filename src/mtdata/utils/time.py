@@ -1,5 +1,6 @@
 """Canonical time formatting and client-timezone helpers."""
 
+import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
@@ -103,6 +104,45 @@ def format_datetime_utc(value: datetime, *, timespec: str = "seconds") -> str:
     """Format a datetime as RFC 3339 UTC, treating naive values as UTC."""
     resolved = as_utc(value)
     return resolved.isoformat(timespec=timespec).replace("+00:00", "Z")
+
+
+def parse_relative_time(value: str, *, now: Optional[datetime] = None) -> Optional[datetime]:
+    """Parse strings like ``5 minutes ago`` into an aware UTC datetime."""
+    text = str(value or "").strip().lower()
+    if not text:
+        return None
+    current = now or datetime.now(timezone.utc)
+    current = (
+        current.astimezone(timezone.utc)
+        if current.tzinfo
+        else current.replace(tzinfo=timezone.utc)
+    )
+    if text == "just now":
+        return current
+    if text == "yesterday":
+        return current - timedelta(days=1)
+    if text.startswith("-"):
+        return None
+    match = re.fullmatch(
+        r"(\d+)\s+(minute|hour|day|week|month)s?\s+ago",
+        text,
+    )
+    if not match:
+        return None
+    amount = int(match.group(1))
+    unit = match.group(2)
+    try:
+        if unit == "minute":
+            return current - timedelta(minutes=amount)
+        if unit == "hour":
+            return current - timedelta(hours=amount)
+        if unit == "day":
+            return current - timedelta(days=amount)
+        if unit == "week":
+            return current - timedelta(weeks=amount)
+        return current - timedelta(days=30 * amount)
+    except OverflowError:
+        return None
 
 
 def format_relative_time(value: datetime, *, now: Optional[datetime] = None) -> str:

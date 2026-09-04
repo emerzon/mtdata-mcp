@@ -6,6 +6,7 @@ from typing import Final, Literal
 
 ResearchSourcePin = Literal["auto", "finviz", "mt5"]
 FinvizResearchSourcePin = Literal["auto", "finviz"]
+UnifiedNewsSourcePin = Literal["auto", "finviz", "mt5", "ycnbc"]
 
 NEWS: Final = "news"
 CALENDAR: Final = "calendar"

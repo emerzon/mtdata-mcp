@@ -9,6 +9,7 @@ from .capabilities import (
     SCREENER,
     FinvizResearchSourcePin,
     ResearchSourcePin,
+    UnifiedNewsSourcePin,
 )
 from .errors import capability_unsupported_error, source_unavailable_error
 from .payload import stamp_provider
@@ -22,6 +23,7 @@ __all__ = [
     "RESEARCH_CAPABILITIES",
     "ResearchSourcePin",
     "SCREENER",
+    "UnifiedNewsSourcePin",
     "capability_unsupported_error",
     "source_unavailable_error",
     "stamp_provider",

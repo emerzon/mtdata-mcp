@@ -2,7 +2,6 @@
 
 import re
 from datetime import datetime, timedelta, timezone
-from datetime import time as datetime_time
 from typing import (
     Annotated,
     Any,
@@ -59,33 +58,9 @@ def _normalize_finviz_published_at(value: Any, *, now: Optional[datetime] = None
     if not text:
         return text
 
-    parsed = parse_finviz_datetime(text)
+    parsed = parse_finviz_datetime(text, now=now)
     if parsed is not None:
         return parsed.isoformat()
-
-    for fmt in ("%I:%M%p", "%I:%M %p"):
-        try:
-            parsed_time = datetime.strptime(text.upper(), fmt).time()
-        except ValueError:
-            continue
-        reference = now or datetime.now(timezone.utc)
-        if reference.tzinfo is None:
-            reference = reference.replace(tzinfo=timezone.utc)
-        reference = reference.astimezone(timezone.utc)
-        reference_local = reference.astimezone(_FINVIZ_CALENDAR_LOCAL_TZ)
-        dt = datetime.combine(
-            reference_local.date(),
-            datetime_time(
-                parsed_time.hour,
-                parsed_time.minute,
-                parsed_time.second,
-                tzinfo=_FINVIZ_CALENDAR_LOCAL_TZ,
-            ),
-        )
-        if dt.astimezone(timezone.utc) > reference + timedelta(hours=1):
-            dt -= timedelta(days=1)
-        return dt.astimezone(timezone.utc).isoformat()
-
     return text
 
 
