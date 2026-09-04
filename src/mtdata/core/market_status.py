@@ -20,6 +20,7 @@ from ..shared.market_sessions import (
 )
 from ..shared.schema import DetailLiteral
 from ..shared.symbols import is_probably_crypto_symbol, is_probably_forex_symbol
+from ..utils.coercion import UNPARSED_BOOL, coerce_optional_bool, parse_bool_like
 from ..utils.freshness import is_standard_weekend_closure
 from ..utils.market_metadata import build_tick_freshness_context
 from ..utils.mt5 import (
@@ -121,6 +122,14 @@ def _normalize_time(dt: datetime) -> datetime:
 def _coerce_optional_bool(value: Any) -> Optional[bool]:
     if value is None:
         return None
+    if isinstance(value, str):
+        parsed = parse_bool_like(value, allow_none=True)
+        if parsed is UNPARSED_BOOL or parsed is None:
+            return None
+        return bool(parsed)
+    numeric = coerce_optional_bool(value)
+    if numeric is not None:
+        return numeric
     try:
         return bool(value)
     except Exception:
