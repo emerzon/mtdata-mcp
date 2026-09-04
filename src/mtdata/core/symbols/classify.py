@@ -9,7 +9,7 @@ from typing import (
     Optional,
 )
 
-from ...shared.symbols import CRYPTO_SYMBOL_HINTS
+from ...shared.symbols import CRYPTO_SYMBOL_HINTS, is_probably_forex_symbol
 from ...shared.symbols import FOREX_CURRENCY_CODES as _FOREX_CURRENCY_CODES
 from ...utils.symbol import _extract_group_path as _extract_group_path_util
 from ...utils.symbol import (
@@ -74,7 +74,6 @@ def _normalize_symbol_search_term(value: Optional[str]) -> Optional[str]:
         return f"{pair_match.group(1)}{pair_match.group(2)}".upper()
     return text
 
-_COMMON_CRYPTO_BASES = CRYPTO_SYMBOL_HINTS
 
 _SYMBOL_SEARCH_MODES = frozenset(
     {"auto", "name", "description", "group", "exact", "all"}
@@ -171,24 +170,20 @@ def _symbol_name_letters(symbol: Any) -> str:
 
 def _symbol_forex_pair(symbol: Any) -> Optional[str]:
     pair = _symbol_name_letters(symbol)[:6]
-    if (
-        len(pair) == 6
-        and pair[:3] in _FOREX_CURRENCY_CODES
-        and pair[3:] in _FOREX_CURRENCY_CODES
-    ):
+    if len(pair) == 6 and is_probably_forex_symbol(pair):
         return pair
     return None
 
 def _symbol_crypto_match(symbol: Any, text: str) -> bool:
     tokens = set(re.findall(r"[a-z0-9]+", text.casefold()))
-    if tokens.intersection(base.casefold() for base in _COMMON_CRYPTO_BASES):
+    if tokens.intersection(base.casefold() for base in CRYPTO_SYMBOL_HINTS):
         return True
     if tokens.intersection({"crypto", "cryptos", "cryptocurrency", "cryptocurrencies"}):
         return True
 
     letters = _symbol_name_letters(symbol)
     quote_tokens = set(_FOREX_CURRENCY_CODES).union({"USDT", "USDC"})
-    for base in _COMMON_CRYPTO_BASES:
+    for base in CRYPTO_SYMBOL_HINTS:
         base_text = str(base or "").upper()
         if not base_text or not letters.startswith(base_text):
             continue
@@ -560,7 +555,7 @@ def _infer_symbol_base_from_name(symbol_name: Any, quote_currency: Any) -> Optio
     if not name.endswith(quote):
         return None
     base = name[: -len(quote)]
-    for crypto_base in _COMMON_CRYPTO_BASES:
+    for crypto_base in CRYPTO_SYMBOL_HINTS:
         if base == crypto_base or base.endswith(crypto_base):
             return crypto_base
     return None
