@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 
 from ..utils.utils import to_float_np
-from .common import PatternResultBase, _coerce_pattern_time_epoch
+from .common import PatternResultBase, _coerce_pattern_time_epoch, repair_ohlc_extremes
 
 
 @dataclass
@@ -322,6 +322,19 @@ def detect_fractal_patterns(
     if lows.size != closes.size:
         lows = closes
         has_low = False
+    highs, lows, repaired_high_bars, repaired_low_bars = repair_ohlc_extremes(
+        closes, highs, lows
+    )
+    ohlc_fallback = {
+        "used_close_for_high": not has_high,
+        "used_close_for_low": not has_low,
+        "repaired_high_bars": int(repaired_high_bars),
+        "repaired_low_bars": int(repaired_low_bars),
+        "total_bars": int(closes.size),
+        "analyzed_bars": int(closes.size),
+        "input_bars": int(len(df)),
+    }
+    df.attrs["pattern_ohlc_fallback"] = ohlc_fallback
     geometry_price_source = "high_low" if (has_high and has_low) else "close"
     if geometry_price_source == "close":
         logging.getLogger(__name__).warning(

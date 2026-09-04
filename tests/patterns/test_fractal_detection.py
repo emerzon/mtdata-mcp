@@ -40,6 +40,19 @@ def _fractal_active_frame() -> pd.DataFrame:
     )
 
 
+def test_detect_fractal_patterns_repairs_inverted_high_low() -> None:
+    frame = _fractal_active_frame()
+    unrepaired = detect_fractal_patterns(frame.copy(), FractalDetectorConfig())
+    frame.loc[2, "high"] = float(frame.loc[1, "high"]) - 0.1
+    repaired = detect_fractal_patterns(frame, FractalDetectorConfig())
+
+    assert frame.attrs["pattern_ohlc_fallback"]["repaired_high_bars"] == 1
+    unrepaired_names = {result.name for result in unrepaired}
+    repaired_names = {result.name for result in repaired}
+    assert unrepaired_names == repaired_names
+    assert "Bearish Fractal" in repaired_names
+
+
 def test_detect_fractal_patterns_marks_broken_levels_and_breakout_direction():
     results = detect_fractal_patterns(_fractal_breakout_frame(), FractalDetectorConfig())
 
