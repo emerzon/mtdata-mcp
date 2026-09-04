@@ -54,7 +54,6 @@ def dumps_json(
         ensure_ascii=False,
         indent=indent,
         allow_nan=False,
-        default=json_default,
         separators=separators,
     )
     return _SCIENTIFIC_JSON_NUMBER.sub(_rewrite_scientific_json_number, rendered)
