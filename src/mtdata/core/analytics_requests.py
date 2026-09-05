@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import (
@@ -478,6 +479,7 @@ class PortfolioRiskDecomposeRequest(BaseModel):
 
 
 class MarketRelativeStrengthRequest(BaseModel):
+    as_of: Optional[str] = Field(None, description="Historical UTC cutoff; requires explicit symbols and excludes live quote/spread filters.")
     symbols: Optional[str] = None
     group: Optional[str] = None
     universe: Literal["visible", "all"] = "visible"
@@ -492,6 +494,19 @@ class MarketRelativeStrengthRequest(BaseModel):
     limit: int = Field(20, ge=1, le=100)
     detail: DetailLiteral = "compact"
 
+    @field_validator("as_of")
+    @classmethod
+    def _historical_cutoff(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        parsed = _parse_end_datetime(value)
+        if parsed is None:
+            raise ValueError("as_of must be a valid date or datetime")
+        parsed = parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed.astimezone(timezone.utc)
+        if parsed > datetime.now(timezone.utc):
+            raise ValueError("as_of must not be in the future")
+        return parsed.isoformat().replace("+00:00", "Z")
+
     @model_validator(mode="after")
     def _ranking(self) -> "MarketRelativeStrengthRequest":
         explicit_symbols = {
@@ -499,6 +514,11 @@ class MarketRelativeStrengthRequest(BaseModel):
             for item in str(self.symbols or "").split(",")
             if item.strip()
         }
+        if self.as_of is not None:
+            if not explicit_symbols:
+                raise ValueError("Historical relative strength requires explicit symbols; historical universe membership is unavailable")
+            if self.max_spread_pct is not None:
+                raise ValueError("max_spread_pct is unavailable with as_of; current quotes cannot filter historical rankings")
         if self.symbols is not None and not explicit_symbols:
             raise ValueError(
                 "symbols was supplied but contains no symbols; omit it to rank "

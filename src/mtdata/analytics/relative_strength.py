@@ -28,6 +28,7 @@ from ..utils.time import bar_close_epoch, format_datetime_utc, format_epoch_utc
 from .engine_common import (
     _log_close_returns,
     _mapping,
+    _parse_time,
     _rates,
 )
 
@@ -353,13 +354,13 @@ def rank_relative_strength(  # noqa: C901
     if benchmark_symbol and benchmark_symbol not in data_symbols:
         data_symbols.append(benchmark_symbol)
     lookback = max(max(request.horizons) + request.volatility_lookback + 15, 100)
-    analysis_started_at = datetime.now(timezone.utc)
+    analysis_started_at = _parse_time(request.as_of, datetime.now(timezone.utc), end_bound=True)
     analysis_started_epoch = analysis_started_at.timestamp()
     histories: Dict[str, pd.DataFrame] = {}
     history_windows: Dict[str, Dict[str, Any]] = {}
     skipped = []
     for symbol in data_symbols:
-        bars = _rates(gateway, symbol, request.timeframe, lookback)
+        bars = _rates(gateway, symbol, request.timeframe, lookback, **({"end": request.as_of} if request.as_of else {}))
         history_window = _relative_strength_history_window(
             symbol,
             bars,
@@ -419,41 +420,49 @@ def rank_relative_strength(  # noqa: C901
     scoring_histories: Dict[str, pd.DataFrame] = {}
     for symbol, bars in candidate_histories.items():
         latest = bars.iloc[-1]
-        try:
-            raw_tick = gateway.symbol_info_tick(symbol)
-        except Exception:
-            raw_tick = None
-        quote_query_epoch = datetime.now(timezone.utc).timestamp()
-        tick, quote_source = resolve_quote_tick(
-            gateway,
-            symbol,
-            raw_tick,
-            now_epoch=quote_query_epoch,
-        )
-        quote_quality = build_tick_freshness_context(
-            symbol,
-            tick_epoch=tick_epoch(tick),
-            now_epoch=datetime.now(timezone.utc).timestamp(),
-        )
-        quote_quality.update(quote_source)
-        try:
-            bid = float(tick_value(tick, "bid") or 0.0)
-            ask = float(tick_value(tick, "ask") or 0.0)
-        except (TypeError, ValueError):
-            bid = ask = 0.0
-        spread_pct = (
-            (ask - bid) / ((ask + bid) / 2.0) * 100.0
-            if ask > bid > 0.0
-            else None
-        )
-        enforce_quote_execution_readiness(
-            quote_quality,
-            bid=bid,
-            ask=ask,
-            quote_source_conflict=quote_quality.get("quote_source_conflict"),
-        )
+        if request.as_of:
+            spread_pct = None
+            quote_quality = {
+                "freshness_state": "historical_not_queried",
+                "usable_for_live_trading": False,
+                "quote_source": "not_queried_historical",
+            }
+        else:
+            try:
+                raw_tick = gateway.symbol_info_tick(symbol)
+            except Exception:
+                raw_tick = None
+            quote_query_epoch = datetime.now(timezone.utc).timestamp()
+            tick, quote_source = resolve_quote_tick(
+                gateway,
+                symbol,
+                raw_tick,
+                now_epoch=quote_query_epoch,
+            )
+            quote_quality = build_tick_freshness_context(
+                symbol,
+                tick_epoch=tick_epoch(tick),
+                now_epoch=datetime.now(timezone.utc).timestamp(),
+            )
+            quote_quality.update(quote_source)
+            try:
+                bid = float(tick_value(tick, "bid") or 0.0)
+                ask = float(tick_value(tick, "ask") or 0.0)
+            except (TypeError, ValueError):
+                bid = ask = 0.0
+            spread_pct = (
+                (ask - bid) / ((ask + bid) / 2.0) * 100.0
+                if ask > bid > 0.0
+                else None
+            )
+            enforce_quote_execution_readiness(
+                quote_quality,
+                bid=bid,
+                ask=ask,
+                quote_source_conflict=quote_quality.get("quote_source_conflict"),
+            )
         symbol_window = history_windows[symbol]
-        if quote_quality.get("usable_for_live_trading") is not True:
+        if not request.as_of and quote_quality.get("usable_for_live_trading") is not True:
             quote_excluded_symbols.append(symbol)
         if request.max_spread_pct is not None and (
             spread_pct is None or spread_pct > request.max_spread_pct
@@ -786,7 +795,7 @@ def rank_relative_strength(  # noqa: C901
         else breadth
     )
 
-    analysis_as_of = format_datetime_utc(datetime.now(timezone.utc), timespec="auto")
+    analysis_as_of = format_datetime_utc(analysis_started_at, timespec="auto")
     result = {
         "success": True,
         "status": (
@@ -800,9 +809,13 @@ def rank_relative_strength(  # noqa: C901
         ),
         "timeframe": request.timeframe,
         "analysis_as_of": analysis_as_of,
+        "history_mode": "historical" if request.as_of else "latest",
+        "quote_policy": "not_queried_historical" if request.as_of else "current_snapshot",
+        **({"requested_symbols": sorted(explicit)} if request.as_of else {}),
         "data_window": {
             "requested": {
                 "lookback_bars": int(lookback),
+                "as_of": request.as_of,
                 "horizons_bars": list(request.horizons),
                 "volatility_lookback_bars": int(request.volatility_lookback),
             },
@@ -920,6 +933,12 @@ def rank_relative_strength(  # noqa: C901
         **({"rankings": published_rankings} if request.detail == "full" else {}),
     }
     result_warnings: List[str] = []
+    if request.as_of:
+        result_warnings.append(
+            "Historical research uses the explicit basket and completed broker bars at as_of. "
+            "Current quotes are not queried; historical universe membership and immutable "
+            "broker-history snapshots are unavailable."
+        )
     if missing_explicit:
         result_warnings.append(
             "Unavailable requested symbols were omitted: "

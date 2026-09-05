@@ -254,7 +254,18 @@ mtdata-cli market_relative_strength --group "Forex\\Majors" --timeframe H1 --hor
 
 # Pairwise comparison (no cross-sectional breadth is implied)
 mtdata-cli market_relative_strength GBPUSD --benchmark EURUSD --timeframe H1 --json
+
+# Historical completed-bar ranking for an explicit basket
+mtdata-cli market_relative_strength EURUSD,GBPUSD,USDJPY --as-of 2025-01-15T12:00:00Z --json
 ```
+
+Use `as_of` to repeat a historical completed-bar ranking. It requires explicit
+symbols because historical Market Watch/group membership is unavailable. Live
+quotes are not queried in this mode, `spread_pct` is unavailable, and
+`max_spread_pct` is rejected. The `min_tick_volume` filter uses the last completed
+historical bar. `analysis_as_of` is the requested cutoff; per-symbol close times
+show the observations available then. Replays use the broker's currently
+available history, which may be revised, so this is not an immutable snapshot.
 
 A single explicit candidate is supported only with an external benchmark. It
 returns `status=compared`, a direct volatility-scaled residual-momentum score,

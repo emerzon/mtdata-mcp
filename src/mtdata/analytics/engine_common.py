@@ -284,6 +284,9 @@ def _rates(
     if start and end:
         from_dt, to_dt = _window(start, end, 1)
         raw = gateway.copy_rates_range(symbol, TIMEFRAME_MAP[timeframe], from_dt, to_dt)
+    elif end:
+        _, to_dt = _window(None, end, 1)
+        raw = gateway.copy_rates_from(symbol, TIMEFRAME_MAP[timeframe], to_dt, int(count) + 2)
     else:
         raw = gateway.copy_rates_from_pos(symbol, TIMEFRAME_MAP[timeframe], 0, int(count) + 2)
     df = _frame(raw)
@@ -295,7 +298,7 @@ def _rates(
             df[column] = 0.0
         df[column] = _finite(df[column])
     now = datetime.now(timezone.utc).timestamp()
-    information_cutoff = min(now, to_dt.timestamp()) if start and end else now
+    information_cutoff = min(now, to_dt.timestamp()) if end else now
     close_epochs = df["time"].map(lambda value: bar_close_epoch(float(value), timeframe))
     df = df[close_epochs <= information_cutoff]
     if not (start and end):
