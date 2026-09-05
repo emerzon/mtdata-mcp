@@ -634,6 +634,23 @@ def _prepare_ta_indicator_parameters(
     return func, params, explicit
 
 
+def _assign_indicator_result(df: pd.DataFrame, output: Any, indicator: str) -> None:
+    if isinstance(output, pd.Series):
+        output = output.to_frame(name=output.name or indicator)
+    if not isinstance(output, pd.DataFrame) or output.empty:
+        raise ValueError(f"Indicator '{indicator}' returned no usable output (type={type(output).__name__}).")
+    existing = {str(name).casefold() for name in df.columns}
+    names = [str(name).casefold() for name in output.columns]
+    collisions = sorted(existing.intersection(names))
+    if collisions or len(names) != len(set(names)):
+        raise ValueError(
+            f"Indicator '{indicator}' output column collision: {', '.join(collisions or names)}. "
+            "Request conflicting specifications separately; output columns must be unique."
+        )
+    for name in output.columns:
+        df[name] = output[name]
+
+
 def _apply_ta_indicators(df: pd.DataFrame, ti_spec: str) -> List[str]:  # noqa: C901
     """Apply indicators specified by ti_spec to df in-place, return list of added column names."""
     added_cols: List[str] = []
@@ -719,7 +736,7 @@ def _apply_ta_indicators(df: pd.DataFrame, ti_spec: str) -> List[str]:  # noqa: 
                             available=list(df.columns),
                         )
                     )
-                df["VWAP_D"] = _broker_session_vwap(df, volume=volume_series)
+                _assign_indicator_result(df, _broker_session_vwap(df, volume=volume_series).rename("VWAP_D"), lname)
                 added_cols.append("VWAP_D")
                 before = set(df.columns)
                 continue
@@ -734,6 +751,8 @@ def _apply_ta_indicators(df: pd.DataFrame, ti_spec: str) -> List[str]:  # noqa: 
                 # name avoids binding collisions for multi-series indicators
                 # such as supertrend(high, low, close, ...).
                 call_kwargs = dict(explicit)
+                if lname == "ichimoku":
+                    call_kwargs.setdefault("include_chikou", False)
                 for series_name, series_value in series_inputs.items():
                     if series_name not in call_kwargs:
                         call_kwargs[series_name] = series_value
@@ -747,15 +766,15 @@ def _apply_ta_indicators(df: pd.DataFrame, ti_spec: str) -> List[str]:  # noqa: 
                     raise ValueError(
                         f"Indicator '{lname}' failed with parameters {parameter_names}: {exc}"
                     ) from exc
-                if isinstance(out, pd.DataFrame):
-                    for c in out.columns:
-                        df[c] = out[c]
-                elif isinstance(out, pd.Series):
-                    df[out.name or lname] = out
-                elif out is None:
+                if lname == "ichimoku" and isinstance(out, tuple) and len(out) == 2:
+                    # The second frame is projected beyond the observed candle
+                    # index. Candle features contain observed-time components.
+                    out = out[0]
+                if out is None:
                     raise ValueError(
                         f"Indicator '{lname}' returned no output for the supplied data and parameters."
                     )
+                _assign_indicator_result(df, out, lname)
             except ValueError:
                 raise
             except Exception as apply_exc:

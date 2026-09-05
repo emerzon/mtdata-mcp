@@ -236,3 +236,6 @@ raw result.
 - [GLOSSARY.md](GLOSSARY.md) — Term definitions
 - [DENOISING.md](DENOISING.md) — Smoothing techniques
 - [FORECAST.md](FORECAST.md) — Using indicators in forecasts
+
+Ichimoku candle features use the observed-time component frame. The backend's separate forward-projected frame is not appended as candles. The future-dependent Chikou column is omitted by default (`include_chikou=false`). Indicator specifications that produce the same output name are rejected; request offset variants separately to avoid ambiguous columns.
+
