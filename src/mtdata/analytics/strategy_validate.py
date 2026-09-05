@@ -96,6 +96,8 @@ def _builtin_signal(close: pd.Series, candidate: StrategyCandidate) -> pd.Series
     gain = delta.clip(lower=0).ewm(alpha=1 / length, adjust=False, min_periods=length).mean()
     loss = (-delta.clip(upper=0)).ewm(alpha=1 / length, adjust=False, min_periods=length).mean()
     rsi = 100 - 100 / (1 + gain / loss.replace(0, np.nan))
+    rsi = rsi.where(loss != 0.0, 100.0)
+    rsi = rsi.where(~((gain == 0.0) & (loss == 0.0)), 50.0)
     valid = rsi.notna()
     previous = rsi.shift(1)
     entered_oversold = valid & previous.notna() & (rsi < oversold) & (previous >= oversold)
