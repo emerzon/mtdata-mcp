@@ -158,7 +158,7 @@ def test_equity_profile_keeps_successful_sections_on_partial_failure(monkeypatch
     assert result["success"] is True
     assert result["status"] == "partial"
     assert result["partial_failure"] is True
-    assert result["fundamentals"]["fundamentals"]["pe_ratio"] == 25.0
+    assert result["fundamentals"]["pe_ratio"] == 25.0
     assert result["failed_sections"] == ["peers"]
     assert result["section_errors"]["peers"]["error_code"] == "provider_unavailable"
 

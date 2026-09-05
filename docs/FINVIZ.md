@@ -352,3 +352,11 @@ warnings that only name coins not in the returned rows are dropped.
 - [MARKET.md](MARKET.md) — Live broker quotes and scans
 - [GLOSSARY.md](GLOSSARY.md)
 - [SAMPLE-TRADE.md](SAMPLE-TRADE.md)
+
+Equity-profile JSON paths are stable across section combinations and partial
+failures: observations are at `fundamentals.<field>` with root `units` and
+projection metadata. Row sections use `ratings.items`, `peers.items`, and
+`insider.items`, with pagination and provenance in that section. The business
+description is at `description.text`. Consumers of older multi-section responses
+should remove the repeated `fundamentals` wrapper; consumers of standalone row
+sections should use the section's `items` path.

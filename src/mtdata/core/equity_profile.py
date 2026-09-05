@@ -169,12 +169,6 @@ def _compose_profile(
             out["provider_operation"] = provider_operation
         out["operation"] = "equity_profile"
         return out
-    if len(successful) == 1 and not failed:
-        only = next(iter(successful.values()))
-        out = stamp_provider(only, provider=provider)
-        if isinstance(out, dict):
-            out["sections"] = list(sections)
-        return _stamp_equity_profile_observation(out, provider=provider)
     out: Dict[str, Any] = {
         "success": True,
         "sections": list(sections),
@@ -200,7 +194,21 @@ def _compose_profile(
         )
     for key, payload in successful.items():
         if isinstance(payload, dict):
-            out[key] = payload
+            if key == "fundamentals":
+                # Fundamentals and their units/projection metadata always occupy
+                # the same root paths, including when another section fails.
+                out.update(payload)
+            else:
+                section = {
+                    field: value
+                    for field, value in payload.items()
+                    if field not in {"success", "symbol", "requested_symbol", key}
+                }
+                content_key = "text" if key == "description" else "items"
+                section[content_key] = payload.get(content_key, payload.get(key))
+                if "row_key" in section:
+                    section["row_key"] = content_key
+                out[key] = section
             if out.get("symbol") in (None, "") and payload.get("symbol"):
                 out["symbol"] = payload["symbol"]
             if (
