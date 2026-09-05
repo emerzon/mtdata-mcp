@@ -61,6 +61,11 @@ other sessions). The response reports both inputs and the resulting basis.
 
 ## Typical Workflow
 
+History defaults to bars closed by `--as-of` (or the current UTC instant).
+`--include-incomplete true` includes and labels the current forming bar.
+Historical partial-bar values cannot be recovered from completed OHLC history;
+use completed bars for historical cutoffs inside a candle.
+
 1. Run `outliers_detect` to identify data or event-driven anomalies.
 2. Run `stationarity_test` on the exact transform intended for modeling.
 3. Use `seasonality_detect` to propose candidate seasonal periods.

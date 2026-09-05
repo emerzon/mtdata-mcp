@@ -46,6 +46,8 @@ def _raw(tool):
 
 def test_fetch_diagnostic_bars_excludes_forming_tail_by_default(monkeypatch):
     frame = _bars(np.linspace(100.0, 120.0, 21))
+    now = datetime.now(timezone.utc).timestamp()
+    frame["time"] = np.arange(now - 20 * 3600 - 1800, now, 3600)
     requested = []
     monkeypatch.setattr(diagnostics, "_ensure_symbol_ready", lambda _symbol: None)
     monkeypatch.setattr(
@@ -54,7 +56,6 @@ def test_fetch_diagnostic_bars_excludes_forming_tail_by_default(monkeypatch):
         lambda _symbol, _timeframe, _now, count: requested.append(count)
         or frame.to_dict("records"),
     )
-    monkeypatch.setattr(diagnostics, "_is_last_bar_forming", lambda *_args: True)
 
     completed, error = diagnostics._fetch_diagnostic_bars("TEST", "H1", 20)
     included, included_error = diagnostics._fetch_diagnostic_bars(

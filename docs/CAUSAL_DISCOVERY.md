@@ -44,6 +44,12 @@ mtdata-cli causal_discover_signals EURUSD --timeframe H1 --window-bars 800
 
 ## What It Does
 
+Historical `--end` limits completed inputs by their close time, including broker
+calendar boundaries for daily, weekly, and monthly bars. `--include-incomplete true`
+can include a live forming candle, but cannot reconstruct a historical partial
+candle from its eventual completed prices. Use the default completed-bar policy
+for historical research.
+
 ### `correlation_matrix`
 
 For each unordered pair of symbols `(A, B)`, the tool:

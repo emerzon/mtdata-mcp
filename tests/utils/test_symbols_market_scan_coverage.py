@@ -819,6 +819,8 @@ def test_market_scan_completed_rates_drops_forming_bar(mock_rates, mock_time, _r
     from mtdata.core.symbols import _market_scan_completed_rates
 
     bars = _make_bars([1.0, 2.0, 3.0])
+    bars[0]["time"] = 0.0
+    bars[1]["time"] = 3_600.0
     bars[-1]["time"] = 9_000.0
     mock_rates.return_value = bars
 

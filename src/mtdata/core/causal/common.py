@@ -13,6 +13,7 @@ import pandas as pd
 from mtdata.core.mt5_gateway import create_mt5_gateway, mt5_connection_error
 from mtdata.core.output_contract import build_pagination_meta
 from mtdata.services.data_service.candles import (
+    _drop_incomplete_tail_df,
     _is_last_bar_forming,
     _parse_candle_calendar_bound,
 )
@@ -499,6 +500,9 @@ def _fetch_series(
     )
     if window_error:
         return pd.Series(dtype=float), window_error
+    anchor = end_dt or datetime.now(timezone.utc)
+    if anchor.tzinfo is None:
+        anchor = anchor.replace(tzinfo=timezone.utc)
 
     for _attempt in range(retries):
         if start_dt is not None:
@@ -508,9 +512,8 @@ def _fetch_series(
                 symbol, timeframe, end_dt, count + (0 if include_incomplete else 1)
             )
         else:
-            utc_now = datetime.now(timezone.utc)
             data = _mt5_copy_rates_from(
-                symbol, timeframe, utc_now, count + (0 if include_incomplete else 1)
+                symbol, timeframe, anchor, count + (0 if include_incomplete else 1)
             )
         if data is None or len(data) == 0:
             time.sleep(pause)
@@ -523,6 +526,7 @@ def _fetch_series(
             time.sleep(pause)
             continue
         df = df.sort_values("time")
+        df = df[pd.to_numeric(df["time"], errors="coerce") <= anchor.timestamp()]
         timeframe_name = str(timeframe_key or "").strip().upper()
         if not timeframe_name:
             timeframe_name = next(
@@ -532,10 +536,18 @@ def _fetch_series(
         forming_trimmed = False
         last_is_forming = False
         if timeframe_name and not df.empty:
-            last_is_forming = _is_last_bar_forming(df, timeframe_name)
+            last_is_forming = _is_last_bar_forming(
+                df, timeframe_name, current_time_epoch=anchor.timestamp()
+            )
+            if include_incomplete and end_dt and last_is_forming and not _is_last_bar_forming(df, timeframe_name):
+                return pd.Series(dtype=float), (
+                    "Historical partial-candle values cannot be recovered from completed bars; "
+                    "use include_incomplete=false."
+                )
             if not include_incomplete and last_is_forming:
-                df = df.iloc[:-1]
-                forming_trimmed = True
+                df, forming_trimmed = _drop_incomplete_tail_df(
+                    df, timeframe_name, current_time_epoch=anchor.timestamp()
+                )
                 last_is_forming = False
         if df.empty:
             time.sleep(pause)
@@ -551,7 +563,7 @@ def _fetch_series(
         series.attrs["forming_candle_skipped"] = bool(forming_trimmed)
         series.attrs["forming_candle_included"] = bool(last_is_forming)
         series.attrs["latest_bar_complete"] = not bool(last_is_forming)
-        series.attrs["resolved_as_of"] = format_datetime_utc(datetime.now(timezone.utc))
+        series.attrs["resolved_as_of"] = format_datetime_utc(anchor)
         if end_dt is not None:
             series.attrs["requested_as_of"] = format_datetime_utc(end_dt)
         return series, None

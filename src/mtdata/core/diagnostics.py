@@ -14,7 +14,6 @@ from pydantic import Field
 from scipy.signal import find_peaks, periodogram
 
 from ..forecast.common import annualization_context
-from ..services.data_service.candles import _is_last_bar_forming
 from ..shared.constants import TIMEFRAME_MAP, TIMEFRAME_SECONDS
 from ..shared.schema import DetailLiteral, TimeframeLiteral
 from ..shared.symbols import is_probably_crypto_symbol, is_probably_forex_symbol
@@ -103,13 +102,22 @@ def _fetch_diagnostic_bars(
             else float("nan")
         )
     )
-    frame = frame[close_epochs <= anchor.timestamp()]
-    forming = _is_last_bar_forming(frame, timeframe)
+    opened = open_epochs <= anchor.timestamp()
+    forming = bool((opened & (close_epochs > anchor.timestamp())).any())
     forming_status = "none_detected"
     if forming:
         forming_status = "included" if include_incomplete else "excluded"
-        if not include_incomplete:
-            frame = frame.iloc[:-1]
+        if include_incomplete and as_of and bool(
+            (opened & (close_epochs > anchor.timestamp())
+             & (close_epochs <= datetime.now(timezone.utc).timestamp())).any()
+        ):
+            return pd.DataFrame(), build_error_payload(
+                "Historical partial-candle values cannot be recovered from completed bars.",
+                code="historical_partial_candle_unavailable",
+                operation=operation,
+                remediation="Use include_incomplete=false for historical analysis.",
+            )
+    frame = frame[opened if include_incomplete else close_epochs <= anchor.timestamp()]
     frame = frame.tail(max(2, int(lookback))).reset_index(drop=True)
     frame.attrs["history_policy"] = (
         "includes_current_forming_bar" if include_incomplete else "completed_bars_only"

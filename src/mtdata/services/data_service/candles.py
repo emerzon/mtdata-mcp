@@ -365,13 +365,13 @@ def _drop_incomplete_tail(
     *,
     current_time_epoch: Optional[float] = None,
 ) -> Any:
-    """Drop the last bar from *rates* if it is still forming."""
-    if (
+    """Remove every unfinished tail bar from chronologically ordered rates."""
+    while (
         rates is not None
         and len(rates) > 0
         and _is_last_bar_forming(rates, timeframe, current_time_epoch=current_time_epoch)
     ):
-        return rates[:-1]
+        rates = rates[:-1]
     return rates
 
 
@@ -381,10 +381,11 @@ def _drop_incomplete_tail_df(
     *,
     current_time_epoch: Optional[float] = None,
 ) -> Tuple[pd.DataFrame, bool]:
-    """Drop the last row from *df* if it is still forming.  Returns (df, trimmed)."""
-    if len(df) > 0 and _is_last_bar_forming(df, timeframe, current_time_epoch=current_time_epoch):
-        return df.iloc[:-1], True
-    return df, False
+    """Remove every unfinished tail row; return (frame, trimmed)."""
+    original_count = len(df)
+    while len(df) > 0 and _is_last_bar_forming(df, timeframe, current_time_epoch=current_time_epoch):
+        df = df.iloc[:-1]
+    return df, len(df) != original_count
 
 
 def _build_candle_freshness_diagnostics(
