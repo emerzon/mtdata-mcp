@@ -22,6 +22,7 @@ from ..utils.mt5 import (
     _mt5_copy_rates_from,
     ensure_mt5_connection_or_raise,
     mt5,
+    resolve_public_symbol,
     symbol_price_digits_optional,
 )
 from ..utils.time import bar_close_epoch, format_datetime_utc
@@ -75,6 +76,7 @@ def _fetch_diagnostic_bars(
         )
     if anchor > datetime.now(timezone.utc):
         return pd.DataFrame(), "as_of cannot be in the future."
+    symbol, symbol_input = resolve_public_symbol(symbol)
     symbol_error = _ensure_symbol_ready(symbol)
     if symbol_error:
         return pd.DataFrame(), symbol_error
@@ -125,6 +127,9 @@ def _fetch_diagnostic_bars(
     frame.attrs["forming_candle_status"] = forming_status
     frame.attrs["requested_as_of"] = as_of
     frame.attrs["resolved_as_of"] = format_datetime_utc(anchor)
+    frame.attrs["symbol"] = symbol
+    if symbol_input is not None:
+        frame.attrs["symbol_input"] = symbol_input
     return frame, None
 
 
@@ -149,6 +154,7 @@ def _diagnostic_history_metadata(
         else None
     )
     return {
+        **{key: frame.attrs[key] for key in ("symbol", "symbol_input") if key in frame.attrs},
         "history_policy": frame.attrs.get(
             "history_policy",
             "includes_current_forming_bar"
