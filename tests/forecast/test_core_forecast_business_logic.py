@@ -2258,10 +2258,11 @@ def test_forecast_tune_compact_filters_units_and_keeps_data_window():
         genetic_search_impl=fake_genetic,
     )
     assert compact["units"] == {"best_score": "price"}
-    assert compact["tuning_context"]["lookback"] == 100
-    assert compact["tuning_context"]["model_lookback_bars"] == 100
-    assert compact["tuning_context"]["history_bars_used"] == 100
-    assert compact["tuning_context"]["analysis_time_window"]["history_start"] == (
+    assert "tuning_context" not in compact
+    assert compact["lookback"] == 100
+    assert compact["model_lookback_bars"] == 100
+    assert compact["history_bars_used"] == 100
+    assert compact["analysis_time_window"]["history_start"] == (
         "2026-01-01T00:00Z"
     )
     assert compact["analysis_time_window"]["lookback"] == 100
@@ -2327,7 +2328,7 @@ def test_forecast_tuning_resolves_direction_costs_and_sample_requirements():
     assert captured["slippage_bps"] == 2.0
     assert result["cost_assumptions"]["score_basis"] == "net_of_configured_slippage"
     assert result["cost_assumptions"]["spread_and_commission"] == "not_modeled"
-    assert result["tuning_context"]["lookback"] is None
+    assert result["lookback"] is None
 
     rejected = forecast_use_cases.run_forecast_tune_genetic(
         ForecastTuneGeneticRequest(
@@ -4207,7 +4208,7 @@ def test_forecast_tune_genetic_and_barrier_prob_routing(monkeypatch):
     assert out["horizon"] == 12
     assert out["steps"] == 5
     assert out["spacing"] == 20
-    assert out["tuning_context"]["methods"] == ["fourier_ols", "naive"]
+    assert out["methods"] == ["fourier_ols", "naive"]
 
     monkeypatch.setattr(cf, "_genetic_search_impl", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("fail")))
     assert "Error in genetic tuning" in raw_tune(request=ForecastTuneGeneticRequest(symbol="EURUSD"))["error"]
@@ -5362,8 +5363,8 @@ def test_forecast_tune_optuna_routing(monkeypatch):
     assert out["compute_intensity"] == "high"
     assert "compute_cost" in out
     assert captured["method"] is None
-    assert out["tuning_context"]["symbol"] == "EURUSD"
-    assert out["tuning_context"]["quantity"] == "price"
+    assert out["symbol"] == "EURUSD"
+    assert out["quantity"] == "price"
 
     monkeypatch.setattr(cf, "_optuna_search_impl", lambda **kwargs: (_ for _ in ()).throw(RuntimeError("fail")))
     assert "Error in optuna tuning" in raw_tune(request=ForecastTuneOptunaRequest(symbol="EURUSD"))["error"]

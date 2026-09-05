@@ -284,19 +284,9 @@ def _attach_tuning_context(
         value = getattr(request, key, None)
         if value is not None:
             context[key] = value
-    window = out.get("analysis_time_window")
-    if isinstance(window, dict) and window:
-        context["analysis_time_window"] = dict(window)
-    if out.get("history_bars_used") is not None:
-        context["history_bars_used"] = out.get("history_bars_used")
-    if out.get("model_lookback_bars") is not None:
-        context["model_lookback_bars"] = out.get("model_lookback_bars")
-    elif request.lookback is not None:
-        context["model_lookback_bars"] = int(request.lookback)
-    for key in ("symbol", "timeframe", "quantity", "horizon", "steps", "spacing"):
-        out[key] = context[key]
-    out["methods"] = list(context["methods"])
-    out["tuning_context"] = context
+    if request.lookback is not None:
+        out.setdefault("model_lookback_bars", int(request.lookback))
+    out.update(context)
     summary = out.get("best_result_summary")
     if isinstance(summary, dict):
         summary = dict(summary)

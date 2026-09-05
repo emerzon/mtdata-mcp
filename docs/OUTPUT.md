@@ -466,3 +466,6 @@ JSON remains the authoritative machine-readable form.
 
 Candle results retain `price_basis` and `price_currency` at the root in every detail profile, so OHLC values carry their quote side and currency.
 
+
+Forecast tuning results carry request identity, lookback, seed, and the analysis window once at the root; the redundant `tuning_context` wrapper has been removed.
+
