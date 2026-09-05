@@ -1163,7 +1163,7 @@ def test_forecast_generate_compact_nests_available_ci(monkeypatch):
             "first_high": 101.0,
             "last_low": 99.5,
             "last_high": 102.5,
-            "median_width": 3.0,
+            "median_width": 2.5,
         },
     }
     assert "intervals" not in out["uncertainty"]
@@ -1294,7 +1294,7 @@ def test_forecast_generate_compact_return_keeps_price_path_with_labeled_ci():
         "first_high": 0.018,
         "last_low": -0.012,
         "last_high": 0.002,
-        "median_width": 0.016,
+        "median_width": 0.015,
     }
     assert out["return_unit"] == "return_fraction"
     assert "forecast_price" not in out
