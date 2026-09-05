@@ -296,7 +296,7 @@ def _check_market_status(market_id: str, now_local: datetime) -> Dict[str, Any]:
     weekday = now_local.weekday()
     if weekday >= 5:  # Saturday or Sunday
         next_open = _next_market_open_datetime(market, country, now_local)
-        minutes_until = int((next_open - _normalize_time(now_local)).total_seconds() // 60)
+        minutes_until = int((next_open.astimezone(timezone.utc) - _normalize_time(now_local).astimezone(timezone.utc)).total_seconds() // 60)
         return {
             "venue": market_id,
             "name": market["name"],
@@ -320,7 +320,7 @@ def _check_market_status(market_id: str, now_local: datetime) -> Dict[str, Any]:
     # Full holiday (not a half-day session) → closed
     if is_holiday_result and not is_early_close:
         next_open = _next_market_open_datetime(market, country, now_local)
-        minutes_until = int((next_open - _normalize_time(now_local)).total_seconds() // 60)
+        minutes_until = int((next_open.astimezone(timezone.utc) - _normalize_time(now_local).astimezone(timezone.utc)).total_seconds() // 60)
         return {
             "venue": market_id,
             "name": market["name"],
@@ -353,7 +353,7 @@ def _check_market_status(market_id: str, now_local: datetime) -> Dict[str, Any]:
     # Check pre-market (before open)
     now_norm = _normalize_time(now_local)
     if now_norm < open_time:
-        minutes_until_open = int((open_time - now_norm).total_seconds() // 60)
+        minutes_until_open = int((open_time.astimezone(timezone.utc) - now_norm.astimezone(timezone.utc)).total_seconds() // 60)
         pre_open = market.get("pre_open")
         if pre_open:
             pre_open_time = now_local.replace(
@@ -401,7 +401,7 @@ def _check_market_status(market_id: str, now_local: datetime) -> Dict[str, Any]:
             )
             if now_norm < after_hours_close_time:
                 minutes_until_close = int(
-                    (after_hours_close_time - now_norm).total_seconds() // 60
+                    (after_hours_close_time.astimezone(timezone.utc) - now_norm.astimezone(timezone.utc)).total_seconds() // 60
                 )
                 return {
                     "venue": market_id,
@@ -421,7 +421,7 @@ def _check_market_status(market_id: str, now_local: datetime) -> Dict[str, Any]:
                 }
 
         next_open = _next_market_open_datetime(market, country, now_local)
-        minutes_until = int((next_open - now_norm).total_seconds() // 60)
+        minutes_until = int((next_open.astimezone(timezone.utc) - now_norm.astimezone(timezone.utc)).total_seconds() // 60)
         return {
             "venue": market_id,
             "name": market["name"],
@@ -444,7 +444,7 @@ def _check_market_status(market_id: str, now_local: datetime) -> Dict[str, Any]:
 
         effective_lunch_end = min(lunch_end, close_time)
         if lunch_start < close_time and lunch_start <= now_norm < effective_lunch_end:
-            minutes_until_resume = int((effective_lunch_end - now_norm).total_seconds() // 60)
+            minutes_until_resume = int((effective_lunch_end.astimezone(timezone.utc) - now_norm.astimezone(timezone.utc)).total_seconds() // 60)
             return {
                 "venue": market_id,
                 "name": market["name"],
@@ -458,7 +458,7 @@ def _check_market_status(market_id: str, now_local: datetime) -> Dict[str, Any]:
     
     # Check if market is open
     if now_norm < close_time:
-        minutes_until_close = int((close_time - now_norm).total_seconds() // 60)
+        minutes_until_close = int((close_time.astimezone(timezone.utc) - now_norm.astimezone(timezone.utc)).total_seconds() // 60)
         return {
             "venue": market_id,
             "name": market["name"],
