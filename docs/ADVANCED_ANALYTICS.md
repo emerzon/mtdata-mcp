@@ -301,3 +301,9 @@ A configuration or forecast error returns `evaluation_status=failed`, its
 first failed fit so skipped failures cannot bias a candidate's score. Other
 candidates still run. `insufficient_data` is reserved for sample or signal
 shortages, including thresholds that were never crossed.
+
+A strategy-validation comparison uses one shared out-of-sample calendar after
+all successfully prepared candidates have completed their warmup. Inspect
+`validation.fold_windows` for the common boundaries. Model lookbacks and signal
+frequencies can change trade counts, but no longer silently change the periods
+assigned to each fold. Failed or unavailable candidates do not set the calendar.

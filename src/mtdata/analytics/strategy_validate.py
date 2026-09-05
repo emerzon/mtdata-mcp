@@ -652,16 +652,25 @@ def validate_strategies(  # noqa: C901
         else request.barrier.horizon
     )
     labelable_end = len(df) - int(request.barrier.horizon) - 1
+    signals = {
+        candidate.id: (
+            _builtin_signal(df["close"], candidate) if candidate.type == "builtin_strategy"
+            else _forecast_signal(df, candidate, request.symbol, request.timeframe)
+        )
+        for candidate in request.candidates
+    }
+    common_start = max((
+        int(np.flatnonzero(signal.notna().to_numpy())[0])
+        for signal in signals.values()
+        if not signal.attrs.get("forecast_failure") and signal.notna().any()
+    ), default=0)
     fold_windows, embargo_intervals = _walk_forward_windows(
-        0,
-        labelable_end,
-        n_splits=request.n_splits,
-        embargo=embargo,
+        common_start, labelable_end, n_splits=request.n_splits, embargo=embargo,
     )
     results = []
     for candidate in request.candidates:
         signal_definition = _candidate_signal_definition(candidate)
-        signal = _builtin_signal(df["close"], candidate) if candidate.type == "builtin_strategy" else _forecast_signal(df, candidate, request.symbol, request.timeframe)
+        signal = signals[candidate.id]
         if signal.attrs.get("forecast_failure"):
             results.append({
                 **_candidate_result_identity(candidate),
@@ -670,8 +679,6 @@ def validate_strategies(  # noqa: C901
                 **signal.attrs["forecast_failure"],
             })
             continue
-        candidate_fold_windows = fold_windows
-        candidate_embargo_intervals = embargo_intervals
         valid_signal_bars = np.flatnonzero(signal.notna().to_numpy())
         signal_coverage = {
             "anchors_computed": int(len(valid_signal_bars)),
@@ -690,13 +697,6 @@ def validate_strategies(  # noqa: C901
             "neutral": int(np.sum(valid_signal_values == 0.0)),
             "non_finite_or_unavailable": int(len(signal) - len(valid_signal_bars)),
         }
-        if candidate.type == "forecast_threshold" and len(valid_signal_bars):
-            candidate_fold_windows, candidate_embargo_intervals = _walk_forward_windows(
-                int(valid_signal_bars[0]),
-                labelable_end,
-                n_splits=request.n_splits,
-                embargo=embargo,
-            )
         same_bar_policy = normalize_same_bar_policy(request.barrier.same_bar_policy)
         if signal_definition == "state_reversal":
             max_hold = candidate.params.get("max_hold_bars")
@@ -749,7 +749,7 @@ def validate_strategies(  # noqa: C901
         calibrated_probabilities: List[float] = []
         calibrated_labels: List[int] = []
         calibration_available = True
-        for fold, (test_start, test_end) in enumerate(candidate_fold_windows):
+        for fold, (test_start, test_end) in enumerate(fold_windows):
             if test_start > test_end:
                 skipped_folds.append({"fold": fold + 1, "reason": "empty_test_window"})
                 continue
@@ -765,7 +765,7 @@ def validate_strategies(  # noqa: C901
             test = test_gross - round_trip_bps / 10_000.0
             train_mask = outcome_end < int(test_start) - purge
             embargo_excluded = np.zeros(len(indices), dtype=bool)
-            for gap_start, gap_end in candidate_embargo_intervals:
+            for gap_start, gap_end in embargo_intervals:
                 if gap_start >= test_start:
                     break
                 embargo_excluded |= (indices >= gap_start) & (indices <= gap_end)
@@ -1027,6 +1027,12 @@ def validate_strategies(  # noqa: C901
         "extra_purge_bars": purge,
         "embargo_bars": embargo,
         "candidate_parameters_reestimated": False,
+        "comparison_calendar": "shared_after_candidate_warmup",
+        "common_start_bar": common_start,
+        "fold_windows": [
+            {"fold": idx + 1, "test_window_start_bar": start, "test_window_end_bar": end}
+            for idx, (start, end) in enumerate(fold_windows)
+        ],
         "forecast_models_refit_per_anchor": any(
             item.type == "forecast_threshold" for item in request.candidates
         ),
