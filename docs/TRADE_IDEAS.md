@@ -17,7 +17,7 @@ It is **not** a buy or sell instruction, and it **cannot** send a live order.
 ```bash
 mtdata-cli trade_idea_compose EURUSD --timeframe H1 --horizon 12 --template quick
 
-# Include per-side execution assumptions in the expected-value gate
+# Include per-side execution assumptions in the first-hit contribution gate
 mtdata-cli trade_idea_compose EURUSD --direction long --commission-bps-per-side 0.25 --slippage-bps 0.5
 ```
 
@@ -50,13 +50,23 @@ insufficient calibration, an interval containing the anchor, or unavailable
 uncertainty stands down; the composer does not infer a side from the slope
 between forecast steps. It also stands down when the TP-first and SL-first
 probabilities, weighted by the final reward and risk distances, do not produce
-positive expected value. Raw TP-first probability is not compared with
+a positive first-hit payoff contribution. Raw TP-first probability is not compared with
 SL-first probability as though unequal exits had equal payoffs.
 Configured commission and slippage are per fill side. The composer deducts
-both on entry and exit before applying the expected-value gate. They default
+both on entry and exit before applying the first-hit contribution gate. They default
 to zero, so provide realistic values when using the result for execution
-research. The response reports gross and net expected value under `barriers`
+research. The response reports the first-hit contribution before and after configured costs under `barriers`
 and the normalized round-trip amount under `execution_costs`.
+
+This contribution is `prob_tp_first * reward_pct - prob_sl_first * risk_pct`.
+No-hit paths are assigned zero gross payoff, disclosed by
+`no_hit_gross_payoff_assumption_pct=0` and
+`timeout_mark_to_market_included=false` in both the barriers and gate metadata.
+The gate checks this partial contribution after configured costs; it does not
+establish full horizon profitability. A large `prob_no_hit` makes the omitted
+terminal payoff particularly relevant. Use `forecast_barrier_optimize` for its
+explicit timeout mark-to-market contribution. Older `expected_value_*` fields
+have been replaced by the accurately named first-hit fields.
 
 Auto mode is therefore materially slower than `--direction long` or
 `--direction short`: it fits 50 rolling backtest forecasts before the current
@@ -95,7 +105,7 @@ timestamped forecast points.
 | `idea_eligible` / `overall_gate_status` | Aggregate strategy and operational gate decision; only `true` / `pass` permits a preview-eligible idea |
 | `gates` | `pass` / `fail` / `skip` for quote, session, forecast, barriers, SL/TP, sizing, preview |
 | `execution_costs` | Per-side commission/slippage assumptions and their normalized round-trip total in basis points |
-| `barriers.expected_value_gross_pct` / `expected_value_pct` | Gross payoff-weighted edge and the net value after configured execution costs |
+| `barriers.first_hit_contribution_pct` / `first_hit_contribution_after_costs_pct` | Resolved TP/SL payoff contribution before and after configured execution costs |
 | `preview.preview_ok` | Local dry-run order validation. It is false whenever the aggregate idea is ineligible and is never a broker fill. |
 | `as_of` / `assembled_at` / `data_as_of` | Live `as_of` is assembly time; `data_as_of` is the last closed-bar observation. Historical `as_of` follows `data_as_of`. |
 | `lineage` | Per-component source cutoff, data window, price anchor, and forecast target window |

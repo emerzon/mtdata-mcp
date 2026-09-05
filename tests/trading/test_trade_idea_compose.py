@@ -555,11 +555,12 @@ def test_trade_idea_compose_barrier_gate_uses_payoff_weighted_value() -> None:
 
     assert idea["direction"] == "stand_down"
     assert idea["gates"]["barriers"]["status"] == "fail"
-    assert "expected value" in idea["gates"]["barriers"]["reason"]
-    assert idea["barriers"]["expected_value_pct"] < 0.0
+    assert "first-hit contribution" in idea["gates"]["barriers"]["reason"]
+    assert idea["barriers"]["first_hit_contribution_after_costs_pct"] < 0.0
 
 
-def test_trade_idea_compose_barrier_gate_deducts_round_trip_costs() -> None:
+@pytest.mark.parametrize("tp_first,sl_first", [(.55, .25), (.2, .01)])
+def test_trade_idea_compose_barrier_gate_deducts_round_trip_costs(tp_first, sl_first) -> None:
     idea = run_trade_idea_compose(
         TradeIdeaComposeRequest(
             symbol="EURUSD",
@@ -572,7 +573,7 @@ def test_trade_idea_compose_barrier_gate_deducts_round_trip_costs() -> None:
                 "session": _session(),
                 "forecast": _forecast(),
                 "volatility": _volatility(),
-                "barriers": _barriers(tp_first=0.55, sl_first=0.25),
+                "barriers": _barriers(tp_first=tp_first, sl_first=sl_first),
                 "sizing": _sizing(),
                 "preview": _preview(),
             }
@@ -581,13 +582,18 @@ def test_trade_idea_compose_barrier_gate_deducts_round_trip_costs() -> None:
 
     assert idea["direction"] == "stand_down"
     assert idea["gates"]["barriers"]["status"] == "fail"
-    assert idea["barriers"]["expected_value_gross_pct"] > 0.0
-    assert idea["barriers"]["expected_value_pct"] < 0.0
-    assert idea["barriers"]["expected_value_execution_cost_pct"] == pytest.approx(0.1)
-    assert idea["barriers"]["expected_value_basis"] == (
+    assert idea["barriers"]["first_hit_contribution_pct"] > 0.0
+    assert idea["barriers"]["first_hit_contribution_after_costs_pct"] < 0.0
+    assert idea["barriers"]["round_trip_cost_pct"] == pytest.approx(0.1)
+    assert idea["barriers"]["first_hit_contribution_basis"] == (
         "final_exit_geometry_net_of_configured_costs"
     )
     assert idea["execution_costs"]["round_trip_bps"] == pytest.approx(10.0)
+
+    assert idea["barriers"]["no_hit_gross_payoff_assumption_pct"] == 0.0
+    assert idea["barriers"]["timeout_mark_to_market_included"] is False
+    assert idea["gates"]["barriers"]["basis"] == "first_hit_contribution_after_costs"
+    assert not any(key.startswith("expected_value") for key in idea["barriers"])
 
 
 @pytest.mark.parametrize(("direction", "trend"), [("long", "up"), ("short", "down")])
@@ -778,7 +784,7 @@ def test_trade_idea_compose_standard_snaps_to_confluence() -> None:
     assert idea["geometry"]["stop_loss"] == pytest.approx(1.0938)
     assert barrier_request["take_profit"] == pytest.approx(1.1044)
     assert barrier_request["stop_loss"] == pytest.approx(1.0938)
-    assert idea["barriers"]["expected_value_basis"] == "final_exit_geometry"
+    assert idea["barriers"]["first_hit_contribution_basis"] == "final_exit_geometry"
     assert idea["barriers"]["tp_pct"] == pytest.approx(
         abs(1.1044 - 1.1002) / 1.1002 * 100.0
     )

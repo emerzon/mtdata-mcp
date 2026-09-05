@@ -465,16 +465,15 @@ def _barrier_prices(payload: Any, *, entry: Optional[float], direction: str) -> 
     return tp if tp is not None else computed_tp, sl if sl is not None else computed_sl
 
 
-def _barrier_expected_value_pct(
+def _barrier_first_hit_contribution_pct(
     *,
     entry: Optional[float],
     take_profit: Optional[float],
     stop_loss: Optional[float],
     prob_tp_first: Optional[float],
     prob_sl_first: Optional[float],
-    round_trip_cost_pct: float = 0.0,
 ) -> Optional[float]:
-    """Return first-hit expected value using the idea's final exit geometry."""
+    """Return the gross first-hit payoff contribution using the idea's final exit geometry."""
     if (
         entry is None
         or entry <= 0.0
@@ -486,8 +485,7 @@ def _barrier_expected_value_pct(
         return None
     reward_pct = abs(take_profit - entry) / entry * 100.0
     risk_pct = abs(entry - stop_loss) / entry * 100.0
-    gross_ev = prob_tp_first * reward_pct - prob_sl_first * risk_pct
-    return float(gross_ev - max(0.0, float(round_trip_cost_pct)))
+    return float(prob_tp_first * reward_pct - prob_sl_first * risk_pct)
 
 
 def _snap_exit(
@@ -846,11 +844,12 @@ def _compact_barriers(payload: Any, *, take_profit: Optional[float], stop_loss: 
             "prob_sl_first",
             "prob_no_hit",
             "probability_edge",
-            "expected_value",
-            "expected_value_pct",
-            "expected_value_gross_pct",
-            "expected_value_execution_cost_pct",
-            "expected_value_basis",
+            "first_hit_contribution_after_costs_pct",
+            "first_hit_contribution_pct",
+            "round_trip_cost_pct",
+            "first_hit_contribution_basis",
+            "no_hit_gross_payoff_assumption_pct",
+            "timeout_mark_to_market_included",
             "tp_pct",
             "sl_pct",
             "barrier_source",
@@ -1396,36 +1395,44 @@ def run_trade_idea_compose(  # noqa: C901
                 stop_loss = stop_loss if stop_loss is not None else payload_sl
             tp_prob = _as_float(barriers_payload.get("prob_tp_first")) if isinstance(barriers_payload, dict) else None
             sl_prob = _as_float(barriers_payload.get("prob_sl_first")) if isinstance(barriers_payload, dict) else None
-            expected_value_pct = _barrier_expected_value_pct(
+            first_hit_contribution_pct = _barrier_first_hit_contribution_pct(
                 entry=entry_for_barriers,
                 take_profit=take_profit,
                 stop_loss=stop_loss,
                 prob_tp_first=tp_prob,
                 prob_sl_first=sl_prob,
-                round_trip_cost_pct=round_trip_cost_pct,
             )
-            if isinstance(barriers_payload, dict) and expected_value_pct is not None:
-                barriers_payload["expected_value_pct"] = expected_value_pct
-                barriers_payload["expected_value_gross_pct"] = (
-                    expected_value_pct + round_trip_cost_pct
-                )
-                barriers_payload["expected_value_execution_cost_pct"] = (
+            first_hit_contribution_after_costs_pct = (
+                first_hit_contribution_pct - round_trip_cost_pct
+                if first_hit_contribution_pct is not None else None
+            )
+            if isinstance(barriers_payload, dict) and first_hit_contribution_after_costs_pct is not None:
+                barriers_payload["no_hit_gross_payoff_assumption_pct"] = 0.0
+                barriers_payload["timeout_mark_to_market_included"] = False
+                barriers_payload["first_hit_contribution_after_costs_pct"] = first_hit_contribution_after_costs_pct
+                barriers_payload["first_hit_contribution_pct"] = first_hit_contribution_pct
+                barriers_payload["round_trip_cost_pct"] = (
                     round_trip_cost_pct
                 )
-                barriers_payload["expected_value_basis"] = (
+                barriers_payload["first_hit_contribution_basis"] = (
                     "final_exit_geometry_net_of_configured_costs"
                     if round_trip_cost_pct > 0.0
                     else "final_exit_geometry"
                 )
-            if expected_value_pct is None:
-                gates["barriers"] = _gate("fail", "barrier expected value unavailable")
-            elif expected_value_pct <= 0.0:
-                gates["barriers"] = _gate("fail", "barrier expected value is not positive")
+            if first_hit_contribution_after_costs_pct is None:
+                gates["barriers"] = _gate("fail", "barrier first-hit contribution unavailable")
+            elif first_hit_contribution_after_costs_pct <= 0.0:
+                gates["barriers"] = _gate("fail", "barrier first-hit contribution after configured costs is not positive")
                 stand_down_reasons.append("barriers disagree with the forecast path")
                 if requested_direction == "auto":
                     gates["alignment"] = _gate("fail", "forecast and barriers disagree")
             else:
-                gates["barriers"] = _gate("pass")
+                gates["barriers"] = _gate("pass", "Positive first-hit contribution after configured costs; assumes zero gross payoff for no-hit paths.")
+            gates["barriers"].update({
+                "basis": "first_hit_contribution_after_costs",
+                "no_hit_gross_payoff_assumption_pct": 0.0,
+                "timeout_mark_to_market_included": False,
+            })
 
     entry = entry_for_barriers if direction in {"long", "short"} else None
     if entry is None and isinstance(barriers_payload, dict):
