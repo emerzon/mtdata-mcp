@@ -1539,9 +1539,7 @@ def _compact_outliers(payload: MutableMapping[str, Any]) -> None:
     _drop_keys(
         payload,
         {
-            "analysis_window",
             "count",
-            "history_policy",
             "price_precision",
             "score_meaning",
         },

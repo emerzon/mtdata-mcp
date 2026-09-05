@@ -440,8 +440,8 @@ def test_compact_portfolio_risk_hoists_calibration_and_keeps_failures() -> None:
                 },
             },
             "outliers",
-            {"count", "analysis_window", "history_policy", "price_precision"},
-            0.55,
+            {"count", "price_precision"},
+            0.80,
         ),
         (
             "market_microstructure_analyze",
