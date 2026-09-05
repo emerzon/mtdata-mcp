@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from statistics import median
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from mtdata.core.output_contract import attach_collection_contract
@@ -148,13 +149,12 @@ def _forecast_interval_summary(payload: Dict[str, Any]) -> Optional[Dict[str, fl
         ]
         if not widths:
             return None
-        widths_sorted = sorted(widths)
         return {
             "first_low": float(lower_vals[0]),
             "first_high": float(upper_vals[0]),
             "last_low": float(lower_vals[-1]),
             "last_high": float(upper_vals[-1]),
-            "median_width": float(widths_sorted[len(widths_sorted) // 2]),
+            "median_width": float(median(widths)),
         }
     except Exception:
         return None
