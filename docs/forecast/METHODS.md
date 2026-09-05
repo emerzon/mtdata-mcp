@@ -196,4 +196,3 @@ mtdata-cli forecast_list_methods --library statsforecast --limit 100 --json  # f
 - [UNCERTAINTY.md](UNCERTAINTY.md) — Confidence and conformal intervals
 
 StatsForecast aliases and library discovery expose the selected installed constructor's parameters, including required values such as SES `alpha`. Missing required parameters fail before fitting. `NaNModel` is excluded because it is a diagnostic placeholder; `SklearnModel` is excluded because it requires a Python estimator object. Use the supported `mlforecast` models for regressor forecasting.
-

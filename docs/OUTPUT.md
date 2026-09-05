@@ -468,4 +468,3 @@ Candle results retain `price_basis` and `price_currency` at the root in every de
 
 
 Forecast tuning results carry request identity, lookback, seed, and the analysis window once at the root; the redundant `tuning_context` wrapper has been removed.
-
