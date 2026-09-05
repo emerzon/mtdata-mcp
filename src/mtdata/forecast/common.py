@@ -74,7 +74,7 @@ def build_ci_diagnostics(
     status: str,
     alpha: Optional[float] = None,
     coverage: Optional[float] = None,
-    level: Optional[int] = None,
+    level: Optional[float] = None,
     warning: Optional[str] = None,
     error: Optional[str] = None,
     error_type: Optional[str] = None,
@@ -92,7 +92,7 @@ def build_ci_diagnostics(
     if coverage is not None:
         ci_diag["coverage"] = float(coverage)
     if level is not None:
-        ci_diag["level"] = int(level)
+        ci_diag["level"] = float(level)
     if warning:
         ci_diag["warning"] = str(warning)
     if error:

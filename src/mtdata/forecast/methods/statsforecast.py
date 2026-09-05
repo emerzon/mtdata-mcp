@@ -194,7 +194,8 @@ class StatsForecastMethod(ForecastMethod):
             alpha_val = float(ci_alpha)
             if not 0.0 < alpha_val < 1.0:
                 raise ValueError("ci_alpha must be between 0 and 1")
-            level = [max(1, min(99, int(round((1.0 - alpha_val) * 100.0))))]
+            coverage = (1.0 - alpha_val) * 100.0
+            level = [int(coverage) if coverage.is_integer() else coverage]
 
         sf = model  # deserialized StatsForecast object
         with warnings.catch_warnings():
