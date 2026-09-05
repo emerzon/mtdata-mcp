@@ -1819,24 +1819,7 @@ def _summary_candles_payload(result: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(rows, list) and rows:
         latest = rows[-1]
         if isinstance(latest, dict):
-            summary["latest_candle"] = {
-                key: latest[key]
-                for key in (
-                    "time",
-                    "open",
-                    "high",
-                    "low",
-                    "close",
-                    "tick_volume",
-                    "real_volume",
-                    "spread",
-                    "spread_points",
-                    "bar_state",
-                    "broker_session_date",
-                    "broker_trading_day",
-                )
-                if key in latest
-            }
+            summary["latest_candle"] = dict(latest)
         statistics = _candle_summary_statistics(rows)
         if statistics:
             summary["summary_statistics"] = statistics
