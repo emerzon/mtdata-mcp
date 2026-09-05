@@ -87,7 +87,7 @@ mtdata-cli forecast_backtest_run EURUSD --timeframe H1 --horizon 12 --methods "t
 ### Single Method with Custom Parameters
 
 ```bash
-mtdata-cli forecast_backtest_run EURUSD --timeframe H1 --horizon 12 --methods theta --params "alpha=0.3" --steps 30
+mtdata-cli forecast_backtest_run EURUSD --timeframe H1 --horizon 12 --methods ses --params "alpha=0.3" --steps 30
 ```
 
 ### Volatility Backtest
