@@ -242,3 +242,4 @@ Ichimoku candle features use the observed-time component frame. The backend's se
 
 EMA denoising fetches settling history independently of the output limit and other indicators. The initial seed's weight is reduced to at most 1e-8, using the effective alpha (or 2 / (span + 1)). Additional history is capped at 100,000 bars; insufficient history produces a warmup warning and full output records the seed policy and tolerance. This is a numerical settling tolerance, not exact equality with an infinite-history EMA. Zero-phase filtering still depends on the available right boundary.
 
+EMA settings whose decay rounds to zero at floating-point precision are rejected as invalid parameters.

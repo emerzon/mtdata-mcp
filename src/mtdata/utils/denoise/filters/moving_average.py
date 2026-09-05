@@ -21,7 +21,10 @@ def ema_alpha(params: Dict[str, Any]) -> float:
         valid = False
     if not valid:
         raise DenoiseParameterError("ema", parameter, raw, allowed)
-    return value if parameter == "alpha" else 2.0 / (value + 1.0)
+    alpha = value if parameter == "alpha" else 2.0 / (value + 1.0)
+    if 1.0 - alpha == 1.0:
+        raise DenoiseParameterError("ema", parameter, raw, allowed + " with representable EMA decay")
+    return alpha
 
 
 @register_filter('ema')

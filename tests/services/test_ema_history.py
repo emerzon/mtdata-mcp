@@ -23,7 +23,7 @@ def test_ema_settling_history_is_independent_of_display_length(params):
     assert (1 - context["alpha"]) ** warmup <= context["seed_weight_tolerance"] if warmup else context["alpha"] == 1
 
 
-@pytest.mark.parametrize("params", [{"span": -5}, {"span": 0}, {"span": 1.5}, {"alpha": 0}, {"alpha": 1.1}, {"alpha": "nan"}])
+@pytest.mark.parametrize("params", [{"span": -5}, {"span": 0}, {"span": 1.5}, {"alpha": 0}, {"alpha": 1.1}, {"alpha": "nan"}, {"alpha": 1e-320}, {"span": 1e300}])
 def test_invalid_ema_configuration_has_actionable_stage_error_before_fetch(params):
     with patch.object(candles, "_fetch_rates_with_warmup") as fetch, patch.object(candles, "resolve_broker_symbol_name", side_effect=lambda symbol: symbol), patch.object(candles, "get_symbol_info_cached"), patch.object(candles, "_symbol_ready_guard") as guard:
         guard.return_value.__enter__.return_value = (None, None)
