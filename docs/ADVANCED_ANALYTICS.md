@@ -288,3 +288,9 @@ filter was applied.
   even when `volume_real` is present.
 - The focused FastAPI/Web UI does not expose these tools in v1; use MCP or the
   dynamic CLI.
+
+Built-in strategy-validation candidates reject unknown parameter names. Moving
+averages accept positive integer `fast_period` and `slow_period` with fast less
+than slow; state-reversal variants also accept `max_hold_bars`. RSI accepts a
+positive integer `rsi_length` and `0 < oversold < overbought < 100`. Parameters
+reported as effective have been validated and used.

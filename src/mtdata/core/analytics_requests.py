@@ -5,7 +5,15 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field, FiniteFloat, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    FiniteFloat,
+    StrictInt,
+    field_validator,
+    model_validator,
+)
 
 from ..shared.schema import (
     DetailLiteral,
@@ -145,7 +153,37 @@ class TradeExecutionQualityRequest(BaseModel):
         return self
 
 
+class _MovingAverageParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    fast_period: StrictInt = Field(10, ge=1)
+    slow_period: StrictInt = Field(30, ge=1)
+
+    @model_validator(mode="after")
+    def _ordered(self) -> "_MovingAverageParams":
+        if self.fast_period >= self.slow_period:
+            raise ValueError("fast_period must be less than slow_period")
+        return self
+
+
+class _ReversalParams(_MovingAverageParams):
+    max_hold_bars: Optional[StrictInt] = Field(None, ge=1)
+
+
+class _RsiParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    rsi_length: StrictInt = Field(14, ge=1)
+    oversold: FiniteFloat = Field(30.0, gt=0.0, lt=100.0)
+    overbought: FiniteFloat = Field(70.0, gt=0.0, lt=100.0)
+
+    @model_validator(mode="after")
+    def _ordered(self) -> "_RsiParams":
+        if self.oversold >= self.overbought:
+            raise ValueError("oversold must be less than overbought")
+        return self
+
+
 class StrategyCandidate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     id: str
     type: Literal["builtin_strategy", "forecast_threshold"]
     strategy: Optional[
@@ -191,6 +229,13 @@ class StrategyCandidate(BaseModel):
             raise ValueError("builtin_strategy candidates require strategy")
         if self.type == "forecast_threshold" and not str(self.method or "").strip():
             raise ValueError("forecast_threshold candidates require method")
+        if self.type == "builtin_strategy":
+            contract = (
+                _RsiParams if self.strategy == "rsi_reversion"
+                else _ReversalParams if self.strategy in {"sma_cross", "ema_cross"}
+                else _MovingAverageParams
+            )
+            self.params = contract.model_validate(self.params).model_dump(exclude_unset=True)
         if self.short_below > self.long_above:
             raise ValueError("short_below must be <= long_above")
         return self
