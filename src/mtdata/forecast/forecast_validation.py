@@ -12,6 +12,34 @@ _ZERO_PHASE_DENOISE_WARNING = (
 )
 
 
+def forecast_parameter_error(method: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Validate constructor keys consistently for generation and strategy research."""
+    from ..core.error_envelope import build_error_payload
+    from ..shared.validators import unknown_mapping_keys_error
+    from .forecast_methods import get_method_param_names
+    from .forecast_registry import ForecastRegistry
+
+    allowed = get_method_param_names(method)
+    if method == "statsforecast" or method.startswith("sf_"):
+        from .methods.statsforecast import statsforecast_model_parameters
+
+        model_name = params.get("model_name") or getattr(ForecastRegistry.get_class(method), "CAPABILITY_SELECTOR_VALUE", "AutoARIMA")
+        try:
+            model_parameters = statsforecast_model_parameters(str(model_name))
+        except ValueError as exc:
+            return build_error_payload(str(exc), code="invalid_forecast_model")
+        allowed = ("model_name", *(p["name"] for p in model_parameters))
+        missing = [p["name"] for p in model_parameters if p.get("required") and p["name"] not in params]
+        if missing:
+            return build_error_payload(
+                f"StatsForecast {model_name} requires params: {', '.join(missing)}.",
+                code="missing_forecast_parameter",
+                details={"missing_parameters": missing, "model_name": model_name},
+                remediation="Supply the required constructor parameters in params.",
+            )
+    return unknown_mapping_keys_error(params, allowed, subject=f"forecast params for method '{method}'")
+
+
 def attach_denoise_causality_disclosure(
     payload: Dict[str, Any],
     denoise_spec: Any,

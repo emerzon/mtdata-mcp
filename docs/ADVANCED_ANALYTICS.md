@@ -294,3 +294,10 @@ averages accept positive integer `fast_period` and `slow_period` with fast less
 than slow; state-reversal variants also accept `max_hold_bars`. RSI accepts a
 positive integer `rsi_length` and `0 < oversold < overbought < 100`. Parameters
 reported as effective have been validated and used.
+
+Forecast-threshold candidates validate method/parameter names before fitting.
+A configuration or forecast error returns `evaluation_status=failed`, its
+`failure_stage`, `first_error`, and failed-anchor count. Evaluation stops on the
+first failed fit so skipped failures cannot bias a candidate's score. Other
+candidates still run. `insufficient_data` is reserved for sample or signal
+shortages, including thresholds that were never crossed.

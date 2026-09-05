@@ -18,9 +18,11 @@ from mtdata.forecast.backtest import (
 from mtdata.forecast.capabilities import resolve_capability_request
 from mtdata.forecast.exceptions import ForecastError, raise_if_error_result
 from mtdata.forecast.forecast import execute_forecast as _forecast_impl
-from mtdata.forecast.forecast_methods import get_method_param_names
 from mtdata.forecast.forecast_registry import ForecastRegistry
-from mtdata.forecast.forecast_validation import forecast_method_resolution_error
+from mtdata.forecast.forecast_validation import (
+    forecast_method_resolution_error,
+    forecast_parameter_error,
+)
 from mtdata.forecast.requests import (
     ForecastConformalIntervalsRequest,
     ForecastGenerateRequest,
@@ -47,7 +49,6 @@ from mtdata.forecast.use_cases.sktime_index import (
     _discover_sktime_forecasters,
     _resolve_sktime_forecaster,
 )
-from mtdata.shared.validators import unknown_mapping_keys_error
 from mtdata.utils.coercion import coerce_finite_float as _finite_float
 
 logger = logging.getLogger("mtdata.forecast.use_cases")
@@ -496,37 +497,10 @@ def run_forecast_generate(  # noqa: C901
                 proxy_value = _DEFAULT_VOLATILITY_PROXY
                 proxy_defaulted = True
 
-        allowed_params = get_method_param_names(str(resolved_method))
-        if resolved_method == "statsforecast" or str(resolved_method).startswith("sf_"):
-            from mtdata.forecast.methods.statsforecast import (
-                statsforecast_model_parameters,
-            )
-
-            model_name = params.get("model_name") or getattr(ForecastRegistry.get_class(str(resolved_method)), "CAPABILITY_SELECTOR_VALUE", "AutoARIMA")
-            try:
-                model_parameters = statsforecast_model_parameters(str(model_name))
-            except ValueError as exc:
-                return _finish(build_error_payload(str(exc), code="invalid_forecast_model", operation="forecast_generate"), resolved_method=str(resolved_method))
-            allowed_params = ("model_name", *(p["name"] for p in model_parameters))
-            missing = [p["name"] for p in model_parameters if p.get("required") and p["name"] not in params]
-            if missing:
-                return _finish(build_error_payload(
-                    f"StatsForecast {model_name} requires params: {', '.join(missing)}.",
-                    code="missing_forecast_parameter", operation="forecast_generate",
-                    details={"missing_parameters": missing, "model_name": model_name},
-                    remediation="Supply the required constructor parameters in params.",
-                ), resolved_method=str(resolved_method))
-        parameter_error = unknown_mapping_keys_error(
-            params,
-            allowed_params,
-            subject=f"forecast params for method '{resolved_method}'",
-        )
+        parameter_error = forecast_parameter_error(str(resolved_method), params)
         if parameter_error is not None:
             parameter_error["operation"] = "forecast_generate"
-            parameter_error["details"] = {
-                "library": lib or "native",
-                "method": str(resolved_method),
-            }
+            parameter_error.setdefault("details", {}).update({"library": lib or "native", "method": str(resolved_method)})
             return _finish(parameter_error, resolved_method=str(resolved_method))
 
         out = forecast_impl(

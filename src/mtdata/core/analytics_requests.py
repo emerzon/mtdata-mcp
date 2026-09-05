@@ -198,7 +198,7 @@ class StrategyCandidate(BaseModel):
     method: Optional[str] = None
     params: Dict[str, Any] = Field(default_factory=dict)
     horizon: int = Field(1, ge=1, le=100)
-    long_above: float = Field(
+    long_above: FiniteFloat = Field(
         0.0,
         description=(
             "Long when expected return is at or above this simple-return "
@@ -206,7 +206,7 @@ class StrategyCandidate(BaseModel):
             "barrier tp_pct."
         ),
     )
-    short_below: float = Field(
+    short_below: FiniteFloat = Field(
         0.0,
         description=(
             "Short when expected return is at or below this simple-return "

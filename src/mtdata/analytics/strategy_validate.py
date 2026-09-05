@@ -161,26 +161,46 @@ _MAX_FORECAST_SIGNAL_ANCHORS = 200
 
 def _forecast_signal(df: pd.DataFrame, candidate: StrategyCandidate, symbol: str, timeframe: str) -> pd.Series:
     from ..forecast.forecast import execute_forecast
+    from ..forecast.forecast_registry import ForecastRegistry
+    from ..forecast.forecast_validation import forecast_parameter_error
 
     signal = pd.Series(np.nan, index=df.index, dtype=float)
-    model_lookback = int(candidate.params.get("lookback", 200))
     params = {key: value for key, value in candidate.params.items() if key != "lookback"}
+    method = str(candidate.method).strip().lower()
+    try:
+        model_lookback = candidate.params.get("lookback", 200)
+        if isinstance(model_lookback, bool) or not isinstance(model_lookback, int) or model_lookback < 1:
+            raise ValueError("lookback must be a positive integer")
+        ForecastRegistry.get_class(method)
+        error = forecast_parameter_error(method, params)
+    except Exception as exc:
+        error = {"error": str(exc), "error_code": "invalid_forecast_configuration"}
+    if error:
+        signal.attrs["forecast_failure"] = {
+            "error_code": error.get("error_code", "invalid_forecast_configuration"),
+            "first_error": error, "failure_stage": "configuration", "failed_anchor_count": 0,
+        }
+        return signal
     eligible = list(range(model_lookback, len(df) - candidate.horizon, max(1, candidate.horizon)))
     if len(eligible) > _MAX_FORECAST_SIGNAL_ANCHORS:
         eligible = eligible[-_MAX_FORECAST_SIGNAL_ANCHORS:]
     for idx in eligible:
         history = df.iloc[: idx + 1].copy()
+        error_payload = None
         try:
             result = execute_forecast(
                 symbol=symbol,
                 timeframe=timeframe,
-                method=str(candidate.method),
+                method=method,
                 horizon=candidate.horizon,
                 lookback=model_lookback,
                 params=params,
                 quantity="price",
                 prefetched_df=history,
             )
+            if result.get("error") or result.get("success") is False:
+                error_payload = result
+                raise ValueError(str(result.get("error") or "Forecast returned success=false"))
             expected = result.get("expected_return")
             if expected is None:
                 values = (
@@ -191,11 +211,20 @@ def _forecast_signal(df: pd.DataFrame, candidate: StrategyCandidate, symbol: str
                 )
                 if isinstance(values, list) and values:
                     expected = (float(values[-1]) - float(history["close"].iloc[-1])) / float(history["close"].iloc[-1])
-            if expected is not None:
-                value = float(expected)
-                signal.iloc[idx] = 1.0 if value > candidate.long_above else -1.0 if value < candidate.short_below else 0.0
-        except Exception:
-            continue
+            if expected is None or not math.isfinite(float(expected)):
+                raise ValueError("Forecast did not return a finite price or expected return")
+            value = float(expected)
+            signal.iloc[idx] = 1.0 if value > candidate.long_above else -1.0 if value < candidate.short_below else 0.0
+        except Exception as exc:
+            signal.attrs["forecast_failure"] = {
+                "error_code": "strategy_forecast_failed",
+                "first_error": error_payload or {"error": str(exc)},
+                "failure_stage": "forecast_execution", "failed_anchor_count": 1,
+                "failed_anchor_bar": int(idx), "eligible_anchor_count": len(eligible),
+                "anchors_completed_before_failure": int(signal.notna().sum()),
+                "remaining_anchors_skipped": sum(anchor > idx for anchor in eligible),
+            }
+            break
     return signal
 
 
@@ -633,6 +662,14 @@ def validate_strategies(  # noqa: C901
     for candidate in request.candidates:
         signal_definition = _candidate_signal_definition(candidate)
         signal = _builtin_signal(df["close"], candidate) if candidate.type == "builtin_strategy" else _forecast_signal(df, candidate, request.symbol, request.timeframe)
+        if signal.attrs.get("forecast_failure"):
+            results.append({
+                **_candidate_result_identity(candidate),
+                "evaluation_status": "failed",
+                "signal_definition": signal_definition,
+                **signal.attrs["forecast_failure"],
+            })
+            continue
         candidate_fold_windows = fold_windows
         candidate_embargo_intervals = embargo_intervals
         valid_signal_bars = np.flatnonzero(signal.notna().to_numpy())
@@ -923,6 +960,7 @@ def validate_strategies(  # noqa: C901
     warnings_out: List[str] = []
     candidate_counts = {
         "requested": int(len(results)),
+        "failed": sum(item.get("evaluation_status") == "failed" for item in results),
         "complete": int(
             sum(1 for item in results if item.get("evaluation_status") == "complete")
         ),
@@ -957,6 +995,8 @@ def validate_strategies(  # noqa: C901
         )
     for item in results:
         folds_evaluated = int(item.get("folds_evaluated") or 0)
+        if item.get("evaluation_status") == "failed":
+            warnings_out.append(f"Candidate {item.get('id')} failed: {item['first_error']['error']}")
         if item.get("evaluation_status") == "partial":
             warnings_out.append(
                 f"Candidate {item.get('id')} evaluated {folds_evaluated} of "
@@ -1077,7 +1117,8 @@ def validate_strategies(  # noqa: C901
         )
         payload["error_code"] = "strategy_validation_no_evaluable_candidates"
         payload["remediation"] = (
-            "Increase --lookback, reduce --n-splits or barrier horizon, or "
-            "choose a less sparse signal."
+            "Correct the candidate errors in rankings before retrying."
+            if candidate_counts["failed"] else
+            "Increase --lookback, reduce --n-splits or barrier horizon, or choose a less sparse signal."
         )
     return payload
