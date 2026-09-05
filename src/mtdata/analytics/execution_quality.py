@@ -14,6 +14,7 @@ from ..core.analytics_requests import (
     TradeExecutionQualityRequest,
 )
 from ..core.error_envelope import invalid_minutes_back_payload
+from ..core.trading.validation import snapshot_unavailable_error
 from ..shared.symbols import (
     is_probably_crypto_symbol,
     is_probably_fx_session_symbol,
@@ -378,14 +379,18 @@ def analyze_execution_quality(  # noqa: C901
                     ),
                 }
     kwargs = {"group": resolved_symbol} if resolved_symbol else {}
-    raw_deals = [
-        _mapping(row)
-        for row in (gateway.history_deals_get(start, end, **kwargs) or [])
-    ]
-    raw_orders = [
-        _mapping(row)
-        for row in (gateway.history_orders_get(start, end, **kwargs) or [])
-    ]
+    deal_rows = gateway.history_deals_get(start, end, **kwargs)
+    if deal_rows is None:
+        return snapshot_unavailable_error(
+            gateway, snapshot="history_deals", context="analyze execution quality"
+        )
+    raw_deals = [_mapping(row) for row in deal_rows]
+    order_rows = gateway.history_orders_get(start, end, **kwargs)
+    if order_rows is None:
+        return snapshot_unavailable_error(
+            gateway, snapshot="history_orders", context="analyze execution quality"
+        )
+    raw_orders = [_mapping(row) for row in order_rows]
     if resolved_symbol:
         deals = [
             row

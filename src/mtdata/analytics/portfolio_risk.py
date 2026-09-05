@@ -12,6 +12,7 @@ import pandas as pd
 from ..core.analytics_requests import (
     PortfolioRiskDecomposeRequest,
 )
+from ..core.trading.validation import snapshot_unavailable_error
 from ..utils.market_metadata import build_tick_freshness_context
 from ..utils.quote import (
     enforce_quote_execution_readiness,
@@ -426,7 +427,12 @@ def decompose_portfolio_risk(  # noqa: C901
         equity_value = 0.0
     if not math.isfinite(equity_value) or equity_value <= 0.0:
         equity_value = 0.0
-    positions = [_mapping(row) for row in (gateway.positions_get() or [])]
+    position_rows = gateway.positions_get()
+    if position_rows is None:
+        return snapshot_unavailable_error(
+            gateway, snapshot="positions", context="calculate portfolio exposure"
+        )
+    positions = [_mapping(row) for row in position_rows]
     base_position_count = len(positions)
     if proposed_validated is not None:
         proposed_symbol = str(proposed_validated["symbol"])
