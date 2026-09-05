@@ -47,7 +47,7 @@ class TestFetchCandlesIndicators(unittest.TestCase):
     @patch(_GUARD, _mock_symbol_guard)
     def test_indicators_list_of_dicts(self, mock_warmup, mock_ctz, mock_info, mock_from, mock_ti, mock_cfg):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        rates = _make_rates(30)
+        rates = _make_rates(30, step=3600)
         mock_from.return_value = rates
 
         def add_col(df, spec):
@@ -70,7 +70,7 @@ class TestFetchCandlesIndicators(unittest.TestCase):
     @patch(_GUARD, _mock_symbol_guard)
     def test_indicators_string_spec(self, mock_warmup, mock_ctz, mock_info, mock_from, mock_ti, mock_cfg):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(30)
+        mock_from.return_value = _make_rates(30, step=3600)
 
         def add_col(df, spec):
             df['ema_20'] = 1.1
@@ -97,7 +97,7 @@ class TestFetchCandlesIndicators(unittest.TestCase):
         mock_cfg,
     ):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(30)
+        mock_from.return_value = _make_rates(30, step=3600)
 
         def add_atr(df, spec):
             self.assertTrue({'open', 'high', 'low', 'close'}.issubset(df.columns))
@@ -133,7 +133,7 @@ class TestFetchCandlesIndicators(unittest.TestCase):
     @patch(_GUARD, _mock_symbol_guard)
     def test_indicators_named_string_spec(self, mock_warmup, mock_ctz, mock_info, mock_from, mock_ti, mock_cfg):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(30)
+        mock_from.return_value = _make_rates(30, step=3600)
 
         def add_col(df, spec):
             self.assertEqual(spec, 'rsi(length=14)')
@@ -162,7 +162,7 @@ class TestFetchCandlesIndicators(unittest.TestCase):
     ):
         mock_cfg.get_time_offset_seconds.return_value = 0
         mock_info.return_value.digits = 5
-        mock_from.return_value = _make_rates(30)
+        mock_from.return_value = _make_rates(30, step=3600)
 
         def add_cols(df, spec):
             df['RSI_14'] = 50.0
@@ -222,7 +222,7 @@ class TestFetchCandlesIndicators(unittest.TestCase):
         mock_cfg,
     ):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(30)
+        mock_from.return_value = _make_rates(30, step=3600)
 
         def add_cols(df, spec):
             df['atr_14'] = 99.0
@@ -251,7 +251,7 @@ class TestFetchCandlesIndicators(unittest.TestCase):
     @patch(_GUARD, _mock_symbol_guard)
     def test_bbands_canonical_indicator_string_spec(self, mock_warmup, mock_ctz, mock_info, mock_from, mock_ti, mock_cfg):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(30)
+        mock_from.return_value = _make_rates(30, step=3600)
 
         def add_col(df, spec):
             self.assertEqual(spec, 'bbands(20)')
@@ -271,7 +271,7 @@ class TestFetchCandlesIndicators(unittest.TestCase):
     @patch(_GUARD, _mock_symbol_guard)
     def test_indicators_json_string(self, mock_warmup, mock_ctz, mock_info, mock_from, mock_ti, mock_cfg):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(30)
+        mock_from.return_value = _make_rates(30, step=3600)
 
         def add_col(df, spec):
             df['rsi_14'] = 50.0
@@ -293,7 +293,7 @@ class TestFetchCandlesIndicators(unittest.TestCase):
     @patch(_GUARD, _mock_symbol_guard)
     def test_indicators_json_named_params(self, mock_warmup, mock_ctz, mock_info, mock_from, mock_ti, mock_cfg):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(30)
+        mock_from.return_value = _make_rates(30, step=3600)
 
         def add_col(df, spec):
             self.assertEqual(spec, 'rsi(length=14)')
@@ -320,7 +320,7 @@ class TestFetchCandlesIndicators(unittest.TestCase):
     @patch(_GUARD, _mock_symbol_guard)
     def test_unknown_indicator_returns_error(self, mock_warmup, mock_ctz, mock_info, mock_from, mock_cfg):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(30)
+        mock_from.return_value = _make_rates(30, step=3600)
         result = fetch_candles('EURUSD', limit=10, indicators='nonexistent_indicator')
         self.assertIn('error', result)
         self.assertIn('Unknown indicator', result['error'])
@@ -386,7 +386,7 @@ class TestFetchCandlesIndicators(unittest.TestCase):
         mock_cfg,
     ):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(10)
+        mock_from.return_value = _make_rates(10, step=3600)
         mock_ti.side_effect = ValueError(
             "Indicator 'rsi' parameter 'length' must be greater than 0; received 0."
         )
@@ -460,7 +460,7 @@ class TestFetchCandlesIndicators(unittest.TestCase):
     def test_nan_warmup_retry(self, mock_warmup, mock_ctz, mock_info, mock_from, mock_ti, mock_cfg):
         """When TI columns have NaN, fetch_candles retries with more warmup."""
         mock_cfg.get_time_offset_seconds.return_value = 0
-        rates = _make_rates(30)
+        rates = _make_rates(30, step=3600)
         mock_from.return_value = rates
 
         call_count = [0]
@@ -497,7 +497,7 @@ class TestFetchCandlesIndicators(unittest.TestCase):
         mock_cfg,
     ):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(30)
+        mock_from.return_value = _make_rates(30, step=3600)
 
         def add_supertrend_columns(df, spec):
             self.assertEqual(spec, 'supertrend(7,3)')
@@ -550,7 +550,7 @@ class TestFetchCandlesIndicators(unittest.TestCase):
         mock_cfg,
     ):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.side_effect = [_make_rates(30), []]
+        mock_from.side_effect = [_make_rates(30, step=3600), []]
 
         def add_nan_col(df, spec):
             df['rsi_14'] = [float('nan')] * max(0, len(df) - 3) + [50.0, 51.0, 52.0]
@@ -589,7 +589,7 @@ class TestFetchCandlesIndicators(unittest.TestCase):
         mock_cfg,
     ):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.side_effect = [_make_rates(30), []]
+        mock_from.side_effect = [_make_rates(30, step=3600), []]
 
         def add_nan_col(df, spec):
             df['rsi_14'] = float('nan')
@@ -626,7 +626,7 @@ class TestFetchCandlesIndicators(unittest.TestCase):
         mock_cfg,
     ):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.side_effect = [_make_rates(30), None, _make_rates(60)]
+        mock_from.side_effect = [_make_rates(30, step=3600), None, _make_rates(60, step=3600)]
 
         call_count = [0]
 
@@ -667,7 +667,7 @@ class TestFetchCandlesIndicators(unittest.TestCase):
         mock_cfg,
     ):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.side_effect = [_make_rates(30), _make_rates(60)]
+        mock_from.side_effect = [_make_rates(30, step=3600), _make_rates(60, step=3600)]
 
         def add_nan_col(df, spec):
             df['rsi_14'] = float('nan')
