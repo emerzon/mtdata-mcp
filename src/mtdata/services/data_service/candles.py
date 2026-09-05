@@ -2316,7 +2316,7 @@ def fetch_candles(  # noqa: C901
         # Requested bounds only clip the returned window. Bar completion is a
         # live fact and must never be advanced by a future range end.
         completion_reference_epoch = live_bar_reference_epoch
-        initial_incomplete_trimmed = False
+        initial_incomplete_trimmed = 0
         trailing_gap_epochs: Optional[Tuple[float, float]] = None
         if not include_incomplete:
             rates_before_trim = int(len(rates))
@@ -2348,7 +2348,7 @@ def fetch_candles(  # noqa: C901
                 timeframe,
                 current_time_epoch=completion_reference_epoch,
             )
-            initial_incomplete_trimmed = int(len(rates)) < rates_before_trim
+            initial_incomplete_trimmed = rates_before_trim - int(len(rates))
             if not initial_incomplete_trimmed:
                 trailing_gap_epochs = None
         if len(rates) == 0:
@@ -2589,15 +2589,17 @@ def fetch_candles(  # noqa: C901
         # Authoritative incomplete-tail trim for paths not already trimmed.
         # The ordinary fetch was classified above; do not classify its new
         # tail a second time when a mocked/feed clock is behind the bar open.
-        _trimmed_incomplete = False
+        _trimmed_incomplete = 0
         if not include_incomplete and (
             not initial_incomplete_trimmed or indicator_window_rebuilt
         ):
-            df, _trimmed_incomplete = _drop_incomplete_tail_df(
+            rows_before_completion_trim = len(df)
+            df, _ = _drop_incomplete_tail_df(
                 df,
                 timeframe,
                 current_time_epoch=completion_reference_epoch,
             )
+            _trimmed_incomplete = rows_before_completion_trim - len(df)
 
         # Ensure headers are unique and exist in df
         headers = [h for h in headers if h in df.columns]
@@ -2709,7 +2711,7 @@ def fetch_candles(  # noqa: C901
         candles_requested = int(candles)
         candles_excluded = max(0, candles_requested - candles_returned)
         simplification_excluded = max(0, source_rows_returned - candles_returned)
-        incomplete_candles_skipped = int(bool(initial_incomplete_trimmed)) + int(bool(_trimmed_incomplete))
+        incomplete_candles_skipped = initial_incomplete_trimmed + _trimmed_incomplete
         has_forming_candle = bool(initial_incomplete_trimmed or _trimmed_incomplete or tail_is_forming)
         forming_candle_included = bool(include_incomplete and tail_is_forming)
         forming_candle_skipped = bool(incomplete_candles_skipped and not include_incomplete)

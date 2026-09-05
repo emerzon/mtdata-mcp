@@ -79,7 +79,7 @@ class TestEdgeCases(unittest.TestCase):
     @patch(_GUARD, _mock_symbol_guard)
     def test_ohlcv_v_includes_tick_volume(self, mock_warmup, mock_ctz, mock_info, mock_from, mock_cfg):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(10)
+        mock_from.return_value = _make_rates(10, step=3600)
         result = fetch_candles('EURUSD', limit=5, ohlcv='V')
         self.assertTrue(result.get('success'))
         row_keys = set(result['data'][0].keys())
@@ -95,7 +95,7 @@ class TestEdgeCases(unittest.TestCase):
     @patch(_GUARD, _mock_symbol_guard)
     def test_candles_real_volume_metadata(self, mock_warmup, mock_ctz, mock_info, mock_from, mock_cfg):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(10, real_vol=50)
+        mock_from.return_value = _make_rates(10, real_vol=50, step=3600)
         result = fetch_candles('EURUSD', limit=5)
         self.assertTrue(result.get('success'))
         self.assertEqual(result['volume_type'], 'bid_update_count')

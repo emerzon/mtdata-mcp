@@ -44,7 +44,7 @@ class TestFetchCandlesAdvanced(unittest.TestCase):
     @patch(_GUARD, _mock_symbol_guard)
     def test_simplify_basic(self, mock_warmup, mock_ctz, mock_info, mock_from, mock_simp, mock_cfg):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        rates = _make_rates(20)
+        rates = _make_rates(20, step=3600)
         mock_from.return_value = rates
 
         def passthrough(df, hdrs, spec):
@@ -116,7 +116,7 @@ class TestFetchCandlesAdvanced(unittest.TestCase):
         self, mock_warmup, mock_ctz, mock_info, mock_from, mock_simp, mock_cfg
     ):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(20)
+        mock_from.return_value = _make_rates(20, step=3600)
 
         def reduce_rows(df, hdrs, spec):
             reduced = df.iloc[:3].copy()
@@ -155,7 +155,7 @@ class TestFetchCandlesAdvanced(unittest.TestCase):
     def test_simplify_no_explicit_points(self, mock_warmup, mock_ctz, mock_info, mock_from, mock_simp, mock_cfg):
         """When no points/ratio specified, default ratio is used."""
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(20)
+        mock_from.return_value = _make_rates(20, step=3600)
         mock_simp.side_effect = lambda df, h, s: (df, None)
         result = fetch_candles('EURUSD', limit=10, simplify={'mode': 'select'})
         self.assertTrue(result.get('success'))
@@ -176,7 +176,7 @@ class TestFetchCandlesAdvanced(unittest.TestCase):
     def test_denoise_pre_ti(self, mock_warmup, mock_ctz, mock_info, mock_from, mock_simp,
                             mock_apply_dn, mock_norm_dn, mock_cfg):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(10)
+        mock_from.return_value = _make_rates(10, step=3600)
         mock_norm_dn.return_value = {'method': 'ema', 'when': 'pre_ti', 'params': {}}
         result = fetch_candles('EURUSD', limit=5, denoise={'method': 'ema', 'when': 'pre_ti'})
         self.assertTrue(result.get('success'))
@@ -192,7 +192,7 @@ class TestFetchCandlesAdvanced(unittest.TestCase):
         self, mock_warmup, mock_ctz, mock_info, mock_from, mock_simp, mock_cfg
     ):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        rates = _make_rates(10)
+        rates = _make_rates(10, step=3600)
         mock_from.return_value = rates
 
         result = fetch_candles("EURUSD", limit=5, denoise={"method": "sma"})
@@ -219,7 +219,7 @@ class TestFetchCandlesAdvanced(unittest.TestCase):
         self, mock_warmup, mock_ctz, mock_info, mock_from, mock_simp, mock_ti, mock_cfg
     ):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(30)
+        mock_from.return_value = _make_rates(30, step=3600)
 
         def add_rsi(df, spec):
             df["rsi_14"] = df["close"]
@@ -305,7 +305,7 @@ class TestFetchCandlesAdvanced(unittest.TestCase):
     def test_denoise_post_ti(self, mock_warmup, mock_ctz, mock_info, mock_from, mock_simp,
                              mock_apply_dn, mock_norm_dn, mock_cfg):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(10)
+        mock_from.return_value = _make_rates(10, step=3600)
         mock_norm_dn.return_value = {'method': 'ema', 'when': 'post_ti', 'params': {}}
         denoise_input_lengths = []
 
@@ -337,7 +337,7 @@ class TestFetchCandlesAdvanced(unittest.TestCase):
     def test_denoise_warning_is_surfaced(self, mock_warmup, mock_ctz, mock_info, mock_from, mock_simp,
                                          mock_norm_dn, mock_cfg):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(10)
+        mock_from.return_value = _make_rates(10, step=3600)
         mock_norm_dn.return_value = {'method': 'wavelet', 'when': 'pre_ti', 'params': {}}
 
         def add_warning(df, spec, **kwargs):

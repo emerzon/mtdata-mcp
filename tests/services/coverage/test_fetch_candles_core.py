@@ -235,7 +235,7 @@ class TestFetchCandlesCore(unittest.TestCase):
     @patch(_GUARD, _mock_symbol_guard)
     def test_time_as_epoch(self, mock_warmup, mock_ctz, mock_info, mock_from, mock_cfg):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(10)
+        mock_from.return_value = _make_rates(10, step=3600)
         result = fetch_candles('EURUSD', limit=5, time_as_epoch=True)
         self.assertTrue(result.get('success'))
         for row in result.get('data', []):
@@ -249,7 +249,7 @@ class TestFetchCandlesCore(unittest.TestCase):
     @patch(_GUARD, _mock_symbol_guard)
     def test_ohlcv_filter_close_only(self, mock_warmup, mock_ctz, mock_info, mock_from, mock_cfg):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(10)
+        mock_from.return_value = _make_rates(10, step=3600)
         result = fetch_candles('EURUSD', limit=5, ohlcv='C')
         self.assertTrue(result.get('success'))
         row_keys = set(result['data'][0].keys())
@@ -265,7 +265,7 @@ class TestFetchCandlesCore(unittest.TestCase):
     @patch(_GUARD, _mock_symbol_guard)
     def test_ohlcv_filter_oh(self, mock_warmup, mock_ctz, mock_info, mock_from, mock_cfg):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(10)
+        mock_from.return_value = _make_rates(10, step=3600)
         result = fetch_candles('EURUSD', limit=5, ohlcv='OH')
         self.assertTrue(result.get('success'))
         row_keys = set(result['data'][0].keys())
@@ -293,7 +293,7 @@ class TestFetchCandlesCore(unittest.TestCase):
         mock_cfg,
     ):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(10)
+        mock_from.return_value = _make_rates(10, step=3600)
         result = fetch_candles('EURUSD', limit=5)
         self.assertTrue(result.get('success'))
         row_keys = set(result['data'][0].keys())
@@ -317,7 +317,7 @@ class TestFetchCandlesCore(unittest.TestCase):
         mock_cfg,
     ):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(10)
+        mock_from.return_value = _make_rates(10, step=3600)
         result = fetch_candles('EURUSD', limit=5, ohlcv='C', include_spread=True)
         self.assertTrue(result.get('success'))
         row_keys = list(result['data'][0].keys())
@@ -367,7 +367,7 @@ class TestFetchCandlesCore(unittest.TestCase):
         mock_live_spread,
     ):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(10, spread=0)
+        mock_from.return_value = _make_rates(10, spread=0, step=3600)
         result = fetch_candles('EURUSD', limit=5, ohlcv='C', include_spread=True)
 
         self.assertTrue(result.get('success'))
@@ -422,7 +422,7 @@ class TestFetchCandlesCore(unittest.TestCase):
         mock_cfg,
     ):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        rates = _make_rates(10)
+        rates = _make_rates(10, step=3600)
         for index, row in enumerate(rates):
             if index % 2:
                 row['spread'] = 0
@@ -454,7 +454,7 @@ class TestFetchCandlesCore(unittest.TestCase):
     @patch(_GUARD, _mock_symbol_guard)
     def test_real_volume_included(self, mock_warmup, mock_ctz, mock_info, mock_from, mock_cfg):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(10, real_vol=500)
+        mock_from.return_value = _make_rates(10, real_vol=500, step=3600)
         result = fetch_candles('EURUSD', limit=5)
         self.assertTrue(result.get('success'))
         row_keys = set(result['data'][0].keys())
@@ -468,7 +468,7 @@ class TestFetchCandlesCore(unittest.TestCase):
     @patch(_GUARD, _mock_symbol_guard)
     def test_zero_tick_volume_excluded(self, mock_warmup, mock_ctz, mock_info, mock_from, mock_cfg):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(10, tick_vol=0)
+        mock_from.return_value = _make_rates(10, tick_vol=0, step=3600)
         result = fetch_candles('EURUSD', limit=5)
         self.assertTrue(result.get('success'))
         row_keys = set(result['data'][0].keys())
@@ -549,7 +549,7 @@ class TestFetchCandlesCore(unittest.TestCase):
         self.assertTrue(result.get('success'))
         returned_times = [row['time'] for row in result.get('data', [])]
         self.assertNotIn(base_ts, returned_times)
-        self.assertEqual(returned_times[-1], base_ts - 3600)
+        self.assertEqual(returned_times[-1], base_ts - 7200)
         self.assertNotIn('last_candle_open', result)
         self.assertTrue(result['has_forming_candle'])
         self.assertEqual(result['forming_candle_status'], 'skipped')
@@ -566,17 +566,17 @@ class TestFetchCandlesCore(unittest.TestCase):
         base_ts = _NOW_TS
         mock_cfg.get_server_tz.return_value = None
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates_array(6, base_ts=base_ts, step=3600)
+        mock_from.return_value = _make_rates_array(7, base_ts=base_ts, step=3600)
         with patch(f'{_DS}._utc_epoch_seconds', return_value=base_ts - 60):
             result = fetch_candles('EURUSD', timeframe='H1', limit=5, time_as_epoch=True)
         self.assertTrue(result.get('success'))
         returned_times = [row['time'] for row in result.get('data', [])]
         self.assertEqual(len(returned_times), 5)
-        self.assertEqual(returned_times[0], base_ts - (5 * 3600))
-        self.assertEqual(returned_times[-1], base_ts - 3600)
+        self.assertEqual(returned_times[0], base_ts - (6 * 3600))
+        self.assertEqual(returned_times[-1], base_ts - 7200)
         self.assertEqual(result['candles'], 5)
         self.assertEqual(result['candles_excluded'], 0)
-        self.assertEqual(result['incomplete_candles_skipped'], 1)
+        self.assertEqual(result['incomplete_candles_skipped'], 2)
         self.assertTrue(result['has_forming_candle'])
         self.assertEqual(result['forming_candle_status'], 'skipped')
         self.assertFalse(result['forming_candle_included'])
@@ -646,7 +646,7 @@ class TestFetchCandlesCore(unittest.TestCase):
         mock_cfg.get_server_tz.return_value = ZoneInfo("Europe/Nicosia")
         mock_cfg.get_client_tz.return_value = None
         mock_cfg.get_time_offset_seconds.return_value = 7200
-        mock_from.return_value = _make_rates(10)
+        mock_from.return_value = _make_rates(10, step=3600)
         result = fetch_candles('EURUSD', limit=5)
         self.assertIsInstance(result.get('meta'), dict)
         self.assertIsNone(result['meta'].get('runtime'))
@@ -664,7 +664,7 @@ class TestFetchCandlesCore(unittest.TestCase):
         mock_cfg.get_server_tz.return_value = ZoneInfo("Europe/Nicosia")
         mock_cfg.get_client_tz.return_value = ZoneInfo("America/Chicago")
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(10)
+        mock_from.return_value = _make_rates(10, step=3600)
         result = fetch_candles('EURUSD', limit=5)
         self.assertIsInstance(result.get('meta'), dict)
         self.assertIsNone(result['meta'].get('runtime'))
@@ -736,7 +736,7 @@ class TestFetchCandlesCore(unittest.TestCase):
     @patch(_GUARD, _mock_symbol_guard)
     def test_timezone_utc_in_payload(self, mock_warmup, mock_ctz, mock_info, mock_from, mock_cfg):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(10)
+        mock_from.return_value = _make_rates(10, step=3600)
         result = fetch_candles('EURUSD', limit=5)
         self.assertEqual(result.get('timezone'), 'UTC')
 
@@ -748,7 +748,7 @@ class TestFetchCandlesCore(unittest.TestCase):
     @patch(_GUARD, _mock_symbol_guard)
     def test_session_gap_annotation(self, mock_warmup, mock_ctz, mock_info, mock_from, mock_cfg):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        t0 = _NOW_TS
+        t0 = _NOW_TS - 13 * 3600
         rates = [
             {
                 'time': t0,
@@ -886,7 +886,7 @@ class TestFetchCandlesCore(unittest.TestCase):
         mock_cfg,
     ):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(10)
+        mock_from.return_value = _make_rates(10, step=3600)
 
         result = fetch_candles('EURUSD', limit=5)
 
@@ -1249,7 +1249,7 @@ class TestFetchCandlesCore(unittest.TestCase):
     def test_start_only(self, mock_warmup, mock_ctz, mock_info, mock_range, mock_cfg):
         # start-only queries return the first bounded window after start.
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_range.return_value = _make_rates(20)
+        mock_range.return_value = _make_rates(20, step=3600)
         result = fetch_candles('EURUSD', limit=5, start='2025-01-01')
         self.assertTrue(result.get('success'))
         mock_range.assert_called()
@@ -1284,7 +1284,7 @@ class TestFetchCandlesCore(unittest.TestCase):
     @patch(_GUARD, _mock_symbol_guard)
     def test_end_only(self, mock_warmup, mock_ctz, mock_info, mock_from, mock_cfg):
         mock_cfg.get_time_offset_seconds.return_value = 0
-        mock_from.return_value = _make_rates(20)
+        mock_from.return_value = _make_rates(20, base_ts=datetime(2025, 1, 2, 23, tzinfo=_UTC).timestamp(), step=3600)
         result = fetch_candles('EURUSD', limit=5, end='2025-01-02')
         self.assertTrue(result.get('success'))
 
