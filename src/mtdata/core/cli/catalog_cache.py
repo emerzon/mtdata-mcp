@@ -76,7 +76,7 @@ def catalog_cache_fingerprint() -> str:
         try:
             name = str(distribution.metadata.get("Name") or "").strip().lower()
             version = str(distribution.version or "").strip()
-        except AttributeError, TypeError, ValueError:
+        except (AttributeError, TypeError, ValueError):
             continue
         if name:
             installed_distributions.append((name, version))
@@ -123,7 +123,7 @@ def load_catalog_output(
     path = _cache_path(command=command, argv=argv, program=program)
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
-    except OSError, UnicodeError, ValueError, TypeError:
+    except (OSError, UnicodeError, ValueError, TypeError):
         return None
     if not isinstance(payload, dict):
         return None
