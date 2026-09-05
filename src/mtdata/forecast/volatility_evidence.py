@@ -100,7 +100,7 @@ def _timestamp_bound(value: float) -> str | None:
             .isoformat(timespec="seconds")
             .replace("+00:00", "Z")
         )
-    except OverflowError, TypeError, ValueError:
+    except (OverflowError, TypeError, ValueError):
         return None
 
 

@@ -3386,7 +3386,7 @@ def forecast_backtest(  # noqa: C901
                                 unusable_row[unusable_key] = deepcopy(r[unusable_key])
                         try:
                             forecast_sigma = float(r["volatility_horizon"])
-                        except KeyError, TypeError, ValueError:
+                        except (KeyError, TypeError, ValueError):
                             forecast_sigma = float("nan")
                         if np.isfinite(forecast_sigma):
                             unusable_row["forecast_sigma"] = forecast_sigma

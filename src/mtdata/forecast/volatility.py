@@ -804,7 +804,7 @@ def _finite_int_or_none(value: Any) -> Optional[int]:
         return None
     try:
         numeric = float(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
     if not math.isfinite(numeric) or not numeric.is_integer():
         return None
@@ -814,7 +814,7 @@ def _finite_int_or_none(value: Any) -> Optional[int]:
 def _finite_float_or_none(value: Any) -> Optional[float]:
     try:
         numeric = float(value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return None
     return numeric if math.isfinite(numeric) else None
 
@@ -881,7 +881,7 @@ def _garch_fit_diagnostics(
     else:
         try:
             values = np.asarray(params, dtype=float).reshape(-1)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             values = np.asarray([], dtype=float)
         names = getattr(params, "index", None)
         if names is None or len(names) != len(values):
@@ -890,7 +890,7 @@ def _garch_fit_diagnostics(
     for name, value in coefficient_items:
         try:
             numeric = float(value)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             coefficient_error = "non_numeric_coefficient"
             coefficient_error_message = (
                 "GARCH fitted coefficients are unavailable or non-numeric."
