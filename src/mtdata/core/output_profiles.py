@@ -227,8 +227,6 @@ _CANDLE_COMPACT_OMIT = frozenset(
         "limit_reached",
         "limit_satisfied",
         "mt5_time_alignment",
-        "price_basis",
-        "price_currency",
         "price_point",
         "price_precision",
         "processing_pipeline",
@@ -2879,6 +2877,8 @@ def _full_data_payload(
         | _TICK_COMPACT_OMIT
         | {"pagination", "query_applied", "source"}
     )
+    if kind == "candles":
+        migrated = migrated - {"price_basis", "price_currency"}
     for key in migrated:
         out.pop(key, None)
     out["meta"] = meta

@@ -463,3 +463,6 @@ JSON remains the authoritative machine-readable form.
 - [CLI.md](CLI.md#output-contract) — TOON/JSON, `--precision`, exit codes
 - [ENV_VARS.md](ENV_VARS.md) — `MTDATA_OUTPUT_FORMAT` and related settings
 - [WEB_API.md](WEB_API.md) — how the same payloads are served over REST
+
+Candle results retain `price_basis` and `price_currency` at the root in every detail profile, so OHLC values carry their quote side and currency.
+
