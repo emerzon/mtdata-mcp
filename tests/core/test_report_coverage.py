@@ -1442,6 +1442,7 @@ def test_report_generate_compact_stamps_close_as_of_in_narrative():
     fn = _get_report_generate()
     sections = _make_full_sections()
     sections["context"] = {
+        "timeframe": "H1",
         "price_precision": 5,
         "last_snapshot": {
             "close": 1.15825,
@@ -1457,10 +1458,11 @@ def test_report_generate_compact_stamps_close_as_of_in_narrative():
         out = fn("EURUSD", template="basic", horizon=3, detail="compact")
 
     market = out["summary_structured"]["market"]
-    assert market["close_as_of"] == "2026-09-02T23:00Z"
+    assert market["close_as_of"] == "2026-09-03T00:00:00Z"
+    assert market["bar_open"] == "2026-09-02T23:00Z"
     assert market["close_bar_state"] == "completed"
     assert (
-        "Last close 1.15825 as of 2026-09-02T23:00Z (completed bar)"
+        "Last close 1.15825 as of 2026-09-03T00:00:00Z (completed bar)"
         in out["summary_structured"]["narrative"]
     )
 

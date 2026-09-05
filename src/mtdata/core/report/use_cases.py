@@ -6,11 +6,11 @@ import sys
 import time
 import warnings
 from contextlib import nullcontext
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
 from ...shared.constants import SANITY_BARS_TOLERANCE, TIMEFRAME_SECONDS
-from ...utils.time import format_datetime_utc, parse_iso_utc
+from ...utils.time import bar_close_epoch, format_datetime_utc, parse_iso_utc
 from ..error_envelope import build_error_payload, normalize_error_payload
 from ..execution_logging import log_operation_exception, run_logged_operation
 from ..output_contract import normalize_output_detail
@@ -224,6 +224,7 @@ def _report_base_timestamp_candidates(
             context.get("last_snapshot"),
             ("time", "time_epoch"),
         )
+        context_time_is_open = context_time is not None
         if context_time is None:
             context_time = _first_report_timestamp(
                 context,
@@ -231,15 +232,18 @@ def _report_base_timestamp_candidates(
                     "source_bar_time",
                     "last_bar_time",
                     "last_bar_epoch",
-                    "data_as_of",
-                    "data_as_of_epoch",
                 ),
             )
+            context_time_is_open = context_time is not None
+        if context_time is None:
+            context_time = _first_report_timestamp(context, ("data_as_of", "data_as_of_epoch"))
+        if context_time is None:
+            context_time = _first_report_timestamp(context.get("freshness"), ("source_bar_time",))
+            context_time_is_open = context_time is not None
         if context_time is None:
             context_time = _first_report_timestamp(
                 context.get("freshness"),
                 (
-                    "source_bar_time",
                     "last_observation_time",
                     "last_observation_epoch",
                     "data_as_of",
@@ -250,10 +254,9 @@ def _report_base_timestamp_candidates(
             context_timeframe = str(
                 base_timeframe or context.get("timeframe") or ""
             ).strip().upper()
-            context_seconds = TIMEFRAME_SECONDS.get(context_timeframe)
             candidates.append(
-                context_time + timedelta(seconds=context_seconds)
-                if context_seconds is not None
+                datetime.fromtimestamp(bar_close_epoch(context_time.timestamp(), context_timeframe), timezone.utc)
+                if context_time_is_open and context_timeframe in TIMEFRAME_SECONDS
                 else context_time
             )
 
@@ -293,10 +296,9 @@ def _report_base_timestamp_candidates(
             ("source_bar_time", "last_bar_time", "last_bar_epoch"),
         )
         if timeframe_time is not None:
-            timeframe_seconds = TIMEFRAME_SECONDS.get(normalized_timeframe)
             candidates.append(
-                timeframe_time + timedelta(seconds=timeframe_seconds)
-                if timeframe_seconds is not None
+                datetime.fromtimestamp(bar_close_epoch(timeframe_time.timestamp(), normalized_timeframe), timezone.utc)
+                if normalized_timeframe in TIMEFRAME_SECONDS
                 else timeframe_time
             )
             break
@@ -2238,7 +2240,15 @@ def run_report_generate(  # noqa: C901
                     summ.append(f"close={price_text}")
                     market_summary["close"] = price
                     market_summary["price_source"] = "last_completed_candle_close"
-                    close_as_of = last.get("time")
+                    bar_open = _parse_report_timestamp(last.get("time"))
+                    close_timeframe = ctx.get("timeframe") or params.get("timeframe") or (rep.get("meta") or {}).get("timeframe")
+                    close_as_of = None
+                    if bar_open is not None:
+                        market_summary["bar_open"] = last.get("time")
+                        if close_timeframe in TIMEFRAME_SECONDS:
+                            close_as_of = _format_report_timestamp(datetime.fromtimestamp(
+                                bar_close_epoch(bar_open.timestamp(), close_timeframe), timezone.utc
+                            ))
                     if close_as_of not in (None, ""):
                         market_summary["close_as_of"] = close_as_of
                         market_summary["close_bar_state"] = "completed"
