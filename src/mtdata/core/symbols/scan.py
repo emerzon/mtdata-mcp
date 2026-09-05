@@ -1747,6 +1747,15 @@ def _larger_abs_metric_cut_for_freshness(
     return False
 
 
+def _market_scan_ranking_policy(rank_by: str, rank_order: str) -> List[str]:
+    priorities = []
+    if rank_by == "spread_pct":
+        priorities.append("valid_spreads_first")
+    if rank_by in {"live_price_change_pct", "abs_live_price_change_pct"}:
+        priorities.append("usable_quotes_first")
+    return [*priorities, "fresh_bars_first", "non_missing_values_first", f"{rank_by}_{rank_order}", "symbol_asc"]
+
+
 def _market_scan_sort_rows(
     rows: List[Dict[str, Any]],
     *,
@@ -3546,6 +3555,7 @@ def market_scan(  # noqa: C901
                 "count": table_payload["row_count"],
                 "rank_by": rank_by_value,
                 "rank_order": effective_rank_order,
+                "ranking_policy": _market_scan_ranking_policy(rank_by_value, effective_rank_order),
                 "ranking_complete": not freshness_cut_larger_mover,
                 "ranking": _market_scan_ranking_label(
                     rank_by_value,

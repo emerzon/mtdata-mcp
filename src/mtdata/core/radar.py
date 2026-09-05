@@ -295,6 +295,13 @@ def assemble_radar_payload(
         "rows": ordered,
     }
     if isinstance(scan, dict):
+        if rank_by == "watchlist":
+            payload["rank_order"] = "input"
+            payload["ranking_policy"] = ["watchlist_order"]
+        else:
+            for key in ("rank_order", "rank_order_requested", "ranking_policy"):
+                if scan.get(key) is not None:
+                    payload[key] = scan[key]
         for key in (
             "universe",
             "price_change_basis",
