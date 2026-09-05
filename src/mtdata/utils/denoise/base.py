@@ -9,6 +9,18 @@ import pandas as pd
 _FILTER_REGISTRY: Dict[str, Callable[[pd.Series, np.ndarray, Dict[str, Any], str], pd.Series]] = {}
 
 
+class DenoiseParameterError(ValueError):
+    """A deterministic filter configuration error."""
+
+    def __init__(self, method: str, parameter: str, received: Any, allowed: str) -> None:
+        self.details = {"method": method, "parameter": parameter, "received": received, "allowed": allowed}
+        super().__init__(f"Denoise {method} parameter {parameter}={received!r} must satisfy {allowed}.")
+
+
+class DenoiseExecutionError(ValueError):
+    """Filtering failed after history retrieval."""
+
+
 def register_filter(name: str) -> Callable:
     """Decorator to register a filter method."""
     def decorator(func: Callable) -> Callable:

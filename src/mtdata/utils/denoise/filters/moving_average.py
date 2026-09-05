@@ -4,7 +4,24 @@ from typing import Any, Dict
 import numpy as np
 import pandas as pd
 
-from ..base import _series_like, register_filter
+from ..base import DenoiseParameterError, _series_like, register_filter
+
+
+def ema_alpha(params: Dict[str, Any]) -> float:
+    """Validate EMA configuration and resolve its effective smoothing weight."""
+    parameter = "alpha" if params.get("alpha") is not None else "span"
+    raw = params.get(parameter, 10)
+    allowed = "0 < alpha <= 1" if parameter == "alpha" else "integer span >= 1"
+    try:
+        value = float(raw)
+        valid = np.isfinite(value) and not isinstance(raw, bool) and (
+            0 < value <= 1 if parameter == "alpha" else value >= 1 and value.is_integer()
+        )
+    except (TypeError, ValueError, OverflowError):
+        valid = False
+    if not valid:
+        raise DenoiseParameterError("ema", parameter, raw, allowed)
+    return value if parameter == "alpha" else 2.0 / (value + 1.0)
 
 
 @register_filter('ema')
@@ -14,17 +31,10 @@ def _denoise_ema_series(
     params: Dict[str, Any],
     causality: str,
 ) -> pd.Series:
-    alpha = params.get('alpha')
-    span = params.get('span', 10)
-    if alpha is not None:
-        y = pd.Series(x).ewm(alpha=float(alpha), adjust=False).mean().values
-    else:
-        y = pd.Series(x).ewm(span=int(span), adjust=False).mean().values
+    alpha = ema_alpha(params)
+    y = pd.Series(x).ewm(alpha=alpha, adjust=False).mean().values
     if causality == 'zero_phase':
-        if alpha is not None:
-            y2 = pd.Series(x[::-1]).ewm(alpha=float(alpha), adjust=False).mean().values[::-1]
-        else:
-            y2 = pd.Series(x[::-1]).ewm(span=int(span), adjust=False).mean().values[::-1]
+        y2 = pd.Series(x[::-1]).ewm(alpha=alpha, adjust=False).mean().values[::-1]
         y = 0.5 * (y + y2)
     return _series_like(s, y)
 

@@ -57,7 +57,7 @@ except Exception:
     _VMD = None  # type: ignore
 
 from . import filters  # noqa: F401 - registers all filters
-from .base import get_filter, list_filters
+from .base import DenoiseExecutionError, DenoiseParameterError, get_filter, list_filters
 
 _logger = logging.getLogger(__name__)
 
@@ -605,6 +605,8 @@ def apply_denoise(
         attempted_columns += 1
         try:
             y = _run_denoise_handler(df[col], handler, params, causality)
+        except DenoiseParameterError:
+            raise
         except Exception as ex:
             _append_denoise_warning(
                 df,
@@ -660,7 +662,7 @@ def apply_denoise(
             if isinstance(warnings_out, list) and warnings_out
             else f"Denoise method '{method}' did not produce any output."
         )
-        raise ValueError(reason)
+        raise DenoiseExecutionError(reason)
     repaired_count = _repair_denoised_ohlc_geometry(
         df,
         added_columns=added_cols,

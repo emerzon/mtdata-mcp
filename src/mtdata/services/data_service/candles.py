@@ -39,6 +39,8 @@ from ...utils.denoise import (
 from ...utils.denoise import (
     normalize_denoise_spec as _normalize_denoise_spec,
 )
+from ...utils.denoise.base import DenoiseExecutionError, DenoiseParameterError
+from ...utils.denoise.filters.moving_average import ema_alpha
 from ...utils.freshness import (
     closed_session_context,
     freshness_hole_explained_by_weekend,
@@ -1521,7 +1523,18 @@ def _denoise_history_context(
         "causality": causality,
         "warmup_bars": 0,
     }
-    if method == "butterworth" and causality == "zero_phase":
+    if method == "ema":
+        alpha = ema_alpha(params)
+        tolerance = 1e-8
+        settling_bars = math.ceil(math.log(tolerance) / math.log1p(-alpha)) if alpha < 1 else 0
+        context.update({
+            "alpha": alpha,
+            "seed_weight_tolerance": tolerance,
+            "initialization": "first_fetched_value",
+            "warmup_bars": min(settling_bars, 100_000),
+            "recommended_bars": settling_bars + 1,
+        })
+    elif method == "butterworth" and causality == "zero_phase":
         order = max(1, int(params.get("order", 4)))
         btype = str(params.get("btype") or "low").strip().lower()
         coefficient_count = (
@@ -3150,6 +3163,17 @@ def fetch_candles(  # noqa: C901
                     )
 
         return payload
+    except DenoiseParameterError as exc:
+        return build_error_payload(
+            str(exc), code="invalid_denoise_parameter", operation="data_fetch_candles",
+            details=exc.details,
+            remediation="Correct the denoise parameter using the stated allowed range; see denoise_describe.",
+        )
+    except DenoiseExecutionError as exc:
+        return build_error_payload(
+            str(exc), code="denoise_failed", operation="data_fetch_candles",
+            remediation="Inspect the denoise parameters and available history; use denoise_describe for supported settings.",
+        )
     except DenoiseColumnError as exc:
         return {
             "success": False,
