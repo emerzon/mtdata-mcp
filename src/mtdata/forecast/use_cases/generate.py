@@ -496,9 +496,29 @@ def run_forecast_generate(  # noqa: C901
                 proxy_value = _DEFAULT_VOLATILITY_PROXY
                 proxy_defaulted = True
 
+        allowed_params = get_method_param_names(str(resolved_method))
+        if resolved_method == "statsforecast" or str(resolved_method).startswith("sf_"):
+            from mtdata.forecast.methods.statsforecast import (
+                statsforecast_model_parameters,
+            )
+
+            model_name = params.get("model_name") or getattr(ForecastRegistry.get_class(str(resolved_method)), "CAPABILITY_SELECTOR_VALUE", "AutoARIMA")
+            try:
+                model_parameters = statsforecast_model_parameters(str(model_name))
+            except ValueError as exc:
+                return _finish(build_error_payload(str(exc), code="invalid_forecast_model", operation="forecast_generate"), resolved_method=str(resolved_method))
+            allowed_params = ("model_name", *(p["name"] for p in model_parameters))
+            missing = [p["name"] for p in model_parameters if p.get("required") and p["name"] not in params]
+            if missing:
+                return _finish(build_error_payload(
+                    f"StatsForecast {model_name} requires params: {', '.join(missing)}.",
+                    code="missing_forecast_parameter", operation="forecast_generate",
+                    details={"missing_parameters": missing, "model_name": model_name},
+                    remediation="Supply the required constructor parameters in params.",
+                ), resolved_method=str(resolved_method))
         parameter_error = unknown_mapping_keys_error(
             params,
-            get_method_param_names(str(resolved_method)),
+            allowed_params,
             subject=f"forecast params for method '{resolved_method}'",
         )
         if parameter_error is not None:

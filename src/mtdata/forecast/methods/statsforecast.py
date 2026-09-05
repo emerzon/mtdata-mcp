@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import inspect
+import json
 import logging
 import warnings
 from typing import Any, Dict, List, Optional, Tuple
@@ -18,6 +19,43 @@ from ..interface import (
 )
 
 logger = logging.getLogger(__name__)
+
+UNSUPPORTED_STATSFORECAST_MODELS = {
+    "nanmodel": "NaNModel is a diagnostic placeholder, not a forecasting model.",
+    "sklearnmodel": "SklearnModel requires a Python estimator object; use the mlforecast library instead.",
+}
+
+
+def statsforecast_model_parameters(model_name: str, *, model_cls: Any = None) -> List[Dict[str, Any]]:
+    """Describe the selected installed constructor without importing it at startup."""
+    if str(model_name).lower() in UNSUPPORTED_STATSFORECAST_MODELS:
+        raise ValueError(UNSUPPORTED_STATSFORECAST_MODELS[str(model_name).lower()])
+    if model_cls is None:
+        from statsforecast import models
+
+        model_cls = next((getattr(models, name) for name in dir(models) if name.lower() == str(model_name).lower() and inspect.isclass(getattr(models, name))), None)
+    if model_cls is None:
+        raise ValueError(f"Unknown StatsForecast model: {model_name}")
+    result = []
+    for name, param in inspect.signature(model_cls).parameters.items():
+        if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
+            continue
+        required = param.default is inspect.Parameter.empty
+        row: Dict[str, Any] = {"name": name, "required": required and name not in {"season_length", "period", "periods"}}
+        if not required:
+            try:
+                json.dumps(param.default, allow_nan=False)
+            except (TypeError, ValueError):
+                continue
+            row["default"] = param.default
+        annotation = param.annotation
+        row["type"] = (
+            getattr(annotation, "__name__", str(annotation))
+            if annotation is not inspect.Parameter.empty
+            else type(param.default).__name__ if not required and param.default is not None else "Any"
+        )
+        result.append(row)
+    return result
 
 
 def _coerce_param_value(value: Any) -> Any:
@@ -266,10 +304,13 @@ class GenericStatsForecastMethod(StatsForecastMethod):
     CAPABILITY_SELECTOR_KEY = "model_name"
     CAPABILITY_SELECTOR_MODE = "class_name"
 
-    PARAMS: List[Dict[str, Any]] = [
-        {"name": "model_name", "type": "str", "description": "StatsForecast model class name."},
-        {"name": "season_length", "type": "int", "description": "Season length (auto if omitted)."},
-    ]
+    @property
+    def PARAMS(self) -> List[Dict[str, Any]]:
+        selector = [{"name": "model_name", "type": "str", "description": "StatsForecast model class name."}]
+        try:
+            return selector + statsforecast_model_parameters(getattr(self, "CAPABILITY_SELECTOR_VALUE", "AutoARIMA"))
+        except ImportError:
+            return selector
     
     @property
     def name(self) -> str:
@@ -277,6 +318,8 @@ class GenericStatsForecastMethod(StatsForecastMethod):
         
     def _get_model(self, seasonality: int, params: Dict[str, Any]):
         model_name = params.get('model_name') or params.get('model') or 'autoarima'
+        if str(model_name).lower() in UNSUPPORTED_STATSFORECAST_MODELS:
+            raise ValueError(UNSUPPORTED_STATSFORECAST_MODELS[str(model_name).lower()])
 
         try:
             with warnings.catch_warnings():
@@ -357,7 +400,6 @@ _SF_MODEL_CLASS_NAMES: Tuple[str, ...] = (
     "IMAPA",
     "MFLES",
     "MSTL",
-    "NaNModel",
     "Naive",
     "OptimizedTheta",
     "RandomWalkWithDrift",
@@ -367,7 +409,6 @@ _SF_MODEL_CLASS_NAMES: Tuple[str, ...] = (
     "SeasonalWindowAverage",
     "SimpleExponentialSmoothing",
     "SimpleExponentialSmoothingOptimized",
-    "SklearnModel",
     "TBATS",
     "TSB",
     "Theta",

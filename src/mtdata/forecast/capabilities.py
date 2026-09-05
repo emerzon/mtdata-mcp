@@ -247,6 +247,10 @@ def _normalize_concept(name: str) -> str:
 
 
 def _statsforecast_capabilities() -> List[Dict[str, Any]]:
+    from .methods.statsforecast import (
+        UNSUPPORTED_STATSFORECAST_MODELS,
+        statsforecast_model_parameters,
+    )
     try:
         try:
             models_mod = importlib.import_module("statsforecast.models")
@@ -259,7 +263,7 @@ def _statsforecast_capabilities() -> List[Dict[str, Any]]:
         return []
     capabilities: List[Dict[str, Any]] = []
     for attr in dir(models_mod):
-        if attr.startswith("_"):
+        if attr.startswith("_") or attr.lower() in UNSUPPORTED_STATSFORECAST_MODELS:
             continue
         obj = getattr(models_mod, attr, None)
         if not isinstance(obj, type):
@@ -279,6 +283,7 @@ def _statsforecast_capabilities() -> List[Dict[str, Any]]:
             category="statsforecast",
             description=_get_statsforecast_model_description(attr),
             available=True,
+            params=tuple(statsforecast_model_parameters(attr, model_cls=obj)),
             supports={"price": True, "return": True, "volatility": False, "ci": True},
             selector_key="model_name",
             selector_value=attr,
