@@ -282,9 +282,13 @@ def cross_correlation(  # noqa: C901
             symbol_list[1],
             transform_value,
         ).tail(int(window_bars))
-        if len(aligned) < int(min_overlap):
+        required_samples = int(min_overlap) + int(max_lag)
+        if len(aligned) < required_samples:
             return _causal_error(
-                f"Only {len(aligned)} overlapping samples are available; min_overlap={min_overlap}.",
+                f"Only {len(aligned)} overlapping samples are available; testing every lag "
+                f"from {-int(max_lag)} to {int(max_lag)} with min_overlap={min_overlap} "
+                f"requires at least {required_samples}. Increase lookback, reduce max_lag, "
+                "or reduce min_overlap.",
                 code="insufficient_overlap",
                 meta=meta,
                 context=_analysis_time_contract(
