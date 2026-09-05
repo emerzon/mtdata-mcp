@@ -213,3 +213,6 @@ again double-shifts the data.
 - [ENV_VARS.md § Timezone](ENV_VARS.md#timezone)
 - [OUTPUT.md](OUTPUT.md)
 - [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
+
+Forecast `last_observation_epoch` and `last_observation_time` both identify the input bar's close. Full output exposes its earlier open separately as `last_bar_open_epoch` and `last_bar_open`. Consumers using the former observation epoch as an open-time key must switch to the explicit bar-open field.
+

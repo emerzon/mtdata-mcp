@@ -745,7 +745,8 @@ class TestFormatForecastOutput:
                 ci_alpha=None, ci_values=None, method="naive",
                 quantity="price", denoise_used=False,
             )
-        assert result["last_observation_epoch"] == 1000.0
+        assert result["last_observation_epoch"] == 1300.0
+        assert result["last_bar_open_epoch"] == 1000.0
         assert result["last_bar_open"] == _format_time_minimal(1000.0)
         assert result["forecast_start_epoch"] == 1300.0
         assert result["last_observation_time"] == _format_time_minimal(1300.0)

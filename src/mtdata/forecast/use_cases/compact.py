@@ -1446,6 +1446,7 @@ def _apply_forecast_generate_detail(  # noqa: C901
         if key in {
             "base_col",
             "last_observation_epoch",
+            "last_bar_open_epoch",
             "forecast_start_epoch",
             "forecast_from",
             "forecast_start_time",
