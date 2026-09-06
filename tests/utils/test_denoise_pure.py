@@ -291,7 +291,7 @@ class TestNormalizeDenoiseSec:
 
     def test_dict_missing_params_uses_method_defaults(self):
         out = normalize_denoise_spec({"method": "ema"})
-        assert out["params"] == {"span": 10}
+        assert out["params"] == {"span": 10, "alpha": None}
 
     def test_dict_params_override_method_defaults(self):
         out = normalize_denoise_spec({"method": "butterworth", "params": {"order": 2}})
@@ -1710,7 +1710,8 @@ class TestGetDenoiseMethodsData:
         methods = {entry["method"]: entry for entry in data["methods"]}
 
         assert methods["ema"]["params"] == [
-            {"name": "span", "type": "integer", "default": 10}
+            {"name": "span", "type": "integer", "default": 10},
+            {"name": "alpha", "type": "any", "default": None},
         ]
         assert {param["name"] for param in methods["wavelet"]["params"]} == {
             "wavelet",

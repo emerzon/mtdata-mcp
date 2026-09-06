@@ -151,7 +151,7 @@ _COLUMN_ALIASES = (
 )
 
 _DENOISE_METHOD_DEFAULT_PARAMS: Dict[str, Dict[str, Any]] = {
-    "ema": {"span": 10},
+    "ema": {"span": 10, "alpha": None},
     "sma": {"window": 10},
     "median": {"window": 7},
     "lowpass_fft": {"cutoff_ratio": 0.1},
@@ -185,8 +185,8 @@ _DENOISE_METHOD_DEFAULT_PARAMS: Dict[str, Dict[str, Any]] = {
     "gaussian": {"sigma": 2.0, "truncate": 4.0, "mode": "nearest"},
     "wavelet": {"wavelet": "db4", "level": None, "threshold": "auto", "mode": "soft"},
     "emd": {"drop_imfs": [0], "keep_imfs": None, "max_imfs": "auto"},
-    "eemd": {"drop_imfs": [0], "keep_imfs": None, "max_imfs": "auto", "noise_strength": 0.2, "trials": 100},
-    "ceemdan": {"drop_imfs": [0], "keep_imfs": None, "max_imfs": "auto", "noise_strength": 0.2, "trials": 100},
+    "eemd": {"drop_imfs": [0], "keep_imfs": None, "max_imfs": "auto", "noise_strength": 0.2, "trials": 100, "random_state": None},
+    "ceemdan": {"drop_imfs": [0], "keep_imfs": None, "max_imfs": "auto", "noise_strength": 0.2, "trials": 100, "random_state": None},
 }
 
 _DENOISE_METHOD_DESCRIPTIONS: Dict[str, str] = {
@@ -511,6 +511,7 @@ def denoise_series(
     if params is None:
         params = {}
     method = (method or 'none').lower().strip()
+    params = _validated_denoise_params(method, params)
     if method == 'none':
         return s
     handler = _resolve_denoise_handler(method)
@@ -580,6 +581,7 @@ def apply_denoise(
     }
     if not spec or not isinstance(spec, dict):
         return added_cols
+    spec = normalize_denoise_spec(spec)
     method = str(spec.get('method', 'none')).lower()
     if method == 'none':
         return added_cols
@@ -716,6 +718,12 @@ def _normalize_denoise_param_aliases(
 ) -> Dict[str, Any]:
     """Map the public ``lambda`` spelling to each filter's implementation key."""
     out = dict(values)
+    aliases = {"kalman": {"q": "process_var", "r": "measurement_var"},
+               "kalman_robust": {"q": "process_var", "r": "measurement_var"},
+               "vmd": {"K": "k"}, "rls": {"lam": "lambda_"}}.get(method, {})
+    for alias, canonical in aliases.items():
+        if alias in out:
+            out[canonical] = out.pop(alias)
     if "lambda" not in out:
         return out
     target = {
@@ -737,6 +745,21 @@ def _default_denoise_causality(method: str) -> str:
     raise DenoiseCausalityError(method)
 
 
+def _validated_denoise_params(method: str, params: Any) -> Dict[str, Any]:
+    if not isinstance(params, dict):
+        raise DenoiseParameterError(method, "params", params, "a parameter object")
+    normalized = _normalize_denoise_param_aliases(method, params)
+    allowed = _DENOISE_METHOD_DEFAULT_PARAMS.get(method, {})
+    unknown = sorted(set(normalized) - set(allowed))
+    if unknown:
+        raise DenoiseParameterError(method, ", ".join(unknown), {key: normalized[key] for key in unknown},
+                                    "accepted parameters: " + (", ".join(sorted(allowed)) or "none"))
+    if method in {"kalman", "kalman_robust"}:
+        from .filters.specialized import validate_kalman_params
+        validate_kalman_params(method, normalized)
+    return normalized
+
+
 def normalize_denoise_spec(spec: Any, default_when: str = 'pre_ti') -> Optional[Dict[str, Any]]:
     """Normalize a denoise spec. Accepts dict-like or a method name string."""
     base = _denoise_base_defaults(default_when)
@@ -749,7 +772,7 @@ def normalize_denoise_spec(spec: Any, default_when: str = 'pre_ti') -> Optional[
         top_level_params = {
             key: value
             for key, value in spec.items()
-            if key not in _DENOISE_SPEC_KEYS and value is not None
+            if key not in _DENOISE_SPEC_KEYS
         }
         out = dict(base)
         out.update(
@@ -770,10 +793,12 @@ def normalize_denoise_spec(spec: Any, default_when: str = 'pre_ti') -> Optional[
         params = deepcopy(_DENOISE_METHOD_DEFAULT_PARAMS.get(method, {}))
         params.update(_normalize_denoise_param_aliases(method, top_level_params))
         supplied_params = out.get('params')
+        if supplied_params is not None and not isinstance(supplied_params, dict):
+            raise DenoiseParameterError(method, 'params', supplied_params, 'a parameter object')
         if isinstance(supplied_params, dict):
             params.update(_normalize_denoise_param_aliases(method, supplied_params))
         out['method'] = method
-        out['params'] = params
+        out['params'] = _validated_denoise_params(method, params)
         if 'columns' in out:
             out['columns'] = _as_column_selection(out.get('columns'))
         return out

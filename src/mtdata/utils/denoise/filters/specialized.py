@@ -9,7 +9,33 @@ try:
 except Exception:
     _denoise_tv_chambolle = None  # type: ignore[assignment]
 
-from ..base import _series_like, register_filter
+from ..base import DenoiseParameterError, _series_like, register_filter
+
+
+def validate_kalman_params(method: str, params: Dict[str, Any]) -> None:
+    """Reject invalid explicit states and variances before filtering."""
+    for name in ("process_var", "measurement_var", "initial_state", "initial_cov", "nu"):
+        raw = params.get(name)
+        if raw is None or (name in {"process_var", "measurement_var"} and raw == "auto"):
+            continue
+        allowed = "a finite number"
+        if name in {"process_var", "measurement_var", "initial_cov"}:
+            allowed += " >= 0" if name != "measurement_var" else " > 0"
+        if name == "nu":
+            allowed += " >= 1"
+        try:
+            value = float(raw)
+            valid = np.isfinite(value) and not isinstance(raw, bool)
+            if name in {"process_var", "initial_cov"}:
+                valid = valid and value >= 0
+            if name == "measurement_var":
+                valid = valid and value > 0
+            if name == "nu":
+                valid = valid and value >= 1
+        except (TypeError, ValueError, OverflowError):
+            valid = False
+        if not valid:
+            raise DenoiseParameterError(method, name, raw, allowed)
 
 
 def _kalman_filter_1d(
@@ -25,7 +51,7 @@ def _kalman_filter_1d(
         return np.zeros(0, dtype=float)
     xhat = np.empty(n, dtype=float)
     meas = max(float(measurement_var), 1e-12)
-    proc = max(float(process_var), 1e-12)
+    proc = float(process_var)
     state = float(initial_state) if initial_state is not None else float(x_arr[0])
     cov = float(initial_cov) if initial_cov is not None else meas
     xhat[0] = state
@@ -74,7 +100,7 @@ def _kalman_filter_causal_auto_1d(
             float(process_var)
             if process_var is not None
             else measurement * 0.01,
-            1e-12,
+            0.0,
         )
         predicted_covariance = covariance[t - 1] + process
         gain = predicted_covariance / (predicted_covariance + measurement)
@@ -111,7 +137,7 @@ def _kalman_rts_smoother_1d(
     if n == 0:
         return np.asarray([], dtype=float)
     meas = max(float(measurement_var), 1e-12)
-    proc = max(float(process_var), 1e-12)
+    proc = float(process_var)
     filtered = np.zeros(n, dtype=float)
     covariance = np.zeros(n, dtype=float)
     predicted = np.zeros(n, dtype=float)
@@ -236,7 +262,7 @@ def _kalman_robust_1d(
                 float(process_var)
                 if process_var is not None
                 else measurement * 0.01,
-                1e-12,
+                0.0,
             )
         else:
             measurement = max(
@@ -245,7 +271,7 @@ def _kalman_robust_1d(
             )
             process = max(
                 float(process_var) if process_var is not None else measurement * 0.01,
-                1e-12,
+                0.0,
             )
         predicted = xhat[t - 1]
         predicted_covariance = covariance[t - 1] + process
