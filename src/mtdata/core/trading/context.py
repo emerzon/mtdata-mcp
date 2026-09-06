@@ -7,6 +7,7 @@ from typing import Any, Dict, Optional
 
 from ...shared.constants import BROKER_VOLUME_UNIT
 from ...utils.coercion import round_finite
+from ...utils.market_metadata import build_tick_freshness_context
 from ...utils.quote import QUOTE_EXECUTION_SOURCE_AGREEMENT_BASIS
 from ...utils.time import format_datetime_utc
 from .._mcp_instance import mcp
@@ -372,6 +373,36 @@ def _build_quote_quality(quote: Any) -> Dict[str, Any]:
     return out
 
 
+def _age_session_quote(quote: Any, *, symbol: str, observed_at: datetime, assembled_at: datetime) -> Any:
+    """Age an acquired quote at assembly without upgrading an earlier veto."""
+    if not isinstance(quote, dict) or quote.get("error"):
+        return quote
+    epoch = quote.get("time_epoch")
+    if epoch is None:
+        text = quote.get("quote_as_of") or quote.get("quote_time") or quote.get("time")
+        try:
+            instant = datetime.fromisoformat(str(text).replace("Z", "+00:00"))
+            epoch = instant.timestamp() if instant.tzinfo is not None else None
+        except (ValueError, TypeError):
+            epoch = None
+    if epoch is None and isinstance(quote.get("data_age_seconds"), (int, float)):
+        epoch = observed_at.timestamp() - quote["data_age_seconds"]
+    if epoch is None:
+        return quote
+    freshness = build_tick_freshness_context(symbol, tick_epoch=epoch, now_epoch=assembled_at.timestamp())
+    if not freshness:
+        return quote
+    out = {**quote, **freshness}
+    out["usable_for_live_trading"] = quote.get("usable_for_live_trading") is True and freshness["usable_for_live_trading"]
+    if quote.get("usable_for_live_trading") is False:
+        out["usable_for_live_trading_basis"] = quote.get("usable_for_live_trading_basis")
+    out["quote_observed_at"] = format_datetime_utc(observed_at)
+    out["data_age_as_of"] = format_datetime_utc(assembled_at)
+    out["data_age_anchor"] = "session_assembly"
+    out.pop("data_age", None)
+    return out
+
+
 def _is_empty_trade_session_value(value: Any) -> bool:
     return value is None or (isinstance(value, str) and not value.strip())
 
@@ -419,6 +450,8 @@ def _compact_trade_session_context_payload(payload: Dict[str, Any]) -> Dict[str,
             "symbol_input",
             "as_of",
             "assembled_at",
+            "snapshot_started_at",
+            "snapshot_span_seconds",
             "timezone",
             "source",
             "state",
@@ -494,6 +527,9 @@ def _compact_trade_session_context_payload(payload: Dict[str, Any]) -> Dict[str,
                     "time_epoch",
                     "timezone",
                     "data_age_seconds",
+                    "quote_observed_at",
+                    "data_age_as_of",
+                    "data_age_anchor",
                     "data_age",
                     "data_stale",
                     "freshness_state",
@@ -624,7 +660,7 @@ def _compact_trade_session_context_payload(payload: Dict[str, Any]) -> Dict[str,
 def trade_session_context(request: TradeSessionContextRequest) -> Dict[str, Any]:
     """Get a consolidated session context including account info, open positions, pending orders, quote, and computed state for a symbol.
 
-    Use this for a fast execution snapshot before deciding what to do next. It
+    Use this for a consolidated execution snapshot before deciding what to do next. It
     intentionally summarizes account/quote/order state and is not the
     authoritative risk calculator. Use `trade_risk_analyze` for stop-loss
     exposure and position sizing, or `trade_var_cvar_calculate` for portfolio
@@ -632,11 +668,14 @@ def trade_session_context(request: TradeSessionContextRequest) -> Dict[str, Any]
 
     Successful responses include top-level `as_of`/`assembled_at` UTC timestamps,
     `timezone="UTC"`, and MT5 `source` provenance for snapshot reconciliation.
+    Quote age is evaluated at assembly; snapshot_span_seconds discloses the
+    collection interval and quote_observed_at records quote acquisition.
 
     Parameters: symbol, detail, include_account
     """
 
     def _run() -> Dict[str, Any]:
+        snapshot_started_at = datetime.now(timezone.utc)
         gateway = create_trading_gateway()
         resolved_request, symbol_input = resolve_trading_symbol_request(
             request,
@@ -652,6 +691,7 @@ def trade_session_context(request: TradeSessionContextRequest) -> Dict[str, Any]
 
         account_res = acc_func() if resolved_request.include_account else None
         quote_res = quote_func(symbol=symbol, detail=resolved_request.detail)
+        quote_observed_at = datetime.now(timezone.utc)
         tradability = _trade_session_tradability(symbol)
 
         open_req = TradeGetOpenRequest(symbol=symbol)
@@ -733,12 +773,18 @@ def trade_session_context(request: TradeSessionContextRequest) -> Dict[str, Any]
         ):
             other_positions_count = portfolio_positions_count - symbol_positions_count
 
-        assembled_at = format_datetime_utc(datetime.now(timezone.utc))
+        assembly_instant = datetime.now(timezone.utc)
+        assembled_at = format_datetime_utc(assembly_instant)
+        quote_res = _age_session_quote(
+            quote_res, symbol=symbol, observed_at=quote_observed_at, assembled_at=assembly_instant,
+        )
         payload = {
             "success": True,
             "symbol": symbol,
             "as_of": assembled_at,
             "assembled_at": assembled_at,
+            "snapshot_started_at": format_datetime_utc(snapshot_started_at),
+            "snapshot_span_seconds": round((assembly_instant - snapshot_started_at).total_seconds(), 3),
             "timezone": "UTC",
             "state": state,
             "state_scope": "symbol",

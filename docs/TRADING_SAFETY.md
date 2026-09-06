@@ -403,3 +403,5 @@ inputs on purpose; see [TRADING_RISK.md](TRADING_RISK.md).
 - [OUTPUT.md](OUTPUT.md) — Response envelope and error codes
 
 Quote reconciliation can supply a current analysis price while the raw submission tick remains unsafe. `usable_for_live_trading` also requires the raw tick to pass the order submission freshness policy; `send_path_tick_fresh=false` explains that veto. The broker clock tolerance and order submission checks are unchanged.
+
+`trade_session_context` evaluates quote age and readiness at `assembled_at`, preserves `quote_observed_at`, and reports `snapshot_span_seconds`. Account and position data are collected over that interval, so the result is a consolidated snapshot rather than an atomic market observation.
