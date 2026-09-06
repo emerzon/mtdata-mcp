@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { composeTradeIdea, getErrorMessage } from '../api/client'
 import type { LayoutBreakpoint } from '../lib/layout'
 import { tradeIdeaSectionFailures } from '../lib/ideaFeedback'
+import { createToolRunGate } from '../lib/toolRunState'
 import type { TradeIdeaPayload } from '../types'
 import { WorkspacePanelShell } from './WorkspacePanelShell'
 
@@ -43,25 +44,25 @@ export function IdeaPanel({
   })
   const requestKeyRef = useRef(requestKey)
   requestKeyRef.current = requestKey
-  const runId = useRef(0)
+  const runGateRef = useRef(createToolRunGate())
 
   useEffect(() => {
     onIdeaRef.current = onIdea
   }, [onIdea])
 
   useEffect(() => {
-    runId.current += 1
+    runGateRef.current.invalidate()
     setIsLoading(false)
     setError(null)
     setIdea(null)
     onIdeaRef.current(null)
+    return () => runGateRef.current.invalidate()
   }, [requestKey])
 
   const run = useCallback(async () => {
     if (!symbol) return
 
-    const runRequestKey = requestKey
-    const currentRunId = ++runId.current
+    const runIdentity = runGateRef.current.begin(requestKey)
     setIsLoading(true)
     setError(null)
     setIdea(null)
@@ -76,17 +77,17 @@ export function IdeaPanel({
         template,
         risk_pct: riskPct,
       })
-      if (currentRunId !== runId.current || runRequestKey !== requestKeyRef.current) return
+      if (!runGateRef.current.isCurrent(runIdentity, requestKeyRef.current)) return
       setIdea(result)
       onIdeaRef.current(result)
     } catch (err) {
-      if (currentRunId === runId.current && runRequestKey === requestKeyRef.current) {
+      if (runGateRef.current.isCurrent(runIdentity, requestKeyRef.current)) {
         setIdea(null)
         onIdeaRef.current(null)
         setError(getErrorMessage(err))
       }
     } finally {
-      if (currentRunId === runId.current && runRequestKey === requestKeyRef.current) {
+      if (runGateRef.current.isCurrent(runIdentity, requestKeyRef.current)) {
         setIsLoading(false)
       }
     }

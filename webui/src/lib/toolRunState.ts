@@ -1,28 +1,28 @@
 export type ToolRunIdentity = Readonly<{
   generation: number
-  toolName: string
+  requestKey: string
 }>
 
 export type ToolRunGate = {
-  begin: (toolName: string) => ToolRunIdentity
+  begin: (requestKey: string) => ToolRunIdentity
   invalidate: () => void
-  isCurrent: (identity: ToolRunIdentity, selectedName: string | null) => boolean
+  isCurrent: (identity: ToolRunIdentity, requestKey: string | null) => boolean
 }
 
-/** Keep asynchronous tool output bound to the selection that started it. */
+/** Keep asynchronous tool output bound to the request that started it. */
 export function createToolRunGate(): ToolRunGate {
   let generation = 0
 
   return {
-    begin(toolName) {
+    begin(requestKey) {
       generation += 1
-      return { generation, toolName }
+      return { generation, requestKey }
     },
     invalidate() {
       generation += 1
     },
-    isCurrent(identity, selectedName) {
-      return identity.generation === generation && identity.toolName === selectedName
+    isCurrent(identity, requestKey) {
+      return identity.generation === generation && identity.requestKey === requestKey
     },
   }
 }

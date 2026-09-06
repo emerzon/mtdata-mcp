@@ -34,6 +34,7 @@ import {
   volatilityResultMetrics,
 } from '../lib/volatilityContracts'
 import { formatDateTime } from '../lib/utils'
+import { createToolRunGate } from '../lib/toolRunState'
 import type { LayoutBreakpoint } from '../lib/layout'
 import { DenoiseModal } from './DenoiseModal'
 import { ModelsBrowser } from './ModelsBrowser'
@@ -361,7 +362,7 @@ function VolatilityTab({ symbol, timeframe, anchor }: { symbol: string; timefram
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<VolatilityPayload | null>(null)
-  const runId = useRef(0)
+  const runGateRef = useRef(createToolRunGate())
   const selectedMethod = useMemo(
     () => methods?.methods?.find((item) => item.method === method),
     [method, methods?.methods]
@@ -385,30 +386,30 @@ function VolatilityTab({ symbol, timeframe, anchor }: { symbol: string; timefram
   )
 
   useEffect(() => {
-    runId.current += 1
+    runGateRef.current.invalidate()
     setIsLoading(false)
     setError(null)
     setResult(null)
+    return () => runGateRef.current.invalidate()
   }, [requestContract])
 
   const run = async () => {
     if (!symbol) return
-    const runContract = requestContract
-    const currentRunId = ++runId.current
+    const runIdentity = runGateRef.current.begin(requestContract)
     setIsLoading(true)
     setError(null)
     setResult(null)
     try {
       const response = await forecastVolatility(requestBody)
-      if (currentRunId === runId.current && runContract === requestContractRef.current) {
+      if (runGateRef.current.isCurrent(runIdentity, requestContractRef.current)) {
         setResult(response)
       }
     } catch (err) {
-      if (currentRunId === runId.current && runContract === requestContractRef.current) {
+      if (runGateRef.current.isCurrent(runIdentity, requestContractRef.current)) {
         setError(getErrorMessage(err))
       }
     } finally {
-      if (currentRunId === runId.current && runContract === requestContractRef.current) {
+      if (runGateRef.current.isCurrent(runIdentity, requestContractRef.current)) {
         setIsLoading(false)
       }
     }
@@ -523,7 +524,7 @@ function BacktestTab({
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<BacktestResult | null>(null)
-  const runId = useRef(0)
+  const runGateRef = useRef(createToolRunGate())
   const scopedParams = useMemo(
     () => scopedBacktestParams(selectedMethods, methods, sharedParams, paramsByMethod),
     [methods, paramsByMethod, selectedMethods, sharedParams]
@@ -551,10 +552,11 @@ function BacktestTab({
     .reduce((total, values) => total + Object.keys(values).length, 0)
 
   useEffect(() => {
-    runId.current += 1
+    runGateRef.current.invalidate()
     setIsLoading(false)
     setError(null)
     setResult(null)
+    return () => runGateRef.current.invalidate()
   }, [requestContract])
 
   const toggleMethod = (method: string) => {
@@ -565,8 +567,7 @@ function BacktestTab({
 
   const run = async () => {
     if (!symbol || !selectedMethods.length) return
-    const runContract = requestContract
-    const currentRunId = ++runId.current
+    const runIdentity = runGateRef.current.begin(requestContract)
     setIsLoading(true)
     setError(null)
     setResult(null)
@@ -581,15 +582,15 @@ function BacktestTab({
         denoise,
         ...scopedParams,
       })
-      if (currentRunId === runId.current && runContract === requestContractRef.current) {
+      if (runGateRef.current.isCurrent(runIdentity, requestContractRef.current)) {
         setResult(response)
       }
     } catch (err) {
-      if (currentRunId === runId.current && runContract === requestContractRef.current) {
+      if (runGateRef.current.isCurrent(runIdentity, requestContractRef.current)) {
         setError(getErrorMessage(err))
       }
     } finally {
-      if (currentRunId === runId.current && runContract === requestContractRef.current) {
+      if (runGateRef.current.isCurrent(runIdentity, requestContractRef.current)) {
         setIsLoading(false)
       }
     }

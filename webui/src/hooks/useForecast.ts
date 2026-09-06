@@ -18,6 +18,7 @@ import type {
 } from '../types'
 import { mapCompactForecastToSeries } from '../lib/compactForecast'
 import { loadJSON, saveJSON } from '../lib/storage'
+import { createToolRunGate } from '../lib/toolRunState'
 import { formatDateTime } from '../lib/utils'
 import {
   forecastMethodParams,
@@ -234,7 +235,7 @@ export function useForecast(
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<ForecastPayload | null>(null)
-  const runId = useRef(0)
+  const runGateRef = useRef(createToolRunGate())
   const onResultRef = useRef(onResult)
   const requestKey = JSON.stringify({
     symbol,
@@ -251,19 +252,19 @@ export function useForecast(
   }, [onResult])
 
   useEffect(() => {
-    runId.current += 1
+    runGateRef.current.invalidate()
     setIsLoading(false)
     setError(null)
     setResult(null)
     onResultRef.current(null)
+    return () => runGateRef.current.invalidate()
   }, [requestKey])
 
   const run = useCallback(
     async (kind: 'full' | 'partial', anchor?: number) => {
       if (!symbol) return
 
-      const runRequestKey = requestKey
-      const currentRunId = ++runId.current
+      const runIdentity = runGateRef.current.begin(requestKey)
       setIsLoading(true)
       setError(null)
       setResult(null)
@@ -290,7 +291,7 @@ export function useForecast(
           __kind: kind,
         }
 
-        if (currentRunId !== runId.current || runRequestKey !== requestKeyRef.current) return
+        if (!runGateRef.current.isCurrent(runIdentity, requestKeyRef.current)) return
         try {
           const series = mapCompactForecastToSeries(payload.forecast ?? [])
           if (!series.values.length) {
@@ -307,11 +308,11 @@ export function useForecast(
         setResult(payload)
         onResultRef.current(payload)
       } catch (err) {
-        if (currentRunId === runId.current && runRequestKey === requestKeyRef.current) {
+        if (runGateRef.current.isCurrent(runIdentity, requestKeyRef.current)) {
           setError(getErrorMessage(err))
         }
       } finally {
-        if (currentRunId === runId.current && runRequestKey === requestKeyRef.current) {
+        if (runGateRef.current.isCurrent(runIdentity, requestKeyRef.current)) {
           setIsLoading(false)
         }
       }
