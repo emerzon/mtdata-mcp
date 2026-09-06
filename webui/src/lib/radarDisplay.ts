@@ -1,4 +1,5 @@
 import type { RadarRow } from '../types'
+import { normalizeSymbol } from './watchlist'
 
 export function radarDisplayPrice(
   row?: Pick<RadarRow, 'mid' | 'last' | 'bar_close'> | null,
@@ -18,7 +19,7 @@ export function radarQuoteUnusable(
 export function radarMissingSymbolSet(symbols: string[] | null | undefined): Set<string> {
   return new Set(
     (symbols ?? [])
-      .map((symbol) => String(symbol).trim().toUpperCase())
+      .map(normalizeSymbol)
       .filter(Boolean)
   )
 }

@@ -22,4 +22,10 @@ describe('radarMissingSymbolSet', () => {
   it('normalizes authoritative missing broker names', () => {
     expect(radarMissingSymbolSet([' nope ', 'eur/usd'])).toEqual(new Set(['NOPE', 'EUR/USD']))
   })
+
+  it('ignores blank symbols and coalesces differently cased duplicates', () => {
+    expect(radarMissingSymbolSet([' eurusd ', 'EURUSD', ' '])).toEqual(new Set(['EURUSD']))
+    expect(radarMissingSymbolSet(undefined)).toEqual(new Set())
+    expect(radarMissingSymbolSet(null)).toEqual(new Set())
+  })
 })
