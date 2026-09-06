@@ -81,9 +81,6 @@ forecast-timesfm = [
     "timesfm[torch]>=3.0.1,<4",
     "safetensors>=0.5.3",
 ]
-patterns-ext = [
-    # stock-pattern has no setup.py/pyproject.toml; manual install required (see docs/SETUP.md)
-]
 pattern-search-hnsw = [
     # Source-built on Windows/cp314; validated with MSVC Build Tools 2022.
     "hnswlib==0.8.0",
@@ -128,33 +125,6 @@ all = [
     "sentence-transformers>=5.7.0,<6",
     "umap-learn>=0.5.12",
 ]
-all-git = [
-    "arch>=8.0.0",
-    "optuna>=4.9.0",
-    "QuantLib>=1.43",
-    "statsforecast>=2.1.1,<3",
-    "sktime>=1.1.0",
-    "mlforecast>=1.1.0",
-    "lightgbm>=4.7.0",
-    "coreforecast>=0.0.18",
-    "numba>=0.67.0",
-    "tsfresh>=0.21.2",
-    "torch>=2.13.0,<3",
-    "pillow>=12.3.0",
-    "accelerate>=1.14.0",
-    "chronos-forecasting>=2.3.1",
-    "transformers>=5.15.1,<6",
-    "huggingface-hub>=1.28.0,<2",
-    "timesfm[torch]>=3.0.1,<4",
-    "safetensors>=0.5.3",
-    "tsdownsample>=0.1.5.1",
-    "hnswlib==0.8.0",
-    "fastapi>=0.141.1",
-    "uvicorn[standard]>=0.52.4",
-    "sentence-transformers>=5.7.0,<6",
-    "umap-learn>=0.5.12",
-    "ycnbc>=1.0.12",
-]
 
 [project.scripts]
 mtdata-sse = "mtdata.core.server:main_sse"
@@ -194,4 +164,3 @@ max-complexity = 25
 "src/mtdata/forecast/barriers_shared.py" = ["F401"]
 "src/mtdata/forecast/forecast.py" = ["F401"]
 "src/mtdata/patterns/classic.py" = ["F401"]
-"src/mtdata/shared/constants.py" = ["F401"]

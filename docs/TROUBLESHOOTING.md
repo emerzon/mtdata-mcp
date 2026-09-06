@@ -353,7 +353,7 @@ MTDATA_CLI_DEBUG=1 mtdata-cli forecast_generate EURUSD --horizon 12
 
 ### Manual stock-pattern Extra Fails to Install
 
-**Symptom:** `pip install -e .[patterns-ext]` does not install `stock-pattern` because that repository has no packaging metadata.
+**Symptom:** `stock-pattern` cannot be installed via pip because that repository has no packaging metadata.
 
 **Solution:**
 1. Make sure Git is installed and available on `PATH`.
