@@ -10,9 +10,19 @@ import os
 import types
 from dataclasses import dataclass
 from functools import wraps as _wraps
-from typing import Any, Dict, List, Optional, Union, cast, get_args, get_origin
+from typing import (
+    Annotated,
+    Any,
+    Dict,
+    List,
+    Optional,
+    Union,
+    cast,
+    get_args,
+    get_origin,
+)
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..shared.annotations import get_runtime_annotations, get_runtime_signature
 from ..shared.parameter_contracts import (
@@ -962,6 +972,13 @@ def _request_model_signature_fields(func: Any) -> List[inspect.Parameter]:
                     annotation = inspect._empty
             if annotation is inspect._empty:
                 annotation = getattr(field, "annotation", inspect._empty)
+            # rebuild_annotation retains validators and constraints, but omits
+            # field documentation needed by the flattened FastMCP schema.
+            if field.description is not None or field.examples is not None:
+                annotation = Annotated[
+                    annotation,
+                    Field(description=field.description, examples=field.examples),
+                ]
             is_required = bool(getattr(field, "is_required", lambda: False)())
             default = inspect._empty if is_required else _signature_default_for_model_field(field)
             flattened.append(
