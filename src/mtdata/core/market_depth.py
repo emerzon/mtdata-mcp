@@ -262,22 +262,6 @@ def _compact_market_ticker_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def _market_ticker_refresh_tick(
-    gateway: Any,
-    symbol: str,
-    tick: Any,
-    *,
-    now_epoch: float,
-) -> tuple[Any, Dict[str, Any]]:
-    return resolve_quote_tick(
-        gateway,
-        symbol,
-        tick,
-        now_epoch=now_epoch,
-        stale_after_seconds=_MARKET_TICKER_STALE_SECONDS,
-    )
-
-
 def _positive_market_ticker_float(value: Any) -> Optional[float]:
     try:
         number = float(value)
@@ -852,11 +836,12 @@ def market_ticker(  # noqa: C901
                 )
 
             quote_now_epoch = float(time.time())
-            tick, quote_source_metadata = _market_ticker_refresh_tick(
+            tick, quote_source_metadata = resolve_quote_tick(
                 mt5_gateway,
                 resolved_symbol,
                 tick,
                 now_epoch=quote_now_epoch,
+                stale_after_seconds=_MARKET_TICKER_STALE_SECONDS,
             )
 
             digits = symbol_price_digits(symbol_info)
