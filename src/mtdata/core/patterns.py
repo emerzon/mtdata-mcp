@@ -387,6 +387,7 @@ def _fetch_pattern_data_after_select(  # noqa: C901
     )
     if warnings_out:
         df.attrs["warnings"] = list(warnings_out)
+    df.attrs["timeframe"] = timeframe
     
     return df, None
 
@@ -1784,6 +1785,8 @@ def _track_pattern_data_deps(
     def _tracked_fetch_pattern_data(*args: Any, **kwargs: Any) -> Any:
         frame, error = fetch_pattern_data(*args, **kwargs)
         timeframe = args[1] if len(args) > 1 else kwargs.get("timeframe")
+        if isinstance(frame, pd.DataFrame):
+            frame.attrs["timeframe"] = timeframe
         if denoise_outcome is not None and isinstance(frame, pd.DataFrame):
             # The response echoes effective_denoise from the request, which is a
             # false claim when normalization raised and raw prices were used.

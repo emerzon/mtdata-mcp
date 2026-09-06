@@ -89,6 +89,12 @@ confirmation gap. Results report `available_at_index`, `available_at_time`,
 `config.scan_historical=true` to run the slower causal prefix scan when you need
 older patterns labeled at their first detection window.
 
+`available_at_time` is the close of the last candle consumed by detection;
+`detection_bar_open` identifies that candle's opening time. Daily, weekly, and
+monthly availability follows broker-calendar boundaries. Direct Python callers
+must supply `timeframe` or `df.attrs["timeframe"]`; without a known timeframe,
+the detector reports the availability index and omits the availability time.
+
 **Patterns detected:**
 | Pattern | Description |
 |---------|-------------|

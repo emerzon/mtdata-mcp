@@ -368,7 +368,8 @@ def test_classic_right_edge_results_disclose_availability(monkeypatch):
     )
 
     assert out[0].details["available_at_index"] == n - 1
-    assert out[0].details["available_at_time"] == float(n - 1)
+    assert out[0].details["detection_bar_open"] == float(n - 1)
+    assert "available_at_time" not in out[0].details
     assert out[0].details["pivot_confirmation_bars"] == 5
     assert out[0].details["status_basis"] == "causal_as_of_detection_with_confirmed_pivots"
     assert out[0].details["detection_scope"] == "right_edge_as_of_input_window"

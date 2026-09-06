@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import pandas as pd
 
+from ..utils.time import bar_close_epoch
 from .classic_impl.config import (
     ClassicDetectorConfig,
     ClassicPatternResult,
@@ -106,14 +107,21 @@ def _attach_classic_availability(
     available_at_index: int,
     pivot_confirmation_bars: int,
     detection_scope: str,
+    timeframe: Optional[str] = None,
 ) -> None:
     for result in results:
         if not isinstance(result.details, dict):
             result.details = {}
         result.details.setdefault("available_at_index", int(available_at_index))
-        available_at_time = result.resolve_time(t, int(available_at_index))
-        if available_at_time is not None:
-            result.details.setdefault("available_at_time", available_at_time)
+        bar_open = result.resolve_time(t, int(available_at_index))
+        if bar_open is not None:
+            result.details["detection_bar_open"] = bar_open
+        if bar_open is not None and timeframe:
+            result.details["available_at_time"] = bar_close_epoch(bar_open, timeframe)
+            result.details["available_at_time_basis"] = "completed_bar_close"
+        else:
+            result.details.pop("available_at_time", None)
+            result.details["available_at_time_basis"] = "unavailable_without_timeframe_or_timestamp"
         result.details.setdefault("pivot_confirmation_bars", int(pivot_confirmation_bars))
         result.details.setdefault("status_basis", "causal_as_of_detection_with_confirmed_pivots")
         result.details.setdefault("detection_scope", detection_scope)
@@ -174,6 +182,8 @@ def _scan_classic_patterns(
     h: np.ndarray,
     l: np.ndarray,
     cfg: ClassicDetectorConfig,
+    *,
+    timeframe: Optional[str] = None,
 ) -> List[ClassicPatternResult]:
     n_total = int(c.size)
     step = max(1, int(getattr(cfg, "scan_step_bars", 10)))
@@ -215,6 +225,7 @@ def _scan_classic_patterns(
             available_at_index=int(end) - 1,
             pivot_confirmation_bars=pivot_confirm_gap,
             detection_scope="causal_prefix_scan",
+            timeframe=timeframe,
         )
         merged = _merge_scanned_patterns(merged, batch, cfg)
     return merged
@@ -270,9 +281,14 @@ def _postprocess_classic_results(
 
 
 def detect_classic_patterns(
-    df: pd.DataFrame, cfg: Optional[ClassicDetectorConfig] = None
+    df: pd.DataFrame, cfg: Optional[ClassicDetectorConfig] = None,
+    *, timeframe: Optional[str] = None,
 ) -> List[ClassicPatternResult]:
-    """Detect classic chart patterns on OHLCV DataFrame with 'time' and 'close' columns."""
+    """Detect patterns on completed OHLCV bars timestamped at their open.
+
+    Supply ``timeframe`` (or ``df.attrs['timeframe']``) to report availability
+    at the detection bar's close. Without it only the bar index is available.
+    """
     if cfg is None:
         cfg = ClassicDetectorConfig()
     config_warnings = validate_classic_detector_config(cfg)
@@ -287,8 +303,9 @@ def detect_classic_patterns(
         return []
 
     _, t, c, h, l, n = prepared
+    timeframe = timeframe or df.attrs.get("timeframe")
     if bool(getattr(cfg, "scan_historical", False)):
-        results = _scan_classic_patterns(t, c, h, l, cfg)
+        results = _scan_classic_patterns(t, c, h, l, cfg, timeframe=timeframe)
     else:
         results = _detect_classic_patterns_once(t, c, h, l, n, cfg)
         _attach_classic_availability(
@@ -297,6 +314,7 @@ def detect_classic_patterns(
             available_at_index=int(n) - 1,
             pivot_confirmation_bars=max(2, int(getattr(cfg, "min_distance", 5))),
             detection_scope="right_edge_as_of_input_window",
+            timeframe=timeframe,
         )
 
     return _postprocess_classic_results(results, cfg, n)
