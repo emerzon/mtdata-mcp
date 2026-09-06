@@ -52,10 +52,10 @@ def test_finviz_fundamental_recom_units_are_explicit() -> None:
 
 
 def test_finviz_numeric_percent_values_scale_above_one_hundred_percent() -> None:
-    from mtdata.core.finviz.common import _finviz_percent_value
+    from mtdata.services.finviz.utils import finviz_percent_value
 
-    assert _finviz_percent_value(5.1702) == 517.02
-    assert _finviz_percent_value("517.02%") == 517.02
+    assert finviz_percent_value(5.1702) == 517.02
+    assert finviz_percent_value("517.02%") == 517.02
 
 
 def test_finviz_intraday_news_time_is_localized_from_new_york() -> None:

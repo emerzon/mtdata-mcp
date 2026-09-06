@@ -28,7 +28,6 @@ from mtdata.core.finviz.common import (
     _attach_finviz_delayed_root_metadata,
     _build_tool_contract_meta,
     _canonicalize_finviz_market_row,
-    _finviz_percent_value,
     _finviz_screen_units_for_rows,
     _format_finviz_large_number,
     _mark_finviz_delayed_price,
@@ -54,6 +53,7 @@ from mtdata.services.finviz.dates import (
     finviz_timestamp_is_date_only,
     parse_finviz_earnings_date,
 )
+from mtdata.services.finviz.utils import finviz_percent_value
 from mtdata.shared.schema import DetailLiteral
 from mtdata.utils.time import format_datetime_utc
 from mtdata.utils.utils import (
@@ -256,7 +256,7 @@ def _normalize_finviz_earnings_rows(
         row = _canonicalize_finviz_market_row(row)
         normalized[index] = row
         if row.get("dividend") not in (None, ""):
-            dividend_yield = _finviz_percent_value(
+            dividend_yield = finviz_percent_value(
                 row.get("dividend"),
                 fraction_input=True,
             )
@@ -978,7 +978,7 @@ def _normalize_finviz_earnings_percentages(item: Any) -> Any:
     ):
         if field not in normalized:
             continue
-        value = _finviz_percent_value(normalized.get(field), fraction_input=False)
+        value = finviz_percent_value(normalized.get(field), fraction_input=False)
         if value is not None:
             normalized[field] = value
     return normalized

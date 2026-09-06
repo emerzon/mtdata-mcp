@@ -676,14 +676,6 @@ def _append_finviz_warning(payload: Dict[str, Any], warning: str) -> None:
     payload["warnings"] = warnings
 
 
-def _finviz_percent_value(
-    value: Any,
-    *,
-    fraction_input: bool = True,
-) -> Optional[float]:
-    return finviz_percent_value(value, fraction_input=fraction_input)
-
-
 def _normalize_finviz_market_performance_fields(
     row: Dict[str, Any],
     *,
@@ -706,7 +698,7 @@ def _normalize_finviz_market_performance_fields(
             or field == "perf_week_basis"
         ):
             continue
-        pct_value = _finviz_percent_value(
+        pct_value = finviz_percent_value(
             value,
             fraction_input=rows_key != "futures",
         )
@@ -1373,7 +1365,7 @@ def _canonicalize_finviz_market_row(row: Dict[str, Any]) -> Dict[str, Any]:
         if distance_key not in out:
             out[distance_key] = out[source_key]
         del out[source_key]
-    change_pct = _finviz_percent_value(out.get("change_pct"))
+    change_pct = finviz_percent_value(out.get("change_pct"))
     if change_pct is not None:
         out["change_pct"] = change_pct
     percent_fields = _FINVIZ_SCREEN_PERCENT_FIELDS | {
@@ -1382,7 +1374,7 @@ def _canonicalize_finviz_market_row(row: Dict[str, Any]) -> Dict[str, Any]:
     for field in percent_fields:
         if field not in out:
             continue
-        pct_value = _finviz_percent_value(
+        pct_value = finviz_percent_value(
             out.get(field),
             fraction_input=field in _FINVIZ_SCREEN_FRACTION_PERCENT_FIELDS,
         )
