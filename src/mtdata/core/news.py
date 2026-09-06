@@ -922,6 +922,8 @@ def _parse_news_bound(value: Optional[str], *, inclusive_end: bool) -> Optional[
 def _news_item_instant(item: Any) -> Optional[datetime]:
     if not isinstance(item, dict):
         return None
+    if _news_event_is_date_only(item):
+        return None
     kind = str(item.get("kind") or "").strip().lower()
     if kind == "economic_event":
         instant = _news_datetime_utc(
@@ -932,11 +934,6 @@ def _news_item_instant(item: Any) -> Optional[datetime]:
     instant = _news_datetime_utc(item.get("published_at") or item.get("scheduled_at"))
     if instant is not None:
         return instant
-    publication_date = str(item.get("publication_date") or "").strip()
-    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", publication_date):
-        return datetime.strptime(publication_date, "%Y-%m-%d").replace(
-            tzinfo=timezone.utc
-        )
     return None
 
 
@@ -971,6 +968,7 @@ def _apply_news_recency_filter(
     out = dict(result)
     excluded_old = 0
     excluded_untimestamped = 0
+    excluded_date_only = 0
     kept_any = False
     for key in _news_row_collections(out):
         rows = out.get(key)
@@ -981,6 +979,10 @@ def _apply_news_recency_filter(
             instant = _news_item_instant(item)
             if instant is None:
                 excluded_untimestamped += 1
+                if isinstance(item, dict) and (
+                    item.get("publication_date") or _news_event_is_date_only(item)
+                ):
+                    excluded_date_only += 1
                 continue
             if start_dt is not None and instant < start_dt:
                 excluded_old += 1
@@ -1000,6 +1002,7 @@ def _apply_news_recency_filter(
     recency: Dict[str, Any] = {
         "excluded_old_count": excluded_old,
         "excluded_untimestamped_count": excluded_untimestamped,
+        "excluded_date_only_count": excluded_date_only,
     }
     if start_dt is not None:
         recency["start"] = format_datetime_utc(start_dt)
@@ -1139,7 +1142,8 @@ def news(
             description=(
                 "Keep items published within this age. Seconds or a duration "
                 "such as 3600, 60m, or 1h. Combined with start/end as the "
-                "intersection."
+                "intersection. The end defaults to now. Date-only provider "
+                "rows are excluded because their publication instant is unknown."
             )
         ),
     ] = None,
@@ -1210,8 +1214,10 @@ def news(
         Provider page for ticker and market views.
     start, end : str, optional
         Inclusive UTC publication bounds. Date-only values are UTC days.
+        Rows with only a provider date are excluded from time-filtered results.
     max_age : int or str, optional
         Convenience age cap in seconds or a duration such as ``60m``.
+        The upper bound defaults to now unless ``end`` is explicitly supplied.
 
     Returns
     -------
@@ -1345,8 +1351,11 @@ def news(
                 remediation="Pass end as UTC ISO, for example 2026-08-26T13:00:00Z.",
             )
     if max_age_seconds is not None:
-        max_age_start = datetime.now(timezone.utc) - timedelta(seconds=max_age_seconds)
+        now = datetime.now(timezone.utc)
+        max_age_start = now - timedelta(seconds=max_age_seconds)
         start_dt = max_age_start if start_dt is None else max(start_dt, max_age_start)
+        if end_dt is None:
+            end_dt = now
     if start_dt is not None and end_dt is not None and end_dt < start_dt:
         return build_error_payload(
             "end must be on or after start",

@@ -68,8 +68,16 @@ occupies the next slot when capacity is at least 2 or no headlines exist. Use
 10), `--limit-per-bucket` for independent bucket caps, or `--detail full` for
 the uncapped selected buckets and richer matching diagnostics. Bound
 publication time with `--start`/`--end` (UTC; date-only values are UTC days)
-or `--max-age` (`3600`, `60m`, `1h`). The result reports the applied bounds
-and `excluded_old_count`; an empty page uses `empty_reason=no_recent_news`.
+or `--max-age` (`3600`, `60m`, `1h`). `--max-age` ends at now unless you
+explicitly supply `--end`, so upcoming events cannot fill a last-hour query.
+These bounds apply to headline `published_at` and event `scheduled_at`.
+Rows with only a provider date are excluded whenever a time filter is used:
+their unknown publication or event time cannot establish membership in that
+window. The result reports applied bounds, `excluded_old_count` (outside
+the window), and `excluded_untimestamped_count`, including its
+`excluded_date_only_count` subset. An empty page uses
+`empty_reason=no_recent_news`. Omit time filters to see date-only rows, or
+use `calendar` for upcoming releases.
 Scheduled calendar rows in `news` and `calendar` share `event` plus
 `scheduled_at` so a timeline can merge them without renaming fields.
 The related-news selector reserves up to five of the newest direct-symbol
