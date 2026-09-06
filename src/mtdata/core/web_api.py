@@ -256,12 +256,7 @@ def _web_api_gateway():
 
 
 def _readiness_payload() -> tuple[Dict[str, Any], int]:
-    connection_error = mt5_connection_error(
-        create_mt5_gateway(
-            adapter=mt5,
-            ensure_connection_impl=ensure_mt5_connection_or_raise,
-        )
-    )
+    connection_error = mt5_connection_error(_web_api_gateway())
     if connection_error is None:
         return (
             {
