@@ -2043,7 +2043,8 @@ class TestSymbolsTopMarkets:
         fn = _get_symbols_top_markets()
         result = fn(rank_by="tick_volume", timeframe="H1", limit=5, detail="full")
 
-        assert result["success"] is True
+        assert result["success"] is False
+        assert result["ranking_complete"] is False
         assert [row["symbol"] for row in result["skipped_examples"]] == ["EURUSD", "usdjpy"]
 
 

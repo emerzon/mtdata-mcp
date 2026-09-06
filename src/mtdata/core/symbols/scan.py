@@ -2417,6 +2417,19 @@ def symbols_top_markets(  # noqa: C901
                         ),
                     }
                 )
+            if any(metric_skips.values()):
+                scan_meta["partial_failure"] = True
+                scan_meta["ranking_complete"] = False
+                scan_meta["evaluation_failures"] = {
+                    metric: {"count": count, "examples": metric_issues[metric]}
+                    for metric, count in metric_skips.items() if count
+                }
+                scan_meta["success"] = any(evaluated_counts.values())
+                scan_meta["scan_status"] = "evaluation_incomplete"
+                scan_meta["remediation"] = "Inspect evaluation_failures and correct missing quote or history data before relying on a complete ranking."
+                if not scan_meta["success"]:
+                    scan_meta["error_code"] = "market_scan_incomplete"
+                    scan_meta["error"] = "No requested leaderboard could be evaluated."
             if universe_value == "visible" and len(tradable_symbols) > len(selected_symbols):
                 scan_meta["note"] = (
                     f"Ranked visible Market Watch symbols only ({len(selected_symbols)} of "

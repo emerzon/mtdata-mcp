@@ -155,3 +155,5 @@ such as `correlation_matrix` remain fail-closed unless you opt in.
 - `wait_event` can pause until the next candle close or a fill — see
   [WAIT_EVENT.md](WAIT_EVENT.md). Do not run long waits from the Web UI.
 - Quote quality and scan limits: [CLI.md](CLI.md#explore-available-symbols).
+
+`symbols_top_markets` also marks skipped metric evaluations as partial, exposes `evaluation_failures` by leaderboard, and never labels those rankings complete. It fails if none of the requested leaderboards can be evaluated.

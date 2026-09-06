@@ -3,6 +3,7 @@ import pytest
 from mtdata.core.symbols import scan
 from tests.utils.test_symbols_market_scan_coverage import (
     _get_market_scan,
+    _get_symbols_top_markets,
     _make_symbol,
 )
 
@@ -36,3 +37,23 @@ def test_normal_filter_exclusion_is_not_an_evaluation_failure(monkeypatch):
     assert result["success"] is True
     assert result["status"] == "no_matches"
     assert result["ranking_complete"] is True
+
+
+@pytest.mark.parametrize("rank_by", ["all", "spread", "tick_volume"])
+@pytest.mark.parametrize("failed", [0, 1, 2])
+def test_leaderboards_disclose_failed_evaluations(monkeypatch, rank_by, failed):
+    names = ["EURUSD", "GBPUSD"]
+    monkeypatch.setattr(scan.mt5, "SYMBOL_TRADE_MODE_DISABLED", 0, raising=False)
+    monkeypatch.setattr(scan.mt5, "symbols_get", lambda *args, **kwargs: [_make_symbol(name) for name in names])
+    def row(symbol, *args, **kwargs):
+        if symbol.name in names[:failed]:
+            return None, "Provider data unavailable."
+        return {"symbol": symbol.name, "spread_pct": .01, "tick_volume": 100, "price_change_pct": 1}, None
+    monkeypatch.setattr(scan, "_build_market_scan_spread_row", row)
+    monkeypatch.setattr(scan, "_build_market_scan_bar_row", row)
+    result = _get_symbols_top_markets()(rank_by=rank_by, universe="visible", scan_budget_seconds=0)
+    assert result["success"] is (failed < 2)
+    assert result["ranking_complete"] is (failed == 0)
+    if failed:
+        assert result["partial_failure"] is True
+        assert result["evaluation_failures"]
