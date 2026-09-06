@@ -44,16 +44,12 @@ DATA_FETCH_TICKS_DEFAULT_LIMIT = 20
 DATA_FETCH_TICKS_MAX_LIMIT = 50_000
 
 
-def _split_indicator_tokens(spec: str) -> List[str]:
-    return split_top_level_csv(spec)
-
-
 def _looks_like_indicator_token_start(token: str) -> bool:
     return bool(re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*(?:\s*=.*|\(.*\))?", token.strip()))
 
 
 def _split_indicator_spec_tokens(spec: str) -> List[str]:
-    parts = _split_indicator_tokens(spec)
+    parts = split_top_level_csv(spec)
     if len(parts) <= 1:
         return parts
 
@@ -167,7 +163,7 @@ def _normalize_indicator_entry(value: Any) -> Dict[str, Any]:
                 raw_text=part.strip(),
                 source_spec=stripped,
             )
-            for part in _split_indicator_tokens(params_blob)
+            for part in split_top_level_csv(params_blob)
             if part.strip()
         ]
         if not params:
@@ -185,7 +181,7 @@ def _normalize_indicator_entry(value: Any) -> Dict[str, Any]:
 
     positional: List[Any] = []
     named: Dict[str, Any] = {}
-    for raw_part in _split_indicator_tokens(params_blob):
+    for raw_part in split_top_level_csv(params_blob):
         part = raw_part.strip()
         if not part:
             continue
