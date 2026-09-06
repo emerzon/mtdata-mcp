@@ -227,6 +227,13 @@ def _options_underlying_metadata(
         out["underlying_quote"] = envelope
     if metadata.get("timestamp_warning"):
         out["warnings"] = [metadata["timestamp_warning"]]
+    if envelope.get("delay_status") == "conflicting":
+        out.setdefault("warnings", []).append({
+            "code": "underlying_quote_delay_conflict",
+            "scope": "underlying_quote",
+            "message": "Provider delay indicators disagree; underlying quote delivery delay is unverified.",
+            "details": envelope["provider_delay_indicators"],
+        })
     return out
 
 
@@ -240,12 +247,9 @@ def _underlying_quote_envelope(
         delay_raw = quote.get("exchangeDataDelayedBy")
         delay_seconds = None
         if delay_raw not in (None, ""):
-            delay_seconds = _to_numeric(
-                delay_raw,
-                int,
-                0,
-                field_name="exchangeDataDelayedBy",
-            )
+            delay_seconds = _finite_option_quote(delay_raw)
+            if delay_seconds is not None and delay_seconds < 0:
+                delay_seconds = None
         is_delayed = None if delay_seconds is None else delay_seconds > 0
         envelope = {
             "scope": "underlying_quote",
@@ -257,11 +261,25 @@ def _underlying_quote_envelope(
             "is_delayed": is_delayed,
             "delay_seconds": delay_seconds,
         }
+        source_label = str(quote.get("quoteSourceName") or "").casefold()
+        source_delayed = True if "delayed" in source_label else False if "real time" in source_label else None
+        if source_delayed is not None and is_delayed is not None and source_delayed != is_delayed:
+            envelope.update({
+                "delay_status": "conflicting",
+                "is_delayed": None,
+                "delay_seconds": None,
+                "provider_delay_indicators": {
+                    "exchangeDataDelayedBy": delay_raw,
+                    "quoteSourceName": quote.get("quoteSourceName"),
+                },
+            })
     else:
         delay_raw = quote.get("delay")
         delay_seconds = None
         if delay_raw not in (None, ""):
-            delay_seconds = _to_numeric(delay_raw, int, 0, field_name="delay")
+            delay_seconds = _finite_option_quote(delay_raw)
+            if delay_seconds is not None and delay_seconds < 0:
+                delay_seconds = None
         envelope = {
             "scope": "underlying_quote",
             "exchange": quote.get("exch") or quote.get("exchange"),

@@ -348,3 +348,5 @@ Heston barrier engine, not the analytic Black–Scholes barrier.
 - [forecast/VOLATILITY.md](forecast/VOLATILITY.md) — Volatility estimation methods
 - [FINVIZ.md](FINVIZ.md) — Fundamental data
 - [GLOSSARY.md](GLOSSARY.md) — Term definitions
+
+Underlying quote `delay_seconds` is a delivery-delay duration in seconds, separate from timestamp age. If provider delay indicators disagree, `underlying_quote.delay_status` is `conflicting`, the raw indicators are retained, and no definitive `is_delayed` or delay duration is emitted.
