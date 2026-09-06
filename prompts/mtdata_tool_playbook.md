@@ -1,14 +1,11 @@
 # mtdata Tool Playbook
 
 This is the shared operating reference for the short-term trading profiles in
-this directory. It describes the live mtdata registry as surveyed on
-2026-07-10: 87 catalog entries, of which 86 are enabled by default and
-`market_depth_fetch` is conditional.
+this directory.
 
-The registry, not this file, remains the source of truth. At session boot call
-`tools_list(detail="full", include_related=true, limit=200)`. If its inventory
-differs from this document, do not guess at new or removed interfaces. Use the
-runtime schema and report the mismatch before using the affected tool.
+The live tool registry, not this file, is the source of truth. At session boot
+call `tools_list(detail="full", include_related=true, limit=200)`. Use the
+runtime schema; do not guess at new or removed interfaces.
 
 ## Operating Principles
 
@@ -142,139 +139,6 @@ restart.
   availability as distinct from the broker symbol's tradability and spread.
 - Finviz is a context provider, not the executable quote source. Provider
   timestamps and symbol mappings can differ from MT5.
-
-## Tool Catalog
-
-### Research
-
-| Tool | Mode | Call when | Parse and use |
-|---|---:|---|---|
-| `causal_discover_signals` | R-heavy | Testing whether lagged returns from a bounded basket add predictive information. | Read ordered cause/effect rows, best lag, p-value, samples, transform, and alpha. Granger evidence is predictive association, not structural causality; require out-of-sample confirmation. |
-| `cointegration_test` | R-heavy | Researching stable relative-value pairs or a Johansen basket. | For Engle-Granger read orientation, p-value, hedge/spread diagnostics, overlap, and significance. For Johansen read rank tests and vectors. Cointegration can break; it is not a live entry by itself. |
-| `confluence_levels` | R | Several independently derived level families may overlap. | Read reference price, scored zones, source-family count, zone bounds, distance, and warnings. Treat a zone as an area, never an exact executable price. |
-| `correlation_matrix` | R-heavy | Measuring portfolio concentration or discovering hedge candidates. | Read pair correlation, sample count, transform, aligned window, and optional matrix. Correlation is not cointegration, causation, or a stable hedge ratio. |
-| `cross_correlation` | R-heavy | Confirming lead/lag or a proposed proxy hedge between exactly two symbols. | Read best lag, signed correlation, overlap, bootstrap confidence interval, and lag convention. Positive best lag means the first symbol leads the second. Reject unstable signs or intervals crossing zero. |
-| `labels_triple_barrier` | R-heavy | Evaluating historical TP/SL outcomes for a fixed horizon and geometry. | Read historical labels, barrier outcome counts, direction, horizon, and no-hit cases. Labels use future paths and therefore must never become a live feature for the same bar. |
-| `market_snapshot` | R | Obtaining a fast orientation before targeted calls. | Read `snapshot`, `as_of`, `quote_as_of`, `assembled_at`, `partial_failure`, and failed sections. Patterns are marked information-only. The bundle does not replace broker constraints, exposure, news, or final quote checks. |
-| `news` | R/G | Session boot, scheduled refresh, abnormal moves, and before new risk. | Read provider buckets, event times, relevance, importance, symbol mapping, and warnings. Headlines change the event gate, not direction by themselves. |
-| `outliers_detect` | R | Suspected bad bars, event shocks, or unstable model input. | Read flagged timestamps, fields, robust scores, method, threshold, and sample. Determine whether each outlier is a data issue or a real event before excluding anything. |
-| `seasonality_detect` | R-heavy | Proposing repeatable periods for research or forecast configuration. | Read ranked periods, autocorrelation/spectral evidence, cycles observed, and sample size. Confirm on separate history; a dominant period is exploratory. |
-| `stationarity_test` | R-heavy | Choosing a modeling transform or assessing a spread. | Read ADF/KPSS/PP results, null hypotheses, p-values, availability, and combined conclusion. `mixed` or `inconclusive` is not stationary. |
-| `tools_list` | R | Boot discovery, schema drift checks, or finding related tools. | Read tool names, categories, required/optional parameters, enabled state, pagination, and modules. This is the canonical inventory. |
-| `volatility_term_structure` | R | Comparing current realized volatility with its historical distribution. | Read each horizon's current value, cone percentiles, annualization flag, lookback, and warnings. Match horizon and units to the intended holding period. |
-| `volume_profile_levels` | R | Mapping POC, value area, and high/low-volume structure. | Read POC, VAH, VAL, nodes, source, volume type, bucket settings, and reference price. `m1_bars` and FX tick volume are approximations, not exchange order flow. |
-
-### Data Access
-
-| Tool | Mode | Call when | Parse and use |
-|---|---:|---|---|
-| `data_fetch_candles` | R | Reading raw completed structure or a deliberately small indicator pack. | Read OHLCV rows, timestamps, indicator columns, row counts, quality/freshness, incomplete-bar status, spread inclusion, denoise metadata, and simplification metadata. Exclude the forming candle from close-confirmed rules. |
-| `data_fetch_ticks` | R | Spread baselines, recent quote activity, tight-stop checks, or execution timing. | Read tick rows or summary statistics, bid/ask/last, spread distribution, flags, source window, and returned count. A small tick sample is not market depth. |
-| `wait_event` | R-blocking | No immediate action is justified and the next bar or watched state should trigger refresh. | Read event type, trigger reason, elapsed time, timeout, watched conditions, and symbol/timeframe. A timeout means refresh, not permission to trade. |
-
-### Method Discovery
-
-| Tool | Mode | Call when | Parse and use |
-|---|---:|---|---|
-| `denoise_describe` | R | Before using one denoise method. | Read parameters, causality support, dependencies, defaults, and warnings. Live workflows permit causal settings only. |
-| `denoise_list_methods` | R | Discovering installed filters and causal capability. | Read method availability, family, causality, optional dependencies, and automatic parameters. Availability does not establish trading value. |
-| `indicators_describe` | R | Confirming syntax, output columns, warmup, and interpretation for one indicator. | Read parameter contract, category, output names, and documentation. Fetch enough warmup bars and avoid redundant indicators. |
-| `indicators_list` | R | Finding a small candidate indicator set by style or category. | Read names, categories, availability, descriptions, pagination, and filters. Discovery is not strategy selection or validation. |
-
-### Market and External Context
-
-| Tool | Mode | Call when | Parse and use |
-|---|---:|---|---|
-| `calendar` | R/G | Checking economic, earnings, or dividend events. | Preferred structured event table. Read event type, date/time, impact, country/currency/symbol, estimate/actual fields, pagination, `providers_used`, and provider warnings. Pin `source` only when you need one adapter. Normalize provider time before applying a blackout. |
-| `equity_profile` | R/G | A US equity hold depends on fundamentals, description, ratings, peers, or insider context. | Read `sections`, values, missing fields, mapping, pagination, and provider timestamp. Slow-changing context, not an intraday trigger. |
-| `screener` | R-heavy/G | Researching a bounded US equity candidate universe, or listing valid filters. | Read filters, view, ordered rows, page, and provider limits. Use returned filter names exactly. Screening on current data followed by historical testing can introduce selection bias. |
-| `asset_performance` | R/G | Broad forex, crypto, futures, or market-wide insider context. | Read ranked rows, performance horizons, quote age, and `quote_role`. Do not substitute it for an MT5 executable quote. |
-| `market_scan` | R-heavy | Filtering a specified MT5 universe on price, spread, volume, RSI, or SMA state. | Read flat rows, ranking field/order, filters, offsets, timeframe, and failed symbols. Recheck any candidate with symbol-specific tools. |
-| `market_status` | R | Session boot, reopen/close boundaries, or before new risk. | With a symbol read status, reason, `is_tradable`, `can_open_new_positions`, trade mode, and tick freshness. Region-only status is context, not symbol tradability. |
-| `market_ticker` | R | Every executable-price decision and post-action verification. | Read bid, ask, mid/last, spread and cost fields, digits, quote time, age, stale flag, and freshness. This is the executable reference, subject to slippage. |
-| `market_depth_fetch` | G | DOM can change market-versus-pending execution and the environment flag plus broker support are confirmed. | Read enabled/support state, bids, asks, sizes, spread, and subscription errors. It is disabled by default and `market_ticker` is the fallback. |
-
-### Forecasting and Backtesting
-
-| Tool | Mode | Call when | Parse and use |
-|---|---:|---|---|
-| `forecast_backtest_run` | R-heavy | Selecting or revalidating forecast methods on rolling historical anchors. | Read per-method errors, RMSE/MAE, directional accuracy, trading metrics, steps, spacing, costs, sample notices, and ranking. Use time-ordered results and reject tiny samples. |
-| `forecast_barrier_optimize` | R-heavy | Searching TP/SL geometry after direction and invalidation are independently known. | Read selected objective, best and candidate rows, TP/SL units, hit/no-hit probabilities, EV, edge, Kelly, time-to-hit, viability/tradability, costs, and warnings. Optimization can overfit; validate nearby candidates. |
-| `forecast_barrier_prob` | R-heavy | Evaluating one already-defined TP/SL pair. | Read TP-first, SL-first, tie/no-hit probabilities, resolution, EV/edge when supplied, method, simulations, and horizon. Match barrier side and units to direction. |
-| `forecast_conformal_intervals` | R-heavy | Calibrated uncertainty width can change size, stop, or abstention. | Read point path, lower/upper bands, alpha, calibration anchors, residual coverage, and warnings. Wide or poorly calibrated bands reduce conviction. |
-| `forecast_generate` | R-heavy | A validated method provides secondary directional or path evidence. | Read method/library, quantity, horizon, forecast values, intervals, training/model metadata, warnings, and source window. Do not compare a return forecast directly with a price target. |
-| `forecast_list_library_models` | R | Discovering installed model names in one forecast library. | Read model names, library, availability/reason, pagination, and capability metadata. Choose only enabled models. |
-| `forecast_list_methods` | R | Session research or recovery from an unsupported method. | Read method, library, availability, cost/capabilities, CI/training support, profile, pagination, and parameter docs at full detail. |
-| `forecast_models_cleanup` | S | Operator-approved model-store maintenance outside trading hours. | Read `dry_run`, matched model IDs, age/method filters, deleted/skipped counts, and errors. Keep `dry_run=true` unless deletion was explicitly requested. |
-| `forecast_models_delete` | S | An operator explicitly names a stored model to delete. | Read requested model ID and deletion result. Never delete a model as an automatic response to a poor trade. |
-| `forecast_models_list` | R | Finding reusable trained models and their metadata. | Read model IDs, methods, data scope, age, expiration/TTL, and availability. Confirm symbol/timeframe/target compatibility. |
-| `forecast_optimize_hints` | R-heavy | Offline search across methods/timeframes/features with a fixed research budget. | Read fitness definition, evaluated candidates, top settings, seed, time limit, failures, and search space. Do not run in the live loop or treat the winner as out-of-sample evidence. |
-| `forecast_task_cancel` | S | Cancelling one known background task. | Read task ID, prior/current status, cancellation acceptance, and errors. Verify with task status. |
-| `forecast_task_cancel_all` | S | Operator-approved bulk task cancellation. | Read filters, `dry_run`, matched IDs, cancelled/skipped counts, and errors. Preview first. |
-| `forecast_task_list` | R | Inspecting active and recent forecast jobs. | Read task IDs, state, method, scope, progress, timestamps, pagination, and failures. |
-| `forecast_task_status` | R | Polling one task without blocking. | Read state, progress, result/model ID, timestamps, cancellation, and error details. Terminal failure is not a forecast. |
-| `forecast_task_wait` | R-blocking | A completed training result is required and bounded waiting is acceptable. | Read task state, timeout status, result/model ID, progress, and errors. A timeout leaves the task unresolved. |
-| `forecast_train` | S | Explicitly training a reusable model outside the hot loop. | Read accepted task ID, method, data scope, horizon, and initial state. Follow with status/wait and model listing. |
-| `forecast_tune_genetic` | R-heavy | Offline parameter search with a prespecified metric and search space. | Read seed, metric/mode, generations, candidate scores, failures, and best params. Require untouched walk-forward validation afterward. |
-| `forecast_tune_optuna` | R-heavy/G | Offline Optuna tuning when the dependency is available. | Read study/trials, metric/mode, best params/value, failures, timeout, and dependency status. Multiple trials increase selection bias. |
-| `forecast_volatility_estimate` | R-heavy | Volatility-scaled stops, targets, holding horizon, or size need a forward estimate. | Read per-bar and horizon sigma, price/return units, method, proxy, annualization, source window, and warnings. Volatility estimates range, not direction. |
-| `strategy_backtest` | R-heavy | Testing one built-in SMA-cross, EMA-cross, or RSI-reversion proxy with costs. | Read summary, `num_trades`, sample status, net/gross return, metrics, last signal, slippage, parameters, and full-detail trades. It validates only the exact built-in rule, not a richer live profile. |
-
-### Options
-
-| Tool | Mode | Call when | Parse and use |
-|---|---:|---|---|
-| `options_barrier_price` | R/G | Locally valuing a specified barrier option under QuantLib assumptions. | Read NPV, inputs, barrier/option type, calendar, maturity basis, engine/model, and errors. It is theoretical valuation, not a live chain quote or spot direction signal. |
-| `options_chain` | R/G | Equity/index option positioning or implied volatility can alter event risk. | Read contracts, expiration, call/put, strike, bid/ask, volume, open interest, IV, provider, and freshness. Reject crossed/stale/illiquid rows. |
-| `options_expirations` | R/G | Discovering provider-supported expirations before chain queries. | Read expiration list, provider, symbol mapping, and freshness. Use one returned date exactly. |
-| `options_heston_calibrate` | R-heavy/G | Research requires a stochastic-volatility fit and the chain is liquid enough. | Read fitted parameters, objective/error, contracts used/rejected, valuation date, and warnings. A poor calibration is unusable. |
-| `options_provider_status` | R/G | Before any live option-chain request. | Read configured/effective provider, readiness, authentication, fallback, and diagnostics. Do not call chain/calibration when readiness fails. |
-
-### Patterns and Regimes
-
-| Tool | Mode | Call when | Parse and use |
-|---|---:|---|---|
-| `patterns_detect` | R-heavy | A recent pattern near independently mapped structure can refine timing or invalidation. | Read mode/engine, highlights or detections, completion, timestamp, bias, strength, calibration, warnings, and `is_signal`/usage. Prefer completed robust patterns; treat all as secondary evidence. |
-| `regime_detect` | R-heavy | Choosing between trend, range, and cooldown logic or detecting a change point. | Read method, current label/state, confidence/probability, durations/segments, change points, smoothing, sample, and warnings. Method labels are not interchangeable; confirm with raw structure. |
-
-### Levels and Temporal Analysis
-
-| Tool | Mode | Call when | Parse and use |
-|---|---:|---|---|
-| `pivot_compute_points` | R | Session pivot context is relevant. | Read method, source completed bar, PP and support/resistance ladder, timeframe, and timestamp. Pivots are formula levels, not demonstrated reaction zones. |
-| `support_resistance_levels` | R | Defining location, invalidation, targets, and breakout boundaries. | Read reference price, support/resistance zone bounds, touches, reaction statistics, score, distance, source window, volume weighting, and overlap warnings. Use zone envelopes, not only center values. |
-| `temporal_analyze` | R-heavy | Session, hour, weekday, or month affects liquidity or expected behavior. | Read bucket counts, average return, win rate, volatility, range, volume, timezone/session mapping, and minimum samples. Require adequate observations and separate confirmation. |
-
-### Reports
-
-| Tool | Mode | Call when | Parse and use |
-|---|---:|---|---|
-| `report_generate` | R-heavy | A human-readable orientation or handoff is needed outside the hot loop. | Read included/failed sections, generated content, template, timeframe/horizon, warnings, and data timestamps. A report aggregates underlying tools and is not independent confluence. |
-
-### Symbols and Discovery
-
-| Tool | Mode | Call when | Parse and use |
-|---|---:|---|---|
-| `symbols_describe` | R | Session boot, before first risk, and after broker rejection or contract change. | Read exact broker symbol, category/group, digits, point, tick size/value, contract size, volume min/max/step, stop/freeze levels, filling/order/trade modes, currencies, and selection/tradability. |
-| `symbols_list` | R | Resolving broker symbol names, groups, categories, or currency filters. | Read rows/groups, exact names, descriptions, visibility, pagination, and filters. Do not invent suffixes. |
-| `symbols_top_markets` | R-heavy | Fast watchlist orientation by spread, volume, or price change. | Read rank field/order, rows, universe, timeframe, category/group, and count. It is a candidate list, not a signal. |
-
-### Trading and Account Risk
-
-| Tool | Mode | Call when | Parse and use |
-|---|---:|---|---|
-| `trade_account_info` | R | Boot and every risk-changing cycle. | At full detail read equity, balance, floating PnL, margin/free/level, leverage, live/demo state, terminal state, `execution_ready`, strict readiness, and hard/soft blockers. Hard blockers prohibit new risk. |
-| `trade_close` | L | Cancelling one pending ticket, partially reducing, or closing a position. | Preview first. Read resolved target/kind, volume, operation, and would-send state. Live results require ticket/state verification; bulk close requires `close_all=true` and live confirmation. |
-| `trade_get_open` | R | Boot, every cycle, and after any broker action. | Read position items, ticket, symbol, side/type, magic, volume, entry/current price, SL/TP, PnL, times, count, and filters. Missing SL means undefined risk, not zero risk. |
-| `trade_get_pending` | R | Boot, every cycle, and after any broker action. | Read order items, ticket, symbol, type/side, magic, volume, trigger price, SL/TP, expiration, times, and count. Include all-fill risk in budgets. |
-| `trade_history` | R | Reconciling fills, disappearance, rejection, partial close, or order lifecycle. | Deals expose deal/order/position tickets, fill time, side, volume, price, PnL, fee/swap/comment fields. Orders expose placed/done lifecycle. Use pagination and an explicit time window. |
-| `trade_journal_analyze` | R | Daily loss calculation and sufficiently sampled performance review. | Read summary counts, net PnL, win rate, average win/loss, profit factor, sample quality/warning, and symbol/side breakdowns by detail. Small samples cannot support Kelly inputs. |
-| `trade_modify` | L | Changing protection on one open position or changing price/protection/expiration on one pending order. | Preview first. Read resolved operation/ticket, applied values, validation, would-send state, retcode/comment, and no-change handling. Never widen currency risk without offsetting volume reduction. |
-| `trade_place` | L | A fully validated and sized market or pending entry, including a supervisor hedge. | Preview first. Read validation, normalized order type, volume, price, protection, guardrails, actionability, and broker retcode/order/deal IDs. Live success is provisional until state verification. |
-| `trade_risk_analyze` | R | Every proposed entry, add, hedge, or risk-widening redesign and periodic portfolio review. | Read `portfolio_risk`, total risk percent/currency, overall status, missing stops/calculation failures, `position_sizing.status`, suggested volume, compliance, trade evaluation, and `risk_alert`. Incomplete or unlimited risk blocks additions. |
-| `trade_session_context` | R | Fast boot/cycle state for one symbol. | Read state, account summary, quote, open/pending sections, trade readiness, blockers, quote quality, tradability, partial failures, and other-position counts. It does not replace full symbol specs or detailed risk analysis. |
-| `trade_stress_test` | R | Testing current positions under explicit deterministic shocks. | Read each shocked item, total PnL impact, equity before/after, impact percent, evaluated/unshocked counts, and scenario definition. It does not model gaps, spread expansion, or changing correlations. |
-| `trade_var_cvar_calculate` | R-heavy | Material, correlated, or hedged account exposure needs a tail-risk estimate. | Read VaR, CVaR, confidence, method, one-bar holding timeframe, observations, exposures, and warnings. It is distribution-dependent and not a maximum-loss guarantee. |
 
 ## Strategy Research Standard
 
