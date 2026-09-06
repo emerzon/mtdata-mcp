@@ -1645,7 +1645,7 @@ def test_forecast_engine_injects_denoise_context_for_analog(monkeypatch):
     assert out["success"] is True
     assert captured["params"]["base_col"] == "close_dn"
     assert captured["params"]["denoise"]["method"] == "ema"
-    assert captured["params"]["denoise"]["params"] == {"span": 5}
+    assert captured["params"]["denoise"]["params"] == {"span": 5, "alpha": None}
     assert captured["params"]["denoise"]["columns"] == ["close"]
     assert captured["kwargs"]["history_base_col"] == "close_dn"
     assert captured["kwargs"]["history_denoise_spec"]["method"] == "ema"

@@ -94,7 +94,7 @@ def test_zero_phase_override_is_prominent_and_machine_readable() -> None:
         "applied": True,
         "method": "ema",
         "causality": "zero_phase",
-        "params": {"span": 4},
+        "params": {"span": 4, "alpha": None},
         "requested_columns": ["close"],
         "effective_entry_column": "close_dn",
         "source_column_overwritten": False,

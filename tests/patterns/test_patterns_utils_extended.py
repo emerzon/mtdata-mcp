@@ -139,7 +139,7 @@ def test_build_index_applies_denoise_to_raw_provided_history(monkeypatch):
     )
 
     np.testing.assert_allclose(index.get_symbol_series("TEST"), close + 1000.0)
-    assert calls == [("ema", {"span": 10}, "causal")]
+    assert calls == [("ema", {"span": 10, "alpha": None}, "causal")]
     prep = index.build_metadata["series_prepare_info"]["TEST"]
     assert prep["denoise_requested"] is True
     assert prep["denoise_applied"] is True
