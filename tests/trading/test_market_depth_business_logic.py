@@ -1032,9 +1032,8 @@ def test_market_ticker_keeps_positive_cached_quote_over_locked_stream_conflict()
     assert out["bid"] == 1.15304
     assert out["ask"] == 1.15326
     assert out["quote_source"] == "mt5.symbol_info_tick"
-    assert out["quote_source_state"] == "reconciled_one_sided_update"
-    assert "quote_source_conflict" not in out
-    assert out["usable_for_live_trading"] is True
+    assert out["quote_source_state"] == "reconciled_equal_timestamp_conflict"
+    assert out["usable_for_live_trading"] is False
     assert out["spread_valid"] is True
     assert out["spread_quality"] == "two_sided"
 

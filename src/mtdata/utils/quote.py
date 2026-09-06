@@ -558,6 +558,21 @@ def _quote_pairs_agree(
     )
 
 
+def _unchanged_quote_side_agrees(
+    gateway: Any, cached: Any, stream: Any, *, point: Optional[float]
+) -> bool:
+    """Check the unflagged side of an already validated one-sided update."""
+    bid_flag, _ = bid_ask_flags(gateway)
+    side = 1 if int(tick_value(stream, "flags")) & bid_flag else 0
+    cached_value = _quote_pair(cached)[side]
+    stream_value = _quote_pair(stream)[side]
+    if cached_value is None or stream_value is None:
+        return False
+    return cached_value == stream_value or (
+        point is not None and abs(cached_value - stream_value) < point
+    )
+
+
 def resolve_quote_tick(
     gateway: Any,
     symbol: str,
@@ -660,7 +675,11 @@ def resolve_quote_tick(
     pairs_differ = _quote_pair(raw_tick) != _quote_pair(stream_tick)
     point = _symbol_point(gateway, symbol)
     one_sided_stream_update = _is_one_sided_quote_update(gateway, stream_tick)
-    equal_timestamp_one_sided_update = same_epoch and one_sided_stream_update
+    equal_timestamp_one_sided_update = (
+        same_epoch
+        and one_sided_stream_update
+        and _unchanged_quote_side_agrees(gateway, raw_tick, stream_tick, point=point)
+    )
     within_point = same_epoch and _quote_pairs_agree(
         raw_tick,
         stream_tick,
