@@ -841,8 +841,9 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "any requested name is missing."
     ),
     ("symbols_top_markets", "candidate_offset"): (
-        "Zero-based offset into the deterministic sorted candidate universe. Increment "
-        "by candidate_limit until candidate_page.has_more is false."
+        "Zero-based offset into the deterministic sorted candidate universe. Resume "
+        "at candidate_page.next_offset until candidate_page.has_more is false; "
+        "timeouts can stop before candidate_limit. Keep the same universe and filters."
     ),
     ("symbols_top_markets", "scan_budget_seconds"): (
         "Wall-clock budget for global candidate sampling (default 30 seconds). "

@@ -1977,7 +1977,10 @@ def symbols_top_markets(  # noqa: C901
     Large universes are scanned globally within `scan_budget_seconds`; a result
     that exhausts the budget is explicitly partial. Set the budget to 0 to wait
     for the exact global top-N in one invocation. `candidate_limit` and
-    `candidate_offset` remain available for deterministic recovery partitions. Use
+    `candidate_offset` remain available for deterministic recovery partitions.
+    Resume at `candidate_page.next_offset` after a partial page, and merge each
+    page's top-N rows by the selected ranking value. Keep the same candidate
+    universe and filters throughout pagination. Use
     `market_scan` instead when you need explicit symbol inputs, RSI/SMA filters,
     or a single flat scanner table. Locked or invalid quotes are marked unsafe
     and rank after valid two-sided quotes in spread leaderboards.
@@ -2445,19 +2448,27 @@ def symbols_top_markets(  # noqa: C901
                     "The exact broker group has no members in the selected universe; "
                     "retry with --universe all to include hidden symbols."
                 )
-            if partition_requested:
+            if partition_requested or scan_budget_exhausted:
                 scan_meta["candidate_page"] = build_pagination_meta(
                     total=candidate_total,
                     returned=scanned_symbol_count,
                     offset=candidate_offset_value,
-                    limit=candidate_limit_value or _TOP_MARKETS_MAX_CANDIDATES,
+                    limit=(
+                        candidate_limit_value
+                        or (_TOP_MARKETS_MAX_CANDIDATES if partition_requested else max(1, ranking_universe_size))
+                    ),
+                )
+                next_offset = candidate_offset_value + scanned_symbol_count
+                scan_meta["candidate_page"]["next_offset"] = (
+                    next_offset if next_offset < candidate_total else None
                 )
                 scan_meta["candidate_page"]["aggregation_required"] = bool(
-                    candidate_total > len(selected_symbols)
+                    candidate_offset_value > 0 or scanned_symbol_count < candidate_total
                 )
                 scan_meta["candidate_page"]["aggregation_note"] = (
                     "Merge top-N rows from every candidate partition by the selected "
-                    "ranking value to compute the global leaderboard."
+                    "ranking value to compute the global leaderboard. Resume at "
+                    "next_offset; keep the same candidate universe and filters."
                 )
             if detail_mode == "full":
                 scan_meta.update(

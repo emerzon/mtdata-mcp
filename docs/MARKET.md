@@ -91,6 +91,13 @@ report whether their bar times align. Temporary hidden-symbol activation is
 coordinated across local MTData processes, so it does not leak into concurrent
 visible-universe listings.
 
+For candidate partitions or a scan that stops at its time budget, continue with
+`--candidate-offset` set to the returned `candidate_page.next_offset`. This
+offset counts every attempted candidate, including evaluations that failed;
+review `evaluation_failures` separately. Keep the universe and filters stable,
+and merge each page's top-N rows by the ranking value until `has_more` is false.
+`aggregation_required` identifies results that cover only part of the universe.
+
 ---
 
 ## One-shot pre-trade snapshot

@@ -639,6 +639,10 @@ rows with `ranking_scope=partial_global`, `ranking_complete=false`, and
 large stock catalogs can take many minutes because MT5 must activate hidden
 quotes serially. Candidate offset/limit controls remain available as advanced
 recovery partitions, and those results are labeled `candidate_partition`.
+Continue at `candidate_page.next_offset`, which reflects candidates attempted
+before any timeout. Keep the same universe and filters, and merge page results
+until `candidate_page.has_more` is false. Do not advance by the requested limit
+after a partial page: some candidates may not have been attempted yet.
 
 Hidden-symbol activation is temporary. MTData serializes it with visible
 Market Watch snapshots across local processes, so concurrent
