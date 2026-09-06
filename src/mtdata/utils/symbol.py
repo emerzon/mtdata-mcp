@@ -282,6 +282,7 @@ def find_live_extended_session_symbols(
                 now_epoch=now_epoch,
                 item="tick",
             )
+            freshness.update(quote_meta)
             enforce_quote_execution_readiness(
                 freshness,
                 bid=tick_value(resolved_tick, "bid"),

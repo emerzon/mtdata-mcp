@@ -359,6 +359,7 @@ def _build_market_scan_spread_row(
         tick_time,
         symbol=symbol.name,
     )
+    quote_freshness.update(quote_source)
     enforce_quote_execution_readiness(
         quote_freshness,
         bid=bid,

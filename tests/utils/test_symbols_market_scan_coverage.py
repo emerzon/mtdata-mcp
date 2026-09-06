@@ -787,6 +787,8 @@ def test_market_scan_spread_row_reconciles_newer_stream_quote() -> None:
     assert row["ask"] == 1.1012
     assert row["quote_source"] == "mt5.copy_ticks_range"
     assert row["quote_source_state"] == "refreshed_from_tick_stream"
+    assert row["send_path_tick_fresh"] is False
+    assert row["usable_for_live_trading"] is False
 
 
 @patch("mtdata.core.symbols.scan._ensure_symbol_ready", return_value=None)
