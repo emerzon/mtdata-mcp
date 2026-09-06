@@ -993,9 +993,27 @@ def _apply_news_recency_filter(
             kept.append(item)
         if kept:
             kept_any = True
+        if kept or key == "items":
             out[key] = kept
         else:
             out.pop(key, None)
+        if key == "items":
+            out["count"] = len(kept)
+            if "returned" in out:
+                out["returned"] = len(kept)
+            provider_page = out.get("pagination")
+            if isinstance(provider_page, dict):
+                out["pagination"] = {
+                    "total": None,
+                    "returned": len(kept),
+                    "offset": provider_page.get("offset", 0),
+                    "limit": provider_page.get("limit"),
+                    "has_more": bool(provider_page.get("has_more")),
+                    "more_available": None,
+                    "scope": "provider_page",
+                    "provider_total": provider_page.get("total"),
+                    "provider_returned": provider_page.get("returned", len(rows)),
+                }
         count_key = _NEWS_BUCKET_COUNT_KEYS.get(key)
         if count_key in out:
             out[count_key] = len(kept)

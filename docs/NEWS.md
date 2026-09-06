@@ -87,6 +87,13 @@ truncated. For the complete provider-ordered US-equity page, continue with
 `news SYMBOL --view ticker --source finviz`; public unified `news` limits
 paginate the selected multi-source feed rather than the raw provider
 candidate pool.
+Time filters on ticker and market views apply to the requested provider page.
+Their `count` and `pagination.returned` describe retained rows, with `items=[]`
+when none match. `pagination.scope=provider_page` means `offset`, `limit`,
+and `has_more` still navigate unfiltered provider pages. `provider_total` and
+`provider_returned` preserve the provider counts; filtered `total` and
+`more_available` are unknown (`null`). A later provider page may have matches
+even when the current page is empty.
 Calendar rows show both the absolute UTC `scheduled_at` timestamp and the
 convenience `relative_time` label in the default TOON view.
 When the provider supplies a reporting period, `reference_date` identifies the
