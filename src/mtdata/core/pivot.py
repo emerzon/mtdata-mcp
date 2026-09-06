@@ -171,10 +171,6 @@ _LEVEL_PRICE_FIELD_NAMES = frozenset(
 )
 
 
-def _symbol_price_digits(info: Any) -> Optional[int]:
-    return symbol_price_digits_optional(info)
-
-
 def _round_level_price(value: Any, *, digits: int) -> Any:
     return round_finite(value, digits, on_invalid="passthrough")
 
@@ -1252,7 +1248,7 @@ def confluence_levels(  # noqa: C901
             warnings = sr_payload.get("warnings")
             if isinstance(warnings, list) and warnings:
                 payload["warnings"] = list(warnings)
-            digits_value = _symbol_price_digits(info_before)
+            digits_value = symbol_price_digits_optional(info_before)
             if digits_value is not None:
                 payload["price_precision"] = digits_value
                 payload = _round_level_payload_prices(payload, digits=digits_value)
@@ -1359,7 +1355,7 @@ def support_resistance_levels(  # noqa: C901
                 gateway=gateway,
             )
             symbol_info = gateway.symbol_info(resolved_symbol)
-            digits_value = _symbol_price_digits(symbol_info)
+            digits_value = symbol_price_digits_optional(symbol_info)
             reference_price = None
             reference_price_source = None
             reference_quote_as_of = None
