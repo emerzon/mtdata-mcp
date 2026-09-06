@@ -1077,6 +1077,30 @@ _MT5_TIME_FIELDS = (
 )
 
 
+class MT5TimestampNormalizationError(RuntimeError):
+    """A deterministic broker-clock conversion failure with operator context."""
+
+    def __init__(self, cause: Exception, *, field: str | None = None) -> None:
+        self.details = {
+            "server_timezone": getattr(mt5_config, "server_tz_name", None),
+            "static_offset_minutes": getattr(mt5_config, "time_offset_minutes", 0),
+            "time_field": field,
+            "cause_type": type(cause).__name__,
+            "cause": str(cause),
+        }
+        self.remediation = (
+            "Verify MT5_SERVER_TZ and historical broker offsets against the reported "
+            "local timestamp and broker history. Correct the clock configuration or "
+            "history before retrying. A shorter explicit indicator may avoid the "
+            "affected warmup history but changes the calculation."
+        )
+        super().__init__(
+            "Failed to normalize MT5 server-clock rows to UTC; raw server epochs "
+            f"cannot be returned safely. Timezone={self.details['server_timezone']}; "
+            f"{type(cause).__name__}: {cause}. {self.remediation}"
+        )
+
+
 def _normalize_times_in_struct(
     arr: Any,
     *,
@@ -1096,6 +1120,8 @@ def _normalize_times_in_struct(
     flags = getattr(arr, "flags", None)
     if flags is not None and not bool(getattr(flags, "writeable", True)):
         out = arr.copy()
+    field = None
+    local_times = None
     try:
         import numpy as np
         import pandas as pd
@@ -1141,10 +1167,12 @@ def _normalize_times_in_struct(
             "Failed to normalize MT5 server-clock rows: %s",
             exc,
         )
-        raise RuntimeError(
-            "Failed to normalize MT5 server-clock rows to UTC; raw server epochs "
-            "cannot be returned safely."
-        ) from exc
+        error = MT5TimestampNormalizationError(exc, field=field)
+        if local_times is not None and len(local_times):
+            error.details["raw_local_time_range"] = {
+                "start": str(local_times.min()), "end": str(local_times.max()),
+            }
+        raise error from exc
 
 
 def _normalize_object_times(
@@ -1191,10 +1219,7 @@ def _normalize_object_times(
         return SimpleNamespace(**data)
     except Exception as exc:
         logger.error("Failed to normalize MT5 object timestamps: %s", exc)
-        raise RuntimeError(
-            "Failed to normalize MT5 object timestamps to UTC; raw server epochs "
-            "cannot be returned safely."
-        ) from exc
+        raise MT5TimestampNormalizationError(exc) from exc
 
 
 def _normalize_object_time_rows(

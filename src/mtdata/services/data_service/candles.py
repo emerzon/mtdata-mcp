@@ -63,6 +63,7 @@ from ...utils.market_metadata import (
     TICK_VOLUME_UNIT,
 )
 from ...utils.mt5 import (
+    MT5TimestampNormalizationError,
     _mt5_copy_rates_from,
     _mt5_copy_rates_range,
     _rates_to_df,
@@ -2151,6 +2152,9 @@ def fetch_candles(  # noqa: C901
     range_selection: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Return historical candles as tabular data."""
+    warmup_bars = 0
+    ti_spec = None
+    rate_fetch_diagnostics: Dict[str, Any] = {}
     try:
         if denoise:
             try:
@@ -3134,6 +3138,17 @@ def fetch_candles(  # noqa: C901
                     )
 
         return payload
+    except MT5TimestampNormalizationError as exc:
+        return build_error_payload(
+            str(exc), code="timestamp_normalization_failed", operation="data_fetch_candles",
+            details={
+                **exc.details, "symbol": symbol, "timeframe": timeframe,
+                "requested_start": start, "requested_end": end, "requested_limit": limit,
+                "warmup_bars": warmup_bars, "indicators_spec": ti_spec,
+                "history_fetch": rate_fetch_diagnostics,
+            },
+            remediation=exc.remediation,
+        )
     except DenoiseParameterError as exc:
         return build_error_payload(
             str(exc), code="invalid_denoise_parameter", operation="data_fetch_candles",
