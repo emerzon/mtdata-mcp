@@ -1499,10 +1499,12 @@ def _select_output_fields(
                 selected["output_fields_remediation"] = projection_remediation
             else:
                 selected["success"] = True
-                warning = (
-                    "Some requested output fields are not available in "
-                    "this response contract."
-                )
+                warning = {
+                    "code": "output_fields_partial",
+                    "scope": "output_fields",
+                    "message": "Some requested output fields are not available in this response contract.",
+                    "details": {"unresolved_output_fields": unresolved},
+                }
                 existing = selected.get("warnings")
                 warnings_out = list(existing) if isinstance(existing, list) else []
                 if warning not in warnings_out:
