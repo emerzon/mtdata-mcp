@@ -3,18 +3,31 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from ..common import empirical_interval_support
 from ..common import log_returns_from_prices as _log_returns_from_prices
 from ..forecast_registry import ForecastRegistry
 from ..interface import ForecastMethod, ForecastResult
 from ..monte_carlo import simulate_gbm_mc, simulate_hmm_mc
 
 
-def _ci_from_sims(paths: np.ndarray, alpha: float) -> Tuple[np.ndarray, np.ndarray]:
+def _ci_from_sims(
+    paths: np.ndarray, alpha: Any
+) -> Tuple[Optional[Tuple[np.ndarray, np.ndarray]], Dict[str, Any]]:
+    if not isinstance(alpha, (float, int)) or not 0.0 < float(alpha) < 1.0:
+        return None, {}
+    support = empirical_interval_support(
+        n_paths=len(paths), effective_paths=float(len(paths)), alpha=float(alpha)
+    )
+    support["basis"] = "simulation_draws"
+    metadata = {"ci_sample_support": support}
+    if support["status"] != "available":
+        metadata["ci_unavailable_reason"] = support["reason"]
+        return None, metadata
     lo_q = float(alpha / 2.0)
     hi_q = float(1.0 - alpha / 2.0)
     lo = np.quantile(paths, lo_q, axis=0)
     hi = np.quantile(paths, hi_q, axis=0)
-    return np.asarray(lo, dtype=float), np.asarray(hi, dtype=float)
+    return (np.asarray(lo, dtype=float), np.asarray(hi, dtype=float)), metadata
 
 
 def _prepare_monte_carlo_target(
@@ -88,6 +101,8 @@ class MonteCarloGBMMethod(ForecastMethod):
     ) -> ForecastResult:
         fh = int(horizon)
         n_sims = int(params.get("n_sims", 500))
+        if n_sims < 1:
+            raise ValueError("n_sims must be greater than 0")
         seed_provided = "seed" in params and params.get("seed") is not None
         seed = int(params.get("seed", 42))
         seed_source = "params" if seed_provided else "default"
@@ -110,9 +125,7 @@ class MonteCarloGBMMethod(ForecastMethod):
             )
             paths = np.asarray(sim["price_paths"], dtype=float)
             point = np.median(paths, axis=0)
-            ci = None
-            if isinstance(ci_alpha, (float, int)) and 0.0 < float(ci_alpha) < 1.0:
-                ci = _ci_from_sims(paths, float(ci_alpha))
+            ci, metadata = _ci_from_sims(paths, ci_alpha)
             params_used = {
                 "n_sims": n_sims,
                 "seed": seed,
@@ -126,7 +139,9 @@ class MonteCarloGBMMethod(ForecastMethod):
                 params_used["sigma_calibrated"] = float(np.std(calibrated_rets, ddof=1) + 1e-12)
             if ci_alpha is not None:
                 params_used["ci_alpha"] = float(ci_alpha)
-            return ForecastResult(forecast=point, ci_values=ci, params_used=params_used)
+            return ForecastResult(
+                forecast=point, ci_values=ci, params_used=params_used, metadata=metadata
+            )
 
         # Return-series target: simulate Gaussian log-returns directly.
         rets = x
@@ -135,9 +150,7 @@ class MonteCarloGBMMethod(ForecastMethod):
         rng = np.random.default_rng(seed)
         ret_paths = rng.normal(loc=mu, scale=max(sigma, 1e-12), size=(n_sims, fh))
         point = np.median(ret_paths, axis=0)
-        ci = None
-        if isinstance(ci_alpha, (float, int)) and 0.0 < float(ci_alpha) < 1.0:
-            ci = _ci_from_sims(ret_paths, float(ci_alpha))
+        ci, metadata = _ci_from_sims(ret_paths, ci_alpha)
         params_used = {
             "n_sims": n_sims,
             "seed": seed,
@@ -148,7 +161,9 @@ class MonteCarloGBMMethod(ForecastMethod):
         }
         if ci_alpha is not None:
             params_used["ci_alpha"] = float(ci_alpha)
-        return ForecastResult(forecast=point, ci_values=ci, params_used=params_used)
+        return ForecastResult(
+            forecast=point, ci_values=ci, params_used=params_used, metadata=metadata
+        )
 
 
 @ForecastRegistry.register("hmm_mc")
@@ -187,6 +202,8 @@ class MonteCarloHMMMethod(ForecastMethod):
     ) -> ForecastResult:
         fh = int(horizon)
         n_sims = int(params.get("n_sims", 500))
+        if n_sims < 1:
+            raise ValueError("n_sims must be greater than 0")
         seed_provided = "seed" in params and params.get("seed") is not None
         seed = int(params.get("seed", 42))
         seed_source = "params" if seed_provided else "default"
@@ -199,9 +216,7 @@ class MonteCarloHMMMethod(ForecastMethod):
             sim = simulate_hmm_mc(prices=x, horizon=fh, n_states=n_states, n_sims=n_sims, seed=seed)
             paths = np.asarray(sim["price_paths"], dtype=float)
             point = np.median(paths, axis=0)
-            ci = None
-            if isinstance(ci_alpha, (float, int)) and 0.0 < float(ci_alpha) < 1.0:
-                ci = _ci_from_sims(paths, float(ci_alpha))
+            ci, metadata = _ci_from_sims(paths, ci_alpha)
             params_used = {
                 "n_sims": n_sims,
                 "seed": seed,
@@ -215,15 +230,12 @@ class MonteCarloHMMMethod(ForecastMethod):
             }
             if ci_alpha is not None:
                 params_used["ci_alpha"] = float(ci_alpha)
-            metadata = None
             if sim["fitted_n_states"] != sim["requested_n_states"]:
-                metadata = {
-                    "warnings": [
-                        "HMM fit collapsed from "
-                        f"{sim['requested_n_states']} requested regimes to "
-                        f"{sim['fitted_n_states']} fitted regimes."
-                    ]
-                }
+                metadata["warnings"] = [
+                    "HMM fit collapsed from "
+                    f"{sim['requested_n_states']} requested regimes to "
+                    f"{sim['fitted_n_states']} fitted regimes."
+                ]
             return ForecastResult(
                 forecast=point,
                 ci_values=ci,
@@ -237,9 +249,7 @@ class MonteCarloHMMMethod(ForecastMethod):
         sim = simulate_hmm_mc(prices=prices, horizon=fh, n_states=n_states, n_sims=n_sims, seed=seed)
         ret_paths = np.asarray(sim["return_paths"], dtype=float)
         point = np.median(ret_paths, axis=0)
-        ci = None
-        if isinstance(ci_alpha, (float, int)) and 0.0 < float(ci_alpha) < 1.0:
-            ci = _ci_from_sims(ret_paths, float(ci_alpha))
+        ci, metadata = _ci_from_sims(ret_paths, ci_alpha)
         params_used = {
             "n_sims": n_sims,
             "seed": seed,
@@ -254,15 +264,12 @@ class MonteCarloHMMMethod(ForecastMethod):
         }
         if ci_alpha is not None:
             params_used["ci_alpha"] = float(ci_alpha)
-        metadata = None
         if sim["fitted_n_states"] != sim["requested_n_states"]:
-            metadata = {
-                "warnings": [
-                    "HMM fit collapsed from "
-                    f"{sim['requested_n_states']} requested regimes to "
-                    f"{sim['fitted_n_states']} fitted regimes."
-                ]
-            }
+            metadata["warnings"] = [
+                "HMM fit collapsed from "
+                f"{sim['requested_n_states']} requested regimes to "
+                f"{sim['fitted_n_states']} fitted regimes."
+            ]
         return ForecastResult(
             forecast=point,
             ci_values=ci,
