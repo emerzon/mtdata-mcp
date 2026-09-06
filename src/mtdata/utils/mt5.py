@@ -1647,10 +1647,6 @@ def ensure_mt5_connection_or_raise(*, service: Optional[MT5Service] = None) -> N
         raise MT5ConnectionError(message or _MT5_CONNECTION_FAILURE_MESSAGE)
 
 
-def _compact_symbol_name(value: Any) -> str:
-    return _alnum_upper(value)
-
-
 def resolve_broker_symbol_name(symbol: str, *, gateway: Any = None) -> str:
     query = str(symbol or "").strip()
     if not query:
@@ -1667,11 +1663,11 @@ def resolve_broker_symbol_name(symbol: str, *, gateway: Any = None) -> str:
     case_matches = [name for name in names if name.casefold() == query.casefold()]
     if len(case_matches) == 1:
         return case_matches[0]
-    query_compact = _compact_symbol_name(query)
+    query_compact = _alnum_upper(query)
     compact_matches = [
         name
         for name in names
-        if query_compact and _compact_symbol_name(name) == query_compact
+        if query_compact and _alnum_upper(name) == query_compact
     ]
     if len(compact_matches) == 1:
         return compact_matches[0]

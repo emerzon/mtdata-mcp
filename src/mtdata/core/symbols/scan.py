@@ -28,6 +28,7 @@ from ...shared.schema import (
     DetailLiteral,
     TimeframeLiteral,
 )
+from ...shared.symbols import _alnum_upper
 from ...shared.validators import invalid_timeframe_error
 from ...utils.freshness import (
     QUOTE_STALE_SECONDS,
@@ -44,7 +45,6 @@ from ...utils.market_metadata import (
 )
 from ...utils.mt5 import (
     MT5ConnectionError,
-    _compact_symbol_name,
     _ensure_symbol_ready,
     _mt5_copy_rates_from,
     _mt5_copy_rates_from_pos,
@@ -1386,7 +1386,7 @@ def _scan_symbol_suggestions(
     limit: int = 5,
 ) -> List[Any]:
     query_upper = str(requested or "").strip().upper()
-    query_compact = _compact_symbol_name(requested)
+    query_compact = _alnum_upper(requested)
     if not query_upper and not query_compact:
         return []
     ranked: List[tuple[tuple[int, str], Any]] = []
@@ -1397,7 +1397,7 @@ def _scan_symbol_suggestions(
             continue
         seen.add(name)
         name_upper = name.upper()
-        name_compact = _compact_symbol_name(name)
+        name_compact = _alnum_upper(name)
         if name_upper == query_upper or (
             query_compact and name_compact == query_compact
         ):
@@ -1449,7 +1449,7 @@ def _select_market_scan_symbols(
             if not name:
                 continue
             by_upper.setdefault(name.upper(), tradable_symbol)
-            compact_name = _compact_symbol_name(name)
+            compact_name = _alnum_upper(name)
             if compact_name:
                 by_compact.setdefault(compact_name, []).append(tradable_symbol)
         selected: List[Any] = []
@@ -1457,7 +1457,7 @@ def _select_market_scan_symbols(
         for name in requested_names:
             symbol_obj = by_upper.get(name.upper())
             if symbol_obj is None:
-                compact_matches = by_compact.get(_compact_symbol_name(name), [])
+                compact_matches = by_compact.get(_alnum_upper(name), [])
                 if len(compact_matches) == 1:
                     symbol_obj = compact_matches[0]
             if symbol_obj is None:
