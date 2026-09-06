@@ -237,7 +237,7 @@ raw result.
 - [DENOISING.md](DENOISING.md) — Smoothing techniques
 - [FORECAST.md](FORECAST.md) — Using indicators in forecasts
 
-Ichimoku candle features use the observed-time component frame. The backend's separate forward-projected frame is not appended as candles. The future-dependent Chikou column is omitted by default (`include_chikou=false`). Indicator specifications that produce the same output name are rejected; request offset variants separately to avoid ambiguous columns.
+Ichimoku candle features use the observed-time component frame. The backend's separate forward-projected frame is not appended as candles. The future-dependent Chikou column is unsupported (`include_chikou` must be `false`). DPO uses `centered=false` so each value depends only on data available at that candle. Negative or fractional offsets are rejected; nonnegative whole-bar lags remain available. Indicator specifications that produce the same output name are rejected; request lagged variants separately to avoid ambiguous columns.
 
 
 EMA denoising fetches settling history independently of the output limit and other indicators. The initial seed's weight is reduced to at most 1e-8, using the effective alpha (or 2 / (span + 1)). Additional history is capped at 100,000 bars; insufficient history produces a warmup warning and full output records the seed policy and tolerance. This is a numerical settling tolerance, not exact equality with an infinite-history EMA. Zero-phase filtering still depends on the available right boundary.

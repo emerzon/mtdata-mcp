@@ -264,11 +264,14 @@ def _list_ta_indicators_cached(detailed: bool) -> Tuple[Dict[str, Any], ...]:
                     "OHLC typical price times volume divided by cumulative volume. "
                     "Accepts no parameters."
                 )
-            if name == "ichimoku":
+            if name in {"ichimoku", "dpo"}:
                 for parameter in params:
-                    if parameter["name"] == "include_chikou":
+                    if parameter["name"] in {"include_chikou", "centered"}:
                         parameter["default"] = False
-                        parameter["description"] = "Include the future-dependent Chikou column. Default: false."
+                        parameter["description"] = "Must be false: future-dependent output is unsupported. Default: false."
+            for parameter in params:
+                if parameter["name"] == "offset":
+                    parameter["description"] = "Nonnegative whole-bar lag. Negative offsets require future data and are rejected."
 
             items.append({
                 "name": name,
@@ -663,6 +666,14 @@ def _prepare_ta_indicator_parameters(
         if not boolean and isinstance(value, bool):
             raise ValueError(f"Indicator '{lname}' parameter '{name}' requires a number, not a boolean.")
 
+    offset = explicit.get("offset", 0)
+    if offset < 0 or int(offset) != offset:
+        raise ValueError(f"Indicator '{lname}' offset must be a nonnegative whole number of bars; negative offsets require future data.")
+    noncausal_parameter = {"ichimoku": "include_chikou", "dpo": "centered"}.get(lname)
+    if noncausal_parameter:
+        if explicit.get(noncausal_parameter, False):
+            raise ValueError(f"Indicator '{lname}' requires {noncausal_parameter}=false; true places future-dependent values on earlier candles.")
+        explicit[noncausal_parameter] = False
     return func, params, explicit
 
 
@@ -783,8 +794,6 @@ def _apply_ta_indicators(df: pd.DataFrame, ti_spec: str) -> List[str]:  # noqa: 
                 # name avoids binding collisions for multi-series indicators
                 # such as supertrend(high, low, close, ...).
                 call_kwargs = dict(explicit)
-                if lname == "ichimoku":
-                    call_kwargs.setdefault("include_chikou", False)
                 for series_name, series_value in series_inputs.items():
                     if series_name not in call_kwargs:
                         call_kwargs[series_name] = series_value
