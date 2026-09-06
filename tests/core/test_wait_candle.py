@@ -120,7 +120,7 @@ def test_next_candle_wait_payload_handles_dst_transitions(
     assert payload["sleep_seconds"] == 361.0
 
 
-def test_next_candle_wait_payload_without_symbol_marks_fx_weekend(
+def test_next_candle_wait_payload_without_symbol_has_no_market_session(
     utc_server_clock,
 ) -> None:
     payload = _next_candle_wait_payload(
@@ -129,8 +129,7 @@ def test_next_candle_wait_payload_without_symbol_marks_fx_weekend(
         now_utc=datetime(2026, 8, 29, 2, 30, tzinfo=timezone.utc),
     )
 
-    assert payload["market_status"] == "closed"
-    assert payload["market_status_reason"] == "weekend"
-    assert payload["assumed_closure_end"]
+    assert "market_status" not in payload
+    assert payload["sleep_seconds"] == 61.0
 
 
