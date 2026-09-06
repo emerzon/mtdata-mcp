@@ -19,12 +19,12 @@ from mtdata.core.trading.requests import TradeRiskAnalyzeRequest
 from mtdata.core.trading.safety import evaluate_trade_guardrails
 from mtdata.core.trading.sizing import _floor_volume_steps
 from mtdata.core.trading.use_cases import run_trade_risk_analyze
-from mtdata.core.trading.validation import _validate_trading_symbol
 from mtdata.core.trading.use_cases.risk import (
     _resolve_live_trade_risk_entry,
     _resolve_trade_risk_direction,
     _validate_trade_risk_levels,
 )
+from mtdata.core.trading.validation import _validate_trading_symbol
 from mtdata.utils.mt5 import MT5ConnectionError
 
 
