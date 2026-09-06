@@ -6,7 +6,7 @@ from decimal import Decimal, InvalidOperation
 from numbers import Real
 from typing import Any, Dict, Optional
 
-from .freshness import QUOTE_STALE_SECONDS, standard_weekend_window
+from .freshness import QUOTE_LIVE_SECONDS, QUOTE_STALE_SECONDS, standard_weekend_window
 from .market_metadata import (
     TICK_FUTURE_TOLERANCE_SECONDS,
     build_tick_freshness_context,
@@ -19,6 +19,76 @@ QUOTE_EXECUTION_READINESS_BASIS = (
 QUOTE_EXECUTION_SOURCE_AGREEMENT_BASIS = (
     "quote_age_market_session_spread_and_source_agreement"
 )
+MAX_BROKER_TICK_CLOCK_RECONCILIATION_SECONDS = 30.0
+
+
+def tick_clock_reference(
+    epoch: Optional[float],
+    *,
+    wall_clock_epoch: float,
+) -> Dict[str, Any]:
+    """Choose the clock used for a synchronously acquired trading tick.
+
+    A modest positive lead is normally workstation clock lag, not a forecast
+    from the broker. Reconcile that bounded case to the acquired broker tick;
+    larger leads remain invalid and continue to fail closed.
+    """
+    wall_epoch = float(wall_clock_epoch)
+    out: Dict[str, Any] = {
+        "reference_epoch": wall_epoch,
+        "clock_reference": "wall_clock",
+        "clock_reconciled": False,
+    }
+    if epoch is None:
+        return out
+    lead_seconds = float(epoch - wall_epoch)
+    if (
+        lead_seconds >= float(TICK_FUTURE_TOLERANCE_SECONDS)
+        and lead_seconds
+        <= float(MAX_BROKER_TICK_CLOCK_RECONCILIATION_SECONDS)
+    ):
+        out.update(
+            {
+                "reference_epoch": epoch,
+                "clock_reference": "broker_tick_at_acquisition",
+                "clock_reconciled": True,
+                "local_clock_lag_seconds": round(lead_seconds, 3),
+                "clock_reconciliation_limit_seconds": int(
+                    MAX_BROKER_TICK_CLOCK_RECONCILIATION_SECONDS
+                ),
+            }
+        )
+    return out
+
+def tick_age_error(age: Optional[float], *, symbol: str, threshold: float = QUOTE_LIVE_SECONDS) -> Optional[Dict[str, Any]]:
+    """Apply the submission freshness policy to an age on the chosen clock."""
+    if age is None:
+        return {
+            "error": f"Tick for {symbol} has no usable timestamp; freshness cannot be verified.",
+            "tick_age_status": "unknown",
+            "tick_max_age_seconds": threshold,
+        }
+    if age < -float(TICK_FUTURE_TOLERANCE_SECONDS):
+        future_skew = -age
+        return {
+            "error": (
+                f"Tick for {symbol} is {future_skew:.1f}s ahead of the wall clock "
+                "and is not safe for live trading."
+            ),
+            "tick_age_status": "future",
+            "timestamp_in_future": True,
+            "timestamp_skew_seconds": round(future_skew, 2),
+            "tick_max_age_seconds": threshold,
+        }
+    if age <= threshold:
+        return None
+    return {
+        "error": f"Tick for {symbol} is stale ({age:.1f}s old, threshold {threshold:.0f}s).",
+        "tick_age_seconds": round(age, 2),
+        "tick_max_age_seconds": threshold,
+    }
+
+
 _MATERIAL_QUOTE_MID_DISAGREEMENT_POINTS = 10.0
 _MATERIAL_QUOTE_SIDE_DISAGREEMENT_POINTS = 6.0
 _SERVER_CLOCK_OFFSET_MATCH_SECONDS = 2.0
@@ -162,6 +232,11 @@ def enforce_quote_execution_readiness(
         )
 
     warnings: list[str] = []
+    if context.get("send_path_tick_fresh") is False:
+        context["usable_for_live_trading"] = False
+        context["usable_for_live_trading_basis"] = "submission_tick_freshness_required"
+        if not (context.get("data_stale") is True and context.get("warning")):
+            warnings.append(str(context.get("send_path_freshness_error") or "Submission tick freshness cannot be verified."))
     if spread_quality == "locked":
         warnings.append(
             "Locked quote (bid equals ask) is not usable for live trading."
@@ -528,6 +603,15 @@ def resolve_quote_tick(
         "quote_source": "mt5.symbol_info_tick",
         "quote_refresh_attempted": True,
     }
+
+    clock = tick_clock_reference(raw_epoch, wall_clock_epoch=now_epoch)
+    send_error = tick_age_error(
+        float(clock["reference_epoch"]) - raw_epoch if raw_epoch is not None else None,
+        symbol=symbol,
+    )
+    metadata["send_path_tick_fresh"] = send_error is None
+    if send_error:
+        metadata["send_path_freshness_error"] = send_error["error"]
 
     raw_freshness = build_tick_freshness_context(
         symbol,

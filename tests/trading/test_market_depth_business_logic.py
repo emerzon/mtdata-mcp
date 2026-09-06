@@ -863,7 +863,8 @@ def test_market_ticker_refreshes_stale_symbol_tick_from_live_stream() -> None:
     assert out["bid"] == 3981.46
     assert out["ask"] == 3981.57
     assert "time_epoch" not in out
-    assert out["usable_for_live_trading"] is True
+    assert out["usable_for_live_trading"] is False
+    assert out["send_path_tick_fresh"] is False
     assert out["quote_source"] == "mt5.copy_ticks_range"
     assert out["quote_source_state"] == "refreshed_from_tick_stream"
     assert "quote_refresh_attempted" not in out

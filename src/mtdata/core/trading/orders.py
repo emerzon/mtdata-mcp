@@ -1317,6 +1317,8 @@ def build_trade_place_dry_run_preview(  # noqa: C901
         )
     quote_context["send_path_tick_fresh"] = send_path_freshness_error is None
     if send_path_freshness_error is not None:
+        quote_context["usable_for_live_trading"] = False
+        quote_context["usable_for_live_trading_basis"] = "submission_tick_freshness_required"
         quote_context["send_path_freshness_error"] = send_path_freshness_error.get(
             "error"
         )

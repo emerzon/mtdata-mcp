@@ -11,7 +11,7 @@ from ...shared.market_units import (
 )
 from ...utils.coercion import coerce_finite_float, coerce_scalar
 from ...utils.freshness import QUOTE_LIVE_SECONDS
-from ...utils.quote import tick_value
+from ...utils.quote import tick_age_error, tick_clock_reference, tick_value
 from .sizing import _floor_volume_steps
 
 if TYPE_CHECKING:
@@ -1335,7 +1335,6 @@ def _safe_int_magic(value: Any) -> Optional[int]:
 import time as _time_module
 
 _DEFAULT_TICK_MAX_AGE_SECONDS = float(QUOTE_LIVE_SECONDS)
-_MAX_BROKER_TICK_CLOCK_RECONCILIATION_SECONDS = 30.0
 
 
 def _tick_timestamp_epoch(tick: Any) -> Optional[float]:
@@ -1351,50 +1350,11 @@ def _tick_timestamp_epoch(tick: Any) -> Optional[float]:
     return None
 
 
-def _tick_clock_reference(
-    tick: Any,
-    *,
-    wall_clock_epoch: Optional[float] = None,
-) -> Dict[str, Any]:
-    """Choose the clock used for a synchronously acquired trading tick.
-
-    A modest positive lead is normally workstation clock lag, not a forecast
-    from the broker. Reconcile that bounded case to the acquired broker tick;
-    larger leads remain invalid and continue to fail closed.
-    """
-    from ...utils.market_metadata import TICK_FUTURE_TOLERANCE_SECONDS
-
-    wall_epoch = (
-        float(wall_clock_epoch)
-        if wall_clock_epoch is not None
-        else float(_time_module.time())
+def _tick_clock_reference(tick: Any, *, wall_clock_epoch: Optional[float] = None) -> Dict[str, Any]:
+    return tick_clock_reference(
+        _tick_timestamp_epoch(tick),
+        wall_clock_epoch=float(wall_clock_epoch) if wall_clock_epoch is not None else float(_time_module.time()),
     )
-    out: Dict[str, Any] = {
-        "reference_epoch": wall_epoch,
-        "clock_reference": "wall_clock",
-        "clock_reconciled": False,
-    }
-    tick_epoch = _tick_timestamp_epoch(tick)
-    if tick_epoch is None:
-        return out
-    lead_seconds = float(tick_epoch - wall_epoch)
-    if (
-        lead_seconds >= float(TICK_FUTURE_TOLERANCE_SECONDS)
-        and lead_seconds
-        <= float(_MAX_BROKER_TICK_CLOCK_RECONCILIATION_SECONDS)
-    ):
-        out.update(
-            {
-                "reference_epoch": tick_epoch,
-                "clock_reference": "broker_tick_at_acquisition",
-                "clock_reconciled": True,
-                "local_clock_lag_seconds": round(lead_seconds, 3),
-                "clock_reconciliation_limit_seconds": int(
-                    _MAX_BROKER_TICK_CLOCK_RECONCILIATION_SECONDS
-                ),
-            }
-        )
-    return out
 
 
 def _tick_age_seconds(tick: Any) -> Optional[float]:
@@ -1429,36 +1389,10 @@ def _validate_tick_freshness(
     """
     if not required:
         return None
-    from ...utils.market_metadata import TICK_FUTURE_TOLERANCE_SECONDS
-
     threshold = (
         float(max_age_seconds)
         if max_age_seconds is not None
         else _DEFAULT_TICK_MAX_AGE_SECONDS
     )
     age = _tick_age_seconds(tick)
-    if age is None:
-        return {
-            "error": f"Tick for {symbol} has no usable timestamp; freshness cannot be verified.",
-            "tick_age_status": "unknown",
-            "tick_max_age_seconds": threshold,
-        }
-    if age < -float(TICK_FUTURE_TOLERANCE_SECONDS):
-        future_skew = -age
-        return {
-            "error": (
-                f"Tick for {symbol} is {future_skew:.1f}s ahead of the wall clock "
-                "and is not safe for live trading."
-            ),
-            "tick_age_status": "future",
-            "timestamp_in_future": True,
-            "timestamp_skew_seconds": round(future_skew, 2),
-            "tick_max_age_seconds": threshold,
-        }
-    if age <= threshold:
-        return None
-    return {
-        "error": f"Tick for {symbol} is stale ({age:.1f}s old, threshold {threshold:.0f}s).",
-        "tick_age_seconds": round(age, 2),
-        "tick_max_age_seconds": threshold,
-    }
+    return tick_age_error(age, symbol=symbol, threshold=threshold)

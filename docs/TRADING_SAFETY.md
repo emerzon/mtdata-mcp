@@ -401,3 +401,5 @@ inputs on purpose; see [TRADING_RISK.md](TRADING_RISK.md).
 - [SAMPLE-TRADE-ADVANCED.md](SAMPLE-TRADE-ADVANCED.md) — An end-to-end analysis-to-execution workflow
 - [Account terms](GLOSSARY.md#balance-equity-and-free-margin)
 - [OUTPUT.md](OUTPUT.md) — Response envelope and error codes
+
+Quote reconciliation can supply a current analysis price while the raw submission tick remains unsafe. `usable_for_live_trading` also requires the raw tick to pass the order submission freshness policy; `send_path_tick_fresh=false` explains that veto. The broker clock tolerance and order submission checks are unchanged.
