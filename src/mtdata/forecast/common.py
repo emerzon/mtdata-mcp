@@ -538,8 +538,10 @@ def _observed_intraday_session_slots(
     observed_times: Any,
     *,
     calendar: str,
-) -> Optional[List[int]]:
-    """Infer recurring exchange-local bar-open slots from broker observations."""
+    tf_secs: int,
+    extended_hint: bool = False,
+) -> Optional[Tuple[Dict[int, List[int]], bool]]:
+    """Infer regular slots or weekday-specific extended broker slots."""
     if observed_times is None:
         return None
     try:
@@ -565,17 +567,42 @@ def _observed_intraday_session_slots(
             continue
         local = datetime.fromtimestamp(epoch, tz=timezone.utc).astimezone(exchange_tz)
         session_date = local.date()
-        if session_date.weekday() >= 5:
-            continue
-        if _is_exchange_session_holiday(calendar, session_date):
-            continue
         slot = local.hour * 3600 + local.minute * 60 + local.second
         slots_by_date.setdefault(session_date, set()).add(slot)
 
     if len(slots_by_date) < 2:
         return None
+    open_hour, open_minute = market["open"]
+    close_hour, close_minute = market["close"]
+    regular_span = (close_hour - open_hour) * 3600 + (close_minute - open_minute) * 60
+    extended = extended_hint or any(
+        max(slots) - min(slots) > regular_span + int(tf_secs)
+        for slots in slots_by_date.values()
+    )
+    if extended:
+        # Edge dates can be truncated by the requested history window. Do not
+        # mistake their missing observations for a recurring session closure.
+        dates = sorted(slots_by_date)
+        complete_dates = dates[1:-1]
+        fallback = sorted(set().union(*(slots_by_date[day] for day in dates)))
+        weekday_slots: Dict[int, List[int]] = {}
+        for weekday in range(7):
+            day_slots = [slots_by_date[day] for day in complete_dates if day.weekday() == weekday]
+            if not day_slots:
+                weekday_slots[weekday] = fallback
+                continue
+            counts: Dict[int, int] = {}
+            for slots in day_slots:
+                for slot in slots:
+                    counts[slot] = counts.get(slot, 0) + 1
+            threshold = max(1, math.ceil(max(counts.values()) * 0.8))
+            weekday_slots[weekday] = sorted(slot for slot, count in counts.items() if count >= threshold)
+        return weekday_slots, True
+
     counts: Dict[int, int] = {}
-    for slots in slots_by_date.values():
+    for session_date, slots in slots_by_date.items():
+        if session_date.weekday() >= 5 or _is_exchange_session_holiday(calendar, session_date):
+            continue
         for slot in slots:
             counts[slot] = counts.get(slot, 0) + 1
     if not counts:
@@ -583,7 +610,7 @@ def _observed_intraday_session_slots(
     max_count = max(counts.values())
     threshold = max(2, int(math.ceil(max_count * 0.8)))
     recurring = sorted(slot for slot, count in counts.items() if count >= threshold)
-    return recurring or None
+    return ({weekday: recurring for weekday in range(5)}, False) if recurring else None
 
 
 def _regular_exchange_intraday_slots(tf_secs: int, *, calendar: str) -> List[int]:
@@ -601,19 +628,26 @@ def _exchange_intraday_schedule(
     symbol: Optional[str],
     tf_secs: int,
     observed_times: Any = None,
-) -> Optional[Tuple[List[int], str, str]]:
+) -> Optional[Tuple[Dict[int, List[int]], str, str]]:
     calendar = _forecast_exchange_calendar(symbol)
     if calendar is None or int(tf_secs) <= 0 or int(tf_secs) >= 86400:
         return None
+    extended_hint = bool(re.search(r"[._-]24$", str(symbol or "")))
     observed_slots = _observed_intraday_session_slots(
         observed_times,
         calendar=calendar,
+        tf_secs=tf_secs,
+        extended_hint=extended_hint,
     )
     if observed_slots:
-        return observed_slots, "observed_broker_slots", calendar
+        weekday_slots, extended = observed_slots
+        source = "observed_broker_weekday_slots" if extended else "observed_broker_slots"
+        return weekday_slots, source, calendar
+    if extended_hint:
+        return None
     regular_slots = _regular_exchange_intraday_slots(tf_secs, calendar=calendar)
     if regular_slots:
-        return regular_slots, "exchange_regular_session_fallback", calendar
+        return {weekday: regular_slots for weekday in range(5)}, "exchange_regular_session_fallback", calendar
     return None
 
 
@@ -634,8 +668,9 @@ def _next_exchange_intraday_times(
     last_epoch: float,
     horizon: int,
     *,
-    slots: List[int],
+    slots: Dict[int, List[int]],
     calendar: str,
+    extended: bool = False,
 ) -> List[float]:
     if int(horizon) <= 0:
         return []
@@ -651,12 +686,13 @@ def _next_exchange_intraday_times(
     max_days = max(370, int(horizon) * 4)
     while len(out) < int(horizon) and guard < max_days:
         if (
-            session_date.weekday() < 5
-            and not _is_exchange_session_holiday(calendar, session_date)
+            extended
+            or (session_date.weekday() < 5 and not _is_exchange_session_holiday(calendar, session_date))
         ):
             early_close = market.get("early_close")
             early_session = bool(
-                early_close
+                not extended
+                and early_close
                 and is_early_close_session(
                     market,
                     str(market["country"]),
@@ -668,7 +704,7 @@ def _next_exchange_intraday_times(
             if early_session:
                 close_hour, close_minute = early_close
                 close_slot = int(close_hour) * 3600 + int(close_minute) * 60
-            for slot in slots:
+            for slot in slots.get(session_date.weekday(), []):
                 if close_slot is not None and slot >= close_slot:
                     continue
                 hour, remainder = divmod(int(slot), 3600)
@@ -684,6 +720,8 @@ def _next_exchange_intraday_times(
                 )
                 candidate = float(candidate_local.astimezone(timezone.utc).timestamp())
                 if candidate <= base + 1e-6:
+                    continue
+                if extended and is_standard_weekend_closed_epoch(candidate):
                     continue
                 out.append(candidate)
                 if len(out) >= int(horizon):
@@ -740,6 +778,8 @@ def describe_forecast_calendar_treatment(
     )
     if exchange_schedule is not None:
         _slots, schedule_source, calendar = exchange_schedule
+        if schedule_source == "observed_broker_weekday_slots":
+            return "broker_observed_weekday_slots_standard_weekend_holidays_unknown"
         return (
             f"{calendar.lower()}_{schedule_source}_holidays_and_"
             "early_closes_applied"
@@ -802,12 +842,13 @@ def next_times_from_last(
         observed_times,
     )
     if exchange_schedule is not None:
-        slots, _schedule_source, calendar = exchange_schedule
+        slots, schedule_source, calendar = exchange_schedule
         return _next_exchange_intraday_times(
             base,
             horizon,
             slots=slots,
             calendar=calendar,
+            extended=schedule_source == "observed_broker_weekday_slots",
         )
     if not skip_weekends:
         return [base + step * (i + 1) for i in range(int(horizon))]
