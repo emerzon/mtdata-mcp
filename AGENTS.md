@@ -6,7 +6,7 @@ Python code lives in `src/mtdata/`. Runtime setup is in `bootstrap/`; CLI, MCP, 
 
 ## Build, Test, and Development Commands
 
-- `pip install -e ".[web,pattern-search-hnsw]" pytest ruff` installs the backend and CI test tools for Python 3.14.
+- `pip install -e ".[web,forecast-classical,pattern-search-hnsw]" pytest ruff` installs the backend and CI test tools for Python 3.14.
 - `ruff check src tests` runs Python lint and import-order checks.
 - `python scripts/schema_evaluate.py` validates public tool schemas.
 - `python -m pytest tests` runs the backend suite; pass a test path or `-k expression` for focused work.

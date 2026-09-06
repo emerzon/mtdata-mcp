@@ -106,16 +106,12 @@ The base package is intentionally lean. Install extras as needed:
   `pip install -e .[dimred-ext]`
 - HNSW pattern-search accelerator (source build):
   `pip install -e .[pattern-search-hnsw]`
-- Experimental pattern engines (requires manual install):
-  `pip install -e .[patterns-ext]` (Note: stock-pattern requires manual copy to site-packages; see below)
 - News embeddings (semantic reranking):
   `pip install -e .[news-embeddings]`
 - CNBC news source (PyPI):
   `pip install -e .[news-ycnbc]`
 - Everything from package indexes except CNBC:
   `pip install -e .[all]`
-- Everything including the CNBC extra:
-  `pip install -e .[all-git]`
 
 Feature notes:
 
@@ -161,7 +157,7 @@ Tip: `mtdata-cli forecast_list_methods --json` shows `available` and `requires` 
 
 ### 6. Manual stock-pattern Installation
 
-The `stock-pattern` library (used by `patterns-ext`) does not have a `setup.py` or `pyproject.toml`, so it cannot be installed via pip. Install manually:
+The `stock-pattern` library does not have a `setup.py` or `pyproject.toml`, so it cannot be installed via pip. Install manually:
 
 **Windows:**
 ```powershell
