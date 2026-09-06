@@ -62,9 +62,6 @@ webui/dist/*
 
 prompts/*
 !prompts/trader.md
-!prompts/trading_agent_prompt.md
-!prompts/trader_active.md
-!prompts/trader_grid_scalper.md
 !prompts/mtdata_tool_playbook.md
 !prompts/agent_liquidity_scalper.md
 !prompts/agent_intraday_trend.md
