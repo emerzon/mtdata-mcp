@@ -205,7 +205,7 @@ def test_sktime_forecaster_index_round_trip(tmp_path, monkeypatch):
 
 
 def test_discover_sktime_forecasters_uses_registry_and_skips_required_ctors(monkeypatch):
-    cf._clear_discover_sktime_forecasters_cache()
+    forecast_sktime_index._discover_sktime_forecasters.cache_clear()
     monkeypatch.setattr(
         forecast_sktime_index,
         "_store_sktime_forecaster_index",
@@ -244,7 +244,7 @@ def test_discover_sktime_forecasters_uses_registry_and_skips_required_ctors(monk
         "thetaforecaster": ("ThetaForecaster", f"{ThetaForecaster.__module__}.ThetaForecaster"),
     }
     assert "basedeepnetworkpytorch" not in mapping
-    cf._clear_discover_sktime_forecasters_cache()
+    forecast_sktime_index._discover_sktime_forecasters.cache_clear()
 
 
 def test_forecast_generate_routes_by_library_and_validates_inputs(monkeypatch):

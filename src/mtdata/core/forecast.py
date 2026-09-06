@@ -783,12 +783,6 @@ def _discover_sktime_forecasters():
     return _forecast_use_cases_module()._discover_sktime_forecasters()
 
 
-def _clear_discover_sktime_forecasters_cache() -> None:
-    func = getattr(_forecast_use_cases_module(), "_discover_sktime_forecasters", None)
-    cache_clear = getattr(func, "cache_clear", None)
-    if callable(cache_clear):
-        cache_clear()
-
 def _resolve_sktime_forecaster(*args, **kwargs):
     return _forecast_use_cases_module()._resolve_sktime_forecaster(*args, **kwargs)
 
