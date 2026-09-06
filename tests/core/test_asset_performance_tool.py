@@ -72,6 +72,40 @@ def test_asset_performance_names_universe_for_metal_symbol() -> None:
     assert "GOLD" in result["remediation"]
 
 
+@pytest.mark.parametrize("universe", ["forex", "futures"])
+@pytest.mark.parametrize(
+    "symbol,provider_symbol",
+    [("XAUUSD", "GOLD"), ("XAU", "GOLD"), ("XAGUSD", "SILVER"), ("XAG", "SILVER")],
+)
+def test_metal_recovery_names_the_required_symbol(monkeypatch, universe, symbol, provider_symbol):
+    calls = []
+
+    def fake_futures(**kwargs):
+        calls.append(kwargs["symbol"])
+        assert kwargs["symbol"] == provider_symbol
+        return {"success": True, "items": [{"name": provider_symbol}]}
+
+    monkeypatch.setattr("mtdata.core.finviz.finviz_futures", fake_futures)
+    rejected = _unwrap(asset_performance)(symbol=symbol, universe=universe)
+
+    assert rejected["success"] is False
+    assert calls == []
+    assert f"mtdata-cli asset_performance {provider_symbol} --universe futures" in rejected["remediation"]
+    assert "spot metal" in rejected["remediation"]
+    recovered = _unwrap(asset_performance)(symbol=provider_symbol, universe="futures")
+    assert recovered["success"] is True
+    assert recovered["items"] == [{"name": provider_symbol}]
+
+
+def test_futures_contract_ticker_passes_through(monkeypatch):
+    monkeypatch.setattr(
+        "mtdata.core.finviz.finviz_futures",
+        lambda **kwargs: {"success": True, "items": [{"symbol": kwargs["symbol"]}]},
+    )
+    result = _unwrap(asset_performance)(symbol="GC", universe="futures")
+    assert result["items"][0]["symbol"] == "GC"
+
+
 def test_asset_performance_forwards_crypto_symbol_filter(monkeypatch) -> None:
     captured = {}
 

@@ -45,8 +45,9 @@ def _wrong_universe_error(symbol: str, *, requested_universe: str) -> Dict[str, 
     provider_symbol = _PERFORMANCE_FUTURES_ALIASES.get(compact)
     if provider_symbol:
         remediation = (
-            f"Retry with --universe futures. Finviz lists this contract as "
-            f"{provider_symbol}."
+            f"For futures performance, run: mtdata-cli asset_performance "
+            f"{provider_symbol} --universe futures. This selects a futures "
+            "contract, not the broker's spot metal instrument."
         )
     else:
         remediation = (
@@ -57,7 +58,11 @@ def _wrong_universe_error(symbol: str, *, requested_universe: str) -> Dict[str, 
         (
             f"'{symbol}' is not valid for --universe {requested_universe}."
         ),
-        code="asset_performance_universe_mismatch",
+        code=(
+            "asset_performance_symbol_mismatch"
+            if requested_universe == "futures"
+            else "asset_performance_universe_mismatch"
+        ),
         operation="asset_performance",
         details={"symbol": symbol, "universe": requested_universe},
         valid_values={"universe": ["forex", "crypto", "futures", "insider"]},
@@ -142,8 +147,9 @@ def asset_performance(
             description=(
                 "Optional symbol filter such as EURUSD, BTCUSD/BTC, GOLD, or "
                 "the provider ticker/name. Crypto names are routed to "
-                "--universe crypto. Metals such as XAUUSD need "
-                "--universe futures (Finviz name GOLD)."
+                "--universe crypto. For metal futures use GOLD or SILVER "
+                "with --universe futures; spot symbols XAUUSD/XAGUSD are "
+                "different instruments."
             )
         ),
     ] = None,
@@ -207,6 +213,14 @@ def asset_performance(
         if pin_error is not None:
             return pin_error
         universe_key = str(universe)
+        compact_symbol = _compact_performance_symbol(symbol)
+        futures_symbol = _PERFORMANCE_FUTURES_ALIASES.get(compact_symbol)
+        if (
+            universe_key == "futures"
+            and futures_symbol is not None
+            and compact_symbol != futures_symbol
+        ):
+            return _wrong_universe_error(str(symbol), requested_universe=universe_key)
         inferred_universe = _infer_performance_universe(symbol)
         if (
             symbol

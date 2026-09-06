@@ -219,6 +219,7 @@ mtdata-cli asset_performance --universe forex --rank-by day --json
 mtdata-cli asset_performance --universe forex --symbol EURUSD --json
 mtdata-cli asset_performance --universe crypto --json
 mtdata-cli asset_performance --universe futures --json
+mtdata-cli asset_performance GOLD --universe futures --json
 mtdata-cli asset_performance --universe insider --option "top week buys" --json
 ```
 
@@ -231,6 +232,10 @@ mtdata-cli asset_performance --universe insider --option "top week buys" --json
 | `--order` | `desc` with `--rank-by` | Rank direction: `desc` or `asc`. Requires `--rank-by`. |
 | `--limit` / `--offset` | `20` / `0` | Forex, crypto, and futures paging. Applied after `--rank-by`. |
 | `--page` | `1` | Insider paging. |
+
+Metal futures use provider names `GOLD`/`SILVER` or contract tickers such as
+`GC`. Spot broker names `XAUUSD`/`XAGUSD` identify different instruments and
+return a complete command for requesting futures context explicitly.
 
 Forex, crypto, and futures rows share one schema: delayed `price` when the
 provider has one, and `perf_*_pct` as percent (`1.0 = 1%`). Quarter and
