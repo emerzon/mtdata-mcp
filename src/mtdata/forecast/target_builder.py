@@ -176,6 +176,7 @@ def build_target_series(
         y_base = resolve_alias_base(arrs, base_name)
         if y_base is None:
             raise ValueError(f"Base column '{base_name}' not found and not a recognized alias")
+        base_name = base_name.strip().lower()
     
     target_info['base'] = base_name
     

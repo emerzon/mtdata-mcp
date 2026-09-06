@@ -75,3 +75,47 @@ def test_unattributed_volume_keeps_unknown_units():
     _, target = build_target_series(pd.DataFrame({"volume": [3.0, 4.0]}), "volume", {"column": "volume"})
     assert target["units"] == "broker_volume_unspecified"
     assert target["volume_source"] == "unspecified"
+
+
+@pytest.mark.parametrize(
+    "alias",
+    ["hl2", "HL2", "typical", " Typical ", "ha_close", "HA_CLOSE", "tp", "TP", "ohlc4", " OHLC4 ", "haclose", "HACLOSE"],
+)
+def test_custom_price_alias_units_and_compact_native_intervals(alias):
+    frame = pd.DataFrame({
+        "time": [1788519600.0, 1788523200.0], "open": [1.0, 1.1],
+        "high": [1.3, 1.4], "low": [0.9, 1.0], "close": [1.1, 1.2],
+    })
+    values, target = build_target_series(frame, "close", {"base": alias})
+    canonical_values, _ = build_target_series(frame, "close", {"base": alias.strip().lower()})
+    np.testing.assert_array_equal(values, canonical_values)
+    assert target["base"] == alias.strip().lower()
+    assert target["quantity"] == "price"
+    assert target["units"] == "price"
+    point = np.array([values[-1] + 0.1])
+    payload = _format_forecast_output(
+        forecast_values=point, last_epoch=1788523200.0, tf_secs=3600, horizon=1,
+        base_col="close", df=frame, ci_alpha=0.05,
+        ci_values=(point - 0.05, point + 0.05), method="arima", quantity="price",
+        denoise_used=False, symbol="EURUSD", timeframe="H1", target_info=target,
+        last_target_value=float(values[-1]),
+    )
+    output = _apply_forecast_generate_detail(
+        payload, ForecastGenerateRequest(symbol="EURUSD", method="arima", horizon=1, target_spec={"base": alias})
+    )
+    assert output["target_quantity"] == "price"
+    assert output["target_units"] == "price"
+    assert output["uncertainty"]["status"] == "available"
+    assert output["forecast"][0]["value"] == pytest.approx(point[0])
+    assert output["forecast"][0]["lower"] == pytest.approx(point[0] - 0.05)
+    assert output["forecast"][0]["upper"] == pytest.approx(point[0] + 0.05)
+
+
+@pytest.mark.parametrize("column", ["HL2", " Typical ", "RSI_14"])
+def test_custom_target_exact_dataframe_column_takes_precedence_over_alias(column):
+    frame = pd.DataFrame({"high": [1.3, 1.4], "low": [0.9, 1.0], "close": [1.1, 1.2], column: [10.0, 20.0]})
+    values, target = build_target_series(frame, "close", {"base": column})
+    np.testing.assert_array_equal(values, frame[column])
+    assert target["base"] == column
+    assert target["quantity"] == "indicator"
+    assert target["units"] == "indicator_units"
