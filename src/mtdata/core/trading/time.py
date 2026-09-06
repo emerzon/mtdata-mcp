@@ -11,7 +11,7 @@ from typing import Optional, Tuple, Union
 from ...bootstrap.settings import mt5_config
 from ...shared.constants import TIMEFRAME_SECONDS
 from ...shared.validators import unsupported_timeframe_seconds_error
-from ...utils.freshness import closed_session_context, standard_weekend_window
+from ...utils.freshness import closed_session_context
 from ...utils.time import format_datetime_utc, format_epoch_utc
 
 ExpirationValue = Union[int, float, str, datetime]
@@ -384,16 +384,6 @@ def _next_candle_wait_payload(
             item="bar",
             data_age_seconds=max(0.0, (next_close_utc - current_utc).total_seconds()),
         )
-    else:
-        weekend = standard_weekend_window(current_utc)
-        if weekend is not None:
-            close_utc, open_utc = weekend
-            closed = {
-                "market_status": "closed",
-                "market_status_reason": "weekend",
-                "assumed_closure_start": close_utc.isoformat().replace("+00:00", "Z"),
-                "assumed_closure_end": open_utc.isoformat().replace("+00:00", "Z"),
-            }
     if closed:
         payload.update(
             {

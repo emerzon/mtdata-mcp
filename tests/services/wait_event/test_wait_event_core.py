@@ -888,7 +888,7 @@ def test_symbol_less_duration_timer_completes_when_clock_expires() -> None:
     assert "source" not in result
 
 
-def test_symbol_less_weekend_timeframe_wait_is_market_closed() -> None:
+def test_symbol_less_weekend_timeframe_wait_is_clock_boundary() -> None:
     clock = FakeClock(datetime(2026, 8, 29, 2, 30, tzinfo=timezone.utc))
 
     result = run_wait_event(
@@ -901,13 +901,11 @@ def test_symbol_less_weekend_timeframe_wait_is_market_closed() -> None:
         now_utc_impl=clock.now_utc,
     )
 
-    assert result["success"] is False
-    assert result["error_code"] == "market_closed"
-    assert result.get("event") != "candle_close"
-    assert result.get("boundary_event") is None
-    assert result["market_status"] == "closed"
-    assert result["market_status_reason"] == "weekend"
-    assert clock.monotonic_value == 0.0
+    assert result["success"] is True
+    assert result["event"] == "clock_boundary"
+    assert result["boundary_event"]["type"] == "clock_boundary"
+    assert "market_status" not in result
+    assert clock.monotonic_value == 61.0
 
 
 def test_symbol_less_weekday_timeframe_wait_is_clock_boundary(monkeypatch) -> None:

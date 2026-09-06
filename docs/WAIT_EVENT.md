@@ -39,9 +39,10 @@ next research step runs on a *completed* hour rather than returning early for
 a market or account event.
 
 A timeframe wait with no symbol and no extra watch list is a pure clock wait
-(no candle payload). Passing the symbol includes a best-effort closed-candle
+(no candle payload), including on weekends. It returns `clock_boundary` and
+does not infer a market session. Passing the symbol includes a best-effort closed-candle
 snapshot when the boundary hits. Omitting `--watch-for` waits only for that
-candle boundary. The internal one-timeframe budget prevents a weekend H1 wait
+candle boundary. The internal one-timeframe budget prevents a symbol-bound weekend H1 wait
 from blocking until Sunday reopen.
 
 ---
