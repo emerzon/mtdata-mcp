@@ -215,3 +215,10 @@ again double-shifts the data.
 - [TROUBLESHOOTING.md](TROUBLESHOOTING.md)
 
 Forecast `last_observation_epoch` and `last_observation_time` both identify the input bar's close. Full output exposes its earlier open separately as `last_bar_open_epoch` and `last_bar_open`. Consumers using the former observation epoch as an open-time key must switch to the explicit bar-open field.
+
+Analytical history (forecasts, volatility, and regimes) resolves date-only
+cutoffs to the end of that day before fetching and includes only bars completed
+by that instant. For D1/W1/MN1 the day uses the configured broker calendar.
+This differs from raw candle browsing, where a calendar label can select the
+weekly or monthly period containing that date. A historical analysis never
+uses the eventual close of an unfinished week or month.

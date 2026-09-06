@@ -2032,19 +2032,21 @@ def fetch_history_frame(
 
     resolved_symbol = resolve_broker_symbol_name(symbol)
     resolved_end = as_of or end
+    parsed_start = parsed_end = None
+    for value, end_bound in ((start, False), (resolved_end, True)):
+        if not value:
+            continue
+        parsed, bound_error = _parse_fetch_datetime_arg(value, timeframe=timeframe, end_bound=end_bound)
+        if bound_error or parsed is None:
+            raise RuntimeError(bound_error or "Invalid history time bound.")
+        if end_bound:
+            parsed_end = parsed
+            resolved_end = parsed.isoformat().replace("+00:00", "Z")
+        else:
+            parsed_start = parsed
+            start = parsed.isoformat().replace("+00:00", "Z")
     fetch_count = requested_count
-    if start and resolved_end:
-        parsed_start, start_error = _parse_fetch_datetime_arg(
-            start,
-            timeframe=timeframe,
-        )
-        parsed_end, end_error = _parse_fetch_datetime_arg(
-            resolved_end,
-            end_bound=True,
-            timeframe=timeframe,
-        )
-        if start_error or end_error or parsed_start is None or parsed_end is None:
-            raise RuntimeError(start_error or end_error or "Invalid history range.")
+    if parsed_start is not None and parsed_end is not None:
         span_seconds = max(0.0, (parsed_end - parsed_start).total_seconds())
         seconds_per_bar = int(TIMEFRAME_SECONDS[timeframe])
         fetch_count = max(
@@ -2089,48 +2091,14 @@ def fetch_history_frame(
     df, history_warnings = validate_and_clean_ohlcv_frame(df, epoch_col="time")
     rows_after_quality = int(len(df))
 
-    calendar_bounds = bool(
-        timeframe in CALENDAR_TIMEFRAMES
-        and (
-            _is_calendar_query_bound(start)
-            or _is_calendar_query_bound(resolved_end)
-        )
-    )
-    if calendar_bounds:
-        df = _trim_calendar_bars_to_session_dates(
-            df,
-            start_datetime=start,
-            end_datetime=resolved_end,
-            timeframe=timeframe,
-        )
-    else:
-        if start:
-            parsed_start, start_error = _parse_fetch_datetime_arg(
-                start,
-                timeframe=timeframe,
-            )
-            if start_error or parsed_start is None:
-                raise RuntimeError(start_error or "Invalid start time.")
-            df = df.loc[df["time"] >= _utc_epoch_seconds(parsed_start)]
-        if resolved_end:
-            parsed_end, end_error = _parse_fetch_datetime_arg(
-                resolved_end,
-                end_bound=True,
-                timeframe=timeframe,
-            )
-            if end_error or parsed_end is None:
-                raise RuntimeError(end_error or "Invalid end time.")
-            cutoff = _utc_epoch_seconds(parsed_end)
-            if include_incomplete:
-                df = df.loc[df["time"] <= cutoff]
-            else:
-                completion_cutoff = min(cutoff, time.time())
-                df = df.loc[
-                    df["time"].map(
-                        lambda value: bar_close_epoch(value, timeframe)
-                        <= completion_cutoff
-                    )
-                ]
+    if parsed_start is not None:
+        df = df.loc[df["time"] >= parsed_start.timestamp()]
+    if parsed_end is not None:
+        cutoff = min(parsed_end.timestamp(), time.time())
+        if include_incomplete:
+            df = df.loc[df["time"] <= cutoff]
+        else:
+            df = df.loc[df["time"].map(lambda value: bar_close_epoch(value, timeframe) <= cutoff)]
 
     if not include_incomplete and not resolved_end:
         df, _trimmed = _drop_incomplete_tail_df(df, timeframe)
