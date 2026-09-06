@@ -406,9 +406,10 @@ class DataFetchCandlesRequest(_DetailNormalizedRequest):
     cursor: Optional[str] = Field(
         None,
         description=(
-            "Opaque continuation cursor returned by a previous start-anchored "
-            "candle query. Reuse it with the same symbol, timeframe, start, and "
-            "end values."
+            "Opaque continuation cursor returned by a previous candle range "
+            "query. Reuse it with the same symbol, timeframe, start, end, and "
+            "selection values. first_n continues forward; last_n continues "
+            "backward. Each page remains in ascending time order."
         ),
     )
     timestamp_format: Literal["epoch", "iso", "iso_utc"] = Field(

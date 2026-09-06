@@ -230,7 +230,7 @@ def _run_data_fetch_candles_impl(
             details=details,
             remediation="Use start and end timestamps at or before the current time.",
         )
-    selection = str(request.selection or "").strip().lower()
+    selection = str(request.selection or ("first_n" if request.start else "last_n"))
     if (
         request.start in (None, "")
         and request.end not in (None, "")
@@ -247,20 +247,25 @@ def _run_data_fetch_candles_impl(
             ),
         )
     fetch_start = request.start
+    fetch_end = request.end
     page_offset = 0
     if request.cursor:
-        if not request.start:
+        if not request.start and not request.end:
             return build_error_payload(
-                "cursor requires start for a start-anchored candle query.",
+                "cursor requires the original candle range start or end.",
                 code="data_fetch_candles_invalid_cursor",
                 operation="data_fetch_candles",
                 remediation=(
-                    "Reuse next_cursor with the original start value and unchanged "
-                    "symbol, timeframe, and end."
+                    "Reuse next_cursor with the original symbol, timeframe, "
+                    "start, end, and selection values."
                 ),
             )
         try:
-            fetch_start, page_offset = _decode_candle_cursor(request.cursor, request)
+            resume_boundary, page_offset = _decode_candle_cursor(request.cursor, request)
+            if selection == "first_n":
+                fetch_start = resume_boundary
+            else:
+                fetch_end = resume_boundary
         except ValueError as exc:
             return build_error_payload(
                 str(exc),
@@ -268,7 +273,7 @@ def _run_data_fetch_candles_impl(
                 operation="data_fetch_candles",
                 remediation=(
                     "Use next_cursor from the preceding candle page without changing "
-                    "symbol, timeframe, start, or end."
+                    "symbol, timeframe, start, end, or selection."
                 ),
             )
     result = fetch_candles_impl(
@@ -276,7 +281,7 @@ def _run_data_fetch_candles_impl(
         timeframe=request.timeframe,
         limit=effective_limit if effective_limit is not None else request.limit,
         start=fetch_start,
-        end=request.end,
+        end=fetch_end,
         range_selection=request.selection,
         ohlcv=request.ohlcv,
         indicators=request.indicators,
@@ -307,6 +312,7 @@ def _run_data_fetch_candles_impl(
             query_applied = result.get("query_applied")
             if isinstance(query_applied, dict):
                 query_applied["start"] = request.start
+                query_applied["end"] = request.end
                 query_applied["cursor_applied"] = True
         if bool(getattr(request, "explain_indicators", False)):
             _attach_indicator_explanations(result)
@@ -1184,7 +1190,7 @@ def _apply_range_limit_cap(  # noqa: C901
         if query.get("provider_end_bounded"):
             warning = (
                 f"Returned the {retained_label} {len(retained)} bars because "
-                f"limit={limit_value}. Increase limit; the "
+                f"limit={limit_value}. Follow pagination.next_cursor or increase limit; the "
                 "remaining range size is not known from this fetch window."
             )
         else:
@@ -1220,8 +1226,8 @@ def _apply_range_limit_cap(  # noqa: C901
         else:
             warning = (
                 "The requested range began before the bounded provider window; "
-                f"returned up to the latest {limit_value} bars. Increase limit or "
-                "move the range start forward to retrieve an earlier page."
+                f"returned up to the latest {limit_value} bars. Follow "
+                "pagination.next_cursor to retrieve an earlier page."
             )
         result["pagination"] = {
             "total": None,
@@ -1232,17 +1238,17 @@ def _apply_range_limit_cap(  # noqa: C901
             "has_more": True,
             "more_available": None,
         }
-    if start_anchored and retained:
+    if retained:
         next_cursor = _next_candle_cursor(
             request,
-            retained[-1],
+            retained[-1] if start_anchored else retained[0],
             offset=page_offset + len(retained),
         )
         if next_cursor is not None:
             result["pagination"]["next_cursor"] = next_cursor
-    elif retained:
-        result["pagination"]["pagination_supported"] = False
-        result["pagination"]["continuation_direction"] = "reverse"
+            result["pagination"]["continuation_direction"] = (
+                "forward" if start_anchored else "reverse"
+            )
     result.setdefault("warnings", []).append(warning)
     data_window = result.get("data_window")
     if isinstance(data_window, dict) and retained:
@@ -1270,17 +1276,18 @@ def _apply_range_limit_cap(  # noqa: C901
 def _encode_candle_cursor(
     request: DataFetchCandlesRequest,
     *,
-    resume_start: str,
+    resume_boundary: str,
     offset: int,
 ) -> str:
+    selection = request.selection or ("first_n" if request.start else "last_n")
     cursor_payload = {
         "v": 1,
         "symbol": request.symbol,
         "timeframe": request.timeframe,
         "start": request.start,
         "end": request.end,
-        "selection": "first_n",
-        "resume_start": resume_start,
+        "selection": selection,
+        "resume_start" if selection == "first_n" else "resume_end": resume_boundary,
         "offset": int(offset),
     }
     return encode_continuation_cursor(cursor_payload)
@@ -1304,10 +1311,11 @@ def _decode_candle_cursor(
     ):
         if decoded.get(key) != expected:
             raise ValueError(f"cursor does not match the request {key}")
-    if decoded.get("selection") != "first_n":
-        raise ValueError("cursor has an invalid candle selection direction")
-    resume_start = decoded.get("resume_start")
-    if not isinstance(resume_start, str) or not resume_start.strip():
+    selection = request.selection or ("first_n" if request.start else "last_n")
+    if decoded.get("selection") != selection:
+        raise ValueError("cursor does not match the request selection direction")
+    resume_boundary = decoded.get("resume_start" if selection == "first_n" else "resume_end")
+    if not isinstance(resume_boundary, str) or not resume_boundary.strip():
         raise ValueError("cursor has an invalid candle resume boundary")
     try:
         offset = int(decoded.get("offset"))
@@ -1315,7 +1323,7 @@ def _decode_candle_cursor(
         raise ValueError("cursor has an invalid candle page offset") from exc
     if offset < 0:
         raise ValueError("cursor has an invalid candle page offset")
-    return resume_start, offset
+    return resume_boundary, offset
 
 
 def _next_candle_cursor(
@@ -1338,12 +1346,17 @@ def _next_candle_cursor(
                 observed = observed.astimezone(timezone.utc)
     except (TypeError, ValueError, OSError, OverflowError):
         return None
-    resume_start = (observed + timedelta(microseconds=1)).isoformat(
+    selection = request.selection or ("first_n" if request.start else "last_n")
+    # Exact end bounds include only candles closed by that instant. The first
+    # retained open therefore includes the preceding close without repeating
+    # the retained candle, including broker-calendar D1/W1/MN1 boundaries.
+    resume = observed + timedelta(microseconds=1) if selection == "first_n" else observed
+    resume_boundary = resume.isoformat(
         timespec="microseconds"
     ).replace("+00:00", "Z")
     return _encode_candle_cursor(
         request,
-        resume_start=resume_start,
+        resume_boundary=resume_boundary,
         offset=offset,
     )
 

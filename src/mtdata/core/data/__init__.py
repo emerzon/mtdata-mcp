@@ -416,7 +416,9 @@ def data_fetch_candles(
 
     cursor : str, optional
         Opaque continuation token from a prior start-anchored candle page. Reuse
-        it with the original symbol, timeframe, start, and end values.
+        it with the original symbol, timeframe, start, end, and selection values.
+        first_n continues forward; last_n continues backward. Both return
+        each page in ascending time order.
     
     ohlcv : str, optional
         Returned candle fields to include. Projection happens after denoise and

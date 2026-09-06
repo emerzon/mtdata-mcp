@@ -368,8 +368,11 @@ session open.
 When `--start` and `--limit` are combined, candles are returned in ascending
 order from the start bound (first-N). When `--limit` is omitted, range queries
 return a 20-bar page. Follow `pagination.next_cursor` with the original range
-arguments to continue, or pass an explicit larger `--limit` when one larger
-response is intentional. Omit `--start` for latest-N retrieval.
+arguments and selection to continue, or pass an explicit larger `--limit` when
+one larger response is intentional. `--selection last_n` starts at the latest
+end of a range; following its cursor moves backward through earlier candles.
+Every page keeps its rows in ascending time order. Omit `--start` for latest-N
+retrieval.
 
 ---
 
