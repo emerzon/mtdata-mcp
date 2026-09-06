@@ -794,6 +794,7 @@ def _apply_news_limit(  # noqa: C901
 
 def _attach_news_row_keys(result: Dict[str, Any]) -> Dict[str, Any]:
     out = dict(result)
+    _refresh_news_relevance(out)
     pagination_order = out.pop("_pagination_bucket_order", None)
     default_row_keys = [
         key
@@ -946,6 +947,18 @@ def _news_row_collections(result: Dict[str, Any]) -> list[str]:
     return keys
 
 
+def _refresh_news_relevance(out: Dict[str, Any]) -> None:
+    if "relevance_status" not in out:
+        return
+    out["relevance_status"] = (
+        "market_wide" if not out.get("symbol") else
+        "symbol_matched" if out.get("related_news") else "no_symbol_specific_news"
+    )
+    out.pop("market_wide_note", None)
+    if out["relevance_status"] == "no_symbol_specific_news" and out.get("general_news"):
+        out["market_wide_note"] = "No symbol-specific headlines remain in this response; general_news contains market-wide context."
+
+
 def _apply_news_recency_filter(
     result: Dict[str, Any],
     *,
@@ -981,6 +994,9 @@ def _apply_news_recency_filter(
             out[key] = kept
         else:
             out.pop(key, None)
+        count_key = _NEWS_BUCKET_COUNT_KEYS.get(key)
+        if count_key in out:
+            out[count_key] = len(kept)
     recency: Dict[str, Any] = {
         "excluded_old_count": excluded_old,
         "excluded_untimestamped_count": excluded_untimestamped,
@@ -992,6 +1008,7 @@ def _apply_news_recency_filter(
     if max_age_seconds is not None:
         recency["max_age_seconds"] = int(max_age_seconds)
     out["recency"] = recency
+    _refresh_news_relevance(out)
     if not kept_any:
         out["empty_reason"] = "no_recent_news"
         out["status"] = "no_results"
