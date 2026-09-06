@@ -97,55 +97,46 @@ def _backend_calculation_reference(name: str) -> str:
 _CATEGORY_TRADING_CONTEXT: Dict[str, Dict[str, Any]] = {
     "momentum": {
         "common_use": "momentum, reversal, and divergence checks",
-        "typical_parameters": "use the library default first, then shorten for intraday or lengthen for position trades",
         "pairs_well_with": ["trend", "volume", "support_resistance"],
         "trading_styles": ["intraday", "swing", "position"],
     },
     "overlap": {
         "common_use": "trend direction, dynamic support/resistance, and pullback context",
-        "typical_parameters": "20/50 for swing context; 100/200 for higher-timeframe trend",
         "pairs_well_with": ["momentum", "atr", "volume"],
         "trading_styles": ["intraday", "swing", "position"],
     },
     "trend": {
         "common_use": "trend strength, trend-following filters, and regime confirmation",
-        "typical_parameters": "start with defaults; confirm against price structure and ATR",
         "pairs_well_with": ["moving_average", "momentum", "atr"],
         "trading_styles": ["swing", "position", "intraday"],
     },
     "volatility": {
         "common_use": "range expansion, stop distance, and breakout compression checks",
-        "typical_parameters": "14 or 20 periods are common baselines",
         "pairs_well_with": ["trend", "support_resistance", "volume"],
         "trading_styles": ["intraday", "swing", "position"],
     },
     "volume": {
         "common_use": "participation, accumulation/distribution, and move confirmation",
-        "typical_parameters": "compare to recent baseline; FX volume is usually tick volume",
         "pairs_well_with": ["price_action", "momentum", "volatility"],
         "trading_styles": ["intraday", "swing"],
     },
     "statistics": {
         "common_use": "normalization, mean reversion, and outlier checks",
-        "typical_parameters": "20-period windows are common for rolling context",
         "pairs_well_with": ["volatility", "trend"],
         "trading_styles": ["intraday", "swing", "position"],
     },
     "performance": {
         "common_use": "return and drawdown context for research workflows",
-        "typical_parameters": "align window to the holding period under test",
         "pairs_well_with": ["strategy_backtest", "risk"],
         "trading_styles": ["swing", "position"],
     },
     "candles": {
         "common_use": "price-action pattern context and candle-shape transforms",
-        "typical_parameters": "use defaults, then validate on the traded timeframe",
         "pairs_well_with": ["support_resistance", "volume", "trend"],
         "trading_styles": ["intraday", "swing"],
     },
     "cycles": {
         "common_use": "cycle phase and turning-point research",
-        "typical_parameters": "use as exploratory context, not a standalone trigger",
         "pairs_well_with": ["momentum", "trend"],
         "trading_styles": ["swing", "position"],
     },
