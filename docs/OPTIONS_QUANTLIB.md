@@ -350,3 +350,5 @@ Heston barrier engine, not the analytic Black–Scholes barrier.
 - [GLOSSARY.md](GLOSSARY.md) — Term definitions
 
 Underlying quote `delay_seconds` is a delivery-delay duration in seconds, separate from timestamp age. If provider delay indicators disagree, `underlying_quote.delay_status` is `conflicting`, the raw indicators are retained, and no definitive `is_delayed` or delay duration is emitted.
+
+Compact chains place identical explanatory reason strings in `shared_contract_status`, which applies to every returned contract. Each row retains its live-usability and Greeks-availability flags; differing reasons stay on their rows. Full detail retains every per-contract field.

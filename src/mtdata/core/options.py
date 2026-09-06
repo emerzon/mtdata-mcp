@@ -800,6 +800,23 @@ def _apply_options_detail(
                 )
                 for row in options
             ]
+            rows = compact["options"]
+            shared_status = {}
+            if len(rows) > 1 and all(isinstance(row, dict) for row in rows):
+                for field in (
+                    "greeks_source", "greeks_unavailable_reason",
+                    "quote_freshness_reason", "quote_usability_reason",
+                    "contract_freshness_reason",
+                ):
+                    value = rows[0].get(field)
+                    if value is not None and all(row.get(field) == value for row in rows):
+                        shared_status[field] = value
+                        for row in rows:
+                            row.pop(field)
+            if shared_status:
+                compact["shared_contract_status"] = shared_status
+            if compact.get("option_contract_count") == compact.get("count"):
+                compact.pop("option_contract_count", None)
         return compact
     if kind == "barrier_price":
         return {
