@@ -7,6 +7,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from mtdata.core.output_contract import attach_collection_contract
 from mtdata.forecast.forecast_methods import get_forecast_methods_snapshot
 from mtdata.forecast.requests import ForecastBarrierProbRequest, ForecastGenerateRequest
+from mtdata.forecast.target_builder import forecast_interval_recovery
 from mtdata.utils.coercion import coerce_finite_float as _finite_float
 from mtdata.utils.coercion import round_finite
 from mtdata.utils.freshness import format_age_seconds as _format_age_seconds
@@ -19,12 +20,15 @@ _FORECAST_PARALLEL_SERIES_KEYS = (
     "forecast_time",
     "forecast_price",
     "forecast_return",
+    "forecast_target",
     "forecast_bar_states",
     "forecast_market_status",
     "lower_price",
     "upper_price",
     "lower_return",
     "upper_return",
+    "lower_target",
+    "upper_target",
     "lower",
     "upper",
 )
@@ -118,6 +122,8 @@ def _output_symbol(payload: Dict[str, Any], request: Any) -> Any:
 def _annotate_price_currency(payload: Dict[str, Any], symbol: Any) -> Dict[str, Any]:
     if not isinstance(payload, dict) or payload.get("error") or payload.get("price_currency"):
         return payload
+    if str((payload.get("target") or {}).get("mode") or "") == "custom":
+        return payload
     currency = _symbol_price_currency(payload.get("symbol") or symbol)
     if not currency:
         return payload
@@ -130,7 +136,7 @@ def _forecast_interval_summary(payload: Dict[str, Any]) -> Optional[Dict[str, fl
     lower_key = next(
         (
             key
-            for key in ("lower_price", "lower_return", "lower")
+            for key in ("lower_target", "lower_price", "lower_return", "lower")
             if isinstance(payload.get(key), list)
         ),
         None,
@@ -171,7 +177,7 @@ def _forecast_compact_ci(
             "status": "not_requested",
             "mode": "point_only",
             "reason": "ci_alpha was not requested; direction is based on the point estimate only.",
-            "recommended_tool": "forecast_conformal_intervals",
+            **forecast_interval_recovery(payload.get("target")),
         }
     if ci_status == "insufficient_calibration":
         return {
@@ -181,7 +187,7 @@ def _forecast_compact_ci(
                 "calibration residuals are below the required sample; "
                 "bounds are diagnostic only."
             ),
-            "recommended_tool": "forecast_conformal_intervals",
+            **forecast_interval_recovery(payload.get("target")),
         }
     if ci_status == "incomplete_anchor_coverage":
         return {
@@ -190,7 +196,7 @@ def _forecast_compact_ci(
             "reason": (
                 "one or more calibration anchors failed; bounds are diagnostic only."
             ),
-            "recommended_tool": "forecast_conformal_intervals",
+            **forecast_interval_recovery(payload.get("target")),
         }
     if ci_status == "unavailable":
         out: Dict[str, Any] = {
@@ -200,7 +206,7 @@ def _forecast_compact_ci(
                 "requested intervals are unavailable for this method; "
                 "point forecast only."
             ),
-            "recommended_tool": "forecast_conformal_intervals",
+            **forecast_interval_recovery(payload.get("target")),
         }
         if payload.get("ci_alpha") is not None:
             out["requested_alpha"] = payload.get("ci_alpha")
@@ -211,7 +217,7 @@ def _forecast_compact_ci(
     lower_key = next(
         (
             key
-            for key in ("lower_price", "lower_return", "lower")
+            for key in ("lower_target", "lower_price", "lower_return", "lower")
             if isinstance(payload.get(key), list)
         ),
         None,
@@ -228,7 +234,9 @@ def _forecast_compact_ci(
         return None
 
     forecast_key = (
-        "forecast_price"
+        "forecast_target"
+        if lower_key.endswith("_target")
+        else "forecast_price"
         if lower_key.endswith("_price")
         else "forecast_return"
         if lower_key.endswith("_return")
@@ -291,6 +299,8 @@ def _round_forecast_list(values: Any, *, digits: int) -> Any:
 
 
 def _round_forecast_generate_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    if (payload.get("target") or {}).get("mode") == "custom":
+        return payload
     digits = _forecast_price_digits(payload)
     if digits is None:
         return payload
@@ -783,7 +793,7 @@ def _annotate_forecast_generate_quality(payload: Dict[str, Any]) -> Dict[str, An
                     "reason": (
                         "ci_alpha was requested, but intervals were not produced."
                     ),
-                    "recommended_tool": "forecast_conformal_intervals",
+                    **forecast_interval_recovery(payload.get("target")),
                 },
             )
         else:
@@ -794,7 +804,7 @@ def _annotate_forecast_generate_quality(payload: Dict[str, Any]) -> Dict[str, An
                     "status": "not_requested",
                     "mode": "point_only",
                     "reason": "ci_alpha was not requested; direction is based on the point estimate only.",
-                    "recommended_tool": "forecast_conformal_intervals",
+                    **forecast_interval_recovery(payload.get("target")),
                 },
             )
     if str(out.get("ci_status") or "").strip().lower() in {
@@ -983,7 +993,7 @@ def _forecast_generate_compact_rows(payload: Dict[str, Any]) -> List[Dict[str, A
     candidate_keys = (
         ("forecast_return", "forecast_price", "forecast")
         if quantity == "return"
-        else ("forecast_price", "forecast_return", "forecast")
+        else ("forecast_target", "forecast_price", "forecast_return", "forecast")
     )
     for key in candidate_keys:
         value = payload.get(key)
@@ -994,8 +1004,8 @@ def _forecast_generate_compact_rows(payload: Dict[str, Any]) -> List[Dict[str, A
     if not isinstance(forecast_values, list):
         return []
 
-    lower_key = "lower_price" if isinstance(payload.get("lower_price"), list) else "lower_return"
-    upper_key = "upper_price" if lower_key == "lower_price" else "upper_return"
+    lower_key = forecast_key.replace("forecast", "lower", 1)
+    upper_key = forecast_key.replace("forecast", "upper", 1)
     lower_values = payload.get(lower_key)
     upper_values = payload.get(upper_key)
     if not isinstance(lower_values, list) or not isinstance(upper_values, list):
@@ -1200,6 +1210,9 @@ def _forecast_generate_summary_from_compact(compact: Dict[str, Any]) -> Dict[str
         "method",
         "horizon",
         "quantity",
+        "target",
+        "target_quantity",
+        "target_units",
         "data_as_of",
         "last_observation_time",
         "last_bar_open",
@@ -1462,6 +1475,9 @@ def _apply_forecast_generate_detail(  # noqa: C901
             "forecast_value_semantics",
             "forecast_price",
             "forecast_return",
+            "forecast_target",
+            "lower_target",
+            "upper_target",
             "forecast_anchor",
             "forecast_step_seconds",
             "forecast_epoch",

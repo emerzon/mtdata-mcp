@@ -73,8 +73,7 @@ def empirical_interval_support(
         support["reason"] = (
             f"Empirical intervals at alpha={alpha:g} require at least {minimum} "
             f"effective paths; received {effective_paths:.6g} from {n_paths} paths. "
-            "Increase the path sample or use forecast_conformal_intervals with "
-            "sufficient calibration history."
+            "Increase the path sample to obtain empirical intervals for this target."
         )
     return support
 _FORECAST_AUXILIARY_COLUMN_RE = re.compile(

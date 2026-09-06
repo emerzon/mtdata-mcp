@@ -91,7 +91,11 @@ from .forecast_registry import (
     ForecastRegistry,
     get_forecast_method_availability_snapshot,
 )
-from .target_builder import build_target_series, resolve_alias_base
+from .target_builder import (
+    build_target_series,
+    forecast_interval_recovery,
+    resolve_alias_base,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1944,17 +1948,16 @@ def _format_forecast_output(
     # identity instead of being mislabeled as close prices or returns.
     custom_target = str((target_info or {}).get("mode") or "") == "custom"
     if custom_target:
+        quantity = "custom"
         result.pop("last_price", None)
         result.pop("last_price_source", None)
         result.pop("price_basis", None)
         result.pop("direction_threshold_pct", None)
         result.pop("direction_threshold_basis", None)
         result["forecast_target"] = [float(v) for v in forecast_values]
-        result["target"] = {
-            "base": (target_info or {}).get("base"),
-            "transform": (target_info or {}).get("transform"),
-            "mode": "custom",
-        }
+        result["target"] = dict(target_info or {})
+        result["target_quantity"] = (target_info or {}).get("quantity")
+        result["target_units"] = (target_info or {}).get("units")
         result["last_target"] = last_target_value
         result["forecast_value_semantics"] = "target_bar_custom_transformed_value"
     elif quantity == 'return':
@@ -1973,6 +1976,9 @@ def _format_forecast_output(
 
     # Add confidence intervals if available. If they are requested but missing,
     # surface an explicit warning to avoid misleading point-only interpretation.
+    interval_remediation = forecast_interval_recovery(target_info).get(
+        "remediation", "Use forecast_conformal_intervals for residual-quantile uncertainty bands."
+    )
     if ci_alpha is not None:
         ci_alpha_value: Optional[float] = None
         try:
@@ -2015,12 +2021,12 @@ def _format_forecast_output(
                 warning_text = (
                     f"ci_alpha={ci_alpha_value:g} was requested but confidence intervals "
                     f"are unavailable for method '{method}'; returning a point forecast only. "
-                    "Use forecast_conformal_intervals for residual-quantile uncertainty bands."
+                    f"{interval_remediation}"
                 )
             else:
                 warning_text = (
                     f"Point forecast only for method '{method}'; confidence intervals are unavailable. "
-                    "Use forecast_conformal_intervals for residual-quantile uncertainty bands."
+                    f"{interval_remediation}"
                 )
             warning_text = str((metadata or {}).get("ci_unavailable_reason") or warning_text)
             warnings = result.get("warnings")

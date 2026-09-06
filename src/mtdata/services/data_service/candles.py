@@ -1102,6 +1102,7 @@ def _build_rates_df(rates: Any, use_client_tz: bool) -> pd.DataFrame:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             df['volume'] = df['tick_volume']
+            df.attrs['volume_source'] = 'tick_volume'
     return df
 
 
@@ -2088,6 +2089,7 @@ def fetch_history_frame(
     df = _rates_to_df(rates)
     if "volume" not in df.columns and "tick_volume" in df.columns:
         df["volume"] = df["tick_volume"]
+        df.attrs["volume_source"] = "tick_volume"
     rows_before_quality = int(len(df))
     df, history_warnings = validate_and_clean_ohlcv_frame(df, epoch_col="time")
     rows_after_quality = int(len(df))

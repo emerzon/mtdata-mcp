@@ -250,6 +250,24 @@ their reference and report `analysis_time_window`; they never mix in a live tick
 
 ## Adding Features
 
+For a different forecast target, pass `--target-spec column=volume` or, for
+example, `--target-spec column=close,transform=log`. These outputs use
+`quantity=custom`, with `target_quantity`, `target_units`, and the base column
+and transformation in `target`. Each forecast row keeps its time, bar state,
+value, and any target-scale bounds. Broker price precision is not applied to
+transformed values.
+
+The standard history loader's `volume` alias uses `tick_volume`, a count of
+Bid updates rather than lots or shares. The target reports this source and
+unit; unattributed input volume remains explicitly unspecified. Custom targets
+do not carry a price-currency label.
+
+Custom-target conformal calibration is unsupported. If a method cannot produce
+intervals for your target, use `forecast_list_methods --supports-ci true` to
+choose an interval-capable method while keeping the same target and history
+window. A price conformal forecast does not calibrate a custom volume or
+log-price forecast.
+
 ### Technical Indicators
 
 Use an audited feature-consuming method and pass indicators as one compact

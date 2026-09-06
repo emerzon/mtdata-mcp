@@ -7,8 +7,61 @@ import pandas as pd
 
 from ..utils.indicators import _apply_ta_indicators
 from ..utils.indicators import _parse_ti_specs as _parse_ti_specs_util
+from ..utils.market_metadata import TICK_VOLUME_UNIT
 
 logger = logging.getLogger(__name__)
+
+
+def forecast_interval_recovery(target: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Recommend uncertainty recovery without changing the forecast target."""
+    if isinstance(target, dict) and target.get("mode") == "custom":
+        return {
+            "recommended_tool": "forecast_list_methods",
+            "recommended_params": {"supports_ci": True},
+            "calibration_support": "unsupported_custom_target",
+            "remediation": (
+                "Custom-target conformal calibration is unsupported. Use "
+                "forecast_list_methods with supports_ci=true to choose a native "
+                "interval-capable method, keeping the same target_spec and history window."
+            ),
+        }
+    return {
+        "recommended_tool": "forecast_conformal_intervals",
+    }
+
+
+def _custom_target_contract(df: pd.DataFrame, base: str, transform: str) -> Dict[str, Any]:
+    price_columns = {"open", "high", "low", "close", "typical", "tp", "hl2", "ohlc4", "ha_close", "haclose"}
+    source = df.attrs.get("volume_source") if base == "volume" else base
+    if base in price_columns:
+        quantity, units = "price", "price"
+    elif base in {"volume", "tick_volume", "real_volume"}:
+        quantity = "volume"
+        units = TICK_VOLUME_UNIT if source == "tick_volume" else "broker_traded_volume" if source == "real_volume" else "broker_volume_unspecified"
+    else:
+        quantity, units = "indicator", "indicator_units"
+    base_units = units
+    transform_name = transform.split("(", 1)[0]
+    if transform_name in {"return", "pct_change"}:
+        units = "fractional_change"
+    elif transform_name == "pct":
+        units = "percent_change"
+    elif transform_name == "log_return":
+        units = "log_ratio"
+    elif transform_name == "log":
+        units = "natural_log_of_" + units
+    target_quantity = quantity
+    if transform_name == "log":
+        target_quantity = "log_" + quantity
+    elif transform_name == "diff":
+        target_quantity = quantity + "_change"
+    elif transform_name in {"return", "pct_change", "pct", "log_return"}:
+        target_quantity = "return" if quantity == "price" else quantity + "_relative_change"
+    contract: Dict[str, Any] = {"quantity": target_quantity, "units": units, "base_units": base_units}
+    if quantity == "volume":
+        contract["volume_source"] = source or "unspecified"
+        contract["volume_type"] = base_units
+    return contract
 
 
 def _log_return_array(prices: np.ndarray, k: int = 1) -> np.ndarray:
@@ -168,4 +221,5 @@ def build_target_series(
         )
     
     target_info['mode'] = 'custom'
+    target_info.update(_custom_target_contract(df, base_name, target_info['transform']))
     return y, target_info

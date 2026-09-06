@@ -1233,6 +1233,7 @@ class TestBuildRatesDf(unittest.TestCase):
         df = _build_rates_df([{}], use_client_tz=False)
         self.assertIn('volume', df.columns)
         self.assertEqual(df['volume'].iloc[0], 123)
+        self.assertEqual(df.attrs['volume_source'], 'tick_volume')
 
     @patch(f'{_DS}._rates_to_df')
     def test_volume_already_present(self, mock_to_df):
@@ -1245,6 +1246,7 @@ class TestBuildRatesDf(unittest.TestCase):
         mock_to_df.return_value = raw_df
         df = _build_rates_df([{}], use_client_tz=False)
         self.assertEqual(df['volume'].iloc[0], 999)
+        self.assertNotIn('volume_source', df.attrs)
 
 
 # ============================================================================
