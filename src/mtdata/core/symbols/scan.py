@@ -2793,7 +2793,9 @@ def market_scan(  # noqa: C901
     quotes cannot satisfy a maximum-spread filter. `allow_partial` defaults true
     so unknown requested names are dropped with `missing_symbols` and a warning;
     explicit lists are permissive by default. Set false to fail closed when any
-    requested symbol is missing.
+    requested symbol is missing or cannot be evaluated. Evaluation failures
+    produce partial_failure=true and ranking_complete=false. A scan where no
+    symbol can be evaluated fails even when allow_partial=true.
     """
 
     detail_mode = normalize_output_verbosity_detail(detail, default="compact")
@@ -3211,6 +3213,7 @@ def market_scan(  # noqa: C901
             skipped_examples: List[Dict[str, str]] = []
             skipped_symbols = 0
             skipped_reason_counts: Dict[str, int] = {}
+            failed_symbols: List[Dict[str, str]] = []
             evaluated_symbols = 0
             quote_eligibility_excluded = 0
             quote_eligibility_reasons: Dict[str, int] = {}
@@ -3219,6 +3222,7 @@ def market_scan(  # noqa: C901
             def _record_issue(symbol_name: str, reason: str) -> None:
                 nonlocal skipped_symbols
                 skipped_symbols += 1
+                failed_symbols.append({"symbol": symbol_name, "reason": str(reason)})
                 reason_key = str(reason or "unknown")
                 skipped_reason_counts[reason_key] = (
                     skipped_reason_counts.get(reason_key, 0) + 1
@@ -3556,7 +3560,7 @@ def market_scan(  # noqa: C901
                 "rank_by": rank_by_value,
                 "rank_order": effective_rank_order,
                 "ranking_policy": _market_scan_ranking_policy(rank_by_value, effective_rank_order),
-                "ranking_complete": not freshness_cut_larger_mover,
+                "ranking_complete": not freshness_cut_larger_mover and not skipped_symbols,
                 "ranking": _market_scan_ranking_label(
                     rank_by_value,
                     rank_order=effective_rank_order,
@@ -3681,6 +3685,20 @@ def market_scan(  # noqa: C901
                         "--min-tick-volume). Widen Market Watch or pass --universe "
                         "all only when evaluated_symbols is 0."
                     )
+            if failed_symbols:
+                out["partial_failure"] = True
+                out["failed_symbols"] = failed_symbols
+                out["success"] = bool(allow_partial and evaluated_symbols > 0)
+                out["status"] = "partial" if out["success"] else "failed"
+                out["message"] = (
+                    f"Evaluated {evaluated_symbols} symbol(s); {len(failed_symbols)} "
+                    "symbol(s) could not be evaluated. Ranking is incomplete."
+                )
+                out["remediation"] = "Inspect failed_symbols and correct the symbol or history errors. Relaxing scan filters does not repair evaluation failures."
+                out.setdefault("warnings", []).append(out["message"])
+                if not out["success"]:
+                    out["error_code"] = "market_scan_incomplete"
+                    out["error"] = out["message"]
             return _attach_market_scan_source(
                 attach_collection_contract(
                     out,

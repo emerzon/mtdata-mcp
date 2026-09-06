@@ -831,9 +831,9 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "Explicit lists default permissive; set false for strict completion."
     ),
     ("market_scan", "allow_partial"): (
-        "Keep usable rows after unknown requested symbols are dropped. "
-        "Explicit lists default permissive; set false to fail closed when any "
-        "requested name is missing."
+        "Keep partial results when some symbols cannot be evaluated. "
+        "Set false to fail if any symbol is missing or its analysis fails. "
+        "If every evaluation fails, the scan fails regardless of this setting."
     ),
     ("market_radar", "allow_partial"): (
         "Keep usable rows after unknown requested symbols are dropped. "
