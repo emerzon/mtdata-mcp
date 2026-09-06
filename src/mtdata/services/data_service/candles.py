@@ -561,7 +561,16 @@ def _fetch_rates_with_warmup(  # noqa: C901
     range_selection: Optional[str] = None,
 ):
     """Fetch MT5 rates with optional warmup, retry, and end-bar sanity checks."""
-    extra_bars = 0 if include_incomplete else 1
+    trailing_range = bool(
+        (start_datetime or end_datetime)
+        and (
+            str(range_selection or "").strip().lower() == "last_n"
+            or (end_datetime and not start_datetime)
+        )
+    )
+    # The inclusive provider cutoff can return a bar that closes after end.
+    # Keep another row beyond that boundary to prove whether a page has more.
+    extra_bars = 2 if trailing_range else 0 if include_incomplete else 1
     if diagnostics is not None:
         diagnostics.pop("freshness", None)
     if start_datetime and end_datetime:
@@ -647,7 +656,11 @@ def _fetch_rates_with_warmup(  # noqa: C901
                 if diagnostics is not None:
                     diagnostics["range_fetch"].update(
                         {
-                            "provider_bounded": len(filtered) >= requested_rows,
+                            "provider_bounded": _trailing_range_has_more(
+                                filtered, timeframe, candles,
+                                start_datetime, end_datetime,
+                                include_incomplete=include_incomplete,
+                            ),
                             "provider_end": _format_time_minimal(expected_end_ts),
                             "provider_end_bounded": True,
                             "selection_anchor": "end",
@@ -769,8 +782,11 @@ def _fetch_rates_with_warmup(  # noqa: C901
                 if diagnostics is not None:
                     diagnostics["range_fetch"].update(
                         {
-                            "provider_bounded": len(filtered)
-                            >= candles + extra_bars,
+                            "provider_bounded": _trailing_range_has_more(
+                                filtered, timeframe, candles,
+                                start_datetime, end_datetime,
+                                include_incomplete=include_incomplete,
+                            ),
                             "provider_end": _format_time_minimal(expected_end_ts),
                             "provider_end_bounded": True,
                             "selection_anchor": "end",
@@ -843,7 +859,25 @@ def _fetch_rates_with_warmup(  # noqa: C901
         expected_end_ts = _utc_epoch_seconds(to_date)
 
         def _fetch():
-            return _mt5_copy_rates_from(symbol, mt5_timeframe, to_date, candles + warmup_bars + extra_bars)
+            requested_rows = candles + warmup_bars + extra_bars
+            trailing = _mt5_copy_rates_from(symbol, mt5_timeframe, to_date, requested_rows)
+            if trailing is None:
+                return None
+            normalized, shape_error = _normalize_provider_rate_rows(trailing)
+            if shape_error:
+                raise _RateDataShapeError(shape_error)
+            if diagnostics is not None:
+                diagnostics["range_fetch"] = {
+                    "provider_bounded": _trailing_range_has_more(
+                        normalized or [], timeframe, candles, None, end_datetime,
+                        include_incomplete=include_incomplete,
+                    ),
+                    "provider_row_budget": requested_rows,
+                    "provider_end": _format_time_minimal(expected_end_ts),
+                    "provider_end_bounded": True,
+                    "selection_anchor": "end",
+                }
+            return normalized
 
     else:
         utc_now = datetime.now(dt_timezone.utc)
@@ -885,7 +919,7 @@ def _fetch_rates_with_warmup(  # noqa: C901
         if rates is not None and len(rates) > 0:
             last_t = rates[-1]["time"]
             freshness_policy_bars = (
-                SANITY_BARS_TOLERANCE + extra_bars if range_query else 1
+                SANITY_BARS_TOLERANCE + int(not include_incomplete) if range_query else 1
             )
             if range_query:
                 freshness_cutoff = (
@@ -1174,6 +1208,32 @@ def _trim_df_to_target(
     else:
         out = df.iloc[-candles:] if len(df) > candles else df
     return out.copy() if copy_rows else out
+
+
+def _trailing_range_has_more(
+    rates: List[Dict[str, Any]],
+    timeframe: str,
+    candles: int,
+    start: Optional[str],
+    end: Optional[str],
+    *,
+    include_incomplete: bool,
+) -> bool:
+    """Count eligible lookahead rows before one-sided ranges trim to limit."""
+    if not rates:
+        return False
+    frame = pd.DataFrame(rates)
+    frame["__epoch"] = frame["time"]
+    eligible = _trim_df_to_target(
+        frame, start, end, len(frame),
+        copy_rows=False, timeframe=timeframe, range_selection="last_n",
+    )
+    if not include_incomplete:
+        eligible, _ = _drop_incomplete_tail_df(
+            eligible, timeframe,
+            current_time_epoch=_resolve_live_bar_reference_epoch(None, timeframe),
+        )
+    return len(eligible) > candles
 
 
 def _next_calendar_period_date(value: Any, timeframe: str):

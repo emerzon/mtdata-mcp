@@ -718,7 +718,8 @@ class TestFetchRatesWithWarmup(unittest.TestCase):
         requested_end = mock_from.call_args.args[2]
         self.assertEqual(requested_end.date(), t2.date())
         self.assertEqual(requested_end.hour, 23)
-        self.assertEqual(mock_from.call_args.args[3], 5)
+        # Inclusive cutoff and continuation lookahead each need one extra row.
+        self.assertEqual(mock_from.call_args.args[3], 7)
 
     @patch(_PARSE_START)
     def test_end_only_invalid(self, mock_parse):
