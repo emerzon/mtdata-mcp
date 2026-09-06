@@ -267,11 +267,6 @@ def _should_omit_toon_value(value: Any) -> bool:
     return _is_empty_value(value)
 
 
-def _format_number_full(num: float) -> str:
-    text = repr(float(num))
-    return "0.0" if text == "-0.0" else text
-
-
 def _format_number_plain(num: float) -> str:
     """Preserve a float's canonical digits without scientific notation."""
     text = format(Decimal(str(float(num))), "f")
