@@ -776,13 +776,18 @@ class TestTemplateBasic:
     @patch(f"{_BASIC_MODULE}.parse_table_tail", return_value=_mock_candle_data()["rows"])
     @patch(f"{_BASIC_MODULE}.pick_best_forecast_method", return_value=None)
     @patch(f"{_BASIC_MODULE}.attach_multi_timeframes")
-    def test_bounded_basic_report_omits_current_only_sections(
+    def test_bounded_basic_report_runs_historical_capable_sections(
         self, mock_mtf, mock_pick, mock_tail, mock_now, mock_raw,
     ):
         def raw_side_effect(func, *args, **kwargs):
             name = getattr(func, "__name__", "")
-            assert "pivot" not in name.lower()
-            assert "barrier" not in name.lower()
+            if "pivot" in name.lower():
+                assert kwargs["end"] == "2024-01-31T23:59:59.999999Z"
+                return _mock_pivot_data()
+            if "barrier" in name.lower():
+                assert kwargs["start"] == "2024-01-01"
+                assert kwargs["end"] == "2024-01-31T23:59:59.999999Z"
+                return {"error": "Insufficient history for simulation"}
             if "candle" in name.lower() or "data_fetch" in name.lower():
                 return _mock_candle_data()
             if "volatility" in name.lower():
@@ -801,10 +806,10 @@ class TestTemplateBasic:
             "EURUSD", 12, None, {"start": "2024-01-01", "end": "2024-01-31"}
         )
 
-        for section in ("pivot", "pivot_multi", "barriers"):
-            assert report["sections"][section]["status"] == "omitted"
-            assert report["sections"][section]["reason"] == "current_only_section_omitted"
-        assert mock_mtf.call_args.kwargs["pivot_timeframes"] == []
+        assert report["sections"]["pivot"]["levels"]
+        assert report["sections"]["barriers"]["error"] == "Insufficient history for simulation"
+        assert mock_mtf.call_args.kwargs["pivot_timeframes"] == ["H4", "D1"]
+        assert mock_mtf.call_args.kwargs["end"] == "2024-01-31T23:59:59.999999Z"
 
     @patch(f"{_BASIC_MODULE}._get_raw_result")
     @patch(f"{_BASIC_MODULE}.now_utc_iso", return_value="2024-01-15T00:00:00Z")

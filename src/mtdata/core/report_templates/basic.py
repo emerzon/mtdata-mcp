@@ -29,12 +29,6 @@ from ..report.utils import (
     resolve_report_context_indicators,
     summarize_barrier_grid,
 )
-from ..report.utils import (
-    current_only_section_omission as _current_only_section_omission,
-)
-from ..report.utils import (
-    is_bounded_report_window as _is_bounded_report_window,
-)
 from ..tool_calling import call_tool_sync_structured
 
 
@@ -148,7 +142,6 @@ def template_basic(  # noqa: C901
     start = p.get('start')
     end = p.get('end')
     context_end = resolve_report_context_end(end, tf)
-    bounded_window = _is_bounded_report_window(start, end)
     
     report: Dict[str, Any] = {
         'meta': {
@@ -239,16 +232,13 @@ def template_basic(  # noqa: C901
         p, 'pivot_multi'
     )
 
-    # Pivots use the current completed source bar and cannot honor a report
-    # window. Keep bounded reports temporally coherent by omitting them.
-    if pivot_enabled and bounded_window:
-        report['sections']['pivot'] = _current_only_section_omission(
-            'pivot', start=start, end=end
-        )
-    elif pivot_enabled:
+    # Pivots use the latest source bar completed at the shared report cutoff.
+    if pivot_enabled:
         from ..pivot import pivot_compute_points
 
-        piv = _get_raw_result(pivot_compute_points, symbol=symbol, timeframe='D1')
+        piv = _get_raw_result(
+            pivot_compute_points, symbol=symbol, timeframe='D1', end=context_end
+        )
 
         if 'error' in piv:
             report['sections']['pivot'] = {'error': piv['error']}
@@ -268,18 +258,16 @@ def template_basic(  # noqa: C901
                 'calculation_basis': piv.get('calculation_basis'),
                 'timezone': piv.get('timezone'),
             }
+            for key in ('historical_cutoff', 'analysis_as_of'):
+                if piv.get(key) is not None:
+                    pivot_section[key] = piv[key]
             if source_bar_time is not None:
                 pivot_section['source_bar_time'] = source_bar_time
                 pivot_section['source_bar_timezone'] = 'UTC'
                 pivot_section['source_bar_state'] = 'completed'
             report['sections']['pivot'] = pivot_section
 
-    if pivot_multi_enabled and bounded_window:
-        report['sections']['pivot_multi'] = _current_only_section_omission(
-            'pivot_multi', start=start, end=end
-        )
-
-    if contexts_multi_enabled or (pivot_multi_enabled and not bounded_window):
+    if contexts_multi_enabled or pivot_multi_enabled:
         attach_multi_timeframes(
             report,
             symbol,
@@ -289,7 +277,7 @@ def template_basic(  # noqa: C901
             ),
             pivot_timeframes=(
                 ['H4','D1']
-                if pivot_multi_enabled and not bounded_window
+                if pivot_multi_enabled
                 else []
             ),
             context_indicators=indicators,
@@ -821,7 +809,7 @@ def template_basic(  # noqa: C901
 
     mode_val = str(p.get('mode', 'pct'))
     barrier_method = str(p.get('barrier_method', 'auto'))
-    if bounded_window or not report_section_enabled(p, 'barriers'):
+    if not report_section_enabled(p, 'barriers'):
         grid_long = grid_short = None
     else:
         grid_long = _get_raw_result(forecast_barrier_optimize,
@@ -838,6 +826,8 @@ def template_basic(  # noqa: C901
             search_profile=str(p.get('search_profile', 'fast')),
             denoise=denoise,
             direction='long',
+            start=start,
+            end=context_end,
         )
         grid_short = _get_raw_result(forecast_barrier_optimize,
             symbol=symbol,
@@ -853,10 +843,12 @@ def template_basic(  # noqa: C901
             search_profile=str(p.get('search_profile', 'fast')),
             denoise=denoise,
             direction='short',
+            start=start,
+            end=context_end,
         )
     sec_bar: Dict[str, Any] = {}
-    if bounded_window or not report_section_enabled(p, 'barriers'):
-        sec_bar = _current_only_section_omission('barriers', start=start, end=end)
+    if not report_section_enabled(p, 'barriers'):
+        sec_bar = {'error': 'barriers section not requested'}
     elif isinstance(grid_long, dict) and isinstance(grid_short, dict) and 'error' in grid_long and 'error' in grid_short:
         sec_bar = {'error': grid_long.get('error') or grid_short.get('error') or 'Barrier optimization failed'}
     else:

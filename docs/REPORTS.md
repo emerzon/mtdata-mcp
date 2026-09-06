@@ -112,6 +112,9 @@ Useful controls:
   analysis are not run. Their section payloads use `status: omitted` with reason
   `current_only_section_omitted`, and the report is marked partial rather than mixing
   current data into the bounded analysis.
+  Pivots, multi-timeframe pivots, and barrier optimization support the shared
+  cutoff and remain included when requested. Historical barriers use candle
+  closes and retain their research-only execution restrictions.
 - `--methods` supplies comma- or space-separated forecast methods.
 - `--include-sections` selects the sections to execute and return; required
   internal dependencies may run but cannot independently make the request

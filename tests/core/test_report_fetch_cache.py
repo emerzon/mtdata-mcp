@@ -285,7 +285,7 @@ class TestAttachMultiTimeframesCacheThreading:
 
         monkeypatch.setattr(
             "mtdata.core.pivot.pivot_compute_points",
-            lambda *, symbol, timeframe: {"error": f"{timeframe} history unavailable"},
+            lambda *, symbol, timeframe, end: {"error": f"{timeframe} history unavailable"},
         )
         report = {
             "meta": {"timeframe": "H1"},
@@ -325,7 +325,7 @@ class TestAttachMultiTimeframesCacheThreading:
             fetched_tfs.append(kwargs.get("timeframe"))
             return {"data": list(_ROWS)}
 
-        def _tracking_pivot(*, symbol, timeframe):
+        def _tracking_pivot(*, symbol, timeframe, end):
             fetched_pivots.append(timeframe)
             return {
                 "levels": [{"level": "PP", "classic": 1.0}],

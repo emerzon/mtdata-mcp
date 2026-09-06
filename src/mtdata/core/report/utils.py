@@ -1331,6 +1331,7 @@ def attach_multi_timeframes(  # noqa: C901
                         _compute_pivot_points,
                         symbol=symbol,
                         timeframe=tfp,
+                        end=end,
                     )
                     emit_report_progress(operation, "finished")
                     if isinstance(res, dict) and not res.get('error'):
@@ -1346,6 +1347,9 @@ def attach_multi_timeframes(  # noqa: C901
                             'calculation_basis': res.get('calculation_basis'),
                             'timezone': res.get('timezone'),
                         }
+                        for key in ('historical_cutoff', 'analysis_as_of'):
+                            if res.get(key) is not None:
+                                pivot_out[key] = res[key]
                         if source_bar_time is not None:
                             pivot_out['source_bar_time'] = source_bar_time
                             pivot_out['source_bar_timezone'] = 'UTC'
