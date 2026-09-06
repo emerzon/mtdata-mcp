@@ -170,10 +170,6 @@ def _parse_symbol_request(value: Optional[str]) -> tuple[List[str], int]:
     return list(dict.fromkeys(items)), len(items)
 
 
-def _parse_symbols(value: Optional[str]) -> List[str]:
-    return _parse_symbol_request(value)[0]
-
-
 def _duplicate_only_symbol_error(
     symbols: List[str], entry_count: int
 ) -> Optional[str]:

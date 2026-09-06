@@ -20,7 +20,7 @@ from mtdata.core.causal.common import (
     _normalize_transform_name,
     _pair_transform_comparability,
     _pair_transform_guidance,
-    _parse_symbols,
+    _parse_symbol_request,
     _standardize_frame,
     _transform_aligned_pair,
     _transform_cointegration_frame,
@@ -254,22 +254,22 @@ def test_pair_pagination_uses_canonical_nested_contract():
 
 class TestParseSymbols:
     def test_comma_separated(self):
-        assert _parse_symbols("EURUSD, GBPUSD, USDJPY") == ["EURUSD", "GBPUSD", "USDJPY"]
+        assert _parse_symbol_request("EURUSD, GBPUSD, USDJPY") == (["EURUSD", "GBPUSD", "USDJPY"], 3)
 
     def test_semicolon_separated(self):
-        assert _parse_symbols("EURUSD;GBPUSD") == ["EURUSD", "GBPUSD"]
+        assert _parse_symbol_request("EURUSD;GBPUSD") == (["EURUSD", "GBPUSD"], 2)
 
     def test_deduplication(self):
-        assert _parse_symbols("EURUSD, GBPUSD, EURUSD") == ["EURUSD", "GBPUSD"]
+        assert _parse_symbol_request("EURUSD, GBPUSD, EURUSD") == (["EURUSD", "GBPUSD"], 3)
 
     def test_empty_string(self):
-        assert _parse_symbols("") == []
+        assert _parse_symbol_request("") == ([], 0)
 
     def test_whitespace(self):
-        assert _parse_symbols("  EURUSD  ,  GBPUSD  ") == ["EURUSD", "GBPUSD"]
+        assert _parse_symbol_request("  EURUSD  ,  GBPUSD  ") == (["EURUSD", "GBPUSD"], 2)
 
     def test_mixed_delimiters(self):
-        assert _parse_symbols("A;B,C;D") == ["A", "B", "C", "D"]
+        assert _parse_symbol_request("A;B,C;D") == (["A", "B", "C", "D"], 4)
 
 
 def test_pair_transform_comparability_links_return_tools():
