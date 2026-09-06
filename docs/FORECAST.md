@@ -101,6 +101,13 @@ mtdata-cli forecast_backtest_run EURUSD --timeframe H1 --horizon 12 --methods th
 
 ### Reproducibility notes
 
+Extended broker equity sessions use weekday-specific observed clock slots with
+a standard 24/5 weekend boundary. Friday closing slots and Sunday reopening
+are retained; partial history edge dates do not establish recurring closures.
+Cash-exchange holidays and early closes apply only to regular equity schedules.
+Extended-session broker holidays are unknown, so their projected calendar is
+an estimate and the horizon note identifies that limitation.
+
 Defaults vary by method and can change over time. For any result you want to compare later, make the run **self-describing**:
 
 - Save the exact command, including `--symbol`, `--timeframe`, `--horizon`, `--lookback`, `--method`, `--library`, and `--params`.

@@ -3,6 +3,7 @@ import pandas as pd
 import pytest
 
 from mtdata.forecast import common as fc
+from mtdata.forecast import forecast_engine as fe
 
 
 def _extended_observations(start="2026-08-23", end="2026-09-04", friday_close=17):
@@ -70,3 +71,34 @@ def test_extended_projection_handles_invalid_history_values():
     )
     assert len(forecast) == 2
     assert np.isfinite(forecast).all()
+
+
+@pytest.mark.parametrize("extended", [True, False])
+def test_equity_output_labels_follow_the_projection_calendar(monkeypatch, extended):
+    observed = _extended_observations()
+    if not extended:
+        observed = [
+            epoch for epoch in observed
+            if 9 <= pd.Timestamp(epoch, unit="s", tz="America/New_York").hour < 16
+            and pd.Timestamp(epoch, unit="s", tz="America/New_York").weekday() < 5
+        ]
+    symbol = "AAPL.NAS-24" if extended else "AAPL.NAS"
+    monkeypatch.setattr(fe, "_use_client_tz", lambda: False)
+    result = fe._format_forecast_output(
+        forecast_values=np.array([101.0, 102.0, 103.0]),
+        last_epoch=observed[-1], tf_secs=3600, horizon=3, base_col="close",
+        df=pd.DataFrame({"time": observed, "close": np.linspace(95, 100, len(observed))}),
+        ci_alpha=None, ci_values=None, method="drift", quantity="price",
+        denoise_used=False, symbol=symbol, timeframe="H1",
+        now_epoch=pd.Timestamp("2026-09-04T21:00Z").timestamp(),
+    )
+    first = "2026-09-06T21:00Z" if extended else "2026-09-08T13:00Z"
+    assert result["forecast_epoch"][0] == pd.Timestamp(first).timestamp()
+    assert result["forecast_bar_states"] == ["future"] * 3
+    assert "closed_weekend" not in result.get("forecast_market_status", [])
+    assert not any("forex" in str(warning).lower() for warning in result.get("warnings", []))
+    if extended:
+        assert "broker-session" in result["horizon_note"]
+        assert "unknown" in result["horizon_note"]
+    else:
+        assert "exchange-session" in result["horizon_note"]

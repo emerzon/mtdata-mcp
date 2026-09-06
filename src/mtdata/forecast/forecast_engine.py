@@ -1744,9 +1744,18 @@ def _forecast_session_projection_metadata(
     *,
     horizon: int,
     tf_secs: int,
+    calendar_treatment: str = "",
 ) -> Dict[str, Any]:
     if not enabled:
         return {}
+    if calendar_treatment == "broker_observed_weekday_slots_standard_weekend_holidays_unknown":
+        return {
+            "forecast_nominal_step_seconds": int(tf_secs),
+            "horizon_note": (
+                f"{horizon} broker-session bars projected from observed weekday slots "
+                "and standard 24/5 closures; broker holiday and exceptional closures are unknown."
+            ),
+        }
     return {
         "forecast_nominal_step_seconds": int(tf_secs),
         "horizon_note": (
@@ -1924,6 +1933,7 @@ def _format_forecast_output(
             session_projection,
             horizon=horizon,
             tf_secs=tf_secs,
+            calendar_treatment=result["calendar_treatment"],
         )
     )
     if calendar_gaps:
@@ -2048,6 +2058,7 @@ def _format_forecast_output(
 
     if (
         uses_standard_weekend_projection(symbol, tf_secs)
+        and not session_projection
         and forecast_times
     ):
         market_status = [_forex_forecast_market_status(epoch) for epoch in future_epochs]
@@ -2057,8 +2068,8 @@ def _format_forecast_output(
             result["open_market_forecast_bars"] = int(len(forecast_times) - weekend_count)
             result["closed_market_forecast_bars"] = weekend_count
             note = (
-                f"{weekend_count} of {len(forecast_times)} forecast bars fall on "
-                "Saturday/Sunday for a forex symbol; treat those timestamps as "
+                f"{weekend_count} of {len(forecast_times)} forecast bars fall within "
+                "the standard 24/5 weekend closure; treat those timestamps as "
                 "closed-market placeholders."
             )
             warnings = result.get("warnings")
