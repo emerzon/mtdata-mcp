@@ -169,9 +169,8 @@ export function coerceParamValue(text: string, typeHint?: string): unknown {
   if (!value) return value
 
   if (t.includes('bool')) {
-    const lower = value.toLowerCase()
-    if (['true', '1', 'yes', 'on'].includes(lower)) return true
-    if (['false', '0', 'no', 'off'].includes(lower)) return false
+    const parsed = parseBoolLike(value)
+    if (parsed !== undefined) return parsed
   }
 
   if (

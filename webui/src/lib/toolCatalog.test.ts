@@ -6,6 +6,7 @@ import {
   formatToolResult,
   humanizeIdentifier,
   invocationNeedsConfirmation,
+  parseBoolLike,
   shapeInvokeArguments,
   toolChangesTradingState,
   toolIsRunnable,
@@ -113,6 +114,20 @@ describe('defaultParamValues + shapeInvokeArguments', () => {
 })
 
 describe('coerceParamValue', () => {
+  it.each([
+    ['true', true], ['1', true], [' YES ', true], ['On', true],
+    ['false', false], ['0', false], [' NO ', false], ['Off', false],
+  ])('uses the same boolean tokens for form fields and dry-run values: %s', (value, expected) => {
+    expect(coerceParamValue(String(value), 'bool')).toBe(expected)
+    expect(parseBoolLike(value)).toBe(expected)
+  })
+
+  it('leaves invalid boolean text available for server validation', () => {
+    expect(coerceParamValue('maybe', 'bool')).toBe('maybe')
+    expect(parseBoolLike('maybe')).toBeUndefined()
+    expect(coerceParamValue('false', 'str')).toBe('false')
+  })
+
   it('parses bools, ints, and json', () => {
     expect(coerceParamValue('yes', 'bool')).toBe(true)
     expect(coerceParamValue('off', 'boolean')).toBe(false)
