@@ -10,7 +10,6 @@ import numpy as np
 import pandas as pd
 
 from .coercion import coerce_cli_scalar
-from .coercion import coerce_scalar as coerce_scalar
 from .formatting import (
     format_float,
     format_number,
