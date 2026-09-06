@@ -443,10 +443,6 @@ def _run_options_operation(
     )
 
 
-def _options_detail_mode(detail: str) -> str:
-    return normalize_output_verbosity_detail(detail, default="compact")
-
-
 def _options_provider_readiness() -> Dict[str, Any]:
     from ..bootstrap.settings import options_data_config
 
@@ -657,7 +653,7 @@ def _apply_options_detail(
 ) -> Dict[str, Any]:
     if not isinstance(payload, dict) or not payload.get("success"):
         return payload
-    detail_mode = _options_detail_mode(detail)
+    detail_mode = normalize_output_verbosity_detail(detail)
     out = dict(payload)
     out["detail"] = detail_mode
     if kind == "barrier_price":
@@ -955,7 +951,7 @@ def options_provider_status(
                 },
             }
         )
-    detail_mode = _options_detail_mode(detail)
+    detail_mode = normalize_output_verbosity_detail(detail)
     if detail_mode == "full":
         from ..bootstrap.settings import options_data_config
 
@@ -1013,7 +1009,7 @@ def options_expirations(
             func=lambda: gate,
         )
     symbol_value = _resolve_options_provider_symbol(symbol_value)
-    detail_mode = _options_detail_mode(detail)
+    detail_mode = normalize_output_verbosity_detail(detail)
     effective_limit = limit if limit is not None else (None if detail_mode == "full" else 12)
 
     def _fetch_expirations() -> Dict[str, Any]:
@@ -1158,7 +1154,7 @@ def options_chain(
             detail=detail,
             func=lambda: expiration_error,
         )
-    detail_mode = _options_detail_mode(detail)
+    detail_mode = normalize_output_verbosity_detail(detail)
     effective_limit = (
         int(limit)
         if limit is not None
