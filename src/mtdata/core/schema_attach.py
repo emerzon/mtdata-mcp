@@ -11,6 +11,7 @@ import re
 from typing import Any, Callable, Dict, Iterable
 
 from ..forecast.barrier_constants import BARRIER_MONTE_CARLO_METHODS
+from ..shared.schema import PARAM_HINTS
 from ..shared.schema import (
     apply_param_hints as _apply_param_hints,
 )
@@ -34,6 +35,7 @@ logger = logging.getLogger(__name__)
 _PUBLIC_TOOL_SCHEMAS: Dict[str, Dict[str, Any]] = {}
 
 _PUBLIC_CONCISE_DESCRIPTION_OVERRIDES: Dict[tuple[str, str], str] = {
+    ("data_fetch_candles", "ohlcv"): PARAM_HINTS["ohlcv"],
     ("market_relative_strength", "symbols"): (
         "MT5 symbols to rank, comma- or space-separated (e.g. EURUSD,GBPUSD). "
         "Provide at least two, use group for an MT5 group, or omit both for the "
