@@ -316,17 +316,6 @@ export type DenoiseMethodsMeta = {
   methods: DenoiseMethodInfo[]
 }
 
-export type DimredMethodInfo = {
-  method: string
-  available: boolean
-  description: string
-  params: ParamDef[]
-}
-
-export type DimredMethodsMeta = {
-  methods: DimredMethodInfo[]
-}
-
 export type WaveletsResponse = {
   available: boolean
   families: string[]

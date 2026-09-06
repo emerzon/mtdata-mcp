@@ -8,7 +8,6 @@ import type {
   MethodsMeta,
   VolatilityMethodsMeta,
   DenoiseMethodsMeta,
-  DimredMethodsMeta,
   WaveletsResponse,
   ModelsResponse,
   ReadyResponse,
@@ -199,11 +198,6 @@ export async function getVolatilityMethods(): Promise<VolatilityMethodsMeta> {
 
 export async function getDenoiseMethods(): Promise<DenoiseMethodsMeta> {
   const { data } = await api.get<DenoiseMethodsMeta>('denoise/methods')
-  return data
-}
-
-export async function getDimredMethods(): Promise<DimredMethodsMeta> {
-  const { data } = await api.get<DimredMethodsMeta>('dimred/methods')
   return data
 }
 
