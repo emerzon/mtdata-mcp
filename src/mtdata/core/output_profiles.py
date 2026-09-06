@@ -523,7 +523,7 @@ def _sections_status_is_nominal(value: Any) -> bool:
         try:
             if int(section.get("partial", 0)) or int(section.get("error", 0)):
                 return False
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             return False
     return True
 
@@ -1473,7 +1473,7 @@ def _compact_symbols_top_markets(payload: MutableMapping[str, Any]) -> None:
             expected_mid = (float(item["bid"]) + float(item["ask"])) / 2.0
             if abs(float(item.get("mid")) - expected_mid) <= 1e-12:
                 item.pop("mid", None)
-        except KeyError, TypeError, ValueError:
+        except (KeyError, TypeError, ValueError):
             pass
         compact_rows.append(item)
     payload["data"] = compact_rows
@@ -2147,7 +2147,7 @@ def _compact_trade_journal(payload: MutableMapping[str, Any]) -> None:
         try:
             if abs(float(win_rate) * 100.0 - float(win_rate_pct)) <= 1e-9:
                 compact_summary.pop("win_rate", None)
-        except TypeError, ValueError:
+        except (TypeError, ValueError):
             pass
         payload["summary"] = compact_summary
     sample_quality = payload.get("sample_quality")
@@ -2293,7 +2293,7 @@ def _compact_trade_session_context(payload: MutableMapping[str, Any]) -> None:
                     and float(account.get("margin_free")) > 0
                 ):
                     compact_ready.pop("margin_available_positive", None)
-            except TypeError, ValueError:
+            except (TypeError, ValueError):
                 pass
         payload["trade_ready"] = compact_ready
         for key in (
