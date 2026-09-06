@@ -688,11 +688,6 @@ def _maybe_parse_datetime(value: Any) -> Optional[datetime]:
         return None
 
 
-def _maybe_parse_finviz_datetime(value: Any) -> Optional[datetime]:
-    """Parse Finviz's naive wall-clock timestamps as America/New_York."""
-    return parse_finviz_datetime(value, allow_fuzzy=True)
-
-
 def _economic_reference_date(
     item: Dict[str, Any],
     scheduled_at: Optional[datetime],
@@ -1682,7 +1677,7 @@ class FinvizNewsSource:
                         published_at=(
                             None
                             if publication_date is not None
-                            else _maybe_parse_finviz_datetime(item.get("Date"))
+                            else parse_finviz_datetime(item.get("Date"), allow_fuzzy=True)
                         ),
                         publication_date=(
                             publication_date.isoformat()
@@ -1765,7 +1760,7 @@ class FinvizNewsSource:
                         provider=self.name,
                         source=_safe_text(item.get("Source")) or "Finviz",
                         kind="direct_symbol",
-                        published_at=_maybe_parse_finviz_datetime(item.get("Date")),
+                        published_at=parse_finviz_datetime(item.get("Date"), allow_fuzzy=True),
                         url=_safe_text(item.get("Link")) or None,
                         category="symbol_news",
                         priority=NewsPriority.HIGH,
@@ -1933,7 +1928,7 @@ class FinvizNewsSource:
                     2: "medium",
                     3: "high",
                 }.get(raw_importance if isinstance(raw_importance, int) else None, "")
-                scheduled_at = _maybe_parse_finviz_datetime(item.get("date"))
+                scheduled_at = parse_finviz_datetime(item.get("date"), allow_fuzzy=True)
                 timestamp_precision = (
                     "date_only"
                     if finviz_timestamp_is_date_only(item.get("date"), scheduled_at)

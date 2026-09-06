@@ -898,10 +898,10 @@ def test_maybe_parse_datetime_rejects_numeric_values() -> None:
 
 
 def test_finviz_naive_datetimes_use_new_york_dst_offsets() -> None:
-    assert svc._maybe_parse_finviz_datetime("2026-08-11 20:07:00") == datetime(
+    assert svc.parse_finviz_datetime("2026-08-11 20:07:00", allow_fuzzy=True) == datetime(
         2026, 8, 12, 0, 7, tzinfo=timezone.utc
     )
-    assert svc._maybe_parse_finviz_datetime("2026-01-11 20:07:00") == datetime(
+    assert svc.parse_finviz_datetime("2026-01-11 20:07:00", allow_fuzzy=True) == datetime(
         2026, 1, 12, 1, 7, tzinfo=timezone.utc
     )
 
