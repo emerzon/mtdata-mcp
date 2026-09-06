@@ -48,6 +48,35 @@ from ..utils.utils import _parse_end_datetime, _parse_start_datetime
 
 _FORECAST_RESERVED_COLUMNS = {"unique_id", "ds", "y"}
 _FORECAST_PREFERRED_COLUMNS = ("y_hat", "mean", "median", "pred", "forecast")
+
+
+def empirical_interval_support(
+    *, n_paths: int, effective_paths: float, alpha: float
+) -> Dict[str, Any]:
+    """Describe a minimum empirical-tail sample policy, not a coverage guarantee."""
+    if not math.isfinite(alpha) or not 0.0 < alpha < 1.0:
+        raise ValueError("alpha must be between 0 and 1.")
+    minimum = max(5, math.ceil(2.0 / alpha))
+    available = (
+        math.isfinite(effective_paths)
+        and n_paths >= minimum
+        and effective_paths >= minimum - 1e-9
+    )
+    support: Dict[str, Any] = {
+        "status": "available" if available else "unavailable",
+        "n_paths": int(n_paths),
+        "effective_paths": float(effective_paths),
+        "minimum_effective_paths": minimum,
+        "policy": "at_least_one_effective_path_per_tail",
+    }
+    if not available:
+        support["reason"] = (
+            f"Empirical intervals at alpha={alpha:g} require at least {minimum} "
+            f"effective paths; received {effective_paths:.6g} from {n_paths} paths. "
+            "Increase the path sample or use forecast_conformal_intervals with "
+            "sufficient calibration history."
+        )
+    return support
 _FORECAST_AUXILIARY_COLUMN_RE = re.compile(
     r"(?:^|[-_])(lo|low|lower|hi|high|upper|interval|quantile|fitted|residual|cutoff)(?:[-_].*)?$",
     re.IGNORECASE,

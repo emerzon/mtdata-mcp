@@ -117,7 +117,8 @@ def test_analog_method_aggregates_primary_and_secondary_paths(monkeypatch):
     )
 
     assert out.forecast.shape[0] == 3
-    assert out.ci_values is not None
+    assert out.ci_values is None
+    assert out.metadata["ci_sample_support"]["status"] == "unavailable"
     assert out.params_used is not None
     assert out.params_used["ci_alpha"] == 0.05
     assert out.params_used["n_paths"] == 3

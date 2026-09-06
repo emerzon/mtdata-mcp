@@ -2022,6 +2022,7 @@ def _format_forecast_output(
                     f"Point forecast only for method '{method}'; confidence intervals are unavailable. "
                     "Use forecast_conformal_intervals for residual-quantile uncertainty bands."
                 )
+            warning_text = str((metadata or {}).get("ci_unavailable_reason") or warning_text)
             warnings = result.get("warnings")
             if not isinstance(warnings, list):
                 warnings = []

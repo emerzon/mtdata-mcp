@@ -196,7 +196,7 @@ def _forecast_compact_ci(
         out: Dict[str, Any] = {
             "status": "unavailable",
             "mode": "point_only",
-            "reason": (
+            "reason": payload.get("ci_unavailable_reason") or (
                 "requested intervals are unavailable for this method; "
                 "point forecast only."
             ),
@@ -204,6 +204,8 @@ def _forecast_compact_ci(
         }
         if payload.get("ci_alpha") is not None:
             out["requested_alpha"] = payload.get("ci_alpha")
+        if isinstance(payload.get("ci_sample_support"), dict):
+            out["sample_support"] = payload["ci_sample_support"]
         return out
 
     lower_key = next(
@@ -252,6 +254,8 @@ def _forecast_compact_ci(
         intervals.append(row)
 
     out = {"status": ci_status or "available", "mode": "interval"}
+    if isinstance(payload.get("ci_sample_support"), dict):
+        out["sample_support"] = payload["ci_sample_support"]
     if payload.get("ci_alpha") is not None:
         out["alpha"] = payload.get("ci_alpha")
     if payload.get("interval_method") not in (None, ""):

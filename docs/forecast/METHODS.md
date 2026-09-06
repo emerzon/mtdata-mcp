@@ -110,6 +110,13 @@ mtdata-cli forecast_generate EURUSD --method mc_gbm --params "n_sims=2000,seed=7
 
 Set `seed` explicitly for reproducible simulation runs.
 
+Empirical intervals require at least `max(5, ceil(2 / ci_alpha))` simulated
+paths: 40 for a 95% interval. A smaller run still returns the point forecast,
+with `ci_status=unavailable` and sample support in the uncertainty metadata.
+This policy gives each tail at least one effective observation; it does not
+establish forecast coverage or model accuracy. Increase `n_sims` to recover
+simulation intervals.
+
 ---
 
 ## Analog & ensemble (`native`)
@@ -122,6 +129,18 @@ Set `seed` explicitly for reproducible simulation runs.
 ```bash
 mtdata-cli forecast_generate EURUSD --method analog --params "window_size=96,top_k=30"
 ```
+
+Analog intervals use the same empirical-tail policy, based on weighted
+effective paths at the least-supported forecast step. The default `top_k=20`
+therefore returns a point forecast without a nominal 95% interval. For those
+intervals, increase `top_k` above 40 and provide enough history/search depth to
+retain at least 40 effective paths; unequal weights may require more matches.
+The response explains the actual and required counts in `ci_sample_support`
+(compact output: `uncertainty.sample_support`). These counts do not establish
+that historical matches are independent or that the interval is calibrated.
+For intervals calibrated on forecast errors, use `forecast_conformal_intervals`
+with sufficient calibration history. Explicit `min_effective_paths` remains
+an optional gate on the whole analog ensemble, including the point forecast.
 
 ---
 

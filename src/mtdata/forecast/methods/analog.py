@@ -8,6 +8,7 @@ import pandas as pd
 from ...utils.denoise import is_close_based_denoise_column
 from ...utils.denoise import normalize_denoise_spec as _normalize_denoise_spec
 from ...utils.mt5 import _mt5_epoch_to_utc
+from ..common import empirical_interval_support
 from ..forecast_registry import ForecastRegistry
 from ..interface import ForecastCallContext, ForecastMethod, ForecastResult
 
@@ -1480,9 +1481,23 @@ class AnalogMethod(ForecastMethod):
             },
         }
 
+        interval_support = empirical_interval_support(
+            n_paths=int(futures_matrix.shape[0]),
+            effective_paths=min(
+                _effective_sample_size(path_weights[np.isfinite(futures_matrix[:, col])])
+                for col in range(futures_matrix.shape[1])
+            ),
+            alpha=ci_alpha,
+        )
+        interval_support["basis"] = "weighted_analog_paths"
+        interval_support["effective_paths_basis"] = "minimum_across_horizons"
+        metadata["ci_sample_support"] = interval_support
+        if interval_support["status"] == "unavailable":
+            metadata["ci_unavailable_reason"] = interval_support["reason"]
+
         return ForecastResult(
             forecast=p50,
-            ci_values=(p_lower, p_upper),
+            ci_values=(p_lower, p_upper) if interval_support["status"] == "available" else None,
             params_used=params_used,
             metadata=metadata,
         )
