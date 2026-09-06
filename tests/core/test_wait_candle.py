@@ -4,7 +4,7 @@ import pytest
 
 from mtdata.core.trading import time
 from mtdata.core.trading.time import (
-    _next_candle_close_server_time,
+    _next_candle_close_utc,
     _next_candle_wait_payload,
     _sleep_until_next_candle,
 )
@@ -20,33 +20,32 @@ def utc_server_clock(monkeypatch):
 def test_next_candle_close_skips_weekend_closure(utc_server_clock) -> None:
     friday_night = datetime(2026, 8, 21, 21, 38, tzinfo=timezone.utc)
 
-    result = _next_candle_close_server_time(
+    result = _next_candle_close_utc(
         "H1",
         now_utc=friday_night,
         symbol="EURUSD",
     )
 
-    next_utc = time._server_time_naive_to_utc(result)
-    assert next_utc >= datetime(2026, 8, 23, 21, tzinfo=timezone.utc)
+    assert result >= datetime(2026, 8, 23, 21, tzinfo=timezone.utc)
 
 
-def test_next_candle_close_server_time_rounds_intraday_frame(utc_server_clock) -> None:
+def test_next_candle_close_utc_rounds_intraday_frame(utc_server_clock) -> None:
     now_utc = datetime(2026, 3, 13, 10, 2, 10, tzinfo=timezone.utc)
 
-    result = _next_candle_close_server_time("M5", now_utc=now_utc)
+    result = _next_candle_close_utc("M5", now_utc=now_utc)
 
-    assert result == datetime(2026, 3, 13, 10, 5, 0)
+    assert result == datetime(2026, 3, 13, 10, 5, 0, tzinfo=timezone.utc)
 
 
-def test_next_candle_close_server_time_handles_weekly_boundary(utc_server_clock) -> None:
+def test_next_candle_close_utc_handles_weekly_boundary(utc_server_clock) -> None:
     now_utc = datetime(2026, 3, 13, 10, 2, 10, tzinfo=timezone.utc)
 
-    result = _next_candle_close_server_time("W1", now_utc=now_utc)
+    result = _next_candle_close_utc("W1", now_utc=now_utc)
 
-    assert result == datetime(2026, 3, 16, 0, 0, 0)
+    assert result == datetime(2026, 3, 16, 0, 0, 0, tzinfo=timezone.utc)
 
 
-def test_next_candle_close_server_time_uses_shared_unsupported_timeframe_error(
+def test_next_candle_close_utc_uses_shared_unsupported_timeframe_error(
     utc_server_clock,
     monkeypatch,
 ) -> None:
@@ -58,7 +57,7 @@ def test_next_candle_close_server_time_uses_shared_unsupported_timeframe_error(
     )
 
     with pytest.raises(ValueError, match="custom unsupported M5"):
-        _next_candle_close_server_time("M5", now_utc=datetime(2026, 3, 13, 10, 2, 10, tzinfo=timezone.utc))
+        _next_candle_close_utc("M5", now_utc=datetime(2026, 3, 13, 10, 2, 10, tzinfo=timezone.utc))
 
 
 def test_sleep_until_next_candle_returns_expected_wait(utc_server_clock) -> None:

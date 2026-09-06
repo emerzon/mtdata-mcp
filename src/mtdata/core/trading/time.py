@@ -283,31 +283,6 @@ def _next_candle_close_utc(
     return next_utc
 
 
-def _next_candle_close_server_time(
-    timeframe: str,
-    *,
-    now_utc: Optional[datetime] = None,
-    symbol: Optional[str] = None,
-) -> datetime:
-    """Return the next candle close in server-local naive time."""
-    next_utc = _next_candle_close_utc(
-        timeframe,
-        now_utc=now_utc,
-        symbol=symbol,
-    )
-    try:
-        server_tz = mt5_config.get_server_tz()
-    except Exception:
-        server_tz = None
-    if server_tz is not None:
-        return next_utc.astimezone(server_tz).replace(tzinfo=None)
-    try:
-        offset_seconds = int(mt5_config.get_time_offset_seconds())
-    except Exception:
-        offset_seconds = 0
-    return (next_utc + timedelta(seconds=offset_seconds)).replace(tzinfo=None)
-
-
 def _format_utc_offset(offset_seconds: int) -> str:
     sign = "+" if offset_seconds >= 0 else "-"
     total_seconds = abs(int(offset_seconds))
