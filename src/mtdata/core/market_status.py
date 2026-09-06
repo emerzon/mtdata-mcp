@@ -1068,7 +1068,9 @@ def _check_symbol_market_status(
         else:
             open_state = "quote_not_live_ready"
             reason = (
-                "quote_source_conflict"
+                "submission_tick_not_fresh"
+                if tick_status.get("send_path_tick_fresh") is False and tick_freshness == "live"
+                else "quote_source_conflict"
                 if isinstance(tick_status.get("quote_source_conflict"), dict)
                 else f"quote_{tick_status['spread_quality']}"
                 if str(tick_status.get("spread_quality") or "") not in {"", "two_sided"}
@@ -1194,6 +1196,10 @@ def _check_symbol_market_status(
             "timestamp_warning",
             "quote_source",
             "quote_source_state",
+            "quote_source_conflict",
+            "send_path_tick_fresh",
+            "send_path_freshness_error",
+            "symbol_info_tick_time_epoch",
         ):
             if key in tick_status:
                 result[key] = tick_status[key]
@@ -1278,6 +1284,16 @@ def _compact_symbol_market_status(row: Dict[str, Any], *, detail: str) -> Dict[s
         "status_confidence",
         "heuristic_note",
         "usable_for_live_trading",
+        "usable_for_live_trading_basis",
+        "spread_valid",
+        "spread_quality",
+        "quote_source",
+        "quote_source_state",
+        "quote_source_conflict",
+        "send_path_tick_fresh",
+        "send_path_freshness_error",
+        "symbol_info_tick_time_epoch",
+        "warning",
         "tick_freshness",
         "freshness_reason",
         "tick_available",
@@ -1287,6 +1303,8 @@ def _compact_symbol_market_status(row: Dict[str, Any], *, detail: str) -> Dict[s
         "last_tick_time",
         "timestamp_in_future",
         "timestamp_ahead_of_wall_clock",
+        "timestamp_skew_seconds",
+        "timestamp_skew_tolerance_seconds",
         "timestamp_warning",
         "market_clock",
         "market_clock_timezone",

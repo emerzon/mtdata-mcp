@@ -140,6 +140,12 @@ all three responses. Tool-specific aliases such as ticker `time`, status
 `last_tick_time`, and compact snapshot `snapshot.time` remain descriptive
 views of the same quote instant.
 
+A displayed quote can be live while MT5's cached submission tick is unsafe.
+Compact `market_status` keeps `send_path_freshness_error` and the submission
+tick's `symbol_info_tick_time_epoch` when a stream quote replaces it. The
+`quote_source` field identifies the displayed quote; `send_path_tick_fresh`
+checks the cached `mt5.symbol_info_tick` used by order submission.
+
 `market_status` also accepts a comma-separated symbol batch. Mixed results set
 `partial_failure: true` and include requested, succeeded, and failed counts plus
 `failed_items`. Explicit symbol lists on `market_status`, `market_scan`, and
