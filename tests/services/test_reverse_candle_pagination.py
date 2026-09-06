@@ -194,16 +194,18 @@ def test_reverse_lookahead_counts_only_requested_candle_completion_state(real_ca
     assert bool(result.get("pagination", {}).get("next_cursor")) is include_incomplete
 
 
+@pytest.mark.parametrize("limit", [2, 5])
+@pytest.mark.parametrize("end_bounded", [False, True])
 @pytest.mark.parametrize(("timeframe", "dates", "start", "end", "expected_dates"), [
     ("D1", ["2026-05-01", "2026-05-02", "2026-05-03", "2026-05-04", "2026-05-05"], "2026-05-01", "2026-05-06", ["2026-05-01", "2026-05-02", "2026-05-03", "2026-05-04", "2026-05-05"]),
     ("W1", ["2026-04-27", "2026-05-04", "2026-05-11", "2026-05-18", "2026-05-25"], "2026-05-06", "2026-05-31", ["2026-05-04", "2026-05-11", "2026-05-18", "2026-05-25"]),
     ("MN1", ["2026-01-01", "2026-02-01", "2026-03-01", "2026-04-01", "2026-05-01"], "2026-01-15", "2026-05-31", ["2026-01-01", "2026-02-01", "2026-03-01", "2026-04-01", "2026-05-01"]),
 ])
-def test_real_service_reverse_calendar_pages_finish_at_overlapping_start(real_candle_pages, timeframe, dates, start, end, expected_dates):
+def test_real_service_reverse_calendar_pages_finish_at_overlapping_start(real_candle_pages, timeframe, dates, start, end, expected_dates, limit, end_bounded):
     set_history, fetch = real_candle_pages
     set_history([f"{value}T00:00:00+03:00" for value in dates])
     request = DataFetchCandlesRequest(
-        symbol="EURUSD", timeframe=timeframe, start=start, end=end,
-        selection="last_n", limit=2, allow_stale=True,
+        symbol="EURUSD", timeframe=timeframe, start=start, end=end if end_bounded else None,
+        selection="last_n", limit=limit, allow_stale=True,
     )
     assert _collect_reverse_pages(fetch, request) == [datetime.fromisoformat(f"{value}T00:00:00+03:00").timestamp() for value in expected_dates]

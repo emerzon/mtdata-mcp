@@ -772,7 +772,9 @@ def _fetch_rates_with_warmup(  # noqa: C901
                 normalized, shape_error = _normalize_provider_rate_rows(trailing)
                 if shape_error:
                     raise _RateDataShapeError(shape_error)
-                start_epoch = _utc_epoch_seconds(from_date)
+                # Retain warmup and calendar-period overlap until the shared
+                # target clipping applies the request's date/instant policy.
+                start_epoch = _utc_epoch_seconds(from_date_internal)
                 filtered = [
                     row
                     for row in (normalized or [])
