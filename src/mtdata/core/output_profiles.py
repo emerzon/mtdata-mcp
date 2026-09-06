@@ -21,7 +21,6 @@ from .output_metadata import (
     append_output_warning,
 )
 
-_DATA_TOOLS = frozenset({"data_fetch_candles", "data_fetch_ticks"})
 _MARKET_TOOLS = frozenset(
     {
         "market_depth_fetch",
