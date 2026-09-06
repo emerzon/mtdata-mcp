@@ -563,7 +563,7 @@ def _build_indicator_documentation(target: Dict[str, Any]) -> Dict[str, Any]:
             continue
         p = dict(raw)
         pname = str(p.get("name") or "").strip()
-        if pname and pname in param_docs:
+        if pname and pname in param_docs and not p.get("description"):
             p["description"] = param_docs[pname]
         params_out.append(p)
 

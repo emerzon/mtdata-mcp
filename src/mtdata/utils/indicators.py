@@ -256,6 +256,20 @@ def _list_ta_indicators_cached(detailed: bool) -> Tuple[Dict[str, Any], ...]:
                 except Exception:
                     desc = ""
 
+            if name == "vwap":
+                params = []
+                desc = (
+                    "Volume Weighted Average Price (VWAP)\n\n"
+                    "Resets on each broker-server calendar day. Uses cumulative "
+                    "OHLC typical price times volume divided by cumulative volume. "
+                    "Accepts no parameters."
+                )
+            if name == "ichimoku":
+                for parameter in params:
+                    if parameter["name"] == "include_chikou":
+                        parameter["default"] = False
+                        parameter["description"] = "Include the future-dependent Chikou column. Default: false."
+
             items.append({
                 "name": name,
                 "params": params,
