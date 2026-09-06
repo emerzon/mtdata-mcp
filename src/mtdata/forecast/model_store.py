@@ -404,7 +404,7 @@ class ModelStore:
             with self._lock:
                 return self._remove_dir(model_dir)
 
-    def describe_model(self, handle: TrainedModelHandle) -> Dict[str, Any]:
+    def describe_model(self, handle: TrainedModelHandle, *, include_size: bool = True) -> Dict[str, Any]:
         """Return operational metadata for a stored model handle."""
         model_dir = self._model_dir(handle.method, handle.data_scope, handle.params_hash)
         with self._lock:
@@ -413,7 +413,7 @@ class ModelStore:
             last_used = self._last_used_from_meta(meta, created_at)
             size_bytes = 0
             file_count = 0
-            if model_dir.is_dir():
+            if include_size and model_dir.is_dir():
                 for path in model_dir.rglob("*"):
                     if not path.is_file():
                         continue
@@ -438,8 +438,7 @@ class ModelStore:
             "ttl_seconds": ttl,
             "expires_in_seconds": expires_in_seconds,
             "expired": expired,
-            "size_bytes": size_bytes,
-            "file_count": file_count,
+            **({"size_bytes": size_bytes, "file_count": file_count} if include_size else {}),
         }
 
     def cleanup_expired(self) -> int:

@@ -1052,6 +1052,9 @@ def _compact_model_inventory(
             compact_models.append(model)
             continue
         row = {"model_id": model.get("model_id")}
+        for key in ("training_end", "horizon", "expires_in_days", "expired"):
+            if model.get(key) not in (None, ""):
+                row[key] = model[key]
         if standard:
             for key in (
                 "method",

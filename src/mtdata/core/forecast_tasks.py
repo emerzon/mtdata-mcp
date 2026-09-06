@@ -420,10 +420,10 @@ def _serialize_model_handle(
 ) -> Dict[str, Any]:
     created_at_epoch = getattr(handle, "created_at", None)
     store_info: Dict[str, Any] = {}
-    describe = getattr(store, "describe_model", None) if detail == "full" else None
+    describe = getattr(store, "describe_model", None)
     if callable(describe):
         try:
-            raw_info = describe(handle)
+            raw_info = describe(handle, include_size=detail == "full")
             if isinstance(raw_info, dict):
                 store_info = raw_info
         except Exception as exc:
@@ -1381,8 +1381,9 @@ def forecast_models_list(
     family (for example statsforecast), data_scope, symbol, or timeframe.
     Expired artifacts are intentionally excluded; use a dry-run
     ``forecast_models_cleanup`` call to inspect them. Compact lists reusable
-    ``model_id`` values. ``detail='standard'`` adds method, data_scope,
-    created_at, and horizon. Use ``detail='full'`` for stored model metadata.
+    ``model_id`` values with training cutoff, horizon, and expiration when known.
+    ``detail='standard'`` adds method, data_scope, creation time, and compatibility.
+    Use ``detail='full'`` for stored model metadata.
     Results use deterministic model-id ordering and are paged with
     ``limit``/``offset``. The default returns at most ten rows; pass
     ``limit=50`` (or another explicit cap) for a larger page.

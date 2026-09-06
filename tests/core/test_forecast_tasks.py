@@ -717,7 +717,8 @@ class TestForecastModels:
         assert result["pagination"]["total"] == 2
         assert result["pagination"]["has_more"] is False
         assert result["models"][0]["model_id"] == "nhits/EURUSD_H1/a"
-        mock_store.describe_model.assert_not_called()
+        assert mock_store.describe_model.call_count == 2
+        assert all(call.kwargs == {"include_size": False} for call in mock_store.describe_model.call_args_list)
 
     def test_lists_library_aliases_by_public_method_or_adapter(self):
         from mtdata.core.forecast_tasks import forecast_models_list

@@ -409,6 +409,9 @@ history refresh retrain instead of forecasting from a stale cutoff. Historical
 look-ahead reuse.
 
 Training and generation share the same supported horizon range of 1–500 bars.
+`forecast_models_list` keeps the training cutoff, horizon, and expiration in its
+default rows so you can review freshness before choosing a model. A compatible
+cache artifact can still be old; creation time and training cutoff are distinct.
 `forecast_models_list --detail full` exposes the stored
 `compatibility_fingerprint`, a `request_compatibility_status`, and a replayable
 `reuse_request` containing the model ID and `model_cache: require_existing`.
