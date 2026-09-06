@@ -9,6 +9,8 @@ from typing import Any, Dict, List, Optional, Tuple, get_args
 
 import pandas as pd
 
+from .coercion import coerce_cli_scalar
+
 try:
     import pandas_ta_classic as pta
 except ModuleNotFoundError as exc:
@@ -20,7 +22,7 @@ except ModuleNotFoundError as exc:
 _INDICATOR_SERIES_NAMES = ("open", "open_", "high", "low", "close", "volume")
 _VOLUME_SOURCE_COLUMNS = ("real_volume", "volume", "tick_volume")
 logger = logging.getLogger(__name__)
-_DEFAULT_TOKEN_RE = r"(?:'[^']*'|\"[^\"]*\"|True|False|None|null|[+-]?\d+(?:\.\d+)?|[A-Za-z_][A-Za-z0-9_]*)"
+_DEFAULT_TOKEN_RE = r"(?:'[^']*'|\"[^\"]*\"|True|False|None|null|[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?|[A-Za-z_][A-Za-z0-9_]*)"
 _DEFAULT_MISSING = object()
 _TA_PERIOD_PARAMETER_NAMES = frozenset(
     {
@@ -85,31 +87,17 @@ def clean_help_text(text: str, func_name: Optional[str] = None) -> str:
     return "\n".join(kept).strip()
 
 
-def _try_number(s: str):
-    try:
-        if '.' in s:
-            return float(s)
-        return int(s)
-    except Exception:
-        return None
-
-
 def _parse_doc_default_value(raw: str) -> Any:
     text = str(raw or "").strip().rstrip(".,)")
     if not text:
         return _DEFAULT_MISSING
     if (text.startswith("'") and text.endswith("'")) or (text.startswith('"') and text.endswith('"')):
         return text[1:-1]
-    lowered = text.lower()
-    if lowered == "true":
-        return True
-    if lowered == "false":
-        return False
-    if lowered in {"none", "null"}:
-        return None
-    number = _try_number(text)
-    if number is not None:
-        return number
+    # Python docstrings can omit the leading zero required by CLI JSON numbers.
+    numeric_text = re.sub(r"^([+-]?)\.(?=\d)", r"\g<1>0.", text)
+    value = coerce_cli_scalar(numeric_text)
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
     if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", text):
         return text
     return _DEFAULT_MISSING

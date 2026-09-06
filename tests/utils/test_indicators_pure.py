@@ -44,9 +44,9 @@ from mtdata.utils.indicators import (
     _apply_ta_indicators,
     _estimate_warmup_bars,
     _find_unknown_ta_indicators,
+    _parse_doc_default_value,
     _parse_ti_number,
     _parse_ti_specs,
-    _try_number,
     clean_help_text,
     infer_defaults_from_doc,
     list_ta_indicators,
@@ -108,19 +108,19 @@ class TestCleanHelpText:
         assert "method of" not in result
 
 
-class TestTryNumber:
+class TestParseDocDefaultValue:
     def test_integer(self):
-        assert _try_number("42") == 42
-        assert isinstance(_try_number("42"), int)
+        assert _parse_doc_default_value("42") == 42
+        assert isinstance(_parse_doc_default_value("42"), int)
 
     def test_float(self):
-        assert _try_number("3.14") == pytest.approx(3.14)
+        assert _parse_doc_default_value("3.14") == pytest.approx(3.14)
 
     def test_non_numeric(self):
-        assert _try_number("hello") is None
+        assert _parse_doc_default_value("hello") == "hello"
 
     def test_negative(self):
-        assert _try_number("-5") == -5
+        assert _parse_doc_default_value("-5") == -5
 
 
 class TestParseTiNumber:
@@ -425,12 +425,10 @@ class TestEstimateWarmupBars:
 # 2. mtdata.core.indicators  (canonical utility imports)
 # ===================================================================
 class TestCoreIndicatorsWrappers:
-    def test_try_number_lives_in_utils_indicators(self):
-        """Numeric parsing for indicator args lives in utils.indicators."""
-        from mtdata.utils.indicators import _try_number as util_try
-        assert util_try("42") == 42
-        assert util_try("3.14") == pytest.approx(3.14)
-        assert util_try("bad") is None
+    def test_doc_defaults_preserve_unknown_identifiers(self):
+        assert _parse_doc_default_value("42") == 42
+        assert _parse_doc_default_value("3.14") == pytest.approx(3.14)
+        assert _parse_doc_default_value("bad") == "bad"
 
     def test_clean_help_text_delegation(self):
         """core.indicators._clean_help_text uses the canonical indicators utility."""
