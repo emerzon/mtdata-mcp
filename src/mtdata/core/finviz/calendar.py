@@ -1437,12 +1437,11 @@ def _normalize_finviz_calendar_payload(
             normalized_items.sort(
                 key=lambda item: str(item.get("date") or item.get("earnings_date") or "")
             )
-        if start_instant is not None or end_instant is not None:
-            normalized_items = _filter_finviz_calendar_items_by_instant(
-                normalized_items,
-                start_instant=start_instant,
-                end_instant=end_instant,
-            )
+        normalized_items = _filter_finviz_calendar_items_by_instant(
+            normalized_items,
+            start_instant=start_instant,
+            end_instant=end_instant,
+        )
         filtered_total = len(normalized_items)
         if source_is_unpaged:
             page_value = max(1, int(page or 1))
