@@ -46,7 +46,7 @@ from .._mcp_tools import (
 from .._mcp_tools import get_tool_registry as get_registered_tools
 from ..error_envelope import build_error_payload, normalize_error_payload
 from ..output_contract import resolve_output_contract
-from ..output_serialization import json_default as _json_default
+from ..output_serialization import dumps_json, sanitize_json
 from ..request_context import ensure_request_id_scope
 from .catalog import (
     COMMAND_SUGGESTION_CUTOFF,
@@ -788,7 +788,7 @@ def _invalid_output_format_status(argv: Sequence[str]) -> Optional[int]:
     payload = _invalid_output_format_payload(argv)
     if payload is None:
         return None
-    _write_cli_text(json.dumps(payload, ensure_ascii=False, indent=2))
+    _write_cli_text(dumps_json(payload, indent=2))
     return 2
 
 
@@ -1025,7 +1025,7 @@ class _CLIArgumentParser(argparse.ArgumentParser):
             }
         output_format = _parse_error_output_format()
         rendered = (
-            json.dumps(payload, ensure_ascii=False, indent=2)
+            dumps_json(payload, indent=2)
             if output_format == CLI_FORMAT_JSON
             else _format_result_for_cli(
                 payload,
@@ -2117,7 +2117,8 @@ def _format_cli_literal(value: Any) -> Optional[str]:
     if isinstance(value, str):
         return value
     try:
-        dumped = json.dumps(value, allow_nan=False, default=_json_default)
+        # This builds request literals; presentation rounding would change inputs.
+        dumped = json.dumps(value, allow_nan=False, default=sanitize_json)
     except Exception:
         return str(value)
     if dumped.startswith('"') and dumped.endswith('"'):
@@ -2516,7 +2517,7 @@ def _main():  # noqa: C901
     except ValueError as exc:
         parser_prog = display_program_name(sys.argv[0])
         _write_cli_text(
-            json.dumps(
+            dumps_json(
                 build_error_payload(
                     str(exc),
                     code="cli_invalid_arguments",
@@ -2527,7 +2528,6 @@ def _main():  # noqa: C901
                     ),
                     documentation="docs/CLI.md",
                 ),
-                ensure_ascii=False,
                 indent=2,
             )
             if "--json" in sys.argv
@@ -2910,7 +2910,7 @@ def _main():  # noqa: C901
     if not args.command:
         if _resolve_cli_formatter(args) == "json":
             _write_cli_text(
-                json.dumps(
+                dumps_json(
                     build_error_payload(
                         "A command is required.",
                         code="cli_missing_command",
@@ -2918,7 +2918,6 @@ def _main():  # noqa: C901
                         remediation=f"Run '{parser_prog} --help' to list commands.",
                         documentation="docs/CLI.md",
                     ),
-                    ensure_ascii=False,
                     indent=2,
                 )
             )
@@ -2945,7 +2944,7 @@ def _main():  # noqa: C901
         if _json_parse_errors_requested():
             command = str(getattr(args, "command", None) or "cli")
             _write_cli_text(
-                json.dumps(
+                dumps_json(
                     build_error_payload(
                         f"Unexpected {type(e).__name__}: {e}",
                         code="unexpected_error",
@@ -2955,7 +2954,6 @@ def _main():  # noqa: C901
                             "problem persists, report the request ID."
                         ),
                     ),
-                    ensure_ascii=False,
                     indent=2,
                 )
             )
@@ -3025,11 +3023,10 @@ def _write_shell_batch_record(record: Dict[str, Any]) -> None:
         return value
 
     _write_cli_text(
-        json.dumps(
+        dumps_json(
             _redact(record),
-            ensure_ascii=False,
             separators=(",", ":"),
-            default=_json_default,
+            indent=None,
         )
     )
 
@@ -3220,7 +3217,7 @@ def run_shell(
                         }
                     )
                 elif "--json" in effective_command_argv:
-                    _write_cli_text(json.dumps(payload, ensure_ascii=False))
+                    _write_cli_text(dumps_json(payload, indent=None))
                 else:
                     print(message, file=sys.stderr)
                     print(payload["remediation"], file=sys.stderr)

@@ -31,11 +31,6 @@ class JsonFixedFloat(float):
         return text
 
 
-def json_default(value: Any) -> Any:
-    """Default JSON conversion shared by final presentation/transport layers."""
-    return sanitize_json(value)
-
-
 def _rewrite_scientific_json_number(match: re.Match[str]) -> str:
     return f"{match.group(1)}{JsonFixedFloat(float(match.group(0)))!r}"
 

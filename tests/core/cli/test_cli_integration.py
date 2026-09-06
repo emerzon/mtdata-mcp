@@ -21,6 +21,7 @@ from mtdata.core.analytics_requests import (
     TradeExecutionQualityRequest,
 )
 from mtdata.core.data.requests import DataFetchCandlesRequest
+from mtdata.core.output_serialization import sanitize_json
 from mtdata.core.trading.requests import (
     TradeCloseRequest,
     TradeGetOpenRequest,
@@ -44,7 +45,6 @@ from mtdata.core.cli.api import (
     _format_cli_literal,
     _format_result_for_cli,
     _is_typed_dict_type,
-    _json_default,
     _match_commands,
     _merge_dict,
     _normalize_cli_list_value,
@@ -1131,7 +1131,7 @@ class TestMain:
         assert "noise that should be suppressed" not in out.err
 
     @patch("mtdata.core.cli.api.discover_tools")
-    def test_env_output_format_json_uses_json_default(
+    def test_env_output_format_json_usessanitize_json(
         self, mock_discover, monkeypatch, capsys
     ):
         def simple_tool(**_kwargs):
@@ -3014,7 +3014,7 @@ class TestEdgeCases:
             _parse_set_overrides(["section.=value"])
 
     def test_json_default_with_bad_bytes(self):
-        result = _json_default(b"\xff\xfe")
+        result = sanitize_json(b"\xff\xfe")
         assert isinstance(result, str)
 
     def test_shape_public_tool_output_with_none_cmd(self):

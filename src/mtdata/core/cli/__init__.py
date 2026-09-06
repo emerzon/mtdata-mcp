@@ -1,7 +1,6 @@
 """Lightweight command-line entry point."""
 
 import errno
-import json
 import sys
 from contextlib import redirect_stdout
 from difflib import get_close_matches
@@ -10,6 +9,7 @@ from typing import Optional, Sequence
 
 from ...utils.minimal_output_toon import _format_to_toon
 from ..error_envelope import build_error_payload
+from ..output_serialization import dumps_json
 from .catalog import (
     COMMAND_SUGGESTION_CUTOFF,
     display_program_name,
@@ -64,7 +64,7 @@ def _non_global_tokens(argv: Sequence[str]) -> list[str]:
 def _print_cli_version(*, as_json: bool) -> int:
     version = cli_version()
     if as_json:
-        print(json.dumps({"name": "mtdata-cli", "version": version}, ensure_ascii=False))
+        print(dumps_json({"name": "mtdata-cli", "version": version}, indent=None))
     else:
         print(f"mtdata-cli {version}")
     return 0
@@ -79,7 +79,7 @@ def _print_missing_command_error(program: str, *, as_json: bool) -> int:
         documentation="docs/CLI.md",
     )
     rendered = (
-        json.dumps(payload, ensure_ascii=False, indent=2)
+        dumps_json(payload, indent=2)
         if as_json
         else format_root_help(program)
     )
@@ -91,7 +91,7 @@ def _invalid_output_format_status(argv: Sequence[str]) -> Optional[int]:
     payload = _invalid_output_format_payload(argv)
     if payload is None:
         return None
-    print(json.dumps(payload))
+    print(dumps_json(payload, indent=None))
     return 2
 
 
@@ -191,7 +191,7 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
             documentation="docs/CLI.md",
         )
         rendered = (
-            json.dumps(payload, ensure_ascii=False, indent=2)
+            dumps_json(payload, indent=2)
             if _json_output_requested(effective_argv)
             else _format_to_toon(payload)
         )

@@ -16,6 +16,7 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 
 from mtdata.core.data.requests import DataFetchCandlesRequest
+from mtdata.core.output_serialization import sanitize_json
 from mtdata.core.trading.requests import (
     TradeGetOpenRequest,
     TradeHistoryRequest,
@@ -31,7 +32,6 @@ from mtdata.core.cli.api import (
     _first_line,
     _format_cli_literal,
     _format_result_for_cli,
-    _json_default,
     _quote_cli_value,
     _render_cli_result,
     _resolve_cli_formatter,
@@ -46,14 +46,14 @@ from mtdata.utils.minimal_output import format_result_minimal
 
 class TestJsonDefault:
     def test_bytes(self):
-        assert _json_default(b"hello") == "hello"
+        assert sanitize_json(b"hello") == "hello"
 
     def test_bytearray(self):
-        assert _json_default(bytearray(b"hello")) == "hello"
+        assert sanitize_json(bytearray(b"hello")) == "hello"
 
     def test_datetime(self):
         dt = datetime(2025, 1, 1, tzinfo=timezone.utc)
-        result = _json_default(dt)
+        result = sanitize_json(dt)
         assert "2025" in result
 
     def test_namedtuple(self):
@@ -61,7 +61,7 @@ class TestJsonDefault:
 
         Point = namedtuple("Point", ["x", "y"])
         p = Point(1, 2)
-        result = _json_default(p)
+        result = sanitize_json(p)
         assert result == {"x": 1, "y": 2}
 
     def test_fallback_to_str(self):
@@ -69,7 +69,7 @@ class TestJsonDefault:
             def __str__(self):
                 return "custom_obj"
 
-        result = _json_default(Custom())
+        result = sanitize_json(Custom())
         assert result == "custom_obj"
 
     def test_isoformat_exception(self):
@@ -77,7 +77,7 @@ class TestJsonDefault:
             def isoformat(self):
                 raise RuntimeError("fail")
 
-        result = _json_default(BadDate())
+        result = sanitize_json(BadDate())
         assert isinstance(result, str)
 
     def test_namedtuple_exception(self):
@@ -85,7 +85,7 @@ class TestJsonDefault:
             def _asdict(self):
                 raise RuntimeError("fail")
 
-        result = _json_default(BadNT())
+        result = sanitize_json(BadNT())
         assert isinstance(result, str)
 
 
