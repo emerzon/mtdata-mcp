@@ -149,10 +149,6 @@ def _parse_report_timestamp(value: Any) -> datetime | None:
     return datetime.fromtimestamp(epoch, tz=timezone.utc)
 
 
-def _format_report_timestamp(value: datetime) -> str:
-    return format_datetime_utc(value)
-
-
 _REPORT_TIMESTAMP_KEYS = frozenset(
     {
         "as_of",
@@ -313,7 +309,7 @@ def _derive_oldest_section_data_as_of(sections: Any) -> str | None:
         section_times.extend(_collect_report_timestamp_candidates(payload))
     if not section_times:
         return None
-    return _format_report_timestamp(min(section_times))
+    return format_datetime_utc(min(section_times))
 
 
 def _derive_report_timestamp_contract(
@@ -328,7 +324,7 @@ def _derive_report_timestamp_contract(
     )
     if base_times:
         return {
-            "as_of": _format_report_timestamp(min(base_times)),
+            "as_of": format_datetime_utc(min(base_times)),
             "as_of_basis": "base_timeframe_last_completed_bar_close",
             "oldest_section_data_as_of": oldest_section,
         }
@@ -372,12 +368,12 @@ def _report_temporal_alignment(sections: Any) -> Dict[str, Any] | None:
     base_aligned = parsed_context == parsed_forecast
     result: Dict[str, Any] = {
         "status": "aligned" if base_aligned else "mismatch",
-        "canonical_as_of": _format_report_timestamp(
+        "canonical_as_of": format_datetime_utc(
             min(parsed_context, parsed_forecast)
         ),
         "section_as_of": {
-            "context": _format_report_timestamp(parsed_context),
-            "forecast": _format_report_timestamp(parsed_forecast),
+            "context": format_datetime_utc(parsed_context),
+            "forecast": format_datetime_utc(parsed_forecast),
         },
         "basis": "context_last_snapshot_vs_forecast_last_bar_open",
         "timestamp_basis": {
@@ -417,7 +413,7 @@ def _report_temporal_alignment(sections: Any) -> Dict[str, Any] | None:
         tolerance = max(base_seconds, section_seconds, 60) * int(
             SANITY_BARS_TOLERANCE
         )
-        multi_times[normalized_timeframe] = _format_report_timestamp(parsed)
+        multi_times[normalized_timeframe] = format_datetime_utc(parsed)
         tolerances[normalized_timeframe] = tolerance
         if abs((parsed - reference).total_seconds()) > tolerance:
             mismatched.append(f"contexts_multi.{normalized_timeframe}")
@@ -2246,7 +2242,7 @@ def run_report_generate(  # noqa: C901
                     if bar_open is not None:
                         market_summary["bar_open"] = last.get("time")
                         if close_timeframe in TIMEFRAME_SECONDS:
-                            close_as_of = _format_report_timestamp(datetime.fromtimestamp(
+                            close_as_of = format_datetime_utc(datetime.fromtimestamp(
                                 bar_close_epoch(bar_open.timestamp(), close_timeframe), timezone.utc
                             ))
                     if close_as_of not in (None, ""):
@@ -3068,7 +3064,7 @@ def run_report_generate(  # noqa: C901
                 rep["meta"] = meta
             generated_at_text = generated_at if isinstance(generated_at, str) and generated_at.strip() else None
             if generated_at_text is None:
-                generated_at_text = _format_report_timestamp(datetime.now(timezone.utc))
+                generated_at_text = format_datetime_utc(datetime.now(timezone.utc))
             rep["generated_at"] = generated_at_text
             report_sections = source_sections or rep.get("sections")
             meta_timeframe = meta.get("timeframe")
