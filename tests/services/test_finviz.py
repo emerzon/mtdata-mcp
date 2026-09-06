@@ -2903,6 +2903,7 @@ class TestFinvizTools:
                 "change_pct": 0.87,
                 "volume": 123456,
                 "market_cap": 3_000_000_000_000,
+                "market_cap_formatted": "3T",
                 "pe_ratio": 28.5,
             }
         ]
@@ -3062,6 +3063,7 @@ class TestFinvizTools:
                 "symbol": "AAPL",
                 "price": 298.21,
                 "market_cap": 3_000_000_000_000,
+                "market_cap_formatted": "3T",
                 "pe_ratio": 28.5,
                 "forward_pe": 26.1,
                 "peg": 2.3,
