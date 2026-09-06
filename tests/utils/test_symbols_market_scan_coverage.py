@@ -359,11 +359,12 @@ def test_top_markets_ranks_locked_quotes_after_valid_spreads(
         _make_symbol("VALID", path="Crypto"),
     ]
     mock_tick.side_effect = lambda symbol: {
-        "LOCKED": _make_tick(bid=1.0, ask=1.0),
-        "VALID": _make_tick(bid=1.0, ask=1.0005),
+        "LOCKED": SimpleNamespace(bid=1.0, ask=1.0, time=1_700_000_000),
+        "VALID": SimpleNamespace(bid=1.0, ask=1.0005, time=1_700_000_000),
     }[symbol]
 
-    result = _get_symbols_top_markets()(rank_by="spread", limit=2)
+    with patch("mtdata.core.symbols.time.time", return_value=1_700_000_000):
+        result = _get_symbols_top_markets()(rank_by="spread", limit=2)
 
     assert [row["symbol"] for row in result["data"]] == ["VALID", "LOCKED"]
     locked = result["data"][1]

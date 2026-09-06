@@ -1216,8 +1216,9 @@ def test_market_status_reconciles_future_cached_tick_with_live_stream(monkeypatc
 
     result = _unwrap(market_status_mod.market_status)(symbol="BTCUSD", detail="full")
 
-    assert result["status"] == "probably_open"
-    assert result["can_open_new_positions"] is True
+    assert result["status"] == "quote_not_live_ready"
+    assert result["can_open_new_positions"] is False
+    assert result["tick"]["send_path_tick_fresh"] is False
     assert result["tick"]["quote_source"] == "mt5.copy_ticks_range"
     assert result["tick"]["quote_source_state"] == "refreshed_from_tick_stream"
     assert result["tick"]["last_tick_age_seconds"] == 1.0

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -199,6 +200,11 @@ def test_support_resistance_price_rounding_preserves_level_count_types():
 
 
 def test_support_resistance_tool_uses_live_tick_as_level_reference():
+    class QuoteClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls.fromtimestamp(1_700_100_000, tz=tz or timezone.utc)
+
     fn = _get_support_resistance_fn()
     tick = SimpleNamespace(
         bid=111.0,
@@ -209,7 +215,8 @@ def test_support_resistance_tool_uses_live_tick_as_level_reference():
     )
     gateway = _gateway(tick=tick)
 
-    with patch("mtdata.core.pivot.create_mt5_gateway", return_value=gateway), \
+    with patch("mtdata.core.pivot.datetime", QuoteClock), \
+         patch("mtdata.core.pivot.create_mt5_gateway", return_value=gateway), \
          patch("mtdata.core.pivot._fetch_history", return_value=_frame()), \
          patch(
              "mtdata.core.pivot.build_tick_freshness_context",

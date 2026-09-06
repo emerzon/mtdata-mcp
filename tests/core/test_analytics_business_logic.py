@@ -3399,7 +3399,7 @@ def test_portfolio_risk_partial_mode_omits_unusable_mark() -> None:
     assert result["data_quality"]["symbols_modeled"] == ["EURUSD"]
     assert result["data_quality"]["symbols_omitted"] == ["GBPUSD"]
     assert result["data_quality"]["mark_omissions"][0]["symbol"] == "GBPUSD"
-    assert "non-live marks" in result["warnings"][0]
+    assert any("non-live marks" in warning for warning in result["warnings"])
 
 
 def test_portfolio_risk_horizons_share_one_stable_calibration_window() -> None:
