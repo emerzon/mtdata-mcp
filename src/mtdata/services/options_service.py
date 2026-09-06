@@ -515,14 +515,15 @@ def _option_chain_quality_metadata(rows: List[Dict[str, Any]]) -> Dict[str, Any]
             out["warnings"].append(
                 "This provider does not supply option quote timestamps, so "
                 "live quote freshness cannot be verified even when last-trade "
-                "times and two-sided markets are present. Configure a "
-                "real-time provider instead of retrying another expiration."
+                "times and two-sided markets are present. The current Yahoo "
+                "and Tradier adapters both lack this capability."
             )
             out["related_tools"] = ["options_provider_status"]
             out["remediation"] = (
-                "Run options_provider_status, then set "
-                "MTDATA_OPTIONS_PROVIDER=tradier and MTDATA_OPTIONS_API_KEY "
-                "for a real-time chain with quote timestamps."
+                "Use this chain for research only and verify executable quotes "
+                "with your broker. Switching between the current Yahoo and "
+                "Tradier adapters or retrying another expiration cannot provide "
+                "verifiable option quote freshness."
             )
         else:
             out["warnings"].append(

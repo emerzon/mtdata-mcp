@@ -181,8 +181,8 @@ def test_option_chain_quality_distinguishes_missing_provider_timestamps() -> Non
     assert summary["quote_freshness_supported_by_provider"] is False
     assert summary["option_chain_live_usable"] is False
     assert summary["related_tools"] == ["options_provider_status"]
-    assert "tradier" in summary["remediation"].lower()
-    assert "expiration" not in summary["remediation"].lower()
+    assert "research only" in summary["remediation"].lower()
+    assert "cannot provide verifiable option quote freshness" in summary["remediation"]
 
 
 def test_option_chain_quality_last_trade_without_quote_timestamp_is_not_unusable() -> None:
@@ -204,8 +204,8 @@ def test_option_chain_quality_last_trade_without_quote_timestamp_is_not_unusable
     assert summary["option_contract_timestamped_count"] == 1
     assert summary["option_contract_last_trade_proxy_count"] == 1
     assert summary["related_tools"] == ["options_provider_status"]
-    assert "tradier" in summary["remediation"].lower()
-    assert "expiration" not in summary["remediation"].lower()
+    assert "research only" in summary["remediation"].lower()
+    assert "cannot provide verifiable option quote freshness" in summary["remediation"]
 
 
 def test_get_options_expirations_parses_payload(monkeypatch):
