@@ -2765,8 +2765,8 @@ def run_report_generate(  # noqa: C901
                     else:
                         narrative_parts.append(f"Forecast method is {method_name}.")
                 if isinstance(summary_structured.get("levels"), list) and summary_structured["levels"]:
-                    nearest = summary_structured["levels"][0]
-                    if isinstance(nearest, dict) and nearest.get("price") is not None:
+                    strongest = summary_structured["levels"][0]
+                    if isinstance(strongest, dict) and strongest.get("price") is not None:
                         level_precision = (
                             market_summary.get("price_precision")
                             if isinstance(market_summary, dict)
@@ -2774,16 +2774,16 @@ def run_report_generate(  # noqa: C901
                         )
                         level_text = (
                             format_number(
-                                nearest.get("price"), decimals=level_precision
+                                strongest.get("price"), decimals=level_precision
                             )
                             if isinstance(level_precision, int)
-                            else format_number(nearest.get("price"))
+                            else format_number(strongest.get("price"))
                         )
                         narrative_parts.append(
-                            f"Nearest confluence is {level_text}"
+                            f"Highest-scoring confluence is {level_text}"
                             + (
-                                f" ({nearest.get('role')})."
-                                if nearest.get("role")
+                                f" ({strongest.get('role')})."
+                                if strongest.get("role")
                                 else "."
                             )
                         )
