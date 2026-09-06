@@ -223,18 +223,11 @@ _FINVIZ_CALENDAR_STANDARD_FIELDS = (
     "impact",
     "provider_conflicts",
 )
-_FINVIZ_CALENDAR_COMPACT_FIELDS = _FINVIZ_CALENDAR_STANDARD_FIELDS
 _FINVIZ_CALENDAR_IMPORTANCE_LABELS = {
     1: "low",
     2: "medium",
     3: "high",
 }
-
-
-def _finviz_earnings_period_window(
-    period_key: str, reference_date: Any
-) -> tuple[Any, Any]:
-    return finviz_earnings_period_window(period_key, reference_date)
 
 
 def _normalize_finviz_earnings_rows(
@@ -249,7 +242,7 @@ def _normalize_finviz_earnings_rows(
     reference = reference_date or datetime.now(timezone.utc).astimezone(
         ZoneInfo("America/New_York")
     ).date()
-    period_window = _finviz_earnings_period_window(period_key, reference)
+    period_window = finviz_earnings_period_window(period_key, reference)
     for index, row in enumerate(normalized):
         if not isinstance(row, dict):
             continue
