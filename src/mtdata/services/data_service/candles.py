@@ -27,7 +27,7 @@ from ...shared.constants import (
 from ...shared.schema import DenoiseSpec, IndicatorSpec, SimplifySpec, TimeframeLiteral
 from ...shared.symbols import is_probably_crypto_symbol
 from ...shared.validators import invalid_timeframe_error
-from ...utils.coercion import coerce_finite_float, round_finite
+from ...utils.coercion import coerce_finite_float, coerce_scalar, round_finite
 from ...utils.denoise import (
     DenoiseCausalityError,
     DenoiseColumnError,
@@ -103,7 +103,6 @@ from ...utils.utils import (
     _parse_start_datetime,
     _table_from_rows,
     _utc_epoch_seconds,
-    coerce_scalar,
 )
 from .errors import (
     _build_no_data_error_with_context,
