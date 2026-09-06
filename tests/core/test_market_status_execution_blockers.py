@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from mtdata.core import market_status
+from mtdata.core._mcp_tools import shape_public_tool_output
 
 
 @pytest.mark.parametrize("detail", ["compact", "full"])
@@ -53,3 +54,10 @@ def test_symbol_status_preserves_submission_quote_blocker(monkeypatch, detail, f
         assert quote["usable_for_live_trading_basis"] == "submission_tick_freshness_required"
     else:
         assert "send_path_freshness_error" not in quote
+    if detail == "compact" and future_cached_quote:
+        public = shape_public_tool_output(result, tool_name="market_status", detail=detail)
+        assert public["send_path_tick_fresh"] is False
+        assert public["send_path_freshness_error"] == quote["send_path_freshness_error"]
+        assert public["quote_source"] == "mt5.copy_ticks_range"
+        assert public["symbol_info_tick_time_epoch"] == epoch + 45
+        assert any("ahead of the wall clock" in warning["message"] for warning in public["warnings"])

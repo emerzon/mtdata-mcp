@@ -2564,7 +2564,11 @@ def _compact_market_mapping(
             and key not in {"data_age_seconds", "usable_for_live_trading"}
         ):
             continue
-        if (quote_like and key in _MARKET_COMPACT_OMIT) or key == "meta":
+        blocked_submission_source = (
+            payload.get("send_path_tick_fresh") is False
+            and key in {"quote_source", "quote_source_state"}
+        )
+        if (quote_like and key in _MARKET_COMPACT_OMIT and not blocked_submission_source) or key == "meta":
             continue
         if key == "source":
             continue
