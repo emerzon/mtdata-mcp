@@ -840,6 +840,7 @@ def _apply_options_detail(
                 "option_status",
                 "status",
                 "price",
+                "rebate_cashflow",
                 "delta",
                 "gamma",
                 "vega",
@@ -1348,7 +1349,8 @@ def options_barrier_price(
             description=(
                 "Whether the barrier was touched before the valuation instant. "
                 "Set this for an existing monitored contract whose spot later "
-                "returned to the unbreached side."
+                "returned to the unbreached side. For knock-outs, the prior "
+                "on-hit rebate is assumed paid and remaining premium is zero."
             )
         ),
     ] = False,

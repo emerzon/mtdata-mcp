@@ -304,7 +304,11 @@ def price_barrier_option_quantlib(  # noqa: C901
     heston_rho: Optional[float] = None,
     barrier_already_hit: bool = False,
 ) -> Dict[str, Any]:
-    """Price a European barrier option with QuantLib."""
+    """Price a European barrier option with QuantLib.
+
+    An explicit prior knock-out assumes its on-hit rebate was settled before
+    valuation. Such historical cashflows are excluded from remaining premium.
+    """
     try:
         model_norm = _normalize_barrier_model(model)
     except ValueError as ex:
@@ -480,7 +484,17 @@ def price_barrier_option_quantlib(  # noqa: C901
         )
         knocked_out: Dict[str, Any] = {
             "success": True,
-            "price": float(rebate_val),
+            "price": 0.0 if barrier_already_hit else float(rebate_val),
+            "rebate_cashflow": {
+                "amount": float(rebate_val),
+                "units": "per_underlying_unit",
+                "settlement": (
+                    "assumed_paid_before_valuation"
+                    if barrier_already_hit
+                    else "due_at_valuation"
+                ),
+                "included_in_price": not bool(barrier_already_hit),
+            },
             "status": "knocked_out",
             "option_status": "knocked_out",
             "barrier_state_source": (
@@ -495,9 +509,13 @@ def price_barrier_option_quantlib(  # noqa: C901
             "gamma": 0.0,
             "vega": 0.0,
             "greeks_status": "complete",
-            "greeks_method": "knocked_out_boundary",
+            "greeks_method": (
+                "knocked_out_settled" if barrier_already_hit else "knocked_out_boundary"
+            ),
             "pricing_assumptions": _quantlib_pricing_assumptions(
-                _barrier_model_label(
+                "previously knocked-out option (rebate assumed settled)"
+                if barrier_already_hit
+                else _barrier_model_label(
                     model=model_norm,
                     heston_params=heston_params,
                     knocked_status="knocked_out",

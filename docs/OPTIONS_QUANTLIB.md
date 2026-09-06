@@ -215,7 +215,7 @@ mtdata-cli options_barrier_price 150 --strike 145 --barrier 160 --maturity-days 
 | `--maturity-days` | (required) | Time to maturity in calendar days |
 | `--option-type` | `call` | `call` or `put` |
 | `--barrier-type` | `up_out` | `up_in`, `up_out`, `down_in`, `down_out` |
-| `--barrier-already-hit` | `false` | Set `true` for an existing monitored contract whose barrier was touched before valuation, even when current spot has returned to the unbreached side |
+| `--barrier-already-hit` | `false` | Set `true` for an existing monitored contract whose barrier was touched before valuation, even when current spot has returned to the unbreached side. A prior knock-out assumes the on-hit rebate is already paid and returns zero remaining premium |
 | `--risk-free-rate` | 0.02 | Risk-free rate (decimal) |
 | `--dividend-yield` | 0.0 | Dividend yield (decimal) |
 | `--volatility` | 0.2 | Black implied volatility (decimal, e.g., 0.2 = 20%). Used only with `--model black_scholes_merton` |
@@ -244,6 +244,14 @@ The pricer cannot reconstruct a contract's path from current spot alone.
 knocked-in Heston contract is priced as the equivalent European vanilla;
 delta and gamma use spot finite differences because QuantLib's analytic
 Heston engine does not expose those Greeks consistently.
+
+For a prior knock-out, `rebate_cashflow` reports the rebate amount separately
+with `settlement=assumed_paid_before_valuation` and `included_in_price=false`.
+Changing the valuation date does not count that past payment again. When spot
+first triggers a knock-out at valuation, the rebate is immediately due and
+included in `price`, with `settlement=due_at_valuation`. An unpaid rebate from
+an earlier hit is a separate receivable; this tool does not value its settlement
+delay or credit risk.
 
 ---
 
