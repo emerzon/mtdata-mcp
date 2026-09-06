@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Literal, Optional, Set, Tuple
 import numpy as np
 
 from ..shared.constants import TIMEFRAME_SECONDS
-from ..shared.market_units import forex_pip_size
 from ..shared.schema import DenoiseSpec, TimeframeLiteral
 from ..shared.validators import unknown_mapping_keys_error
 from ..utils import denoise as _denoise_api
@@ -1174,41 +1173,6 @@ _BARRIER_CONCISE_DROP_KEYS = frozenset(
 )
 
 
-def _get_symbol_point(symbol: str) -> Optional[float]:
-    """Return the broker quote increment (``point``), not ``trade_tick_size``."""
-    try:
-        from ..utils.mt5 import get_symbol_info_cached
-
-        info = get_symbol_info_cached(symbol)
-    except Exception:
-        return None
-    if info is None:
-        return None
-    try:
-        point = float(getattr(info, "point", 0.0) or 0.0)
-    except Exception:
-        return None
-    if not np.isfinite(point) or point <= 0.0:
-        return None
-    return float(point)
-
-
-def _cost_pip_size(
-    symbol: str,
-    tick_size: Optional[float],
-    digits: Optional[int],
-) -> Optional[float]:
-    """Return the conventional pip size used by spread/slippage inputs."""
-    del tick_size  # pip size is a point convention, not a trade-tick count
-    point = _get_symbol_point(symbol)
-    if point is None:
-        return None
-    return forex_pip_size(
-        symbol,
-        point=float(point),
-        digits=int(digits) if digits is not None else -1,
-    )
-
 _BARRIER_CONCISE_CANDIDATE_KEYS = (
     "tp",
     "sl",
@@ -2198,7 +2162,7 @@ def forecast_barrier_optimize(  # noqa: C901
             if not supplied
         ]
         cost_model_complete = not missing_cost_assumptions
-        cost_pip_size = _cost_pip_size(symbol, tick_size, price_precision)
+        cost_pip_size = pip_size
         if (
             spread_pips_val > 0.0 or slippage_pips_val > 0.0
         ) and cost_pip_size is None:

@@ -183,7 +183,7 @@ class TestBarrierTradingCosts(_BarrierTestBase):
                 "reference_spread_pct": 0.005,
             },
         ), patch(
-            f"{_BARRIER_OPT_ROOT}._get_symbol_point",
+            f"{_BARRIER_OPT_ROOT}._get_pip_size",
             return_value=None,
         ), patch(
             f"{_BARRIER_OPT_ROOT}._simulate_gbm_mc",
@@ -280,7 +280,8 @@ class TestBarrierTradingCosts(_BarrierTestBase):
         self.assertGreater(tc["cost_per_trade"], 0.0)
         self.assertAlmostEqual(tc["spread_pips"], 2.0)
 
-    def test_optimize_rejects_pip_costs_for_non_forex_symbol(self):
+    @patch(f"{_BARRIER_OPT_ROOT}._get_pip_size", return_value=None)
+    def test_optimize_rejects_pip_costs_for_non_forex_symbol(self, _pip_size):
         result = forecast_barrier_optimize(
             symbol="US30",
             timeframe="H1",
@@ -353,8 +354,8 @@ class TestBarrierTradingCosts(_BarrierTestBase):
         self._set_barrier_history(pd.DataFrame({"time": dates, "close": 1.1}))
 
         with patch(f"{_BARRIER_OPT_ROOT}._get_tick_size", return_value=0.0001), patch(
-            f"{_BARRIER_OPT_ROOT}._get_symbol_point",
-            return_value=0.00001,
+            f"{_BARRIER_OPT_ROOT}._get_pip_size",
+            return_value=0.0001,
         ), patch(
             f"{_BARRIER_OPT_ROOT}._symbol_price_precision",
             return_value=5,

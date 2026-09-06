@@ -24,7 +24,6 @@ class _BarrierModulePatchMixin:
             patch(f"{_BARRIER_OPT_ROOT}._get_tick_size", return_value=0.0001),
             patch(f"{_BARRIER_PROB_ROOT}._get_pip_size", return_value=0.0001),
             patch(f"{_BARRIER_OPT_ROOT}._get_pip_size", return_value=0.0001),
-            patch(f"{_BARRIER_OPT_ROOT}._get_symbol_point", return_value=0.00001),
             patch(f"{_BARRIER_PROB_ROOT}._fetch_history"),
             patch(f"{_BARRIER_OPT_ROOT}._fetch_history"),
         ]
@@ -32,9 +31,8 @@ class _BarrierModulePatchMixin:
         self._barrier_patchers[1].start()
         self._barrier_patchers[2].start()
         self._barrier_patchers[3].start()
-        self._barrier_patchers[4].start()
-        self.mock_fetch_history_prob = self._barrier_patchers[5].start()
-        self.mock_fetch_history_opt = self._barrier_patchers[6].start()
+        self.mock_fetch_history_prob = self._barrier_patchers[4].start()
+        self.mock_fetch_history_opt = self._barrier_patchers[5].start()
         self.mock_fetch_history = self.mock_fetch_history_prob
 
     def _set_barrier_history(self, df: pd.DataFrame) -> None:
