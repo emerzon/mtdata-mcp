@@ -685,6 +685,8 @@ def describe_forecast_calendar_treatment(
     observed_times: Any = None,
 ) -> str:
     """Return the forecast calendar-treatment label for a symbol and step."""
+    if calendar_timeframe and tf_secs >= 7 * 86400:
+        return "broker_calendar_period_boundaries"
     exchange_calendar = _forecast_exchange_calendar(symbol)
     if calendar_timeframe and exchange_calendar is not None:
         return (
@@ -751,7 +753,7 @@ def next_times_from_last(
             current = bar_close_epoch(current, normalized_timeframe)
             guard = 0
             while guard < 10:
-                if skip_weekends and is_standard_weekend_closed_epoch(current):
+                if normalized_timeframe == "D1" and skip_weekends and is_standard_weekend_closed_epoch(current):
                     current = _next_standard_weekend_open_epoch(current)
                     guard += 1
                     continue

@@ -222,3 +222,8 @@ by that instant. For D1/W1/MN1 the day uses the configured broker calendar.
 This differs from raw candle browsing, where a calendar label can select the
 weekly or monthly period containing that date. A historical analysis never
 uses the eventual close of an unfinished week or month.
+
+W1/MN1 forecast timestamps preserve the observed broker period anchor, even
+when it falls on a weekend. These keys identify calendar bars, not the first
+tradable tick of the week or month. D1 and intraday projections retain their
+session/weekend handling.
