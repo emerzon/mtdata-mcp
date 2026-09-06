@@ -550,8 +550,11 @@ def _shape_analysis_info(
         "forecast_volatility_estimate",
         "pivot_compute_points",
         "seasonality_detect",
+        "volatility_term_structure",
     }:
         out["data_as_of"] = payload["data_as_of"]
+        if tool_name == "volatility_term_structure" and payload.get("data_as_of_basis") not in (None, ""):
+            out["data_as_of_basis"] = payload["data_as_of_basis"]
     if source:
         out["source"] = source.compact()
     for key in ("limit_satisfied", "partial", "truncated"):
@@ -1134,12 +1137,9 @@ def _compact_volatility_term_structure(payload: MutableMapping[str, Any]) -> Non
     analysis_window = payload.get("analysis_window")
     if isinstance(analysis_window, Mapping):
         requested_as_of = analysis_window.get("requested_as_of")
-        data_as_of = analysis_window.get("period_end")
         timezone = analysis_window.get("timezone")
         if requested_as_of not in (None, ""):
             payload["requested_as_of"] = requested_as_of
-        if data_as_of not in (None, ""):
-            payload["data_as_of"] = data_as_of
         if timezone not in (None, ""):
             payload["timezone"] = timezone
     _drop_keys(

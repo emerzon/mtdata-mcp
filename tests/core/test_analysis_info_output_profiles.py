@@ -212,6 +212,9 @@ def test_compact_volatility_term_structure_keeps_replay_anchor() -> None:
         "symbol": "EURUSD",
         "timeframe": "H1",
         "history_policy": "completed_bars_only",
+        "last_bar_open": "2026-08-28T11:00:00Z",
+        "data_as_of": "2026-08-28T12:00:00Z",
+        "data_as_of_basis": "completed_bar_close",
         "analysis_window": {
             "requested_as_of": "2026-08-28T12:00:00Z",
             "resolved_as_of": "2026-08-28T12:00:00Z",
@@ -230,7 +233,8 @@ def test_compact_volatility_term_structure_keeps_replay_anchor() -> None:
     )
 
     assert result["requested_as_of"] == "2026-08-28T12:00:00Z"
-    assert result["data_as_of"] == "2026-08-28T11:00:00Z"
+    assert result["data_as_of"] == "2026-08-28T12:00:00Z"
+    assert result["data_as_of_basis"] == "completed_bar_close"
     assert result["timezone"] == "UTC"
     assert result["history_policy"] == "completed_bars_only"
     assert "analysis_window" not in result

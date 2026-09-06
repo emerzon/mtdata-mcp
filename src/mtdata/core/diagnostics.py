@@ -136,6 +136,7 @@ def _fetch_diagnostic_bars(
 def _diagnostic_history_metadata(
     frame: pd.DataFrame,
     *,
+    timeframe: str,
     include_incomplete: bool,
 ) -> Dict[str, Any]:
     times = (
@@ -153,6 +154,16 @@ def _diagnostic_history_metadata(
         if len(times)
         else None
     )
+    forming_included = frame.attrs.get("forming_candle_status") == "included"
+    data_as_of = (
+        frame.attrs.get("resolved_as_of")
+        if forming_included
+        else format_datetime_utc(
+            datetime.fromtimestamp(
+                bar_close_epoch(float(times.iloc[-1]), timeframe), tz=timezone.utc
+            )
+        ) if len(times) else None
+    )
     return {
         **{key: frame.attrs[key] for key in ("symbol", "symbol_input") if key in frame.attrs},
         "history_policy": frame.attrs.get(
@@ -163,6 +174,11 @@ def _diagnostic_history_metadata(
         ),
         "forming_candle_status": frame.attrs.get(
             "forming_candle_status", "not_reported"
+        ),
+        "last_bar_open": period_end,
+        "data_as_of": data_as_of,
+        "data_as_of_basis": (
+            "forming_bar_snapshot" if forming_included else "completed_bar_close"
         ),
         "analysis_window": {
             "requested_as_of": frame.attrs.get("requested_as_of"),
@@ -571,7 +587,7 @@ def stationarity_test(
             "items": rows,
             "samples": int(len(series)),
             **_diagnostic_history_metadata(
-                frame, include_incomplete=include_incomplete
+                frame, timeframe=timeframe, include_incomplete=include_incomplete
             ),
         }
         if warnings_out:
@@ -744,7 +760,7 @@ def seasonality_detect(
             ),
             "quality_thresholds": dict(_SEASONALITY_QUALITY_THRESHOLDS),
             **_diagnostic_history_metadata(
-                frame, include_incomplete=include_incomplete
+                frame, timeframe=timeframe, include_incomplete=include_incomplete
             ),
         }
         if rows:
@@ -985,7 +1001,7 @@ def outliers_detect(
             "count": len(rows),
             "truncated": bool(int((max_scores >= float(threshold)).sum()) > len(rows)),
             **_diagnostic_history_metadata(
-                frame, include_incomplete=include_incomplete
+                frame, timeframe=timeframe, include_incomplete=include_incomplete
             ),
         }
         result["units"] = {"score": score_units, "field_scores": score_units}
@@ -1209,7 +1225,7 @@ def volatility_term_structure(
             ),
             "items": rows,
             **_diagnostic_history_metadata(
-                frame, include_incomplete=include_incomplete
+                frame, timeframe=timeframe, include_incomplete=include_incomplete
             ),
             "count": len(rows),
         }

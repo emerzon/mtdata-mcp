@@ -18,7 +18,7 @@ def test_diagnostics_resolve_symbols_before_fetching_and_preserve_identity(symbo
     assert error is None
     ready.assert_called_once_with(expected)
     assert fetch.call_args.args[0] == expected
-    metadata = diagnostics._diagnostic_history_metadata(frame, include_incomplete=False)
+    metadata = diagnostics._diagnostic_history_metadata(frame, timeframe="H1", include_incomplete=False)
     assert metadata["symbol"] == expected
     assert metadata.get("symbol_input") == (symbol if symbol != expected else None)
 

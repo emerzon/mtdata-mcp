@@ -148,6 +148,7 @@ def test_diagnostic_history_metadata_describes_effective_window() -> None:
 
     metadata = diagnostics._diagnostic_history_metadata(
         frame,
+        timeframe="H1",
         include_incomplete=False,
     )
 
