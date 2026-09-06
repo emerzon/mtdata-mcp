@@ -5,7 +5,7 @@ import math
 import pydoc
 import re
 from functools import lru_cache
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, get_args
 
 import pandas as pd
 
@@ -113,6 +113,12 @@ def _parse_doc_default_value(raw: str) -> Any:
     if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", text):
         return text
     return _DEFAULT_MISSING
+
+
+def _parse_ti_value(token: str) -> Any:
+    if token.lower() in {"true", "false"}:
+        return token.lower() == "true"
+    return _parse_ti_number(token)
 
 
 def _parse_ti_number(token: str) -> int | float:
@@ -299,7 +305,7 @@ def indicator_engine_provenance() -> Dict[str, Any]:
         ),
     }
 
-def _parse_ti_specs(spec: str) -> List[Tuple[str, List[int | float], Dict[str, int | float]]]:
+def _parse_ti_specs(spec: str) -> List[Tuple[str, List[Any], Dict[str, Any]]]:
     """Parse a compact indicator spec string into [(name, args, kwargs)].
 
     Splits top-level by comma, respecting parentheses so nested commas in
@@ -331,14 +337,14 @@ def _parse_ti_specs(spec: str) -> List[Tuple[str, List[int | float], Dict[str, i
     if last:
         parts.append(last)
 
-    specs: List[Tuple[str, List[int | float], Dict[str, int | float]]] = []
+    specs: List[Tuple[str, List[Any], Dict[str, Any]]] = []
     for part in parts:
         part = part.strip()
         if not part:
             continue
         name = part
-        args: List[int | float] = []
-        kwargs: Dict[str, int | float] = {}
+        args: List[Any] = []
+        kwargs: Dict[str, Any] = {}
         if '(' in part and part.endswith(')'):
             name = part[: part.index('(')].strip()
             inside = part[part.index('(') + 1 : -1]
@@ -355,9 +361,9 @@ def _parse_ti_specs(spec: str) -> List[Tuple[str, List[int | float], Dict[str, i
                         raise ValueError(
                             f"Indicator parameter name must not be empty in {part!r}."
                         )
-                    kwargs[k] = _parse_ti_number(v)
+                    kwargs[k] = _parse_ti_value(v)
                 else:
-                    args.append(_parse_ti_number(tok))
+                    args.append(_parse_ti_value(tok))
         # Flex: detect trailing number in name (EMA21 -> length=21)
         normalized_name = _normalize_ta_indicator_name(name.strip())
         m = re.search(r"(.*?)[_\-]?([0-9]{1,3})$", name)
@@ -589,8 +595,8 @@ def _validate_ta_indicator_parameters(
 
 def _prepare_ta_indicator_parameters(
     indicator: str,
-    args: List[int | float],
-    kwargs: Dict[str, int | float],
+    args: List[Any],
+    kwargs: Dict[str, Any],
 ) -> tuple[Any, Dict[str, inspect.Parameter], Dict[str, Any]]:
     """Bind and validate explicit parameters without invoking an indicator."""
     lname = _normalize_ta_indicator_name(indicator)
@@ -630,6 +636,18 @@ def _prepare_ta_indicator_parameters(
         )
     for name, value in zip(remaining_names, args):
         explicit[name] = value
+
+    for name, value in explicit.items():
+        parameter = params[name]
+        boolean = (
+            parameter.annotation is bool
+            or bool in get_args(parameter.annotation)
+            or isinstance(parameter.default, bool)
+        )
+        if boolean and not isinstance(value, bool):
+            raise ValueError(f"Indicator '{lname}' parameter '{name}' requires true or false; received {value!r}.")
+        if not boolean and isinstance(value, bool):
+            raise ValueError(f"Indicator '{lname}' parameter '{name}' requires a number, not a boolean.")
 
     return func, params, explicit
 

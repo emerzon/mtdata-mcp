@@ -555,11 +555,11 @@ else:
 IndicatorNameLiteral = str
 
 class IndicatorSpec(TypedDict, total=False):
-    """Structured TI spec: name with optional numeric params.
+    """Structured TI spec: name with optional numeric or boolean params.
 
     Note: 'name' accepts any string to allow compact forms like "rsi(20)".
-    The optional 'params' field accepts either positional numeric values or
-    a named numeric parameter map.
+    The optional 'params' field accepts either positional values or a named parameter map.
+    Numeric and boolean parameters retain their types.
     """
     name: str
     params: Union[List[Any], Dict[str, Any]]

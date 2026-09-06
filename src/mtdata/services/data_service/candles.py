@@ -310,7 +310,8 @@ def _indicator_validation_error(
         operation="data_fetch_candles",
         details=details,
         remediation=(
-            "Use name(params) syntax such as rsi(14) or sma(20). "
+            "Use name(params) syntax such as rsi(14) or rsi(talib=false). "
+            "Use true/false for boolean settings. "
             "Keep rolling-window periods greater than 0 and within the "
             "available bar count."
         ),
