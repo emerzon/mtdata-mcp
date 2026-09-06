@@ -1285,6 +1285,8 @@ def labels_triple_barrier(  # noqa: C901
                         "suitable_as_training_target": suitable_as_training_target,
                         "suitable_as_live_feature": False,
                         "timestamp_contract": timestamp_contract,
+                        "same_bar_policy": same_bar_policy_value,
+                        "labeling_spec": payload["labeling_spec"],
                         "preprocessing": preprocessing,
                         "sample_quality_status": sample_quality["status"],
                         "summary": summary,

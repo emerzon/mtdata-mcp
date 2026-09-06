@@ -183,6 +183,13 @@ The machine-readable `timestamp_contract` carries the same rules in compact and
 full responses. Daily, weekly, and monthly availability uses broker-calendar
 bar boundaries, including configured daylight-saving changes.
 
+Compact and summary responses lead with outcome counts, rates, holding period,
+and sample quality. Safety flags stay at the top level, timing rules stay in
+`timestamp_contract`, and `labeling_spec` keeps the effective barrier settings.
+Inactive preprocessing is omitted. `history_bars_used` is the canonical count;
+requested and fetched counts appear separately when they differ. Full detail
+retains the complete diagnostics and all labeled rows.
+
 ### Usage
 
 ```bash

@@ -1869,6 +1869,83 @@ def _compact_portfolio_risk(payload: MutableMapping[str, Any]) -> None:
     _compact_portfolio_quality(payload)
 
 
+def _compact_label_payload(payload: MutableMapping[str, Any]) -> None:
+    """Keep label outcomes first and each safety/configuration fact once."""
+    summary = payload.get("summary")
+    summary = dict(summary) if isinstance(summary, Mapping) else {}
+    spec = payload.get("labeling_spec")
+    if isinstance(spec, Mapping):
+        spec = dict(spec)
+        for key in (
+            "direction", "same_bar_policy", "label_uses_future_path",
+            "denoise_lookahead_bias", "suitable_as_training_target",
+            "suitable_as_live_feature", "price_precision", "trade_tick_size",
+        ):
+            if key in payload and spec.get(key) == payload[key]:
+                spec.pop(key, None)
+        if spec.get("horizon_bars") == payload.get("horizon"):
+            spec.pop("horizon_bars", None)
+        if isinstance(payload.get("timestamp_contract"), Mapping):
+            _drop_keys(spec, {"entry_price_timing", "hit_time_basis", "exact_intrabar_hit_time_available"})
+        if spec.get("label_on_requested") == spec.get("label_on"):
+            _drop_keys(spec, {"label_on_requested", "label_on_degraded", "label_on_degraded_reason"})
+        payload["labeling_spec"] = {key: value for key, value in spec.items() if value is not None}
+
+    preprocessing = payload.get("preprocessing")
+    if isinstance(preprocessing, Mapping):
+        preprocessing = dict(preprocessing)
+        denoise = preprocessing.get("denoise")
+        if isinstance(denoise, Mapping) and denoise.get("applied") is False and not denoise.get("method"):
+            preprocessing.pop("denoise", None)
+        if preprocessing:
+            payload["preprocessing"] = preprocessing
+        else:
+            payload.pop("preprocessing", None)
+
+    quality = summary.get("sample_quality")
+    if isinstance(quality, Mapping):
+        quality = dict(quality)
+        for key in ("history_bars_requested", "history_bars_used"):
+            if key in payload and quality.get(key) == payload[key]:
+                quality.pop(key, None)
+        for key in ("lookback", "requested_lookback"):
+            if quality.get(key) == summary.get("lookback"):
+                quality.pop(key, None)
+        summary["sample_quality"] = quality
+        if payload.get("sample_quality_status") == quality.get("status"):
+            payload.pop("sample_quality_status", None)
+
+    coverage = payload.get("labeling_coverage")
+    if isinstance(coverage, Mapping):
+        coverage = dict(coverage)
+        for key in ("rows_before_labeling", "rows_after_labeling", "horizon_trimmed"):
+            if payload.get(key) == coverage.get(key):
+                payload.pop(key, None)
+        if coverage.get("labelable_rows_before_invalid_skips") == coverage.get("rows_after_labeling"):
+            coverage.pop("labelable_rows_before_invalid_skips", None)
+        if coverage.get("rows_before_labeling") == payload.get("history_bars_used"):
+            coverage.pop("rows_before_labeling", None)
+        if coverage.get("rows_after_labeling") == summary.get("lookback"):
+            coverage.pop("rows_after_labeling", None)
+        payload["labeling_coverage"] = {
+            key: value for key, value in coverage.items()
+            if not (key.endswith("_skipped") and value == 0)
+        }
+    for key in ("history_bars_requested", "history_bars_fetched"):
+        if key in payload and payload[key] == payload.get("history_bars_used"):
+            payload.pop(key, None)
+    if summary:
+        payload["summary"] = summary
+        leading = {
+            key: payload[key]
+            for key in ("success", "symbol", "timeframe", "direction", "horizon", "summary", "effective_start", "effective_end")
+            if key in payload
+        }
+        leading.update(payload)
+        payload.clear()
+        payload.update(leading)
+
+
 def _compact_analysis_token_payload(
     payload: MutableMapping[str, Any],
     *,
@@ -1877,6 +1954,8 @@ def _compact_analysis_token_payload(
 ) -> None:
     if tool_name == "forecast_models_list":
         _compact_model_inventory(payload, detail=detail)
+    elif tool_name == "labels_triple_barrier":
+        _compact_label_payload(payload)
     elif tool_name == "seasonality_detect":
         _compact_seasonality(payload)
     elif tool_name == "volatility_term_structure":
