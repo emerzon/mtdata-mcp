@@ -148,8 +148,8 @@ setup.
    strict risk says it is too large.
 4. Use one position, not a grid. This profile cannot add to a losing scalp.
 5. Preview `trade_place` with both SL and TP, this magic, `dry_run=true`,
-   `require_sl_tp=true`, `auto_close_on_sl_tp_fail=true`, and a unique stable
-   idempotency key.
+   `require_sl_tp=true`, and a unique stable idempotency key. Unprotected-fill
+   recovery is always on; do not send `auto_close_on_sl_tp_fail`.
 6. Refresh the ticker. If the setup, spread, or geometry changed, discard the
    preview. Otherwise send the identical payload with `dry_run=false`.
 7. Verify with `trade_get_open` and `trade_get_pending`. Use `trade_history` if

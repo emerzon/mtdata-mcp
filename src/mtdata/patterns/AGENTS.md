@@ -39,6 +39,6 @@ Exported from `__init__.py`:
 ## CONVENTIONS
 
 - `classic.py` is the ONLY entry point for classic patterns — never call `classic_impl/` directly.
-- Optional dependency `stock-pattern` (external git dep, `patterns-ext` group) is wired as a classic **engine** in `core/patterns.py` (`engine="stock_pattern"` / `ensemble=true`), not inside `classic.py`.
+- Optional dependency `stock-pattern` (manual install; see `docs/SETUP.md` §6) is wired as a classic **engine** in `core/patterns.py` (`engine="stock_pattern"` / `ensemble=true`), not inside `classic.py`.
 - Do NOT confuse with `utils/patterns.py` — that file has shared helpers, this package has detectors.
 - Consumed by `core/patterns.py` (MCP tools) and `core/patterns_support.py` (2625 lines of helpers).

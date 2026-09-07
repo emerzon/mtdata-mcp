@@ -2880,7 +2880,7 @@ def _shape_ticks(payload: Mapping[str, Any], *, detail: str) -> Dict[str, Any]:
     source = SourceContext.from_payload(payload)
     for key in LEGACY_FRESHNESS_FIELDS | LEGACY_TIME_FIELDS | _TICK_COMPACT_OMIT:
         out.pop(key, None)
-    if out.get("valid_spread_sample_pct") in {100, 100.0}:
+    if out.get("valid_spread_sample_pct") == 100:
         out.pop("valid_spread_sample_pct", None)
     out.pop("meta", None)
     out.pop("source", None)

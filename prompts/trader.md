@@ -107,7 +107,7 @@ Alignment guide:
 - If `execution_ready_strict` is false, expect order placement or modification to fail. Favor defensive actions and verify carefully.
 - Refresh `symbols_describe` at session start and after any rejection so you have current `volume_min`, `volume_max`, `volume_step`, `trade_stops_level`, `trade_freeze_level`, `trade_mode`, `filling_mode`, and `order_mode`.
 - For market `trade_place`, keep `require_sl_tp=true` unless there is a deliberate reason not to. Market orders should normally include both `stop_loss` and `take_profit`.
-- Consider `auto_close_on_sl_tp_fail=true` on urgent market entries where an unprotected fill would be unacceptable.
+- Unprotected-position recovery after a failed SL/TP attach is always on; do not send `auto_close_on_sl_tp_fail` (it is not a request field).
 - `trade_modify` always operates by `ticket`.
 - `trade_close(ticket=...)` closes one position or one pending order by ticket.
 - Bulk symbol cleanup requires `trade_close(symbol="{{SYMBOL}}", close_all=true)`. Do not assume `trade_close(symbol=...)` alone is valid.

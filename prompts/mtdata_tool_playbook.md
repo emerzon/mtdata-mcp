@@ -35,7 +35,7 @@ runtime schema; do not guess at new or removed interfaces.
 | `R-heavy` | Read-only but potentially slow or computationally expensive. |
 | `R-blocking` | Read-only but waits before returning. |
 | `S` | Changes local task or model-store state, not broker exposure. |
-| `L` | Can change live broker orders or positions. Its `dry_run` default is false. |
+| `L` | Can change live broker orders or positions. Its `dry_run` default is true. |
 | `G` | Conditional tool; availability depends on configuration or provider support. |
 
 ## Common Result Parser
@@ -114,14 +114,16 @@ Example preview payload:
   "magic": 71001,
   "dry_run": true,
   "require_sl_tp": true,
-  "auto_close_on_sl_tp_fail": true,
   "idempotency_key": "scalp-eurusd-20260710-001"
 }
 ```
 
-Do not reuse an idempotency key for a different payload. The key is an
-in-process safeguard, not broker-side idempotency and not durable across a
-restart.
+Filled market orders that cannot attach SL/TP always use the internal
+unprotected-position recovery fail-safe; do not send
+`auto_close_on_sl_tp_fail` (`extra="forbid"` rejects it). Do not reuse an
+idempotency key for a different payload. The key is a durable SQLite dedupe
+shared across processes and restarts (configurable TTL), not broker-side
+idempotency.
 
 ## Asset Context Routing
 
