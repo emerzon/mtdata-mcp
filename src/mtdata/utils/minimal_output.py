@@ -54,8 +54,8 @@ def _move_top_level_metadata_to_tail(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _compact_error_envelope(payload: Dict[str, Any]) -> Dict[str, Any]:
-    """Compact error details without dropping machine-readable discriminators."""
-    keys = (
+    """Render an already-compacted error without re-selecting its fields."""
+    preferred = (
         "success",
         "error",
         "error_code",
@@ -72,11 +72,15 @@ def _compact_error_envelope(payload: Dict[str, Any]) -> Dict[str, Any]:
         "valid_output_fields",
         "output_fields_status",
     )
-    return {
-        key: payload[key]
-        for key in keys
-        if key in payload and not _is_empty_value(payload.get(key))
-    }
+    out: Dict[str, Any] = {}
+    for key in preferred:
+        if key in payload and not _is_empty_value(payload.get(key)):
+            out[key] = payload[key]
+    for key, value in payload.items():
+        if key in out or _is_empty_value(value):
+            continue
+        out[key] = value
+    return out
 
 
 def _render_news_bucket_toon(  # noqa: C901
@@ -2670,20 +2674,6 @@ def _build_forecast_meta(payload: Dict[str, Any]) -> Dict[str, Any]:
         if isinstance(existing_runtime_timezone, dict)
         else None
     )
-    if timezone_source is None:
-        try:
-            from ..core.runtime_metadata import build_runtime_timezone_meta
-
-            generated_timezone = build_runtime_timezone_meta(
-                payload,
-                include_local=False,
-                include_now=False,
-            )
-            if isinstance(generated_timezone, dict):
-                timezone_source = generated_timezone
-        except Exception:
-            timezone_source = None
-
     runtime_timezone = _normalize_timezone_display_meta(timezone_source)
     if runtime_timezone:
         runtime["timezone"] = runtime_timezone
