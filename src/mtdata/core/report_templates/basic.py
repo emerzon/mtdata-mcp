@@ -64,6 +64,89 @@ def _get_raw_result(
         emit_report_progress(operation, "finished")
 
 
+def _context_source_rows(ctx: Any, *, context_limit: int, tail_n: int) -> tuple[list[Any], list[Any]]:
+    context_rows = parse_table_tail(ctx, tail=context_limit)
+    tail_rows = context_rows[-tail_n:]
+    if tail_rows:
+        return context_rows, tail_rows
+    if isinstance(ctx, dict):
+        for key in ("bars", "data"):
+            raw = ctx.get(key)
+            if isinstance(raw, list) and raw:
+                context_rows = list(raw)
+                return context_rows, context_rows[-tail_n:]
+    if isinstance(ctx, list) and ctx:
+        return ctx, ctx[-tail_n:]
+    return [], []
+
+
+def _build_context_section(
+    *,
+    symbol: str,
+    timeframe: str,
+    denoise: Optional[DenoiseSpec],
+    params: Dict[str, Any],
+    context_end: Any,
+    notes: str,
+    default_context_limit: int,
+    fetch_result: Any = None,
+) -> Dict[str, Any]:
+    from ..data import data_fetch_candles
+
+    fetch = fetch_result if fetch_result is not None else _get_raw_result
+    indicators = resolve_report_context_indicators(params)
+    ctx = (
+        fetch(
+            data_fetch_candles,
+            symbol=symbol,
+            timeframe=timeframe,
+            limit=int(params.get("context_limit", default_context_limit)),
+            start=None,
+            end=context_end,
+            indicators=indicators,  # type: ignore[arg-type]
+            denoise=denoise,
+            allow_stale=bool(params.get("allow_stale", False)),
+        )
+        if report_section_enabled(params, "context")
+        else {"error": "context section not requested"}
+    )
+    if "error" in ctx:
+        return attach_candle_freshness_diagnostics({"error": ctx["error"]}, ctx)
+
+    context_limit = int(params.get("context_limit", default_context_limit))
+    tail_n = int(params.get("context_tail", 40))
+    context_rows, tail_rows = _context_source_rows(
+        ctx,
+        context_limit=context_limit,
+        tail_n=tail_n,
+    )
+    if not tail_rows:
+        return attach_candle_freshness_diagnostics(
+            {"error": "No candle data available for context section."},
+            ctx,
+        )
+
+    last = tail_rows[-1] if tail_rows else {}
+    compact = _compute_compact_trend(context_rows)
+    ctx_obj: Dict[str, Any] = {
+        "symbol": symbol,
+        "timeframe": timeframe,
+        "last_snapshot": last,
+        "notes": notes,
+    }
+    timezone_label = ctx.get("timezone") if isinstance(ctx, dict) else None
+    if timezone_label not in (None, "", [], {}):
+        ctx_obj["timezone"] = timezone_label
+    for key in ("price_precision", "price_point"):
+        value = ctx.get(key) if isinstance(ctx, dict) else None
+        if value not in (None, "", [], {}):
+            ctx_obj[key] = value
+    if compact:
+        ctx_obj["trend_compact"] = compact
+        ctx_obj["trend_compact_legend"] = dict(_TREND_COMPACT_LEGEND)
+    return attach_candle_freshness_diagnostics(ctx_obj, ctx)
+
+
 def _first_volatility_value(payload: Dict[str, Any], keys: tuple[str, ...]) -> Any:
     for key in keys:
         value = payload.get(key)
@@ -157,72 +240,17 @@ def template_basic(  # noqa: C901
     # Request-scoped cache avoids re-fetching the same symbol/timeframe.
     _fetch_cache: Dict = {}
 
-    # Context
     indicators = resolve_report_context_indicators(p)
-    from ..data import data_fetch_candles
-    
-    ctx = (
-        _get_raw_result(data_fetch_candles,
-            symbol=symbol,
-            timeframe=tf,
-            limit=int(p.get('context_limit', 300)),
-            # Request validation requires an end whenever start is supplied.
-            # The context snapshot anchors at that shared report cutoff.
-            start=None,
-            end=context_end,
-            indicators=indicators,  # type: ignore[arg-type]
-            denoise=denoise,
-            allow_stale=bool(p.get('allow_stale', False)),
-        )
-        if report_section_enabled(p, 'context')
-        else {'error': 'context section not requested'}
+    report["sections"]["context"] = _build_context_section(
+        symbol=symbol,
+        timeframe=tf,
+        denoise=denoise,
+        params=p,
+        context_end=context_end,
+        notes=f"Indicators included: {indicators}.",
+        default_context_limit=300,
+        fetch_result=_get_raw_result,
     )
-    
-    if 'error' in ctx:
-        report['sections']['context'] = attach_candle_freshness_diagnostics({'error': ctx['error']}, ctx)
-    else:
-        # Metrics require consecutive source bars. Only the snapshot is
-        # projected to the requested display tail.
-        context_limit = int(p.get('context_limit', 300))
-        context_rows = parse_table_tail(ctx, tail=context_limit)
-        tail_n = int(p.get('context_tail', 40))
-        tail_rows = context_rows[-tail_n:]
-        if not tail_rows:
-            # Fallbacks when calling through minimal formatter
-            if isinstance(ctx, dict) and isinstance(ctx.get('data'), list):     
-                context_rows = list(ctx.get('data'))  # type: ignore[arg-type]
-                tail_rows = context_rows[-tail_n:]
-            elif isinstance(ctx, list):
-                context_rows = ctx
-                tail_rows = context_rows[-tail_n:]
-            else:
-                tail_rows = []
-
-        if not tail_rows:
-            report['sections']['context'] = attach_candle_freshness_diagnostics(
-                {'error': 'No candle data available for context section.'},
-                ctx,
-            )
-        else:
-            last = tail_rows[-1] if tail_rows else {}
-            compact = _compute_compact_trend(context_rows)
-            ctx_obj: Dict[str, Any] = {
-                'symbol': symbol,
-                'timeframe': tf,
-                'last_snapshot': last,
-                'notes': f'Indicators included: {indicators}.',
-            }
-            timezone_label = ctx.get('timezone') if isinstance(ctx, dict) else None
-            if timezone_label not in (None, '', [], {}):
-                ctx_obj['timezone'] = timezone_label
-            for key in ('price_precision', 'price_point'):
-                value = ctx.get(key) if isinstance(ctx, dict) else None
-                if value not in (None, '', [], {}):
-                    ctx_obj[key] = value
-            if compact:
-                ctx_obj['trend_compact'] = compact
-                ctx_obj['trend_compact_legend'] = dict(_TREND_COMPACT_LEGEND)
-            report['sections']['context'] = attach_candle_freshness_diagnostics(ctx_obj, ctx)
 
     pivot_enabled = report_section_enabled(p, 'pivot')
     contexts_multi_enabled = include_default_timeframes and report_section_enabled(

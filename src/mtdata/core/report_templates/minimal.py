@@ -3,18 +3,14 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from ...shared.schema import DenoiseSpec
-from ..report.trend import _TREND_COMPACT_LEGEND, _compute_compact_trend
 from ..report.utils import (
     adapt_forecast_payload_for_report,
-    attach_candle_freshness_diagnostics,
     normalize_report_methods,
     now_utc_iso,
-    parse_table_tail,
     report_section_enabled,
     resolve_report_context_end,
-    resolve_report_context_indicators,
 )
-from .basic import _get_raw_result
+from .basic import _build_context_section, _get_raw_result
 
 _MINIMAL_SKIPPED_SECTIONS = (
     "pivot",
@@ -63,78 +59,16 @@ def template_minimal(
         "sections": {},
     }
 
-    indicators = resolve_report_context_indicators(p)
-    from ..data import data_fetch_candles
-
-    ctx = (
-        _get_raw_result(
-            data_fetch_candles,
-            symbol=symbol,
-            timeframe=tf,
-            limit=int(p.get("context_limit", 200)),
-            # Request validation requires an end whenever start is supplied.
-            # The context snapshot anchors at that shared report cutoff.
-            start=None,
-            end=context_end,
-            indicators=indicators,  # type: ignore[arg-type]
-            denoise=denoise,
-            allow_stale=bool(p.get("allow_stale", False)),
-        )
-        if report_section_enabled(p, "context")
-        else {"error": "context section not requested"}
+    report["sections"]["context"] = _build_context_section(
+        symbol=symbol,
+        timeframe=tf,
+        denoise=denoise,
+        params=p,
+        context_end=context_end,
+        notes="Minimal template keeps only candle context plus a direct forecast.",
+        default_context_limit=200,
+        fetch_result=_get_raw_result,
     )
-
-    if "error" in ctx:
-        report["sections"]["context"] = attach_candle_freshness_diagnostics(
-            {"error": ctx["error"]},
-            ctx,
-        )
-    else:
-        context_limit = int(p.get("context_limit", 200))
-        context_rows = parse_table_tail(ctx, tail=context_limit)
-        tail_n = int(p.get("context_tail", 40))
-        tail_rows = context_rows[-tail_n:]
-        if not tail_rows:
-            if isinstance(ctx, dict) and isinstance(ctx.get("bars"), list):
-                context_rows = list(ctx.get("bars"))  # type: ignore[arg-type]
-                tail_rows = context_rows[-tail_n:]
-            elif isinstance(ctx, dict) and isinstance(ctx.get("data"), list):
-                context_rows = list(ctx.get("data"))  # type: ignore[arg-type]
-                tail_rows = context_rows[-tail_n:]
-            elif isinstance(ctx, list):
-                context_rows = ctx
-                tail_rows = context_rows[-tail_n:]
-            else:
-                tail_rows = []
-
-        if not tail_rows:
-            report["sections"]["context"] = attach_candle_freshness_diagnostics(
-                {"error": "No candle data available for context section."},
-                ctx,
-            )
-        else:
-            last = tail_rows[-1] if tail_rows else {}
-            compact = _compute_compact_trend(context_rows)
-            ctx_obj: Dict[str, Any] = {
-                "symbol": symbol,
-                "timeframe": tf,
-                "last_snapshot": last,
-                "notes": "Minimal template keeps only candle context plus a direct forecast.",
-            }
-            timezone_label = ctx.get("timezone") if isinstance(ctx, dict) else None
-            if timezone_label not in (None, "", [], {}):
-                ctx_obj["timezone"] = timezone_label
-            for key in ("price_precision", "price_point"):
-                value = ctx.get(key) if isinstance(ctx, dict) else None
-                if value not in (None, "", [], {}):
-                    ctx_obj[key] = value
-            if compact:
-                ctx_obj["trend_compact"] = compact
-                ctx_obj["trend_compact_legend"] = dict(_TREND_COMPACT_LEGEND)
-            report["sections"]["context"] = attach_candle_freshness_diagnostics(
-                ctx_obj,
-                ctx,
-            )
 
     from ..forecast import forecast_generate
 
