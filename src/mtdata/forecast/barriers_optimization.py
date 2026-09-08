@@ -75,6 +75,7 @@ from .barriers_shared import (
     normalize_barrier_method,
     normalize_barrier_seed,
     offset_barrier_seed,
+    run_barrier_method_simulations,
 )
 from .common import annualization_context as _annualization_context
 from .common import fetch_history as _fetch_history
@@ -3021,27 +3022,35 @@ def forecast_barrier_optimize(  # noqa: C901
                 else normalize_barrier_seed(np.random.default_rng().integers(0, np.iinfo(np.int32).max))
             )
 
-            if method_name in ('mc_gbm', 'mc_gbm_bb'):
-                for offset in range(effective_seed_count):
-                    sim = _simulate_gbm_mc(
-                        calibration_prices,
-                        horizon=horizon_val,
-                        n_sims=local_sims,
-                        seed=offset_barrier_seed(local_seed_base, offset),
-                        antithetic=False,
-                    )
-                    local_paths_list.append(np.asarray(sim['price_paths'], dtype=float))
-            elif method_name == 'hmm_mc':
-                n_states = int(params_dict.get('n_states', 2) or 2)
-                for offset in range(effective_seed_count):
-                    sim = _simulate_hmm_mc(
-                        calibration_prices,
-                        horizon=horizon_val,
-                        n_states=int(n_states),
-                        n_sims=local_sims,
-                        seed=offset_barrier_seed(local_seed_base, offset),
-                    )
-                    local_paths_list.append(np.asarray(sim['price_paths'], dtype=float))
+            heston_bars_per_year = None
+            if method_name == "heston":
+                heston_bars_per_year, _ = _annualization_context(timeframe, symbol)
+            simulations = run_barrier_method_simulations(
+                method_name,
+                calibration_prices,
+                horizon=horizon_val,
+                n_sims=local_sims,
+                seed=local_seed_base,
+                params=params_dict,
+                seed_count=effective_seed_count,
+                antithetic=False if method_name in {"mc_gbm", "mc_gbm_bb"} else None,
+                heston_bars_per_year=heston_bars_per_year,
+                simulate_gbm=_simulate_gbm_mc,
+                simulate_hmm=_simulate_hmm_mc,
+                simulate_garch=_simulate_garch_mc,
+                simulate_bootstrap=_simulate_bootstrap_mc,
+                simulate_heston=_simulate_heston_mc,
+                simulate_jump_diffusion=_simulate_jump_diffusion_mc,
+            )
+            if not simulations:
+                raise ValueError(
+                    f"Unsupported method: {method}. Use 'mc_gbm', 'mc_gbm_bb', "
+                    f"'hmm_mc', 'garch', 'bootstrap', 'heston', 'jump_diffusion', "
+                    f"'auto', or 'ensemble'."
+                )
+            for sim in simulations:
+                local_paths_list.append(np.asarray(sim["price_paths"], dtype=float))
+                if method_name == "hmm_mc":
                     requested_states = sim.get("requested_n_states")
                     fitted_states = sim.get("fitted_n_states")
                     if requested_states is not None and fitted_states is not None:
@@ -3051,67 +3060,6 @@ def forecast_barrier_optimize(  # noqa: C901
                                 "fitted_n_states": int(fitted_states),
                             }
                         )
-            elif method_name == 'garch':
-                p_order = int(params_dict.get('p', 1))
-                q_order = int(params_dict.get('q', 1))
-                for offset in range(effective_seed_count):
-                    sim = _simulate_garch_mc(
-                        calibration_prices,
-                        horizon=horizon_val,
-                        n_sims=local_sims,
-                        seed=offset_barrier_seed(local_seed_base, offset),
-                        p_order=p_order,
-                        q_order=q_order,
-                    )
-                    local_paths_list.append(np.asarray(sim['price_paths'], dtype=float))
-            elif method_name == 'bootstrap':
-                bs = params_dict.get('block_size')
-                if bs:
-                    bs = int(bs)
-                for offset in range(effective_seed_count):
-                    sim = _simulate_bootstrap_mc(
-                        calibration_prices,
-                        horizon=horizon_val,
-                        n_sims=local_sims,
-                        seed=offset_barrier_seed(local_seed_base, offset),
-                        block_size=bs,
-                    )
-                    local_paths_list.append(np.asarray(sim['price_paths'], dtype=float))
-            elif method_name == 'heston':
-                heston_bars_per_year, _ = _annualization_context(timeframe, symbol)
-                for offset in range(effective_seed_count):
-                    sim = _simulate_heston_mc(
-                        calibration_prices,
-                        horizon=horizon_val,
-                        n_sims=local_sims,
-                        seed=offset_barrier_seed(local_seed_base, offset),
-                        kappa=params_dict.get('kappa'),
-                        theta=params_dict.get('theta'),
-                        xi=params_dict.get('xi'),
-                        rho=params_dict.get('rho'),
-                        v0=params_dict.get('v0'),
-                        bars_per_year=heston_bars_per_year,
-                    )
-                    local_paths_list.append(np.asarray(sim['price_paths'], dtype=float))
-            elif method_name == 'jump_diffusion':
-                for offset in range(effective_seed_count):
-                    sim = _simulate_jump_diffusion_mc(
-                        calibration_prices,
-                        horizon=horizon_val,
-                        n_sims=local_sims,
-                        seed=offset_barrier_seed(local_seed_base, offset),
-                        jump_lambda=params_dict.get('jump_lambda', params_dict.get('lambda')),
-                        jump_mu=params_dict.get('jump_mu'),
-                        jump_sigma=params_dict.get('jump_sigma'),
-                        jump_threshold=float(params_dict.get('jump_threshold', 3.0)),
-                    )
-                    local_paths_list.append(np.asarray(sim['price_paths'], dtype=float))
-            else:
-                raise ValueError(
-                    f"Unsupported method: {method}. Use 'mc_gbm', 'mc_gbm_bb', "
-                    f"'hmm_mc', 'garch', 'bootstrap', 'heston', 'jump_diffusion', "
-                    f"'auto', or 'ensemble'."
-                )
 
             local_paths = (
                 np.vstack(local_paths_list)

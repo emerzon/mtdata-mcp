@@ -49,6 +49,7 @@ from .barriers_shared import (
     barrier_method_error,
     normalize_barrier_method,
     normalize_barrier_seed,
+    run_barrier_method_simulations,
 )
 from .common import annualization_context as _annualization_context
 from .common import fetch_history as _fetch_history
@@ -365,75 +366,32 @@ def forecast_barrier_hit_probabilities(  # noqa: C901
         )
         
         try:
-            if method_key in ('mc_gbm', 'mc_gbm_bb'):
-                sim = _simulate_gbm_mc(
-                    prices,
-                    horizon=horizon_val,
-                    n_sims=int(sims),
-                    seed=normalize_barrier_seed(request_seed_base),
-                )
-            elif method_key == 'hmm_mc':
-                n_states = int(p.get('n_states', 2) or 2)
-                sim = _simulate_hmm_mc(
-                    prices,
-                    horizon=horizon_val,
-                    n_states=int(n_states),
-                    n_sims=int(sims),
-                    seed=normalize_barrier_seed(request_seed_base),
-                )
-            elif method_key == 'garch':
-                p_order = int(p.get('p', 1))
-                q_order = int(p.get('q', 1))
-                sim = _simulate_garch_mc(
-                    prices,
-                    horizon=horizon_val,
-                    n_sims=int(sims),
-                    seed=normalize_barrier_seed(request_seed_base),
-                    p_order=p_order,
-                    q_order=q_order,
-                )
-            elif method_key == 'bootstrap':
-                bs = p.get('block_size')
-                if bs: bs = int(bs)
-                sim = _simulate_bootstrap_mc(
-                    prices,
-                    horizon=horizon_val,
-                    n_sims=int(sims),
-                    seed=normalize_barrier_seed(request_seed_base),
-                    block_size=bs,
-                )
-            elif method_key == 'heston':
+            heston_bars_per_year = None
+            if method_key == "heston":
                 heston_bars_per_year, _ = _annualization_context(
                     timeframe,
                     symbol,
                     observed_times=df.get("time"),
                     observed_timeframe=timeframe,
                 )
-                sim = _simulate_heston_mc(
-                    prices,
-                    horizon=horizon_val,
-                    n_sims=int(sims),
-                    seed=normalize_barrier_seed(request_seed_base),
-                    kappa=p.get('kappa'),
-                    theta=p.get('theta'),
-                    xi=p.get('xi'),
-                    rho=p.get('rho'),
-                    v0=p.get('v0'),
-                    bars_per_year=heston_bars_per_year,
-                )
-            elif method_key == 'jump_diffusion':
-                sim = _simulate_jump_diffusion_mc(
-                    prices,
-                    horizon=horizon_val,
-                    n_sims=int(sims),
-                    seed=normalize_barrier_seed(request_seed_base),
-                    jump_lambda=p.get('jump_lambda', p.get('lambda')),
-                    jump_mu=p.get('jump_mu'),
-                    jump_sigma=p.get('jump_sigma'),
-                    jump_threshold=float(p.get('jump_threshold', 3.0)),
-                )
-            else:
+            simulations = run_barrier_method_simulations(
+                method_key,
+                prices,
+                horizon=horizon_val,
+                n_sims=int(sims),
+                seed=normalize_barrier_seed(request_seed_base),
+                params=p,
+                heston_bars_per_year=heston_bars_per_year,
+                simulate_gbm=_simulate_gbm_mc,
+                simulate_hmm=_simulate_hmm_mc,
+                simulate_garch=_simulate_garch_mc,
+                simulate_bootstrap=_simulate_bootstrap_mc,
+                simulate_heston=_simulate_heston_mc,
+                simulate_jump_diffusion=_simulate_jump_diffusion_mc,
+            )
+            if not simulations:
                 return {"error": f"Unsupported method: {method}. Use 'mc_gbm', 'mc_gbm_bb', 'hmm_mc', 'garch', 'bootstrap', 'heston', 'jump_diffusion', or 'auto'"}
+            sim = simulations[0]
         except (ValueError, RuntimeError, np.linalg.LinAlgError) as e:
             return {
                 "error": f"Simulation failed ({method_key}): {e}",

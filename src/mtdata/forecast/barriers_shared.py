@@ -115,6 +115,112 @@ def offset_barrier_seed(seed_base: Any, offset: int = 0) -> int:
     return normalize_barrier_seed(int(seed_base) + int(offset))
 
 
+def run_barrier_method_simulations(
+    method_key: str,
+    prices: Any,
+    *,
+    horizon: int,
+    n_sims: int,
+    seed: int,
+    params: Optional[Dict[str, Any]] = None,
+    seed_count: int = 1,
+    antithetic: Optional[bool] = None,
+    heston_bars_per_year: Any = None,
+    simulate_gbm: Any = _simulate_gbm_mc,
+    simulate_hmm: Any = _simulate_hmm_mc,
+    simulate_garch: Any = _simulate_garch_mc,
+    simulate_bootstrap: Any = _simulate_bootstrap_mc,
+    simulate_heston: Any = _simulate_heston_mc,
+    simulate_jump_diffusion: Any = _simulate_jump_diffusion_mc,
+) -> Optional[List[Dict[str, Any]]]:
+    """Run one Monte Carlo barrier method across optional seed offsets."""
+    method = str(method_key or "").strip().lower()
+    params = dict(params or {})
+    simulations: List[Dict[str, Any]] = []
+    offsets = range(max(1, int(seed_count)))
+
+    for offset in offsets:
+        sim_seed = offset_barrier_seed(seed, offset)
+        if method in {"mc_gbm", "mc_gbm_bb"}:
+            gbm_kwargs: Dict[str, Any] = {}
+            if antithetic is not None:
+                gbm_kwargs["antithetic"] = antithetic
+            simulations.append(
+                simulate_gbm(
+                    prices,
+                    horizon=horizon,
+                    n_sims=int(n_sims),
+                    seed=sim_seed,
+                    **gbm_kwargs,
+                )
+            )
+        elif method == "hmm_mc":
+            simulations.append(
+                simulate_hmm(
+                    prices,
+                    horizon=horizon,
+                    n_states=int(params.get("n_states", 2) or 2),
+                    n_sims=int(n_sims),
+                    seed=sim_seed,
+                )
+            )
+        elif method == "garch":
+            simulations.append(
+                simulate_garch(
+                    prices,
+                    horizon=horizon,
+                    n_sims=int(n_sims),
+                    seed=sim_seed,
+                    p_order=int(params.get("p", 1)),
+                    q_order=int(params.get("q", 1)),
+                )
+            )
+        elif method == "bootstrap":
+            block_size = params.get("block_size")
+            if block_size:
+                block_size = int(block_size)
+            simulations.append(
+                simulate_bootstrap(
+                    prices,
+                    horizon=horizon,
+                    n_sims=int(n_sims),
+                    seed=sim_seed,
+                    block_size=block_size,
+                )
+            )
+        elif method == "heston":
+            simulations.append(
+                simulate_heston(
+                    prices,
+                    horizon=horizon,
+                    n_sims=int(n_sims),
+                    seed=sim_seed,
+                    kappa=params.get("kappa"),
+                    theta=params.get("theta"),
+                    xi=params.get("xi"),
+                    rho=params.get("rho"),
+                    v0=params.get("v0"),
+                    bars_per_year=heston_bars_per_year,
+                )
+            )
+        elif method == "jump_diffusion":
+            simulations.append(
+                simulate_jump_diffusion(
+                    prices,
+                    horizon=horizon,
+                    n_sims=int(n_sims),
+                    seed=sim_seed,
+                    jump_lambda=params.get("jump_lambda", params.get("lambda")),
+                    jump_mu=params.get("jump_mu"),
+                    jump_sigma=params.get("jump_sigma"),
+                    jump_threshold=float(params.get("jump_threshold", 3.0)),
+                )
+            )
+        else:
+            return None
+    return simulations
+
+
 def normalize_barrier_method(
     method: Any,
     *,
