@@ -360,7 +360,10 @@ class TestTradeClose:
     @patch("mtdata.core.trading._cancel_pending")
     @patch("mtdata.core.trading._close_positions")
     def test_position_ticket_missing_reports_position_scope_only(self, mock_close, mock_cancel):
-        mock_close.return_value = {"error": "Position 123 not found"}
+        mock_close.return_value = {
+            "error": "Position 123 not found.",
+            "error_code": "ticket_not_found",
+        }
         result = trade_close(ticket=123, dry_run=False, __cli_raw=True)
 
         assert result["error"] == "Position 123 not found."
@@ -521,7 +524,10 @@ class TestTradeClose:
     @patch("mtdata.core.trading._cancel_pending")
     @patch("mtdata.core.trading._close_positions")
     def test_partial_close_ticket_not_found_does_not_cancel_pending(self, mock_close, mock_cancel):
-        mock_close.return_value = {"error": "Position 123 not found"}
+        mock_close.return_value = {
+            "error": "Position 123 not found.",
+            "error_code": "ticket_not_found",
+        }
         out = _unwrap_mcp(trade_close(ticket=123, volume=0.05, dry_run=False))
         if isinstance(out, dict):
             assert "partial close volume only applies to open positions" in str(out.get("error", "")).lower()

@@ -1302,7 +1302,10 @@ def test_trade_modify_rejects_invalid_expiration_before_order_lookup(
 def test_trade_modify_pending_not_found_reports_checked_scope() -> None:
     with patch(
         "mtdata.core.trading._modify_pending_order",
-        return_value={"error": "Pending order 123 not found"},
+        return_value={
+            "error": "Pending order 123 not found.",
+            "error_code": "ticket_not_found",
+        },
     ):
         out = trade_modify(ticket=123, price=1.2, __cli_raw=True)
     assert "error" in out
@@ -1315,10 +1318,16 @@ def test_trade_modify_pending_not_found_reports_checked_scope() -> None:
 def test_trade_modify_missing_ticket_reports_both_checked_scopes() -> None:
     with patch(
         "mtdata.core.trading._modify_position",
-        return_value={"error": "Position 123 not found"},
+        return_value={
+            "error": "Position 123 not found.",
+            "error_code": "ticket_not_found",
+        },
     ), patch(
         "mtdata.core.trading._modify_pending_order",
-        return_value={"error": "Pending order 123 not found"},
+        return_value={
+            "error": "Pending order 123 not found.",
+            "error_code": "ticket_not_found",
+        },
     ):
         out = trade_modify(ticket=123, stop_loss=1.0, __cli_raw=True)
     assert "error" in out

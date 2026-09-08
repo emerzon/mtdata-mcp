@@ -243,8 +243,18 @@ def test_run_trade_close_rejects_conflicting_profit_and_loss_filters():
 
 def test_run_trade_close_uses_history_lookup_when_ticket_is_already_closed():
     request = TradeCloseRequest(ticket=123, dry_run=False)
-    close_positions = MagicMock(return_value={"error": "Position 123 not found"})
-    cancel_pending = MagicMock(return_value={"error": "Pending order 123 not found"})
+    close_positions = MagicMock(
+        return_value={
+            "error": "Position 123 not found.",
+            "error_code": "ticket_not_found",
+        }
+    )
+    cancel_pending = MagicMock(
+        return_value={
+            "error": "Pending order 123 not found.",
+            "error_code": "ticket_not_found",
+        }
+    )
     lookup_ticket_history = MagicMock(
         return_value={
             "message": "Ticket 123 was a Buy position that has already been closed at 2026-03-29 10:00 UTC. No action taken.",

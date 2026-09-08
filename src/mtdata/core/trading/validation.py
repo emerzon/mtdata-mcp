@@ -1030,6 +1030,46 @@ def _validate_live_protection_levels(
     return None
 
 
+_TICKET_NOT_FOUND_GUIDANCE = (
+    "Use trade_get_open or trade_get_pending to find an active ticket, "
+    "then retry with that exact ticket."
+)
+
+
+def ticket_not_found_error(
+    ticket: Any,
+    *,
+    checked_scopes: list[str],
+    note: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Build the canonical ticket-not-found error payload."""
+    scopes = [str(scope).strip() for scope in checked_scopes if str(scope).strip()]
+    if scopes == ["positions"]:
+        error = f"Position {ticket} not found."
+    elif scopes == ["pending_orders"]:
+        error = f"Pending order {ticket} not found."
+    else:
+        error = f"Ticket {ticket} not found as position or pending order."
+    if note:
+        error = f"{error} {note}"
+    return {
+        "success": False,
+        "error": error,
+        "error_code": "ticket_not_found",
+        "ticket": ticket,
+        "checked_scopes": scopes,
+        "suggestion": _TICKET_NOT_FOUND_GUIDANCE,
+        "remediation": _TICKET_NOT_FOUND_GUIDANCE,
+    }
+
+
+def is_ticket_not_found(result: Any) -> bool:
+    return (
+        isinstance(result, dict)
+        and str(result.get("error_code") or "").strip() == "ticket_not_found"
+    )
+
+
 def snapshot_unavailable_error(
     mt5: Any,
     *,

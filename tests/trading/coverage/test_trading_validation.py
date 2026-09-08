@@ -531,3 +531,27 @@ def test_trade_place_accepts_positive_volume_in_dry_run():
     assert result.get("success") is True
     assert result.get("dry_run") is True
     assert result.get("volume") == 0.01
+
+
+def test_ticket_not_found_error_uses_checked_scopes() -> None:
+    position = validation.ticket_not_found_error(123, checked_scopes=["positions"])
+    pending = validation.ticket_not_found_error(
+        456,
+        checked_scopes=["pending_orders"],
+        note="Partial close volume only applies to open positions.",
+    )
+    both = validation.ticket_not_found_error(
+        789,
+        checked_scopes=["positions", "pending_orders"],
+    )
+
+    assert position["error_code"] == "ticket_not_found"
+    assert position["error"] == "Position 123 not found."
+    assert position["checked_scopes"] == ["positions"]
+    assert pending["error"] == (
+        "Pending order 456 not found. "
+        "Partial close volume only applies to open positions."
+    )
+    assert both["error"] == "Ticket 789 not found as position or pending order."
+    assert validation.is_ticket_not_found(position)
+    assert not validation.is_ticket_not_found({"error": "Position 123 not found."})

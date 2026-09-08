@@ -196,18 +196,13 @@ def run_trade_modify(
                 expiration=request.expiration,
                 dry_run=bool(request.dry_run),
             )
-            if result.get("error") == f"Pending order {request.ticket} not found":
+            if validation.is_ticket_not_found(result):
                 return _finish(
-                    {
-                        "error_code": "ticket_not_found",
-                        "error": (
-                            f"Pending order {request.ticket} not found. "
-                            "Note: price/expiration only apply to pending orders."
-                        ),
-                        "ticket": request.ticket,
-                        "checked_scopes": ["pending_orders"],
-                        "suggestion": "Use trade_get_pending to find active pending-order tickets before retrying trade_modify.",
-                    },
+                    validation.ticket_not_found_error(
+                        request.ticket,
+                        checked_scopes=["pending_orders"],
+                        note="Note: price/expiration only apply to pending orders.",
+                    ),
                     pending=True,
                 )
             return _finish(result, pending=True)
@@ -220,7 +215,7 @@ def run_trade_modify(
         )
         if position_result.get("success"):
             return _finish(position_result, pending=False)
-        if position_result.get("error") == f"Position {request.ticket} not found":
+        if validation.is_ticket_not_found(position_result):
             pending_result = modify_pending_order(
                 ticket=request.ticket,
                 price=None,
@@ -230,15 +225,12 @@ def run_trade_modify(
                 expiration=None,
                 dry_run=bool(request.dry_run),
             )
-            if pending_result.get("error") == f"Pending order {request.ticket} not found":
+            if validation.is_ticket_not_found(pending_result):
                 return _finish(
-                    {
-                        "error_code": "ticket_not_found",
-                        "error": f"Ticket {request.ticket} not found as position or pending order.",
-                        "ticket": request.ticket,
-                        "checked_scopes": ["positions", "pending_orders"],
-                        "suggestion": "Use trade_get_open or trade_get_pending to find active tickets before retrying trade_modify.",
-                    },
+                    validation.ticket_not_found_error(
+                        request.ticket,
+                        checked_scopes=["positions", "pending_orders"],
+                    ),
                     pending=None,
                 )
             return _finish(pending_result, pending=True)

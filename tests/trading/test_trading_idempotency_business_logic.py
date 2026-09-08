@@ -521,11 +521,19 @@ def test_run_trade_close_releases_preflight_failure_for_retry(tmp_path) -> None:
     store = _store(tmp_path)
     close_positions = MagicMock(
         side_effect=[
-            {"error": "Position 123 not found"},
+            {
+                "error": "Position 123 not found.",
+                "error_code": "ticket_not_found",
+            },
             {"success": True, "ticket": 123, "deal": 456},
         ]
     )
-    cancel_pending = MagicMock(return_value={"error": "Pending order 123 not found"})
+    cancel_pending = MagicMock(
+        return_value={
+            "error": "Pending order 123 not found.",
+            "error_code": "ticket_not_found",
+        }
+    )
     request = TradeCloseRequest(
         ticket=123,
         idempotency_key="close-retry",

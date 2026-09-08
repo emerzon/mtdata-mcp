@@ -455,7 +455,10 @@ def _modify_position(  # noqa: C901
                 allow_alternate_ticket_match=True,
             )
             if position is None or resolved_ticket is None:
-                out = {"error": f"Position {ticket} not found", "checked_scopes": ["positions"]}
+                out = validation.ticket_not_found_error(
+                    ticket,
+                    checked_scopes=["positions"],
+                )
                 if isinstance(ticket_resolution, dict):
                     out["ticket_resolution"] = ticket_resolution
                 return out
@@ -802,7 +805,10 @@ def _modify_pending_order(  # noqa: C901
                 require_exact_ticket_match=True,
             )
             if order is None:
-                out = {"error": f"Pending order {ticket} not found", "checked_scopes": ["pending_orders"]}
+                out = validation.ticket_not_found_error(
+                    ticket,
+                    checked_scopes=["pending_orders"],
+                )
                 if isinstance(ticket_resolution, dict):
                     out["ticket_resolution"] = ticket_resolution
                 return out
@@ -1963,7 +1969,10 @@ def _close_positions(  # noqa: C901
                             snapshot="positions",
                             context=f"close position {ticket}",
                         )
-                    out = {"error": f"Position {ticket} not found", "checked_scopes": ["positions"]}
+                    out = validation.ticket_not_found_error(
+                        ticket,
+                        checked_scopes=["positions"],
+                    )
                     if isinstance(ticket_resolution, dict):
                         out["ticket_resolution"] = ticket_resolution
                     return out
@@ -2417,23 +2426,17 @@ def _resolve_close_dry_run_target(  # noqa: C901
         )
 
     if volume is not None:
-        return {
-            "error": (
-                f"Position {ticket} not found. "
-                "Partial close volume only applies to open positions."
-            ),
-            "checked_scopes": ["positions"],
-        }
+        return validation.ticket_not_found_error(
+            requested_ticket,
+            checked_scopes=["positions"],
+            note="Partial close volume only applies to open positions.",
+        )
 
     if target_value == "positions":
-        return {
-            "error_code": "ticket_not_found",
-            "error": f"Position {ticket} not found.",
-            "ticket": requested_ticket,
-            "checked_scopes": ["positions"],
-            "suggestion": "Use trade_get_open to find an active position ticket.",
-            "remediation": "Use trade_get_open to find an active position ticket.",
-        }
+        return validation.ticket_not_found_error(
+            requested_ticket,
+            checked_scopes=["positions"],
+        )
 
     pending_order, resolved_ticket, pending_resolution = _resolve_pending_order(
         mt5,
@@ -2475,20 +2478,10 @@ def _resolve_close_dry_run_target(  # noqa: C901
             context=f"preview pending cancellation {ticket}",
         )
 
-    return {
-        "error_code": "ticket_not_found",
-        "error": f"Pending order {ticket} not found.",
-        "ticket": requested_ticket,
-        "checked_scopes": ["pending_orders"],
-        "suggestion": (
-            "Use trade_get_pending to find an active pending-order ticket "
-            "before retrying trade_close with target=pending."
-        ),
-        "remediation": (
-            "Use trade_get_pending to find an active pending-order ticket "
-            "before retrying trade_close with target=pending."
-        ),
-    }
+    return validation.ticket_not_found_error(
+        requested_ticket,
+        checked_scopes=["pending_orders"],
+    )
 
 
 def _cancel_pending(  # noqa: C901
@@ -2542,7 +2535,10 @@ def _cancel_pending(  # noqa: C901
                             snapshot="orders",
                             context=f"cancel pending order {ticket}",
                         )
-                    out = {"error": f"Pending order {ticket} not found", "checked_scopes": ["pending_orders"]}
+                    out = validation.ticket_not_found_error(
+                        ticket,
+                        checked_scopes=["pending_orders"],
+                    )
                     if isinstance(ticket_resolution, dict):
                         out["ticket_resolution"] = ticket_resolution
                     return out

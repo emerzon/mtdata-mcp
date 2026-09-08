@@ -228,7 +228,10 @@ class TestTradeModify:
     @patch("mtdata.core.trading._modify_pending_order")
     @patch("mtdata.core.trading._modify_position")
     def test_position_not_found_falls_back_to_pending(self, mock_pos, mock_pend):
-        mock_pos.return_value = {"error": "Position 100 not found"}
+        mock_pos.return_value = {
+            "error": "Position 100 not found.",
+            "error_code": "ticket_not_found",
+        }
         mock_pend.return_value = {"success": True}
         result = _unwrap_mcp(trade_modify(ticket=100, stop_loss=1.08))
         assert "success" in result or "True" in result
@@ -236,14 +239,23 @@ class TestTradeModify:
     @patch("mtdata.core.trading._modify_pending_order")
     @patch("mtdata.core.trading._modify_position")
     def test_both_not_found(self, mock_pos, mock_pend):
-        mock_pos.return_value = {"error": "Position 100 not found"}
-        mock_pend.return_value = {"error": "Pending order 100 not found"}
+        mock_pos.return_value = {
+            "error": "Position 100 not found.",
+            "error_code": "ticket_not_found",
+        }
+        mock_pend.return_value = {
+            "error": "Pending order 100 not found.",
+            "error_code": "ticket_not_found",
+        }
         result = _unwrap_mcp(trade_modify(ticket=100, stop_loss=1.08))
         assert "not found" in result
 
     @patch("mtdata.core.trading._modify_pending_order")
     def test_pending_not_found_with_price(self, mock_pend):
-        mock_pend.return_value = {"error": "Pending order 100 not found"}
+        mock_pend.return_value = {
+            "error": "Pending order 100 not found.",
+            "error_code": "ticket_not_found",
+        }
         result = _unwrap_mcp(trade_modify(ticket=100, price=1.09))
         assert "Pending order 100 not found" in result
 

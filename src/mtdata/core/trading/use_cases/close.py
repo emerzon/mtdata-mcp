@@ -11,7 +11,7 @@ from mtdata.core.execution_logging import (
     log_operation_finish,
     log_operation_start,
 )
-from mtdata.core.trading import comments
+from mtdata.core.trading import comments, validation
 from mtdata.core.trading.requests import TradeCloseRequest
 from mtdata.core.trading.use_cases.common import (
     _TRADE_IDEMPOTENCY_STORE,
@@ -731,27 +731,18 @@ def _run_trade_close_once(  # noqa: C901
             deviation=request.deviation,
             dry_run=False,
         )
-        if (
-            request.volume is not None
-            and isinstance(position_result, dict)
-            and position_result.get("error") == f"Position {request.ticket} not found"
+        if request.volume is not None and validation.is_ticket_not_found(
+            position_result
         ):
             return _finish(
-                {
-                    "error_code": "ticket_not_found",
-                    "error": (
-                        f"Position {request.ticket} not found. "
-                        "Partial close volume only applies to open positions."
-                    ),
-                    "ticket": request.ticket,
-                    "checked_scopes": ["positions"],
-                },
+                validation.ticket_not_found_error(
+                    request.ticket,
+                    checked_scopes=["positions"],
+                    note="Partial close volume only applies to open positions.",
+                ),
                 scope="positions",
             )
-        if (
-            isinstance(position_result, dict)
-            and position_result.get("error") == f"Position {request.ticket} not found"
-        ):
+        if validation.is_ticket_not_found(position_result):
             history_result = None
             if lookup_ticket_history is not None:
                 try:
@@ -761,16 +752,10 @@ def _run_trade_close_once(  # noqa: C901
             if isinstance(history_result, dict) and history_result:
                 return _finish(history_result, scope="history")
             return _finish(
-                {
-                    "error_code": "ticket_not_found",
-                    "error": f"Position {request.ticket} not found.",
-                    "ticket": request.ticket,
-                    "checked_scopes": ["positions"],
-                    "suggestion": (
-                        "Use trade_get_open to find an active position ticket, or "
-                        "set target=pending to cancel a pending-order ticket."
-                    ),
-                },
+                validation.ticket_not_found_error(
+                    request.ticket,
+                    checked_scopes=["positions"],
+                ),
                 scope="positions",
             )
         return _finish(position_result, scope="positions")
