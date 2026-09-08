@@ -9,7 +9,10 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from mtdata.services.finviz.symbols import normalize_finviz_equity_symbol
+from mtdata.services.finviz.symbols import (
+    looks_like_non_equity_symbol,
+    normalize_finviz_equity_symbol,
+)
 
 
 @pytest.mark.parametrize(
@@ -29,6 +32,19 @@ from mtdata.services.finviz.symbols import normalize_finviz_equity_symbol
 )
 def test_normalize_finviz_equity_symbol(broker_symbol: str, expected: str) -> None:
     assert normalize_finviz_equity_symbol(broker_symbol) == expected
+
+
+@pytest.mark.parametrize(
+    "symbol",
+    ("EURUSD", "USDMXN", "USDZAR", "USDCNH", "BTCUSD", "USD/MXN", "OANDA:EURUSD"),
+)
+def test_looks_like_non_equity_symbol_rejects_fx_and_crypto(symbol: str) -> None:
+    assert looks_like_non_equity_symbol(symbol) is True
+
+
+@pytest.mark.parametrize("symbol", ("AAPL", "BRK.B", "MSFT.O", ""))
+def test_looks_like_non_equity_symbol_keeps_equities(symbol: str) -> None:
+    assert looks_like_non_equity_symbol(symbol) is False
 
 
 def test_finviz_fundamental_percent_units_are_explicit() -> None:
