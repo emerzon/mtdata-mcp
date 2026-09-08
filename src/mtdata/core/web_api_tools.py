@@ -17,6 +17,7 @@ from ..utils.coercion import UNPARSED_BOOL, parse_strict_bool
 from ..utils.denoise import DenoiseCausalityError
 from ..utils.mt5 import MT5ConnectionError
 from ._mcp_tools import (
+    TOOL_CATALOG_DETAIL_MODES,
     _prepare_public_tool_call,
     _shape_public_tool_output,
     filter_tool_catalog_rows,
@@ -175,27 +176,9 @@ def _invocation_requires_confirmation(
     return _effective_dry_run(prepared_args, target=target) is not True
 
 
-def _http_status_for_tool_result(result: Any) -> int:
-    """Map a structured tool failure onto HTTP 4xx/5xx."""
-    if not isinstance(result, dict):
-        return 400
-    code = str(result.get("error_code") or "").strip().lower()
-    if (
-        "param" in code
-        or "validation" in code
-        or code in {"invalid_params", "invalid_argument", "tool_param_error"}
-    ):
-        return 422
-    if "not_found" in code:
-        return 404
-    if "internal" in code:
-        return 500
-    return _http_status_for_error(result, default=400)
-
-
 def _raise_failed_tool_result(result: Any, *, operation: str) -> None:
     """Raise an HTTP error whose success flag matches the domain outcome."""
-    status = _http_status_for_tool_result(result)
+    status = _http_status_for_error(result, default=400)
     if isinstance(result, dict):
         error_text = result.get("error")
         code = str(result.get("error_code") or "tool_error")
@@ -275,7 +258,7 @@ def _invalid_catalog_query_error(
 
 def _catalog_detail_mode(detail: str, *, default: str, operation: str) -> str:
     requested = str(detail or default).strip().lower()
-    if requested in TOOL_CATALOG_DETAILS:
+    if requested in TOOL_CATALOG_DETAIL_MODES:
         return requested
     raise _invalid_catalog_query_error(
         parameter="detail",

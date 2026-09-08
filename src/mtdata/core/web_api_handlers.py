@@ -32,11 +32,21 @@ _HISTORY_DENOISE_CONTROL_KEYS = frozenset(
 )
 
 
-def _http_status_for_error(payload: Dict[str, Any], *, default: int = 400) -> int:
+def _http_status_for_error(payload: Any, *, default: int = 400) -> int:
     """Map a canonical domain error to HTTP without changing its identity."""
+    if not isinstance(payload, dict):
+        return default
     code = str(payload.get("error_code") or "").strip().lower()
-    if code == "symbol_not_found":
+    if (
+        "param" in code
+        or "validation" in code
+        or code in {"invalid_params", "invalid_argument", "tool_param_error"}
+    ):
+        return 422
+    if "not_found" in code:
         return 404
+    if "internal" in code:
+        return 500
     if code in {
         "market_ticker_mt5_connection",
         "market_ticker_tick_unavailable",

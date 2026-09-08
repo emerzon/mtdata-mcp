@@ -671,9 +671,12 @@ def filter_tool_catalog_rows(
     return filtered
 
 
-def _catalog_detail_mode(detail: str, *, default: str = "compact") -> str:
+TOOL_CATALOG_DETAIL_MODES = frozenset({"compact", "standard", "full"})
+
+
+def _normalize_catalog_detail(detail: str, *, default: str = "compact") -> str:
     requested = str(detail or default).strip().lower()
-    return requested if requested in {"compact", "standard", "full"} else default
+    return requested if requested in TOOL_CATALOG_DETAIL_MODES else default
 
 
 def _build_registered_catalog_row(name: str, func: Any, *, detail_mode: str) -> Dict[str, Any]:
@@ -712,7 +715,7 @@ def registered_tool_catalog_entry(name: str, *, detail: str = "compact") -> Opti
     key = str(name or "").strip()
     if not key or not _is_public_tool_name(key):
         return None
-    detail_mode = _catalog_detail_mode(detail)
+    detail_mode = _normalize_catalog_detail(detail)
     entry = _TOOL_METADATA_REGISTRY.get(key)
     if entry is not None and entry.function is not _REGISTRY_UNSET:
         return _build_registered_catalog_row(key, entry.function, detail_mode=detail_mode)
@@ -723,7 +726,7 @@ def registered_tool_catalog_entry(name: str, *, detail: str = "compact") -> Opti
 
 def registered_tool_catalog(*, detail: str = "compact") -> Dict[str, Any]:
     """Return a generated catalog of registered mtdata tools."""
-    detail_mode = _catalog_detail_mode(detail)
+    detail_mode = _normalize_catalog_detail(detail)
     tools = []
     categories: Dict[str, List[str]] = {}
     seen: set[str] = set()

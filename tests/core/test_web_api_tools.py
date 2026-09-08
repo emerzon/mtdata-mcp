@@ -40,6 +40,7 @@ _TRADE_PLACE_ARGS = {
 }
 _DOMAIN_FAILURES = [
     ({"success": False, "error": "Unknown symbol EURX", "error_code": "symbol_not_found"}, 404),
+    ({"success": False, "error": "Ticket 123 not found.", "error_code": "ticket_not_found"}, 404),
     ({"success": False, "error": "volume must be positive", "error_code": "tool_param_error"}, 422),
     ({"success": False, "error": "terminal unavailable", "error_code": "mt5_connection_error"}, 503),
     ({"success": False, "error": "internal boom", "error_code": "tool_invoke_internal_error"}, 500),
