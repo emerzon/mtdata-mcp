@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import Annotated, Any, Dict, Literal, Optional, Union
+from typing import Annotated, Any, ClassVar, Dict, Literal, Optional, Union
 
 from pydantic import (
     BaseModel,
@@ -103,17 +103,6 @@ class KellySizing(BaseModel):
 RiskSizing = Annotated[Union[FixedFractionSizing, KellySizing], Field(discriminator="method")]
 
 
-def _normalize_trade_side_alias(value: Optional[str]) -> Optional[str]:
-    if value is None:
-        return None
-    normalized, error = validation._normalize_trade_side_filter(value)
-    if error is None and normalized is not None:
-        return normalized
-    if error is not None:
-        raise ValueError(error)
-    return None
-
-
 def _normalize_positive_ticket(value: Any) -> int:
     ticket = validation._parse_mt5_ticket(value)
     if ticket is None:
@@ -142,26 +131,18 @@ MT5Magic = Annotated[
 
 class _SideNormalizedRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    _directional_side: ClassVar[bool] = False
 
     @field_validator("side", mode="before", check_fields=False)
     @classmethod
     def _normalize_side(cls, value: Optional[str]) -> Optional[str]:
-        return _normalize_trade_side_alias(value)
-
-
-class _DirectionalSideNormalizedRequest(BaseModel):
-    """Normalize long/short aliases for current positions and working orders."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    @field_validator("side", mode="before", check_fields=False)
-    @classmethod
-    def _normalize_side(cls, value: Optional[str]) -> Optional[str]:
-        normalized = _normalize_trade_side_alias(value)
-        return {"LONG": "BUY", "SHORT": "SELL"}.get(
-            normalized,
-            normalized,
+        normalized, error = validation._normalize_trade_side_filter(
+            value,
+            directional=cls._directional_side,
         )
+        if error is not None:
+            raise ValueError(error)
+        return normalized
 
 
 class TradePlaceRequest(BaseModel):
@@ -317,7 +298,8 @@ class TradeModifyRequest(BaseModel):
     )
 
 
-class TradeCloseRequest(_DirectionalSideNormalizedRequest):
+class TradeCloseRequest(_SideNormalizedRequest):
+    _directional_side: ClassVar[bool] = True
 
     ticket: Optional[MT5Ticket] = None
     target: Literal["positions", "pending", "all_exposure"] = Field(
@@ -828,7 +810,8 @@ class TradeStressTestRequest(BaseModel):
         return promoted
 
 
-class TradeGetOpenRequest(_DirectionalSideNormalizedRequest):
+class TradeGetOpenRequest(_SideNormalizedRequest):
+    _directional_side: ClassVar[bool] = True
     symbol: Optional[str] = None
     ticket: Optional[MT5Ticket] = None
     side: Optional[Literal["BUY", "SELL"]] = Field(
@@ -881,7 +864,8 @@ class TradeGetOpenRequest(_DirectionalSideNormalizedRequest):
         return self.pnl_filter == "loss"
 
 
-class TradeGetPendingRequest(_DirectionalSideNormalizedRequest):
+class TradeGetPendingRequest(_SideNormalizedRequest):
+    _directional_side: ClassVar[bool] = True
     symbol: Optional[str] = None
     ticket: Optional[MT5Ticket] = None
     side: Optional[Literal["BUY", "SELL"]] = Field(

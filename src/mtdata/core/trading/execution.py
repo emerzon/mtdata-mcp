@@ -1936,13 +1936,12 @@ def _close_positions(  # noqa: C901
                         f"{validation.MT5_UINT64_MAX}, inclusive."
                     )
                 }
-            side_filter, side_error = validation._normalize_trade_side_filter(side)
+            side_filter, side_error = validation._normalize_trade_side_filter(
+                side,
+                directional=True,
+            )
             if side_error is not None:
                 return {"error": side_error}
-            side_filter = {"LONG": "BUY", "SHORT": "SELL"}.get(
-                side_filter,
-                side_filter,
-            )
             symbol_error = validation._validate_trading_symbol(mt5, symbol)
             if symbol_error is not None:
                 return symbol_error
@@ -2328,13 +2327,12 @@ def _resolve_close_dry_run_target(  # noqa: C901
                 f"{validation.MT5_UINT64_MAX}, inclusive."
             )
         }
-    side_filter, side_error = validation._normalize_trade_side_filter(side)
+    side_filter, side_error = validation._normalize_trade_side_filter(
+        side,
+        directional=True,
+    )
     if side_error is not None:
         return {"error": side_error}
-    side_filter = {"LONG": "BUY", "SHORT": "SELL"}.get(
-        side_filter,
-        side_filter,
-    )
 
     position = None
     resolved_ticket = None

@@ -47,7 +47,11 @@ from pydantic import ValidationError
 
 from mtdata.core.trading import time, validation
 from mtdata.core.trading.orders import _evaluate_requested_protection
-from mtdata.core.trading.requests import TradePlaceRequest
+from mtdata.core.trading.requests import (
+    TradeCloseRequest,
+    TradeHistoryRequest,
+    TradePlaceRequest,
+)
 from mtdata.core.trading.time import (
     _server_time_naive_to_mt5_timestamp,
     _to_server_time_naive,
@@ -531,6 +535,20 @@ def test_trade_place_accepts_positive_volume_in_dry_run():
     assert result.get("success") is True
     assert result.get("dry_run") is True
     assert result.get("volume") == 0.01
+
+
+def test_normalize_trade_side_filter_directional_collapse() -> None:
+    preserved, error = validation._normalize_trade_side_filter("long")
+    collapsed, directional_error = validation._normalize_trade_side_filter(
+        "long",
+        directional=True,
+    )
+    assert error is None
+    assert directional_error is None
+    assert preserved == "LONG"
+    assert collapsed == "BUY"
+    assert TradeCloseRequest(ticket=1, side="short").side == "SELL"
+    assert TradeHistoryRequest(side="short").side == "SHORT"
 
 
 def test_ticket_not_found_error_uses_checked_scopes() -> None:

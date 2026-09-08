@@ -148,7 +148,11 @@ def _normalize_order_type_input(order_type: Any) -> Tuple[Optional[str], Optiona
     )
 
 
-def _normalize_trade_side_filter(side: Any) -> Tuple[Optional[str], Optional[str]]:
+def _normalize_trade_side_filter(
+    side: Any,
+    *,
+    directional: bool = False,
+) -> Tuple[Optional[str], Optional[str]]:
     """Normalize fill-side and position-side filters without conflating them."""
     if side is None:
         return None, None
@@ -160,9 +164,11 @@ def _normalize_trade_side_filter(side: Any) -> Tuple[Optional[str], Optional[str
         return None, None
 
     normalized = _canonical_enum_token(text)
-    if normalized in {"BUY", "SELL", "LONG", "SHORT"}:
-        return normalized, None
-    return None, "side must be BUY, SELL, LONG, or SHORT."
+    if normalized not in {"BUY", "SELL", "LONG", "SHORT"}:
+        return None, "side must be BUY, SELL, LONG, or SHORT."
+    if directional:
+        normalized = {"LONG": "BUY", "SHORT": "SELL"}.get(normalized, normalized)
+    return normalized, None
 
 
 def _trade_history_action(

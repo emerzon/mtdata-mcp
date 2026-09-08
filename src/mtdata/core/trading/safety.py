@@ -179,7 +179,7 @@ def assess_margin_stress(account: Any) -> Dict[str, Any]:
     }
 
 
-def _normalize_side(value: Any) -> Optional[str]:
+def _infer_side_from_order_type(value: Any) -> Optional[str]:
     text = str(value or "").strip().upper()
     if not text:
         return None
@@ -451,8 +451,8 @@ def _evaluate_safety_policy(
 
     if policy.reduce_only and side is not None:
         opposite = {"BUY": "SELL", "SELL": "BUY"}
-        normalized_existing_side = _normalize_side(existing_side)
-        normalized_side = _normalize_side(side)
+        normalized_existing_side = _infer_side_from_order_type(existing_side)
+        normalized_side = _infer_side_from_order_type(side)
         if normalized_existing_side is None:
             violations.append("Reduce-only policy: no existing position to reduce.")
         elif normalized_side != opposite.get(normalized_existing_side, ""):
@@ -776,7 +776,7 @@ def _estimate_order_risk_currency(
     if not math.isfinite(risk_tick_value) or risk_tick_value <= 0:
         return None, "tick_value_invalid"
 
-    normalized_side = _normalize_side(side)
+    normalized_side = _infer_side_from_order_type(side)
     if normalized_side == "BUY":
         risk_ticks = price_delta_ticks(float(entry_price), normalized_stop_loss, tick_size)
     else:
@@ -918,7 +918,7 @@ def _projected_exposure_lots(
     if not _account_uses_netting(account_info):
         return existing + new_volume
 
-    normalized_side = _normalize_side(side)
+    normalized_side = _infer_side_from_order_type(side)
     if normalized_side is None:
         return existing + new_volume
 
@@ -1089,7 +1089,7 @@ def _evaluate_wallet_risk_limits(
         return None
 
     violations: List[str] = []
-    normalized_side = _normalize_side(side)
+    normalized_side = _infer_side_from_order_type(side)
     if account_info is None:
         violations.append(
             "Account information is required to enforce wallet risk guardrails."
@@ -1263,7 +1263,7 @@ def evaluate_trade_guardrails(
         return None
 
     normalized_symbol = _normalize_symbol(symbol)
-    normalized_side = _normalize_side(side)
+    normalized_side = _infer_side_from_order_type(side)
 
     if enforce_symbol_rules:
         symbol_result = _evaluate_symbol_guardrails(

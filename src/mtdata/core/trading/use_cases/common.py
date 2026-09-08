@@ -562,7 +562,7 @@ def _sl_tp_result_details(result: Dict[str, Any]) -> tuple[bool, str]:
 
 
 def _guardrail_order_side(order_type: Optional[str]) -> Optional[str]:
-    side = safety._normalize_side(order_type)
+    side = safety._infer_side_from_order_type(order_type)
     return side if side in {"BUY", "SELL"} else None
 
 
