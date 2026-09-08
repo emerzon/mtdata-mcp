@@ -20,8 +20,8 @@ from ._mcp_tools import (
     TOOL_CATALOG_DETAIL_MODES,
     _prepare_public_tool_call,
     _shape_public_tool_output,
-    filter_tool_catalog_rows,
     get_tool_functions,
+    query_tool_catalog,
     registered_tool_catalog,
     registered_tool_catalog_entry,
 )
@@ -364,61 +364,35 @@ def list_tools_for_webapi(
     category_filter = _catalog_category_filter(category, operation="tools_list")
     limit_value = _catalog_limit_value(limit)
     offset_value = _catalog_offset_value(offset)
-    catalog = registered_tool_catalog(detail=detail_mode)
-    tools = catalog.get("tools") if isinstance(catalog, dict) else []
-    if not isinstance(tools, list):
-        tools = []
-
-    searchable_names: Optional[set[str]] = None
-    search_filter = str(search or "").strip()
-    if search_filter and detail_mode != "full":
-        search_catalog = registered_tool_catalog(detail="full")
-        searchable_rows = (
-            search_catalog.get("tools") if isinstance(search_catalog, dict) else []
-        )
-        if not isinstance(searchable_rows, list):
-            searchable_rows = []
-        searchable_names = {
-            str(row.get("name") or "")
-            for row in filter_tool_catalog_rows(
-                searchable_rows,
-                category=category_filter,
-                search=search_filter,
-            )
-            if isinstance(row, dict)
-        }
-
-    filtered = filter_tool_catalog_rows(
-        tools,
+    queried = query_tool_catalog(
         category=category_filter,
-        search=None if searchable_names is not None else search_filter,
+        search=search,
+        detail=detail_mode,
+        limit=limit_value,
+        offset=offset_value,
     )
-    if searchable_names is not None:
-        filtered = [
-            row for row in filtered
-            if str(row.get("name") or "") in searchable_names
-        ]
-    start = min(offset_value, len(filtered))
-    paged = filtered[start : start + limit_value]
-    enriched = [_enrich_catalog_row(row, include_fields=include_fields) for row in paged]
+    catalog = queried["catalog"] if isinstance(queried["catalog"], dict) else {}
+    filtered = queried["filtered"]
+    enriched = [
+        _enrich_catalog_row(row, include_fields=include_fields)
+        for row in queried["paged"]
+    ]
 
-    categories: Dict[str, List[str]] = {}
     surfaces = {"dedicated_ui": 0, "generic_runner": 0, "intentional_omit": 0}
     for row in filtered:
-        name = str(row.get("name") or "")
-        categories.setdefault(str(row.get("category") or "other"), []).append(name)
-        surface = classify_tool_surface(name)
+        surface = classify_tool_surface(str(row.get("name") or ""))
         surfaces[surface] = surfaces.get(surface, 0) + 1
 
     return {
         "success": True,
-        "detail": catalog.get("detail") if isinstance(catalog, dict) else detail_mode,
+        "detail": catalog.get("detail") if catalog else detail_mode,
         "count": len(enriched),
-        "categories": categories,
+        "categories": queried["categories"],
         "surfaces": surfaces,
-        "pagination": build_pagination_meta(
-            total=len(filtered),
-            returned=len(enriched),
+        "pagination": queried["pagination"]
+        or build_pagination_meta(
+            total=0,
+            returned=0,
             offset=offset_value,
             limit=limit_value,
         ),

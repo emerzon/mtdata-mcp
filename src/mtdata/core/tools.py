@@ -10,7 +10,7 @@ from pydantic import Field
 from ..shared.schema import DetailLiteral
 from ..shared.tool_categories import TOOL_CATEGORY_IDS
 from ._mcp_instance import mcp
-from ._mcp_tools import filter_tool_catalog_rows, registered_tool_catalog
+from ._mcp_tools import query_tool_catalog
 from .execution_logging import run_logged_operation
 from .output_contract import build_pagination_meta
 
@@ -33,10 +33,6 @@ def tools_list(
     """List mtdata tools with filters, pagination, and optional parameter summaries."""
 
     def _run() -> Dict[str, Any]:
-        catalog = registered_tool_catalog(detail=detail)
-        tools = catalog.get("tools") if isinstance(catalog, dict) else []
-        if not isinstance(tools, list):
-            return catalog
         try:
             offset_value = int(offset or 0)
         except (TypeError, ValueError):
@@ -49,52 +45,30 @@ def tools_list(
             return {"error": "limit must be a positive integer."}
         if limit_value < 1:
             return {"error": "limit must be a positive integer."}
-        category_filter = str(category or "").strip().lower()
-        search_filter = str(search or "").strip().lower()
         known_categories = set(TOOL_CATEGORY_IDS)
-        detail_mode = str(catalog.get("detail") or detail or "compact").strip().lower()
-        searchable_names: Optional[set[str]] = None
-        if search_filter and detail_mode != "full":
-            search_catalog = registered_tool_catalog(detail="full")
-            searchable_rows = search_catalog.get("tools")
-            exact_names = {
-                str(row.get("name") or "")
-                for row in searchable_rows if isinstance(row, dict)
-                if str(row.get("name") or "").strip().lower() == search_filter
-            }
-            searchable_names = exact_names or {
-                str(row.get("name") or "")
-                for row in filter_tool_catalog_rows(
-                    searchable_rows,
-                    category=category_filter,
-                    search=search_filter,
-                )
-            }
-        filtered = []
-        filtered_gated = []
-        exact_names = {
-            str(row.get("name") or "")
-            for row in tools if isinstance(row, dict)
-            if str(row.get("name") or "").strip().lower() == search_filter
-        }
-        for row in filter_tool_catalog_rows(
-            tools,
-            category=category_filter,
-            search=(
-                None
-                if searchable_names is not None or exact_names
-                else search_filter
-            ),
-        ):
-            if exact_names and str(row.get("name") or "") not in exact_names:
-                continue
-            if searchable_names is not None and str(row.get("name") or "") not in searchable_names:
-                continue
-            if row.get("enabled") is False or row.get("status") == "disabled":
-                filtered_gated.append(row)
-            else:
-                filtered.append(row)
-
+        queried = query_tool_catalog(
+            category=category,
+            search=search,
+            detail=detail,
+            limit=limit_value,
+            offset=offset_value,
+        )
+        catalog = queried["catalog"]
+        if queried["invalid_catalog"]:
+            return catalog
+        category_filter = queried["category_filter"]
+        search_filter = queried["search_filter"]
+        detail_mode = queried["detail_mode"]
+        filtered = [
+            row
+            for row in queried["filtered"]
+            if row.get("enabled") is not False and row.get("status") != "disabled"
+        ]
+        filtered_gated = [
+            row
+            for row in queried["filtered"]
+            if row.get("enabled") is False or row.get("status") == "disabled"
+        ]
         start = min(offset_value, len(filtered))
         paged = filtered[start : start + limit_value]
         gated_tools: list[Dict[str, Any]] = []

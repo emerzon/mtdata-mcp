@@ -40,6 +40,7 @@ from .output_contract import (
     OutputContractState,
     apply_output_verbosity,
     attach_success_guidance,
+    build_pagination_meta,
     resolve_output_contract,
 )
 from .output_profiles import apply_public_output_profile
@@ -669,6 +670,111 @@ def filter_tool_catalog_rows(
             continue
         filtered.append(row)
     return filtered
+
+
+def query_tool_catalog(
+    *,
+    category: Optional[str] = None,
+    search: Optional[str] = None,
+    detail: str = "compact",
+    limit: int,
+    offset: int,
+) -> Dict[str, Any]:
+    """Fetch, search, filter, and page the registered tool catalog."""
+    catalog = registered_tool_catalog(detail=detail)
+    tools = catalog.get("tools") if isinstance(catalog, dict) else []
+    category_filter = str(category or "").strip().lower()
+    search_filter = str(search or "").strip().lower()
+    detail_mode = str(
+        (catalog.get("detail") if isinstance(catalog, dict) else None)
+        or detail
+        or "compact"
+    ).strip().lower()
+    if not isinstance(catalog, dict) or not isinstance(tools, list):
+        return {
+            "catalog": catalog,
+            "invalid_catalog": True,
+            "filtered": [],
+            "paged": [],
+            "categories": {},
+            "detail_mode": detail_mode,
+            "category_filter": category_filter,
+            "search_filter": search_filter,
+            "pagination": None,
+        }
+
+    searchable_names: Optional[set[str]] = None
+    exact_names: set[str] = {
+        str(row.get("name") or "")
+        for row in tools
+        if isinstance(row, dict)
+        if search_filter and str(row.get("name") or "").strip().lower() == search_filter
+    }
+    if search_filter and detail_mode != "full":
+        search_catalog = registered_tool_catalog(detail="full")
+        searchable_rows = (
+            search_catalog.get("tools") if isinstance(search_catalog, dict) else []
+        )
+        if not isinstance(searchable_rows, list):
+            searchable_rows = []
+        if not exact_names:
+            exact_names = {
+                str(row.get("name") or "")
+                for row in searchable_rows
+                if isinstance(row, dict)
+                if str(row.get("name") or "").strip().lower() == search_filter
+            }
+        searchable_names = exact_names or {
+            str(row.get("name") or "")
+            for row in filter_tool_catalog_rows(
+                searchable_rows,
+                category=category_filter,
+                search=search_filter,
+            )
+            if isinstance(row, dict)
+        }
+
+    filtered: List[Dict[str, Any]] = []
+    for row in filter_tool_catalog_rows(
+        tools,
+        category=category_filter,
+        search=(
+            None
+            if searchable_names is not None or exact_names
+            else search_filter
+        ),
+    ):
+        name = str(row.get("name") or "")
+        if exact_names and name not in exact_names:
+            continue
+        if searchable_names is not None and name not in searchable_names:
+            continue
+        filtered.append(row)
+
+    start = min(max(int(offset), 0), len(filtered))
+    limit_value = max(int(limit), 0)
+    paged = filtered[start : start + limit_value]
+    categories: Dict[str, List[str]] = {}
+    for row in filtered:
+        categories.setdefault(str(row.get("category") or "other"), []).append(
+            str(row.get("name") or "")
+        )
+    return {
+        "catalog": catalog,
+        "invalid_catalog": False,
+        "filtered": filtered,
+        "paged": paged,
+        "categories": categories,
+        "detail_mode": detail_mode,
+        "category_filter": category_filter,
+        "search_filter": search_filter,
+        "pagination": build_pagination_meta(
+            total=len(filtered),
+            returned=len(paged),
+            offset=int(offset),
+            limit=limit_value,
+        ),
+    }
 
 
 TOOL_CATALOG_DETAIL_MODES = frozenset({"compact", "standard", "full"})
