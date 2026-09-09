@@ -1587,7 +1587,3 @@ class TimesFM3Method(PretrainedMethod):
             if str(ex).startswith("timesfm3 error:"):
                 raise
             raise RuntimeError(f"timesfm3 error: {ex}") from ex
-
-
-## Note: Moirai is available via `sktime`'s `MOIRAIForecaster` when its optional
-## dependencies are installed. mtdata no longer ships a separate `moirai` method.

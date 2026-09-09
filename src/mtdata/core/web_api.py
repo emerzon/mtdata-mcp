@@ -12,7 +12,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from ..bootstrap.runtime import is_loopback_host, load_web_api_runtime_settings
 from ..bootstrap.settings import load_environment, mt5_config
-from ..forecast.forecast import get_forecast_methods_data as _get_methods_impl
+from ..forecast.forecast_registry import get_forecast_methods_data as _get_methods_impl
 from ..forecast.requests import (
     ForecastBacktestRequest,
     ForecastGenerateRequest,

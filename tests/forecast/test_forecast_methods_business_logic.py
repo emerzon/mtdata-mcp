@@ -27,7 +27,6 @@ def test_method_metadata_lookup_helpers(monkeypatch):
     monkeypatch.setattr(fm, "_registry_methods_data", lambda: methods_data)
     monkeypatch.setattr(fm, "_get_registered_capabilities", lambda: [])
 
-    assert fm.get_forecast_methods_data() == methods_data
     assert fm.get_method_supports("theta")["price"] is True
     assert fm.get_method_supports("none") == {"price": False, "return": False, "volatility": False, "ci": False}
     assert fm.get_forecast_method_names() == ("theta", "mlf_rf")

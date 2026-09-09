@@ -162,5 +162,4 @@ max-complexity = 25
 
 
 "src/mtdata/forecast/barriers_shared.py" = ["F401"]
-"src/mtdata/forecast/forecast.py" = ["F401"]
 "src/mtdata/patterns/classic.py" = ["F401"]

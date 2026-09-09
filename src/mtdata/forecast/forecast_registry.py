@@ -141,20 +141,6 @@ _LOADED_FORECAST_METHOD_MODULES: set[str] = set()
 _FAILED_OPTIONAL_FORECAST_MODULES: Dict[str, str] = {}
 
 
-def _find_method_definition(
-    method: str,
-    method_data: Dict[str, Any] | None = None,
-) -> Dict[str, Any] | None:
-    data = method_data if isinstance(method_data, dict) else get_forecast_methods_data()
-    methods = data.get("methods") if isinstance(data, dict) else None
-    if not isinstance(methods, list):
-        return None
-    for method_def in methods:
-        if isinstance(method_def, dict) and method_def.get("method") == method:
-            return method_def
-    return None
-
-
 def _build_forecast_methods_snapshot() -> Tuple[List[Dict[str, Any]], Dict[str, List[str]]]:
     methods: List[Dict[str, Any]] = []
     categories: Dict[str, List[str]] = {}

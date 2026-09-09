@@ -260,18 +260,6 @@ def test_get_forecast_methods_data_assembles_categories_and_skips_broken(monkeyp
     assert "ensemble" in data["categories"]["ensemble"]
 
 
-def test_find_method_definition_returns_match_and_none():
-    method_data = {
-        "methods": [
-            {"method": "theta", "available": True},
-            {"method": "mlf_rf", "available": False},
-        ]
-    }
-
-    assert fr._find_method_definition("theta", method_data) == {"method": "theta", "available": True}
-    assert fr._find_method_definition("missing", method_data) is None
-
-
 def test_get_forecast_method_availability_snapshot_reuses_shared_snapshot_builder(monkeypatch):
     monkeypatch.setattr(fr, "_ensure_registry_loaded", lambda: None)
     monkeypatch.setattr(
