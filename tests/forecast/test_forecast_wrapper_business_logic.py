@@ -50,8 +50,6 @@ def test_forecast_validates_timeframe_and_seconds(monkeypatch):
 
 def test_forecast_routes_to_volatility_endpoint(monkeypatch):
     captured = []
-    monkeypatch.setattr(ff, "TIMEFRAME_MAP", {"H1": 1})
-    monkeypatch.setattr(ff, "TIMEFRAME_SECONDS", {"H1": 3600})
     monkeypatch.setattr(
         fv,
         "forecast_volatility",
@@ -126,8 +124,6 @@ def test_forecast_volatility_rejects_conflicting_lookbacks() -> None:
 
 
 def test_forecast_volatility_quantity_rejects_known_non_volatility_method(monkeypatch):
-    monkeypatch.setattr(ff, "TIMEFRAME_MAP", {"H1": 1})
-    monkeypatch.setattr(ff, "TIMEFRAME_SECONDS", {"H1": 3600})
     monkeypatch.setattr(fv, "TIMEFRAME_MAP", {"H1": 1})
     monkeypatch.setattr(fv, "TIMEFRAME_SECONDS", {"H1": 3600})
     monkeypatch.setattr(
