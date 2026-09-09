@@ -225,7 +225,7 @@ If you don't see symbols (or you get a connection error):
 
 ## Environment Variables
 
-> **Full reference:** [ENV_VARS.md](ENV_VARS.md) documents the full environment-variable surface (MCP server, Web API, news embeddings, Finviz, GPU, market depth, CLI debug, and more) with a starter `.env` template.
+> **Full reference:** [ENV_VARS.md](ENV_VARS.md) documents the full environment-variable surface (MCP server, Web API, news embeddings, Finviz, GPU, market depth, CLI debug, and more). Copy [`.env.example`](../.env.example) for the starter.
 
 Create a `.env` file in the project root for configuration. For the first
 session, `CLIENT_TZ=UTC` is enough so timestamps look the same every time.

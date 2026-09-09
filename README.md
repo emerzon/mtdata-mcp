@@ -200,20 +200,7 @@ The PyPI package is **`mtdata-mcp`**. The command-line entry is **`mtdata-cli`**
 
 ## Configuration
 
-Create a `.env` in the project root (never commit credentials):
-
-```ini
-MT5_LOGIN=12345678
-MT5_PASSWORD=your_password
-MT5_SERVER=your_broker_server
-MT5_SERVER_TZ=Europe/Athens   # optional broker session/calendar timezone
-
-# Optional trade guardrails
-MTDATA_TRADE_GUARDRAILS_ENABLED=1
-MTDATA_TRADE_ALLOWED_SYMBOLS=EURUSD,BTCUSD,XAUUSD
-MTDATA_TRADE_MAX_VOLUME_BY_SYMBOL=EURUSD:0.50,BTCUSD:0.03
-MTDATA_TRADE_MAX_RISK_PCT_OF_EQUITY=1.5
-```
+Create a `.env` in the project root (never commit credentials). Copy [`.env.example`](.env.example) and uncomment what you need.
 
 Full reference: **[docs/ENV_VARS.md](docs/ENV_VARS.md)**.
 

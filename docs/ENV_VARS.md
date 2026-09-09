@@ -4,7 +4,7 @@
 
 **Plain English:** a `.env` file in the project root is a list of settings
 (login, timezone, optional safety caps). You do not need most of them on day
-one — [SETUP.md](SETUP.md) shows the short starter. This page is the full list.
+one — copy [`.env.example`](../.env.example). This page is the full list.
 
 **Related:** [Setup](SETUP.md) · [Web API](WEB_API.md) · [Timestamps](TIMESTAMPS.md) · [Trading safety](TRADING_SAFETY.md) · [Troubleshooting](TROUBLESHOOTING.md)
 
@@ -288,84 +288,4 @@ MTDATA_TRADE_MAX_RISK_PCT_OF_FREE_MARGIN=2.0
 
 ## Quick `.env` Template
 
-A starter template with all sections. Uncomment and fill in what you need.
-
-```ini
-# ── MT5 Connection ──────────────────────────────────────
-# MT5_LOGIN=12345678
-# MT5_PASSWORD=your_password
-# MT5_SERVER=YourBroker-Demo
-# MT5_TIMEOUT=30
-
-# ── Server timezone (pick one) + optional client TZ ─────
-# MT5_SERVER_TZ=Europe/Athens
-# MT5_TIME_OFFSET_MINUTES=120
-# MT5_CLIENT_TZ=America/New_York
-
-# ── Broker Time Check ──────────────────────────────────
-# MTDATA_BROKER_TIME_CHECK=false
-# MTDATA_BROKER_TIME_CHECK_TTL_SECONDS=60
-
-# ── MCP Server ─────────────────────────────────────────
-# MCP_TRANSPORT=sse
-# FASTMCP_HOST=127.0.0.1
-# FASTMCP_PORT=8000
-# FASTMCP_ALLOW_REMOTE=0
-# FASTMCP_LOG_LEVEL=INFO
-
-# ── Web API ────────────────────────────────────────────
-# WEBAPI_HOST=127.0.0.1
-# WEBAPI_PORT=8000
-# WEBAPI_ALLOW_REMOTE=0
-# WEBAPI_AUTH_TOKEN=
-# CORS_ORIGINS=http://127.0.0.1:5173,http://localhost:5173
-
-# ── News Embeddings ────────────────────────────────────
-# MTDATA_NEWS_EMBEDDINGS_MODEL=Qwen/Qwen3-Embedding-0.6B
-# MTDATA_NEWS_EMBEDDINGS_ENABLED=0
-# MTDATA_NEWS_EMBEDDINGS_TOP_N=8
-# MTDATA_NEWS_EMBEDDINGS_WEIGHT=1.0
-# MTDATA_NEWS_EMBEDDINGS_TRUNCATE_DIM=
-# MTDATA_NEWS_EMBEDDINGS_CACHE_SIZE=256
-# MTDATA_NEWS_EMBEDDINGS_HF_TOKEN_ENV_VAR=HF_TOKEN
-# HF_TOKEN=
-
-# ── Finviz ─────────────────────────────────────────────
-# FINVIZ_HTTP_TIMEOUT=15.0
-# FINVIZ_SCREENER_MAX_ROWS=5000
-# FINVIZ_PAGE_LIMIT_MAX=500
-
-# ── Forecasting / GPU ──────────────────────────────────
-# MTDATA_FORECAST_PROCESS_ISOLATION=gpu
-# MTDATA_FORECAST_PROCESS_TIMEOUT_SECONDS=
-# MTDATA_NF_ACCEL=cpu
-# CUDA_VISIBLE_DEVICES=0
-
-# ── Async Training & Model Store ───────────────────────
-# MTDATA_TRAIN_WORKERS=4
-# MTDATA_HEAVY_LIMIT=1
-# MTDATA_FORECAST_JOBS_DB=~/.mtdata/forecast/jobs.sqlite
-# MTDATA_TRAIN_TIMEOUT_INSTANT_SECONDS=30
-# MTDATA_TRAIN_TIMEOUT_FAST_SECONDS=120
-# MTDATA_TRAIN_TIMEOUT_MODERATE_SECONDS=600
-# MTDATA_TRAIN_TIMEOUT_HEAVY_SECONDS=1800
-# MTDATA_FORECAST_HEARTBEAT_SECONDS=2
-# MTDATA_FORECAST_ORPHAN_STALE_SECONDS=30
-# MTDATA_FORECAST_CANCEL_GRACE_SECONDS=3
-# MTDATA_FORECAST_SWEEPER_SECONDS=60
-# MTDATA_FORECAST_TASK_TTL_SECONDS=86400
-# MTDATA_MODEL_STORE=~/.mtdata/models
-# MTDATA_MODEL_TTL_DAYS=7
-
-# ── Market Depth ───────────────────────────────────────
-# MTDATA_ENABLE_MARKET_DEPTH_FETCH=0
-
-# ── Trading ────────────────────────────────────────────
-# MTDATA_ORDER_MAGIC=234000
-# MTDATA_TRADE_IDEMPOTENCY_DB=~/.mtdata/trade_idempotency.sqlite3
-# MTDATA_TRADE_IDEMPOTENCY_TTL_SECONDS=86400
-
-# ── CLI / Debug ────────────────────────────────────────
-# MTDATA_CLI_DEBUG=0
-# NO_COLOR=
-```
+Copy [`.env.example`](../.env.example) and uncomment what you need.
