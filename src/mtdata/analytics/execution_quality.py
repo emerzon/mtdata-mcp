@@ -14,6 +14,9 @@ from ..core.analytics_requests import (
     TradeExecutionQualityRequest,
 )
 from ..core.error_envelope import invalid_minutes_back_payload
+from ..core.trading.use_cases.common import (
+    _linearized_account_currency_notional,
+)
 from ..core.trading.validation import snapshot_unavailable_error
 from ..shared.symbols import (
     is_probably_crypto_symbol,
@@ -287,10 +290,18 @@ def _execution_session_definition(calendar: str) -> Dict[str, Any]:
 
 
 
-def _execution_contract_size(symbol: str, gateway: Any) -> Optional[float]:
+def _execution_symbol_info(symbol: str, gateway: Any) -> Any:
     try:
-        info = gateway.symbol_info(symbol)
-        size = float(getattr(info, "trade_contract_size", 0.0) or 0.0)
+        return gateway.symbol_info(symbol)
+    except Exception:
+        return None
+
+
+def _execution_contract_size(symbol_info: Any) -> Optional[float]:
+    try:
+        size = float(
+            getattr(symbol_info, "trade_contract_size", 0.0) or 0.0
+        )
     except Exception:
         return None
     if not math.isfinite(size) or size <= 0.0:
@@ -302,14 +313,13 @@ def _execution_fill_notional(
     *,
     volume: float,
     price: float,
-    contract_size: Optional[float],
+    symbol_info: Any,
 ) -> Optional[float]:
-    if contract_size is None or volume <= 0.0 or price <= 0.0:
-        return None
-    notional = volume * contract_size * price
-    if not math.isfinite(notional) or notional <= 0.0:
-        return None
-    return notional
+    return _linearized_account_currency_notional(
+        volume=volume,
+        price=price,
+        symbol_info=symbol_info,
+    )
 
 
 def analyze_execution_quality(  # noqa: C901
@@ -449,7 +459,7 @@ def analyze_execution_quality(  # noqa: C901
     arrival_quote_observations = 0
     processed_candidates = 0
     tick_cache = _ExecutionTickCache(gateway)
-    contract_size_by_symbol: Dict[str, Optional[float]] = {}
+    symbol_info_by_symbol: Dict[str, Any] = {}
     observed_epoch = datetime.now(timezone.utc).timestamp()
     future_tolerance_seconds = 300.0
     order_fill_totals: Dict[Any, Dict[str, float]] = {}
@@ -586,6 +596,12 @@ def analyze_execution_quality(  # noqa: C901
             if time_setup_msc
             else None
         )
+        commission = float(deal.get("commission") or 0.0)
+        fee = float(deal.get("fee") or 0.0)
+        commission_fee_net_cash = -(commission + fee)
+        commission_fee_gross_cost_cash = (
+            max(0.0, -commission) + max(0.0, -fee)
+        )
         item = {
             "deal_ticket": deal.get("ticket"),
             "order_ticket": deal.get("order"),
@@ -624,45 +640,46 @@ def analyze_execution_quality(  # noqa: C901
             ),
             "is_market_order": is_market_order,
             "deal_fill_ratio": min(1.0, volume / initial_volume) if initial_volume > 0 else None,
-            "commission": float(deal.get("commission") or 0.0),
-            "fee": float(deal.get("fee") or 0.0),
-            "commission_fee_cash": max(
-                0.0,
-                -(
-                    float(deal.get("commission") or 0.0)
-                    + float(deal.get("fee") or 0.0)
-                ),
+            "commission": commission,
+            "fee": fee,
+            "commission_fee_net_cash": commission_fee_net_cash,
+            "commission_fee_gross_cost_cash": (
+                commission_fee_gross_cost_cash
             ),
-            "commission_fee_per_lot": max(
-                0.0,
-                -(
-                    float(deal.get("commission") or 0.0)
-                    + float(deal.get("fee") or 0.0)
-                ),
-            )
-            / volume,
+            "commission_fee_net_per_lot": (
+                commission_fee_net_cash / volume
+            ),
+            "commission_fee_gross_cost_per_lot": (
+                commission_fee_gross_cost_cash / volume
+            ),
             "markout_bps": markouts,
             "fill_epoch": fill_epoch,
             "order_type": order_type_label,
             "order_type_code": order_type_value,
             "hour_utc": datetime.fromtimestamp(fill_epoch, tz=timezone.utc).hour,
         }
-        if symbol not in contract_size_by_symbol:
-            contract_size_by_symbol[symbol] = _execution_contract_size(
+        if symbol not in symbol_info_by_symbol:
+            symbol_info_by_symbol[symbol] = _execution_symbol_info(
                 symbol, gateway
             )
-        contract_size = contract_size_by_symbol[symbol]
+        symbol_info = symbol_info_by_symbol[symbol]
+        contract_size = _execution_contract_size(symbol_info)
         if contract_size is not None:
             item["contract_size"] = contract_size
         notional = _execution_fill_notional(
             volume=volume,
             price=fill_price,
-            contract_size=contract_size,
+            symbol_info=symbol_info,
         )
         if notional is not None:
             item["notional"] = notional
-            cash_fee = float(item["commission_fee_cash"])
-            item["commission_fee_bps"] = cash_fee / notional * 10_000.0
+            item["notional_model"] = "tick_value_linear_sensitivity"
+            item["commission_fee_net_bps"] = (
+                commission_fee_net_cash / notional * 10_000.0
+            )
+            item["commission_fee_gross_cost_bps"] = (
+                commission_fee_gross_cost_cash / notional * 10_000.0
+            )
         session_calendar, symbol_path = _execution_session_calendar(
             symbol,
             gateway=gateway,
@@ -800,11 +817,23 @@ def analyze_execution_quality(  # noqa: C901
             for item in fills
             if item.get("order_to_fill_duration_ms") is not None
         ),
-        "commission_fee": _execution_percentiles(
-            item["commission_fee_cash"] for item in fills
+        "commission_fee_net": _execution_percentiles(
+            item["commission_fee_net_cash"] for item in fills
         ),
-        "total_commission_fee": _round_execution_stat(
-            sum(float(item.get("commission_fee_cash") or 0.0) for item in fills)
+        "total_commission_fee_net": _round_execution_stat(
+            sum(
+                float(item.get("commission_fee_net_cash") or 0.0)
+                for item in fills
+            )
+        ),
+        "commission_fee_gross_cost": _execution_percentiles(
+            item["commission_fee_gross_cost_cash"] for item in fills
+        ),
+        "total_commission_fee_gross_cost": _round_execution_stat(
+            sum(
+                float(item.get("commission_fee_gross_cost_cash") or 0.0)
+                for item in fills
+            )
         ),
     }
     fill_symbols = sorted(
@@ -812,16 +841,30 @@ def analyze_execution_quality(  # noqa: C901
     )
     mixed_contract_lots = len(fill_symbols) > 1
     if not mixed_contract_lots:
-        summary["commission_fee_per_lot"] = _execution_percentiles(
-            item["commission_fee_per_lot"] for item in fills
+        summary["commission_fee_net_per_lot"] = _execution_percentiles(
+            item["commission_fee_net_per_lot"] for item in fills
         )
-    fee_bps_values = [
-        float(item["commission_fee_bps"])
+        summary["commission_fee_gross_cost_per_lot"] = _execution_percentiles(
+            item["commission_fee_gross_cost_per_lot"] for item in fills
+        )
+    net_fee_bps_values = [
+        float(item["commission_fee_net_bps"])
         for item in fills
-        if item.get("commission_fee_bps") is not None
+        if item.get("commission_fee_net_bps") is not None
     ]
-    if fee_bps_values:
-        summary["commission_fee_bps"] = _execution_percentiles(fee_bps_values)
+    if net_fee_bps_values:
+        summary["commission_fee_net_bps"] = _execution_percentiles(
+            net_fee_bps_values
+        )
+    gross_cost_bps_values = [
+        float(item["commission_fee_gross_cost_bps"])
+        for item in fills
+        if item.get("commission_fee_gross_cost_bps") is not None
+    ]
+    if gross_cost_bps_values:
+        summary["commission_fee_gross_cost_bps"] = _execution_percentiles(
+            gross_cost_bps_values
+        )
     duration_display = {
         name.removesuffix("_ms"): display
         for name in ("pending_time_to_fill_ms", "order_to_fill_duration_ms")
@@ -879,14 +922,31 @@ def analyze_execution_quality(  # noqa: C901
                 row = {name: value for name, value in zip(keys, labels)}
                 row.update({"fills": len(items), "slippage_bps": _execution_percentiles(items["slippage_bps"])})
                 if label == "by_symbol_side":
-                    row["commission_fee_per_lot"] = _execution_percentiles(
-                        items["commission_fee_per_lot"]
+                    row["commission_fee_net_per_lot"] = _execution_percentiles(
+                        items["commission_fee_net_per_lot"]
                     )
-                    row["commission_fee"] = _execution_percentiles(
-                        items["commission_fee_cash"]
+                    row["commission_fee_gross_cost_per_lot"] = (
+                        _execution_percentiles(
+                            items["commission_fee_gross_cost_per_lot"]
+                        )
                     )
-                    row["total_commission_fee"] = _round_execution_stat(
-                        float(items["commission_fee_cash"].sum())
+                    row["commission_fee_net"] = _execution_percentiles(
+                        items["commission_fee_net_cash"]
+                    )
+                    row["commission_fee_gross_cost"] = _execution_percentiles(
+                        items["commission_fee_gross_cost_cash"]
+                    )
+                    row["total_commission_fee_net"] = _round_execution_stat(
+                        float(items["commission_fee_net_cash"].sum())
+                    )
+                    row["total_commission_fee_gross_cost"] = (
+                        _round_execution_stat(
+                            float(
+                                items[
+                                    "commission_fee_gross_cost_cash"
+                                ].sum()
+                            )
+                        )
                     )
                 if label == "by_order_type":
                     codes = [
@@ -904,14 +964,23 @@ def analyze_execution_quality(  # noqa: C901
             row = {
                 "symbol": symbol_name,
                 "fills": len(items),
-                "commission_fee_per_lot": _execution_percentiles(
-                    items["commission_fee_per_lot"]
+                "commission_fee_net_per_lot": _execution_percentiles(
+                    items["commission_fee_net_per_lot"]
                 ),
-                "commission_fee": _execution_percentiles(
-                    items["commission_fee_cash"]
+                "commission_fee_gross_cost_per_lot": _execution_percentiles(
+                    items["commission_fee_gross_cost_per_lot"]
                 ),
-                "total_commission_fee": _round_execution_stat(
-                    float(items["commission_fee_cash"].sum())
+                "commission_fee_net": _execution_percentiles(
+                    items["commission_fee_net_cash"]
+                ),
+                "commission_fee_gross_cost": _execution_percentiles(
+                    items["commission_fee_gross_cost_cash"]
+                ),
+                "total_commission_fee_net": _round_execution_stat(
+                    float(items["commission_fee_net_cash"].sum())
+                ),
+                "total_commission_fee_gross_cost": _round_execution_stat(
+                    float(items["commission_fee_gross_cost_cash"].sum())
                 ),
             }
             if "contract_size" in items:
@@ -960,12 +1029,19 @@ def analyze_execution_quality(  # noqa: C901
             + ", ".join(f"{horizon}s" for horizon in insufficient_markout_horizons)
             + "; descriptive statistics are retained but marked insufficient."
         )
+    notional_fills = sum(item.get("notional") is not None for item in fills)
+    if notional_fills < len(fills):
+        warnings.append(
+            "Account-currency notional and commission/fee basis points were "
+            f"unavailable for {len(fills) - notional_fills} fill(s) because "
+            "positive broker tick economics were unavailable."
+        )
     if mixed_contract_lots:
         warnings.append(
-            "Account-wide commission_fee_per_lot is omitted because broker lots "
-            "are not comparable across symbols; per-lot fees are reported in "
-            "breakdowns.by_symbol and account-wide fees use cash and, when "
-            "notional is available, basis points."
+            "Account-wide commission_fee_*_per_lot fields are omitted because "
+            "broker lots are not comparable across symbols; per-lot fees are "
+            "reported in breakdowns.by_symbol and account-wide fees use cash "
+            "and, when account-currency notional is available, basis points."
         )
     session_calendars = sorted(
         {
@@ -1088,6 +1164,7 @@ def analyze_execution_quality(  # noqa: C901
         "effective_analysis_window": effective_analysis_window,
         "summary_scope": summary_scope,
         "filters_applied": filters_applied,
+        "notional_basis": "account_currency_tick_value_linear_sensitivity",
     }
     price_quality_definition = {
         "slippage_bps": slippage_basis,
@@ -1133,15 +1210,43 @@ def analyze_execution_quality(  # noqa: C901
         "market_fill_latency_ms": "milliseconds",
         "pending_time_to_fill_ms": "milliseconds",
         "order_to_fill_duration_ms": "milliseconds",
-        "commission": "account_currency",
-        "fee": "account_currency",
-        "commission_fee": "account_currency",
-        "total_commission_fee": "account_currency",
-        "commission_fee_per_lot": "account_currency_per_broker_lot",
+        "commission": (
+            "broker_signed_account_currency_negative_charge_positive_credit"
+        ),
+        "fee": "broker_signed_account_currency_negative_charge_positive_credit",
+        "commission_fee_net": (
+            "signed_account_currency_positive_cost_negative_rebate"
+        ),
+        "commission_fee_net_cash": (
+            "signed_account_currency_positive_cost_negative_rebate"
+        ),
+        "total_commission_fee_net": (
+            "signed_account_currency_positive_cost_negative_rebate"
+        ),
+        "commission_fee_gross_cost": (
+            "account_currency_nonnegative_cost_before_rebates"
+        ),
+        "commission_fee_gross_cost_cash": (
+            "account_currency_nonnegative_cost_before_rebates"
+        ),
+        "total_commission_fee_gross_cost": (
+            "account_currency_nonnegative_cost_before_rebates"
+        ),
+        "commission_fee_net_per_lot": (
+            "signed_account_currency_per_broker_lot_positive_cost_negative_rebate"
+        ),
+        "commission_fee_gross_cost_per_lot": (
+            "nonnegative_account_currency_per_broker_lot_before_rebates"
+        ),
         "price_improvement_pct": "percent_0_to_100",
         "partial_fill_pct": "percent_0_to_100",
-        "commission_fee_bps": "basis_points_of_notional",
-        "notional": "account_currency",
+        "commission_fee_net_bps": (
+            "signed_basis_points_of_account_currency_notional_positive_cost_negative_rebate"
+        ),
+        "commission_fee_gross_cost_bps": (
+            "nonnegative_basis_points_of_account_currency_notional_before_rebates"
+        ),
+        "notional": "account_currency_linearized",
         "contract_size": "contract_units_per_broker_lot",
         "execution_shortfall_currency_estimate": (
             "account_currency_positive_is_worse"
@@ -1177,10 +1282,14 @@ def analyze_execution_quality(  # noqa: C901
             "partial_fill_pct",
             "market_fill_latency_ms",
             "pending_time_to_fill_ms",
-            "commission_fee_per_lot",
-            "commission_fee",
-            "total_commission_fee",
-            "commission_fee_bps",
+            "commission_fee_net_per_lot",
+            "commission_fee_gross_cost_per_lot",
+            "commission_fee_net",
+            "total_commission_fee_net",
+            "commission_fee_gross_cost",
+            "total_commission_fee_gross_cost",
+            "commission_fee_net_bps",
+            "commission_fee_gross_cost_bps",
             "markout_bps",
         )
         compact_summary: Dict[str, Any] = {}
@@ -1212,6 +1321,15 @@ def analyze_execution_quality(  # noqa: C901
                 "eligible_trade_deals": len(eligible_deals),
                 "processed_candidates": processed_candidates,
                 "matched_fills": len(fills),
+                "notional_conversion": {
+                    "available_fills": int(notional_fills),
+                    "unavailable_fills": int(len(fills) - notional_fills),
+                    "coverage_pct": _round_execution_stat(
+                        notional_fills / len(fills) * 100.0
+                    )
+                    if fills
+                    else 0.0,
+                },
                 "skipped": skipped,
                 "benchmark": {
                     "requested": benchmark_quality.get("requested"),
@@ -1265,6 +1383,15 @@ def analyze_execution_quality(  # noqa: C901
             "eligible_trade_deals": len(eligible_deals),
             "processed_candidates": processed_candidates,
             "matched_fills": len(fills),
+            "notional_conversion": {
+                "available_fills": int(notional_fills),
+                "unavailable_fills": int(len(fills) - notional_fills),
+                "coverage_pct": _round_execution_stat(
+                    notional_fills / len(fills) * 100.0
+                )
+                if fills
+                else 0.0,
+            },
             "skipped": skipped,
             "benchmark": benchmark_quality,
             "quote_reads": tick_cache.metadata(),

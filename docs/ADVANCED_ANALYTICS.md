@@ -76,8 +76,19 @@ than silently discarded. Compact `data_quality` reports
 reached the reported statistics), plus `quote_reads` cache diagnostics.
 `price_improvement_pct` and `partial_fill_pct` are 0–100 percentages, same
 scale as `coverage_pct`.
-Commission and fee percentiles are non-negative cost magnitudes per broker lot;
-signed commission and fee fields remain available on full-detail fill rows.
+`notional` is a linearized account-currency exposure derived from the broker's
+tick value and tick size, and commission/fee basis points use that same
+account-currency denominator. If positive broker tick economics are missing,
+both fields are omitted and `data_quality.notional_conversion` reports the
+coverage.
+
+Commission and fee net fields are signed from the trader's perspective:
+positive is a cost and negative is a rebate. Rebates remain in
+`commission_fee_net*` percentiles and `total_commission_fee_net`.
+`commission_fee_gross_cost*` fields are explicitly non-negative costs before
+rebates. Full-detail rows retain the raw broker-signed `commission` and `fee`
+values (negative charge, positive credit), and the `units` map repeats every
+sign convention.
 Each `summary.markout_bps.<seconds>` entry reports `observations`, `missing`,
 `coverage_pct`, and a `sample_status` evaluated against `--min-sample`.
 Markout cohorts may differ by horizon because a future tick can be available for

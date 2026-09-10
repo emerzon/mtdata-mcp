@@ -2078,6 +2078,23 @@ def _compact_trade_history(payload: MutableMapping[str, Any]) -> None:
         payload.pop("units", None)
 
 
+def _retain_summary_units(
+    payload: MutableMapping[str, Any],
+    summary: Mapping[str, Any],
+) -> None:
+    units = payload.get("units")
+    if not isinstance(units, Mapping):
+        payload.pop("units", None)
+        return
+    compact_units = {
+        key: value for key, value in units.items() if key in summary
+    }
+    if compact_units:
+        payload["units"] = compact_units
+    else:
+        payload.pop("units", None)
+
+
 def _compact_execution_quality(payload: MutableMapping[str, Any]) -> None:
     _drop_keys(
         payload,
@@ -2085,7 +2102,6 @@ def _compact_execution_quality(payload: MutableMapping[str, Any]) -> None:
             "omitted_metrics",
             "price_quality_definition",
             "summary_scope",
-            "units",
         },
     )
     if not payload.get("filters_applied"):
@@ -2117,6 +2133,7 @@ def _compact_execution_quality(payload: MutableMapping[str, Any]) -> None:
                 {"market_order_fills", "non_market_order_fills"},
             )
         payload["summary"] = compact_summary
+        _retain_summary_units(payload, compact_summary)
     sample = payload.get("sample")
     if isinstance(sample, Mapping):
         total = sample.get("total_eligible")

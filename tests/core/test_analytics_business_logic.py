@@ -307,6 +307,11 @@ class FakeGateway:
             volume_min=0.01,
             volume_max=200.0,
             volume_step=0.01,
+            trade_contract_size=100_000.0,
+            trade_tick_size=0.00001,
+            trade_tick_value=1.0,
+            trade_tick_value_profit=1.0,
+            trade_tick_value_loss=1.0,
         )
 
     def order_calc_profit(self, action, symbol, volume, opened, closed):
@@ -900,13 +905,16 @@ def test_execution_quality_matches_order_and_computes_markout() -> None:
         gateway,
     )
     assert result["summary"]["fills"] == 1
-    assert result["items"][0]["commission_fee_per_lot"] == pytest.approx(0.30)
-    assert result["summary"]["commission_fee_per_lot"]["mean"] == pytest.approx(
-        0.30
-    )
+    assert result["items"][0]["commission_fee_net_per_lot"] == pytest.approx(0.30)
+    assert result["items"][0][
+        "commission_fee_gross_cost_per_lot"
+    ] == pytest.approx(0.30)
+    assert result["summary"]["commission_fee_net_per_lot"][
+        "mean"
+    ] == pytest.approx(0.30)
     assert result["currency"] == "USD"
-    assert result["units"]["commission_fee_per_lot"] == (
-        "account_currency_per_broker_lot"
+    assert result["units"]["commission_fee_net_per_lot"] == (
+        "signed_account_currency_per_broker_lot_positive_cost_negative_rebate"
     )
     assert result["items"][0]["benchmark_source"] == "arrival_quote"
     assert result["items"][0]["benchmark_price"] == pytest.approx(1.100059)
@@ -967,6 +975,65 @@ def test_execution_quality_matches_order_and_computes_markout() -> None:
         assert 0.0 <= compact["summary"]["price_improvement_pct"] <= 100.0
 
 
+def test_execution_quality_fee_bps_use_account_currency_notional() -> None:
+    gateway = FakeGateway()
+    gateway.account_info = lambda: SimpleNamespace(currency="USD")
+    gateway.symbol_info = lambda symbol: SimpleNamespace(
+        point=0.001,
+        digits=3,
+        volume_min=0.01,
+        volume_max=200.0,
+        volume_step=0.01,
+        trade_contract_size=100_000.0,
+        trade_tick_size=0.001,
+        trade_tick_value=0.667,
+        trade_tick_value_profit=0.667,
+        trade_tick_value_loss=0.667,
+    )
+    fill_epoch = _now() - 10
+    gateway.orders = [
+        {"ticket": 10, "price_open": 150.0, "volume_initial": 1.0}
+    ]
+    gateway.deals = [
+        {
+            "ticket": 20,
+            "order": 10,
+            "symbol": "USDJPY",
+            "type": 0,
+            "volume": 1.0,
+            "price": 150.0,
+            "time_msc": fill_epoch * 1000,
+            "commission": -7.0,
+            "fee": 0.0,
+        }
+    ]
+
+    result = analyze_execution_quality(
+        TradeExecutionQualityRequest(
+            minutes_back=60,
+            benchmark="order_price",
+            detail="full",
+        ),
+        gateway,
+    )
+
+    item = result["items"][0]
+    assert item["notional"] == pytest.approx(100_050.0)
+    assert item["notional_model"] == "tick_value_linear_sensitivity"
+    assert item["commission_fee_net_bps"] == pytest.approx(
+        7.0 / 100_050.0 * 10_000.0
+    )
+    assert result["currency"] == "USD"
+    assert result["notional_basis"] == (
+        "account_currency_tick_value_linear_sensitivity"
+    )
+    assert result["data_quality"]["notional_conversion"] == {
+        "available_fills": 1,
+        "unavailable_fills": 0,
+        "coverage_pct": 100.0,
+    }
+
+
 def test_execution_quality_does_not_average_unlike_lot_fees() -> None:
     gateway = FakeGateway()
     fill_epoch = _now() - 10
@@ -1008,6 +1075,10 @@ def test_execution_quality_does_not_average_unlike_lot_fees() -> None:
             volume_max=200.0,
             volume_step=0.01,
             trade_contract_size=sizes[symbol],
+            trade_tick_size=0.01,
+            trade_tick_value=0.01,
+            trade_tick_value_profit=0.01,
+            trade_tick_value_loss=0.01,
             path="CFD",
         )
 
@@ -1026,15 +1097,20 @@ def test_execution_quality_does_not_average_unlike_lot_fees() -> None:
         gateway,
     )
 
-    assert "commission_fee_per_lot" not in result["summary"]
-    assert result["summary"]["total_commission_fee"] == pytest.approx(5.02)
-    assert result["summary"]["commission_fee"]["mean"] == pytest.approx(2.51)
-    assert result["summary"]["commission_fee_bps"]["mean"] is not None
+    assert "commission_fee_net_per_lot" not in result["summary"]
+    assert result["summary"]["total_commission_fee_net"] == pytest.approx(5.02)
+    assert result["summary"][
+        "total_commission_fee_gross_cost"
+    ] == pytest.approx(5.02)
+    assert result["summary"]["commission_fee_net"]["mean"] == pytest.approx(2.51)
+    assert result["summary"]["commission_fee_net_bps"]["mean"] is not None
     by_symbol = {row["symbol"]: row for row in result["breakdowns"]["by_symbol"]}
-    assert by_symbol["BTCUSD"]["commission_fee_per_lot"]["mean"] == pytest.approx(0.02)
-    assert by_symbol["TSLA.NAS-24"]["commission_fee_per_lot"]["mean"] == pytest.approx(
-        0.10
-    )
+    assert by_symbol["BTCUSD"]["commission_fee_net_per_lot"][
+        "mean"
+    ] == pytest.approx(0.02)
+    assert by_symbol["TSLA.NAS-24"]["commission_fee_net_per_lot"][
+        "mean"
+    ] == pytest.approx(0.10)
     assert any("not comparable across symbols" in warning for warning in result["warnings"])
 
 
@@ -1063,7 +1139,7 @@ def test_execution_quality_empty_explicit_range_retains_analysis_window() -> Non
     assert result["sample"]["sample_end"] is None
 
 
-def test_execution_quality_fee_percentiles_use_positive_cost_magnitudes() -> None:
+def test_execution_quality_separates_signed_net_rebates_from_gross_cost() -> None:
     gateway = FakeGateway()
     fill_epoch = _now() - 10
     gateway.orders = [
@@ -1116,12 +1192,24 @@ def test_execution_quality_fee_percentiles_use_positive_cost_magnitudes() -> Non
         gateway,
     )
 
-    costs = [item["commission_fee_per_lot"] for item in result["items"]]
-    percentiles = result["summary"]["commission_fee_per_lot"]
-    assert costs == pytest.approx([3.5, 1.4, 0.0])
-    assert percentiles["max"] == 3.5
-    assert percentiles["max"] >= percentiles["p99"] >= percentiles["p95"]
-    assert percentiles["median"] >= 0.0
+    net = [item["commission_fee_net_per_lot"] for item in result["items"]]
+    gross = [
+        item["commission_fee_gross_cost_per_lot"] for item in result["items"]
+    ]
+    net_percentiles = result["summary"]["commission_fee_net_per_lot"]
+    gross_percentiles = result["summary"][
+        "commission_fee_gross_cost_per_lot"
+    ]
+    assert net == pytest.approx([3.5, 1.4, -0.5])
+    assert gross == pytest.approx([3.5, 1.4, 0.0])
+    assert net_percentiles["mean"] == pytest.approx(1.46667)
+    assert gross_percentiles["mean"] == pytest.approx(1.63333)
+    assert result["summary"]["total_commission_fee_net"] == pytest.approx(3.7)
+    assert result["summary"][
+        "total_commission_fee_gross_cost"
+    ] == pytest.approx(4.2)
+    assert gross_percentiles["max"] == 3.5
+    assert gross_percentiles["median"] >= 0.0
 
 
 def test_execution_quality_rejects_substring_as_missing_exact_symbol() -> None:

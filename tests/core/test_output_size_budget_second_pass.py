@@ -203,6 +203,7 @@ def test_compact_execution_quality_keeps_results_and_exceptions() -> None:
             "mean_slippage_pips": 0.3,
             "p95_slippage_pips": 1.1,
             "mean_latency_ms": 72,
+            "commission_fee_net_bps": {"mean": 0.7, "p95": 0.9},
         },
         "sample": {
             "total_eligible": 22,
@@ -228,7 +229,14 @@ def test_compact_execution_quality_keeps_results_and_exceptions() -> None:
         "omitted_metrics": ["market_impact"],
         "price_quality_definition": "Slippage compares fill price with arrival mid.",
         "summary_scope": "all matched fills in the effective window",
-        "units": {"slippage": "pips", "latency": "milliseconds"},
+        "notional_basis": "account_currency_tick_value_linear_sensitivity",
+        "units": {
+            "slippage": "pips",
+            "latency": "milliseconds",
+            "commission_fee_net_bps": (
+                "signed_basis_points_of_account_currency_notional"
+            ),
+        },
         "warnings": [
             {
                 "code": "benchmark_fallback",
@@ -247,7 +255,14 @@ def test_compact_execution_quality_keeps_results_and_exceptions() -> None:
         "mean_slippage_pips": 0.3,
         "p95_slippage_pips": 1.1,
         "mean_latency_ms": 72,
+        "commission_fee_net_bps": {"mean": 0.7, "p95": 0.9},
     }
+    assert compact["units"] == {
+        "commission_fee_net_bps": (
+            "signed_basis_points_of_account_currency_notional"
+        )
+    }
+    assert compact["notional_basis"] == raw["notional_basis"]
     assert compact["warnings"] == raw["warnings"]
     assert compact["data_quality"]["benchmark"]["fallback_count"] == 2
     assert compact["window"] == {
