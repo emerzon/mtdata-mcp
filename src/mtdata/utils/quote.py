@@ -4,7 +4,7 @@ import math
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from numbers import Real
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Literal, Optional
 
 from .freshness import QUOTE_LIVE_SECONDS, QUOTE_STALE_SECONDS, standard_weekend_window
 from .market_metadata import (
@@ -466,29 +466,25 @@ def _latest_stream_ticks(
     if rows is None:
         return None, None
     try:
-        candidates = [row for row in rows if tick_epoch(row) is not None]
+        latest_tick = None
+        latest_tick_key = (float("-inf"), -1)
+        latest_two_sided = None
+        latest_two_sided_key = (float("-inf"), -1)
+        for index, row in enumerate(rows):
+            epoch = tick_epoch(row)
+            if epoch is None:
+                continue
+            key = (float(epoch), index)
+            if key >= latest_tick_key:
+                latest_tick = row
+                latest_tick_key = key
+            if _quote_pair_quality(row) == "two_sided" and key >= latest_two_sided_key:
+                latest_two_sided = row
+                latest_two_sided_key = key
     except (TypeError, ValueError):
         return None, None
-    if not candidates:
+    if latest_tick is None:
         return None, None
-    # CopyTicksRange returns ticks from oldest to newest.  Several updates can
-    # share a millisecond, so preserve that ordering when timestamps tie: max()
-    # alone would retain the first (stale) row with the newest timestamp.
-    _, latest_tick = max(
-        enumerate(candidates),
-        key=lambda item: (float(tick_epoch(item[1]) or 0.0), item[0]),
-    )
-    two_sided_candidates = [
-        (index, candidate)
-        for index, candidate in enumerate(candidates)
-        if _quote_pair_quality(candidate) == "two_sided"
-    ]
-    latest_two_sided = None
-    if two_sided_candidates:
-        _, latest_two_sided = max(
-            two_sided_candidates,
-            key=lambda item: (float(tick_epoch(item[1]) or 0.0), item[0]),
-        )
     return latest_tick, latest_two_sided
 
 
@@ -580,8 +576,11 @@ def resolve_quote_tick(
     *,
     now_epoch: float,
     stale_after_seconds: int = QUOTE_STALE_SECONDS,
+    refresh_policy: Literal["always", "if_needed"] = "always",
 ) -> tuple[Any, Dict[str, Any]]:
     """Reconcile MT5's cached symbol tick with its authoritative tick stream."""
+    if refresh_policy not in {"always", "if_needed"}:
+        raise ValueError("refresh_policy must be 'always' or 'if_needed'.")
     if tick is not None:
         raw_tick = tick
     else:
@@ -590,6 +589,34 @@ def resolve_quote_tick(
         except Exception:
             raw_tick = None
     raw_epoch = tick_epoch(raw_tick)
+    clock = tick_clock_reference(raw_epoch, wall_clock_epoch=now_epoch)
+    send_error = tick_age_error(
+        float(clock["reference_epoch"]) - raw_epoch
+        if raw_epoch is not None
+        else None,
+        symbol=symbol,
+    )
+    raw_freshness = build_tick_freshness_context(
+        symbol,
+        tick_epoch=raw_epoch,
+        now_epoch=now_epoch,
+        item="tick",
+        stale_after_seconds=stale_after_seconds,
+    )
+    raw_live_ready = raw_freshness.get("usable_for_live_trading") is True
+    if (
+        refresh_policy == "if_needed"
+        and send_error is None
+        and raw_live_ready
+        and _quote_pair_quality(raw_tick) == "two_sided"
+    ):
+        return raw_tick, {
+            "quote_source": "mt5.symbol_info_tick",
+            "quote_refresh_attempted": False,
+            "send_path_tick_fresh": True,
+            "quote_source_state": "current",
+        }
+
     latest_stream_tick, two_sided_stream_tick = _latest_stream_ticks(
         gateway,
         symbol,
@@ -619,23 +646,9 @@ def resolve_quote_tick(
         "quote_refresh_attempted": True,
     }
 
-    clock = tick_clock_reference(raw_epoch, wall_clock_epoch=now_epoch)
-    send_error = tick_age_error(
-        float(clock["reference_epoch"]) - raw_epoch if raw_epoch is not None else None,
-        symbol=symbol,
-    )
     metadata["send_path_tick_fresh"] = send_error is None
     if send_error:
         metadata["send_path_freshness_error"] = send_error["error"]
-
-    raw_freshness = build_tick_freshness_context(
-        symbol,
-        tick_epoch=raw_epoch,
-        now_epoch=now_epoch,
-        item="tick",
-        stale_after_seconds=stale_after_seconds,
-    )
-    raw_live_ready = raw_freshness.get("usable_for_live_trading") is True
 
     if used_recent_two_sided_stream:
         latest_stream_epoch = tick_epoch(latest_stream_tick)

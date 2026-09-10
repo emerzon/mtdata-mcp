@@ -792,6 +792,35 @@ def test_market_scan_spread_row_reconciles_newer_stream_quote() -> None:
     assert row["usable_for_live_trading"] is False
 
 
+def test_market_scan_spread_row_skips_stream_fetch_for_fresh_two_sided_quote() -> None:
+    from mtdata.core.symbols import _build_market_scan_spread_row
+
+    now_epoch = datetime(2026, 9, 10, 15, tzinfo=timezone.utc).timestamp()
+    range_calls = []
+    symbol = _make_symbol("EURUSD", digits=5)
+    gateway = SimpleNamespace(
+        COPY_TICKS_ALL=0,
+        symbol_info_tick=lambda _symbol: SimpleNamespace(
+            bid=1.10001,
+            ask=1.10003,
+            time=now_epoch - 0.5,
+        ),
+        copy_ticks_range=lambda *args: range_calls.append(args),
+        last_error=lambda: None,
+    )
+
+    with patch("mtdata.core.symbols.time.time", return_value=now_epoch):
+        row, error = _build_market_scan_spread_row(symbol, gateway)
+
+    assert error is None
+    assert row["bid"] == 1.10001
+    assert row["ask"] == 1.10003
+    assert row["quote_source"] == "mt5.symbol_info_tick"
+    assert row["quote_source_state"] == "current"
+    assert row["quote_refresh_attempted"] is False
+    assert range_calls == []
+
+
 @patch("mtdata.core.symbols.scan._ensure_symbol_ready", return_value=None)
 @patch("mtdata.core.symbols.time.time", return_value=10_000.0)
 @patch("mtdata.core.symbols.scan._mt5_copy_rates_from_pos")

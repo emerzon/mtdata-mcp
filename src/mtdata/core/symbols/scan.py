@@ -324,6 +324,7 @@ def _build_market_scan_spread_row(
         raw_tick,
         now_epoch=time.time(),
         stale_after_seconds=_MARKET_SCAN_STALE_QUOTE_SECONDS,
+        refresh_policy="if_needed",
     )
     if tick is None:
         return None, f"Failed to get tick data: {mt5_gateway.last_error()}"
