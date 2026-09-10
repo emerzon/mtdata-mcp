@@ -1,0 +1,100 @@
+{
+  "benchmark": "scripts/benchmark_market_data_hotpaths.py",
+  "date": "2026-09-10",
+  "environment": {
+    "candle_rows": 50000,
+    "operating_system": "Windows 11 10.0.26100",
+    "python": "3.14.3",
+    "samples": 5,
+    "scan_symbols": 100,
+    "ticks_per_range": 1000
+  },
+  "baseline": {
+    "revision": "492dd407039141cde9f825d9b657fa108f32ab9a",
+    "candle_response_shaping": {
+      "implementation": "legacy_scalar_double_time_pass",
+      "median_seconds": 0.6296942001208663,
+      "payload_sha256": "3d0914e28eb6957c474a5014623aebed537e0b0cb26ec8667ab40277ecc7ffc7",
+      "samples_seconds": [
+        0.6629936997778714,
+        0.6296942001208663,
+        0.6175042004324496,
+        0.6368531002663076,
+        0.6289621000178158
+      ]
+    },
+    "market_scan_quote_resolution": {
+      "copy_ticks_range_calls": 100,
+      "median_seconds": 0.28642140002921224,
+      "quote_source": "mt5.copy_ticks_range",
+      "samples_seconds": [
+        0.2750283000059426,
+        0.288486999925226,
+        0.28642140002921224,
+        0.2844134997576475,
+        0.2879444002173841
+      ]
+    },
+    "symbols_scan_cold_import": {
+      "candles_loaded": true,
+      "matplotlib_loaded": true,
+      "median_module_count": 2716,
+      "median_seconds": 1.882419299799949,
+      "pyemd_loaded": true,
+      "samples_seconds": [
+        1.9252447001636028,
+        1.882419299799949,
+        1.8768449001945555,
+        1.8610300002619624,
+        1.9189158002845943
+      ]
+    }
+  },
+  "optimized": {
+    "revision": "c5f8bf569b89b6262096917a4e85cd8c8ecda1e1",
+    "candle_response_shaping": {
+      "implementation": "columnar_single_time_pass",
+      "median_seconds": 0.45500029996037483,
+      "payload_sha256": "3d0914e28eb6957c474a5014623aebed537e0b0cb26ec8667ab40277ecc7ffc7",
+      "samples_seconds": [
+        0.4476382997818291,
+        0.4495847001671791,
+        0.5141461999155581,
+        0.45553730009123683,
+        0.45500029996037483
+      ]
+    },
+    "market_scan_quote_resolution": {
+      "copy_ticks_range_calls": 0,
+      "median_seconds": 0.01254110038280487,
+      "quote_source": "mt5.symbol_info_tick",
+      "samples_seconds": [
+        0.011885999701917171,
+        0.011940999887883663,
+        0.01254110038280487,
+        0.013942500110715628,
+        0.012830700259655714
+      ]
+    },
+    "symbols_scan_cold_import": {
+      "candles_loaded": false,
+      "matplotlib_loaded": false,
+      "median_module_count": 1215,
+      "median_seconds": 0.8306893999688327,
+      "pyemd_loaded": false,
+      "samples_seconds": [
+        0.8719969997182488,
+        0.8458699998445809,
+        0.8164245001971722,
+        0.8170312000438571,
+        0.8306893999688327
+      ]
+    }
+  },
+  "comparison": {
+    "candle_payloads_identical": true,
+    "candle_response_shaping_speedup": 1.3839423845999776,
+    "market_scan_quote_resolution_speedup": 22.838617927173697,
+    "symbols_scan_cold_import_speedup": 2.266092837913397
+  }
+}
