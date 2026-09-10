@@ -34,19 +34,44 @@ def _floor_volume_steps(raw: float, step: float) -> int:
     return int(step_count)
 
 
+def _resolve_positive_tick_value(*values: Any) -> float:
+    """Return the first positive finite broker tick value."""
+    for value in values:
+        try:
+            candidate = float(value)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(candidate) and candidate > 0.0:
+            return candidate
+    return float("nan")
+
+
 def _resolve_risk_tick_value(
     *,
-    tick_value: float,
-    tick_value_loss: Optional[float] = None,
+    tick_value: Any,
+    tick_value_loss: Any = None,
+    tick_value_profit: Any = None,
 ) -> float:
-    """Prefer the broker-reported loss tick value for downside-risk math."""
-    try:
-        loss_tick_value = float(tick_value_loss)  # type: ignore[arg-type]
-    except Exception:
-        loss_tick_value = float("nan")
-    if math.isfinite(loss_tick_value) and loss_tick_value > 0:
-        return loss_tick_value
-    return float(tick_value)
+    """Prefer loss-side tick economics, then valid generic/profit fallbacks."""
+    return _resolve_positive_tick_value(
+        tick_value_loss,
+        tick_value,
+        tick_value_profit,
+    )
+
+
+def _resolve_reward_tick_value(
+    *,
+    tick_value: Any,
+    tick_value_profit: Any = None,
+    tick_value_loss: Any = None,
+) -> float:
+    """Prefer profit-side tick economics, then valid generic/loss fallbacks."""
+    return _resolve_positive_tick_value(
+        tick_value_profit,
+        tick_value,
+        tick_value_loss,
+    )
 
 
 def compute_kelly_sizing_context(

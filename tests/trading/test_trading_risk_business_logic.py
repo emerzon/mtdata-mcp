@@ -15,6 +15,7 @@ from pydantic import ValidationError
 from mtdata.bootstrap.settings import trade_guardrails_config
 from mtdata.core.trading import risk as core_trading_risk
 from mtdata.core.trading import trade_risk_analyze as _trade_risk_analyze_tool
+from mtdata.core.trading.orders import _candidate_risk_preview_fields
 from mtdata.core.trading.requests import TradeRiskAnalyzeRequest
 from mtdata.core.trading.safety import evaluate_trade_guardrails
 from mtdata.core.trading.sizing import _floor_volume_steps
@@ -106,12 +107,14 @@ def _make_symbol_info(
     volume_step: float = 0.1,
     volume_max: float = 10.0,
     trade_tick_value: float = 1.0,
+    trade_tick_value_profit: float | None = None,
     trade_tick_value_loss: float | None = None,
 ):
     return SimpleNamespace(
         trade_contract_size=1.0,
         point=1.0,
         trade_tick_value=trade_tick_value,
+        trade_tick_value_profit=trade_tick_value_profit,
         trade_tick_value_loss=trade_tick_value_loss,
         trade_tick_size=1.0,
         volume_min=volume_min,
@@ -727,15 +730,21 @@ def test_trade_risk_analyze_evaluates_trade_levels_without_desired_risk_pct() ->
         "tp_distance_price": 12.5,
         "tp_distance_pct": 12.5,
         "tp_distance_ticks": 12.5,
+        "reward_tick_value": 1.0,
+        "reward_per_lot": 12.5,
         "reward_risk_ratio": 2.5,
+        "reward_risk_ratio_basis": "profit_tick_value_over_loss_tick_value",
         "units": {
             "sl_distance_price": "price",
             "sl_distance_pct": "percent",
             "sl_distance_ticks": "ticks",
+            "risk_tick_value": "account_currency_per_tick_per_lot",
             "risk_per_lot": "account_currency_per_lot",
             "tp_distance_price": "price",
             "tp_distance_pct": "percent",
             "tp_distance_ticks": "ticks",
+            "reward_tick_value": "account_currency_per_tick_per_lot",
+            "reward_per_lot": "account_currency_per_lot",
             "reward_risk_ratio": "scalar",
         },
     }
@@ -1692,6 +1701,113 @@ def test_trade_risk_analyze_uses_loss_tick_value_for_open_position_risk() -> Non
     assert out["portfolio_risk"]["total_risk_currency"] == 20.0
     assert out["portfolio_risk"]["risk_total_complete"] is True
     assert out["portfolio_risk"]["quantified_risk_currency"] == 20.0
+
+
+@pytest.mark.parametrize(
+    ("order_type", "trigger", "limit_price", "stop_loss", "take_profit"),
+    [
+        pytest.param(6, 100.0, 98.0, 90.0, 110.0, id="buy-stop-limit"),
+        pytest.param(7, 100.0, 102.0, 110.0, 90.0, id="sell-stop-limit"),
+    ],
+)
+def test_trade_risk_analyze_uses_stop_limit_entry_for_pending_risk(
+    order_type: int,
+    trigger: float,
+    limit_price: float,
+    stop_loss: float,
+    take_profit: float,
+) -> None:
+    order = SimpleNamespace(
+        ticket=41,
+        symbol="EURUSD",
+        type=order_type,
+        volume_current=1.0,
+        price_open=trigger,
+        price_stoplimit=limit_price,
+        sl=stop_loss,
+        tp=take_profit,
+    )
+    gateway = SimpleNamespace(
+        ensure_connection=lambda: None,
+        account_info=lambda: SimpleNamespace(equity=1_000.0, currency="USD"),
+        positions_get=lambda symbol=None: [],
+        orders_get=lambda symbol=None: [order],
+        symbol_info=lambda _symbol: _make_symbol_info(
+            trade_tick_value=1.0,
+            trade_tick_value_profit=1.0,
+            trade_tick_value_loss=2.0,
+        ),
+        ORDER_TYPE_BUY_LIMIT=2,
+        ORDER_TYPE_SELL_LIMIT=3,
+        ORDER_TYPE_BUY_STOP=4,
+        ORDER_TYPE_SELL_STOP=5,
+        ORDER_TYPE_BUY_STOP_LIMIT=6,
+        ORDER_TYPE_SELL_STOP_LIMIT=7,
+    )
+
+    out = run_trade_risk_analyze(
+        TradeRiskAnalyzeRequest(detail="full"),
+        gateway=gateway,
+    )
+
+    pending = out["pending_orders"][0]
+    assert pending["entry"] == limit_price
+    assert pending["entry_price_basis"] == "price_stoplimit"
+    assert pending["trigger_price"] == trigger
+    assert pending["stop_limit_price"] == limit_price
+    assert pending["risk_currency"] == 16.0
+    assert pending["reward_currency"] == 12.0
+    assert pending["rr_ratio"] == 0.75
+    assert pending["notional_value"] == limit_price
+    assert pending["contract_price_product"] == limit_price
+    assert out["portfolio_risk"]["contingent_pending_risk_currency"] == 16.0
+
+
+def test_directional_tick_values_match_risk_sizing_and_dry_run_preview() -> None:
+    symbol_info = _make_symbol_info(
+        trade_tick_value=0.0,
+        trade_tick_value_profit=1.0,
+        trade_tick_value_loss=2.0,
+    )
+    mt5 = MagicMock()
+    account = SimpleNamespace(equity=1_000.0, currency="USD")
+    mt5.account_info.return_value = account
+    mt5.positions_get.return_value = []
+    mt5.orders_get.return_value = []
+    mt5.symbol_info.return_value = symbol_info
+
+    with _patched_mt5_module(mt5):
+        out = trade_risk_analyze(
+            symbol="EURUSD",
+            detail="full",
+            direction="long",
+            sizing=_fixed_sizing(2.0),
+            entry=100.0,
+            stop_loss=90.0,
+            take_profit=120.0,
+        )
+
+    preview = _candidate_risk_preview_fields(
+        symbol_info=symbol_info,
+        account_info=account,
+        volume=1.0,
+        entry_price=100.0,
+        stop_loss=90.0,
+        take_profit=120.0,
+        side="BUY",
+    )
+
+    assert out["trade_evaluation"]["risk_per_lot"] == 20.0
+    assert out["trade_evaluation"]["reward_per_lot"] == 20.0
+    assert out["trade_evaluation"]["reward_risk_ratio"] == 1.0
+    assert out["position_sizing"]["risk_currency"] == 20.0
+    assert out["position_sizing"]["reward_currency"] == 20.0
+    assert out["position_sizing"]["rr_ratio"] == 1.0
+    assert out["position_sizing"]["sizing_context"]["risk_tick_value"] == 2.0
+    assert out["position_sizing"]["sizing_context"]["reward_tick_value"] == 1.0
+    assert preview["risk_currency"] == 20.0
+    assert preview["reward_currency"] == 20.0
+    assert preview["reward_risk_ratio"] == 1.0
 
 
 def test_trade_risk_analyze_measures_trailed_stop_from_current_mark() -> None:

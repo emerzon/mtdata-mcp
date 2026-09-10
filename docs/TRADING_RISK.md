@@ -100,7 +100,16 @@ the original entry-to-stop loss after unrealized P&L has changed. It is a
 conservative path-risk measure, not a same-symbol net-exposure estimate; a path
 can trigger both sides of a hedge sequentially. Pending-order stop risk is
 reported separately as contingent and is included in the total only when
-`include_pending=true`.
+`include_pending=true`. For stop-limit orders, the risk and notional entry is
+the `price_stoplimit` limit leg where a position can open, not the
+`price_open` stop trigger. Full output retains both prices and identifies the
+selected `entry_price_basis`.
+
+Currency risk uses the broker's positive loss-side tick value, with generic and
+profit-side fallbacks. Currency reward uses the positive profit-side value,
+with generic and loss-side fallbacks. The same resolver policy is used by
+position sizing and `trade_place` previews, so directional tick values do not
+produce conflicting reward/risk ratios.
 
 Default compact output retains a per-position exposure summary, including the
 ticket, side, volume, current mark, stop/target, notional value, and stop-risk
@@ -216,6 +225,9 @@ mtdata-cli trade_stress_test --shocks '*=-3' --detail full --json
 `side`, `volume`, `shock_pct`, `current_price`, `shocked_price`, and `pnl_impact`, plus
 totals: `total_pnl_impact`, `positions_total`/`evaluated`/`shocked`, and — when account
 metadata is available — `equity_before`/`equity_after`/`impact_pct`.
+Directional profit/loss tick values are preferred for favorable/adverse shocks.
+A missing or non-positive directional value falls back to another positive
+broker tick value; a position is excluded only when no valid tick value exists.
 
 ---
 

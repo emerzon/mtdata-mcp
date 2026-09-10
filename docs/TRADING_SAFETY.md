@@ -100,7 +100,9 @@ pending-cancel forms because their limits differ.
 
 **What a dry run *does* check:** required fields, order-type validity,
 market-vs-pending routing, an indicative margin estimate when MT5 exposes one,
-and a guardrails preview. For pending orders, `margin_required_when_filled` is
+and a guardrails preview. Candidate stop risk uses the broker's loss-side tick
+value while target reward uses its profit-side tick value; each falls back only
+to another positive broker tick value. For pending orders, `margin_required_when_filled` is
 calculated with the corresponding active BUY/SELL action at the requested entry
 price; `margin_estimate_basis` records that assumption.
 

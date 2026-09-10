@@ -12,7 +12,7 @@ from ...shared.market_units import price_delta_ticks
 from ...shared.schema import normalize_optional_symbol
 from ...utils.coercion import coerce_finite_float
 from . import validation
-from .sizing import _resolve_risk_tick_value
+from .sizing import _resolve_reward_tick_value, _resolve_risk_tick_value
 
 
 class TradeSafetyPolicy(BaseModel):
@@ -757,6 +757,7 @@ def _estimate_order_risk_currency(
     stop_loss: Optional[float],
     side: str,
     wrong_side_policy: Literal["reject", "secured", "overrun"] = "reject",
+    tick_value_role: Literal["risk", "reward"] = "risk",
 ) -> tuple[Optional[float], Optional[str]]:
     normalized_stop_loss = _normalize_stop_loss_value(
         stop_loss, symbol_info=symbol_info
@@ -766,14 +767,24 @@ def _estimate_order_risk_currency(
 
     tick_size = _safe_float_attr(symbol_info, "trade_tick_size")
     tick_value = _safe_float_attr(symbol_info, "trade_tick_value")
+    tick_value_profit = _safe_float_attr(symbol_info, "trade_tick_value_profit")
     tick_value_loss = _safe_float_attr(symbol_info, "trade_tick_value_loss")
-    risk_tick_value = _resolve_risk_tick_value(
-        tick_value=tick_value or float("nan"),
-        tick_value_loss=tick_value_loss,
+    applied_tick_value = (
+        _resolve_reward_tick_value(
+            tick_value=tick_value,
+            tick_value_profit=tick_value_profit,
+            tick_value_loss=tick_value_loss,
+        )
+        if tick_value_role == "reward"
+        else _resolve_risk_tick_value(
+            tick_value=tick_value,
+            tick_value_loss=tick_value_loss,
+            tick_value_profit=tick_value_profit,
+        )
     )
     if tick_size is None or tick_size <= 0:
         return None, "tick_size_invalid"
-    if not math.isfinite(risk_tick_value) or risk_tick_value <= 0:
+    if not math.isfinite(applied_tick_value) or applied_tick_value <= 0:
         return None, "tick_value_invalid"
 
     normalized_side = _infer_side_from_order_type(side)
@@ -791,7 +802,7 @@ def _estimate_order_risk_currency(
         else:
             return None, "stop_loss_wrong_side"
 
-    risk_currency = abs(float(volume) * risk_ticks * risk_tick_value)
+    risk_currency = abs(float(volume) * risk_ticks * applied_tick_value)
     if not math.isfinite(risk_currency) or risk_currency < 0:
         return None, "risk_invalid"
     return risk_currency, None

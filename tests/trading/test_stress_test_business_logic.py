@@ -102,6 +102,59 @@ def test_trade_stress_test_offsets_long_and_short_positions():
     assert {item["symbol"] for item in result["mark_freshness"]} == {"EURUSD"}
 
 
+def test_trade_stress_test_falls_back_from_zero_directional_tick_values() -> None:
+    gateway = _Gateway()
+    gateway.symbol_info = lambda _symbol: SimpleNamespace(
+        trade_tick_size=0.0001,
+        trade_tick_value=10.0,
+        trade_tick_value_profit=0.0,
+        trade_tick_value_loss=0.0,
+        point=0.0001,
+    )
+
+    result = run_trade_stress_test(
+        TradeStressTestRequest(shocks={"EURUSD": -1.0}, detail="full"),
+        gateway=gateway,
+    )
+
+    assert result["success"] is True
+    assert result["positions_evaluated"] == 2
+    assert result["total_pnl_impact"] == -550.0
+    assert {item["tick_value_used"] for item in result["items"]} == {10.0}
+
+
+def test_trade_stress_test_profit_tick_can_fall_back_to_loss_tick() -> None:
+    gateway = _Gateway()
+    gateway.positions_get = lambda: [
+        SimpleNamespace(
+            ticket=1,
+            symbol="EURUSD",
+            type=0,
+            volume=1.0,
+            price_current=1.1000,
+            price_open=1.0900,
+        )
+    ]
+    gateway.symbol_info = lambda _symbol: SimpleNamespace(
+        trade_tick_size=0.0001,
+        trade_tick_value=0.0,
+        trade_tick_value_profit=0.0,
+        trade_tick_value_loss=7.0,
+        point=0.0001,
+    )
+
+    result = run_trade_stress_test(
+        TradeStressTestRequest(shocks={"EURUSD": 1.0}, detail="full"),
+        gateway=gateway,
+    )
+
+    assert result["success"] is True
+    assert result["positions_evaluated"] == 1
+    assert result["total_pnl_impact"] == pytest.approx(770.0)
+    assert result["items"][0]["tick_value_used"] == 7.0
+    assert result["items"][0]["tick_value_role"] == "reward"
+
+
 def test_trade_stress_test_preserves_broker_symbol_case():
     gateway = _Gateway()
     gateway.positions_get = lambda: [

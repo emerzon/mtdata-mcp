@@ -23,6 +23,7 @@ from mtdata.core.trading.requests import (
 from mtdata.core.trading.safety import assess_margin_stress, resolve_volume_guardrail
 from mtdata.core.trading.sizing import (
     _floor_volume_steps,
+    _resolve_reward_tick_value,
     _resolve_risk_tick_value,
     compute_kelly_sizing_context,
 )
@@ -331,11 +332,21 @@ def _build_trade_evaluation(
 
     tick_size = validation._safe_float_attr(sym_info, "trade_tick_size")
     tick_value = validation._safe_float_attr(sym_info, "trade_tick_value")
+    tick_value_profit = validation._safe_float_attr(
+        sym_info, "trade_tick_value_profit"
+    )
     tick_value_loss = validation._safe_float_attr(sym_info, "trade_tick_value_loss")
     risk_tick_value = _resolve_risk_tick_value(
         tick_value=tick_value,
         tick_value_loss=tick_value_loss,
+        tick_value_profit=tick_value_profit,
     )
+    reward_tick_value = _resolve_reward_tick_value(
+        tick_value=tick_value,
+        tick_value_profit=tick_value_profit,
+        tick_value_loss=tick_value_loss,
+    )
+    risk_per_lot = None
     if math.isfinite(tick_size) and tick_size > 0:
         sl_distance_ticks = abs(
             price_delta_ticks(float(entry), float(stop_loss), tick_size) or 0
@@ -344,7 +355,8 @@ def _build_trade_evaluation(
         out["sl_distance_ticks"] = round(sl_distance_ticks, 4)
         if math.isfinite(risk_tick_value) and risk_tick_value > 0:
             out["risk_tick_value"] = round(risk_tick_value, 8)
-            out["risk_per_lot"] = round(sl_distance_ticks * risk_tick_value, 2)
+            risk_per_lot = sl_distance_ticks * risk_tick_value
+            out["risk_per_lot"] = round(risk_per_lot, 2)
     elif sym_info is not None:
         out["tick_metadata_warning"] = "Symbol tick size is unavailable or invalid."
 
@@ -354,19 +366,36 @@ def _build_trade_evaluation(
         if entry:
             out["tp_distance_pct"] = round((tp_distance / abs(float(entry))) * 100.0, 4)
         if math.isfinite(tick_size) and tick_size > 0:
-            out["tp_distance_ticks"] = round(tp_distance / tick_size, 4)
-        if sl_distance > 0:
+            tp_distance_ticks = tp_distance / tick_size
+            out["tp_distance_ticks"] = round(tp_distance_ticks, 4)
+            if math.isfinite(reward_tick_value) and reward_tick_value > 0:
+                reward_per_lot = tp_distance_ticks * reward_tick_value
+                out["reward_tick_value"] = round(reward_tick_value, 8)
+                out["reward_per_lot"] = round(reward_per_lot, 2)
+                if risk_per_lot is not None and risk_per_lot > 0.0:
+                    out["reward_risk_ratio"] = round(
+                        reward_per_lot / risk_per_lot,
+                        4,
+                    )
+                    out["reward_risk_ratio_basis"] = (
+                        "profit_tick_value_over_loss_tick_value"
+                    )
+        elif sl_distance > 0:
             out["reward_risk_ratio"] = round(tp_distance / sl_distance, 4)
+            out["reward_risk_ratio_basis"] = "price_distance_fallback"
     units = {
         key: value
         for key, value in {
             "sl_distance_price": "price",
             "sl_distance_pct": "percent",
             "sl_distance_ticks": "ticks",
+            "risk_tick_value": "account_currency_per_tick_per_lot",
             "risk_per_lot": "account_currency_per_lot",
             "tp_distance_price": "price",
             "tp_distance_pct": "percent",
             "tp_distance_ticks": "ticks",
+            "reward_tick_value": "account_currency_per_tick_per_lot",
+            "reward_per_lot": "account_currency_per_lot",
             "reward_risk_ratio": "scalar",
         }.items()
         if key in out
@@ -1223,12 +1252,21 @@ def run_trade_risk_analyze(  # noqa: C901
                     tick_value = validation._safe_float_attr(
                         sym_info, "trade_tick_value"
                     )
+                    tick_value_profit = validation._safe_float_attr(
+                        sym_info, "trade_tick_value_profit"
+                    )
                     tick_value_loss = validation._safe_float_attr(
                         sym_info, "trade_tick_value_loss"
                     )
                     tick_size = validation._safe_float_attr(sym_info, "trade_tick_size")
                     risk_tick_value = _resolve_risk_tick_value(
                         tick_value=tick_value,
+                        tick_value_loss=tick_value_loss,
+                        tick_value_profit=tick_value_profit,
+                    )
+                    reward_tick_value = _resolve_reward_tick_value(
+                        tick_value=tick_value,
+                        tick_value_profit=tick_value_profit,
                         tick_value_loss=tick_value_loss,
                     )
                     if not math.isfinite(tick_size) or tick_size <= 0:
@@ -1303,12 +1341,23 @@ def run_trade_risk_analyze(  # noqa: C901
                                 else price_delta_ticks(mark_price, tp_price, tick_size)
                             )
                             if reward_ticks is not None and reward_ticks > 0:
-                                reward_currency = (
-                                    reward_ticks * tick_value * abs(volume)
-                                )
-                                reward_status = "defined"
-                                if risk_currency is not None and risk_currency > 0:
-                                    rr_ratio = reward_currency / risk_currency
+                                if (
+                                    math.isfinite(reward_tick_value)
+                                    and reward_tick_value > 0.0
+                                ):
+                                    reward_currency = (
+                                        reward_ticks
+                                        * reward_tick_value
+                                        * abs(volume)
+                                    )
+                                    reward_status = "defined"
+                                    if (
+                                        risk_currency is not None
+                                        and risk_currency > 0
+                                    ):
+                                        rr_ratio = reward_currency / risk_currency
+                                else:
+                                    reward_status = "tick_value_unavailable"
                             else:
                                 reward_status = "invalid"
                     elif sl_price:
@@ -1362,6 +1411,12 @@ def run_trade_risk_analyze(  # noqa: C901
                             "reward_currency": _round_optional_number(
                                 reward_currency, 2
                             ),
+                            "risk_tick_value": _round_optional_number(
+                                risk_tick_value, 8
+                            ),
+                            "reward_tick_value": _round_optional_number(
+                                reward_tick_value, 8
+                            ),
                             "reward_status": reward_status,
                             "rr_ratio": _round_optional_number(rr_ratio, 2),
                         }
@@ -1400,15 +1455,25 @@ def run_trade_risk_analyze(  # noqa: C901
                         snapshot="orders",
                         context="include pending-order risk",
                     )
+                buy_stop_limit_type = validation._safe_int_attr(
+                    gateway, "ORDER_TYPE_BUY_STOP_LIMIT", 6
+                )
+                sell_stop_limit_type = validation._safe_int_attr(
+                    gateway, "ORDER_TYPE_SELL_STOP_LIMIT", 7
+                )
                 pending_buy_types = {
                     validation._safe_int_attr(gateway, "ORDER_TYPE_BUY_LIMIT", 2),
                     validation._safe_int_attr(gateway, "ORDER_TYPE_BUY_STOP", 4),
-                    validation._safe_int_attr(gateway, "ORDER_TYPE_BUY_STOP_LIMIT", 6),
+                    buy_stop_limit_type,
                 }
                 pending_sell_types = {
                     validation._safe_int_attr(gateway, "ORDER_TYPE_SELL_LIMIT", 3),
                     validation._safe_int_attr(gateway, "ORDER_TYPE_SELL_STOP", 5),
-                    validation._safe_int_attr(gateway, "ORDER_TYPE_SELL_STOP_LIMIT", 7),
+                    sell_stop_limit_type,
+                }
+                pending_stop_limit_types = {
+                    buy_stop_limit_type,
+                    sell_stop_limit_type,
                 }
                 for order in pending_orders:
                     pending_risk_items_total += 1
@@ -1429,7 +1494,26 @@ def run_trade_risk_analyze(  # noqa: C901
                             )
                             continue
 
-                        entry_price = float(getattr(order, "price_open", 0.0) or 0.0)
+                        order_type = validation._safe_int_attr(order, "type", -1)
+                        is_stop_limit = int(order_type) in pending_stop_limit_types
+                        trigger_price = validation._safe_float_attr(
+                            order, "price_open", 0.0
+                        )
+                        stop_limit_price = validation._safe_float_attr(
+                            order, "price_stoplimit", 0.0
+                        )
+                        entry_price = (
+                            float(stop_limit_price)
+                            if is_stop_limit
+                            and stop_limit_price is not None
+                            and stop_limit_price > 0.0
+                            else float(trigger_price or 0.0)
+                            if not is_stop_limit
+                            else 0.0
+                        )
+                        entry_price_basis = (
+                            "price_stoplimit" if is_stop_limit else "price_open"
+                        )
                         sl_raw = getattr(order, "sl", None)
                         tp_raw = getattr(order, "tp", None)
                         sl_price = float(sl_raw) if sl_raw and float(sl_raw) > 0 else None
@@ -1445,10 +1529,19 @@ def run_trade_risk_analyze(  # noqa: C901
 
                         contract_size = float(sym_info.trade_contract_size)
                         tick_value = validation._safe_float_attr(sym_info, "trade_tick_value")
+                        tick_value_profit = validation._safe_float_attr(
+                            sym_info, "trade_tick_value_profit"
+                        )
                         tick_value_loss = validation._safe_float_attr(sym_info, "trade_tick_value_loss")
                         tick_size = validation._safe_float_attr(sym_info, "trade_tick_size")
                         risk_tick_value = _resolve_risk_tick_value(
                             tick_value=tick_value,
+                            tick_value_loss=tick_value_loss,
+                            tick_value_profit=tick_value_profit,
+                        )
+                        reward_tick_value = _resolve_reward_tick_value(
+                            tick_value=tick_value,
+                            tick_value_profit=tick_value_profit,
                             tick_value_loss=tick_value_loss,
                         )
                         if not math.isfinite(tick_size) or tick_size <= 0:
@@ -1468,7 +1561,6 @@ def run_trade_risk_analyze(  # noqa: C901
                             total_pending_notional_exposure += notional_value
                             notional_items_included += 1
 
-                        order_type = validation._safe_int_attr(order, "type", -1)
                         is_buy_order = int(order_type) in pending_buy_types
                         is_sell_order = int(order_type) in pending_sell_types
                         direction_label = "BUY" if is_buy_order else "SELL" if is_sell_order else "UNKNOWN"
@@ -1496,21 +1588,40 @@ def run_trade_risk_analyze(  # noqa: C901
                                     else price_delta_ticks(entry_price, tp_price, tick_size)
                                 )
                                 if reward_ticks is not None and reward_ticks > 0:
-                                    reward_currency = (
-                                        reward_ticks * tick_value * abs(volume)
-                                    )
-                                    reward_status = "defined"
-                                    if risk_currency > 0:
-                                        rr_ratio = reward_currency / risk_currency
+                                    if (
+                                        math.isfinite(reward_tick_value)
+                                        and reward_tick_value > 0.0
+                                    ):
+                                        reward_currency = (
+                                            reward_ticks
+                                            * reward_tick_value
+                                            * abs(volume)
+                                        )
+                                        reward_status = "defined"
+                                        if risk_currency > 0:
+                                            rr_ratio = (
+                                                reward_currency / risk_currency
+                                            )
+                                    else:
+                                        reward_status = "tick_value_unavailable"
                                 else:
                                     reward_status = "invalid"
                         elif sl_price:
+                            risk_error = (
+                                "Pending stop-limit order has no valid "
+                                "price_stoplimit entry price."
+                                if is_stop_limit and entry_price <= 0.0
+                                else (
+                                    "Pending order has stop-loss but entry, direction, "
+                                    "or symbol tick metadata is invalid."
+                                )
+                            )
                             risk_calculation_failures.append(
                                 {
                                     "scope": "pending_order",
                                     "ticket": getattr(order, "ticket", None),
                                     "symbol": getattr(order, "symbol", None),
-                                    "error": "Pending order has stop-loss but entry, direction, or symbol tick metadata is invalid.",
+                                    "error": risk_error,
                                     "error_type": "InvalidPendingRiskMetadata",
                                 }
                             )
@@ -1533,6 +1644,20 @@ def run_trade_risk_analyze(  # noqa: C901
                                     "1 broker lot equals contract_size contract units."
                                 ),
                                 "entry": entry_price,
+                                "entry_price_basis": entry_price_basis,
+                                **(
+                                    {
+                                        "trigger_price": trigger_price,
+                                        "stop_limit_price": (
+                                            stop_limit_price
+                                            if stop_limit_price
+                                            and stop_limit_price > 0.0
+                                            else None
+                                        ),
+                                    }
+                                    if is_stop_limit
+                                    else {}
+                                ),
                                 "sl": sl_price,
                                 "tp": tp_price,
                                 "risk_currency": _round_optional_number(risk_currency, 2),
@@ -1545,6 +1670,12 @@ def run_trade_risk_analyze(  # noqa: C901
                                     contract_price_product, 2
                                 ),
                                 "reward_currency": _round_optional_number(reward_currency, 2),
+                                "risk_tick_value": _round_optional_number(
+                                    risk_tick_value, 8
+                                ),
+                                "reward_tick_value": _round_optional_number(
+                                    reward_tick_value, 8
+                                ),
                                 "reward_status": reward_status,
                                 "rr_ratio": _round_optional_number(rr_ratio, 2),
                             }
@@ -1720,6 +1851,7 @@ def run_trade_risk_analyze(  # noqa: C901
                 "positions": position_risks,
                 "units": {
                     "risk_currency": "account_currency",
+                    "reward_currency": "account_currency",
                     "risk_pct": "percent_of_equity",
                     "notional_value": "account_currency_linearized",
                     "notional_exposure": "account_currency_linearized",
@@ -1727,6 +1859,11 @@ def run_trade_risk_analyze(  # noqa: C901
                     "volume": "broker_lot",
                     "contract_size": "contract_units_per_lot",
                     "contract_price_product": "contract_size_times_price",
+                    "risk_tick_value": "account_currency_per_tick_per_lot",
+                    "reward_tick_value": "account_currency_per_tick_per_lot",
+                    "entry": "symbol_price",
+                    "trigger_price": "symbol_price",
+                    "stop_limit_price": "symbol_price",
                 },
             }
             other_positions_count: Optional[int] = None
@@ -2141,12 +2278,21 @@ def run_trade_risk_analyze(  # noqa: C901
 
                 contract_size = float(sym_info.trade_contract_size)
                 tick_value = validation._safe_float_attr(sym_info, "trade_tick_value")
+                tick_value_profit = validation._safe_float_attr(
+                    sym_info, "trade_tick_value_profit"
+                )
                 tick_value_loss = validation._safe_float_attr(
                     sym_info, "trade_tick_value_loss"
                 )
                 tick_size = validation._safe_float_attr(sym_info, "trade_tick_size")
                 risk_tick_value = _resolve_risk_tick_value(
                     tick_value=tick_value,
+                    tick_value_loss=tick_value_loss,
+                    tick_value_profit=tick_value_profit,
+                )
+                reward_tick_value = _resolve_reward_tick_value(
+                    tick_value=tick_value,
+                    tick_value_profit=tick_value_profit,
                     tick_value_loss=tick_value_loss,
                 )
                 if not math.isfinite(tick_size) or tick_size <= 0:
@@ -2600,11 +2746,19 @@ def run_trade_risk_analyze(  # noqa: C901
                                 request.take_profit,
                                 tick_size,
                             )
-                        reward_currency = (
-                            (tp_distance_ticks or 0) * tick_value * suggested_volume
-                        )
-                        if actual_risk > 0:
-                            rr_ratio = reward_currency / actual_risk
+                        if (
+                            tp_distance_ticks is not None
+                            and tp_distance_ticks > 0.0
+                            and math.isfinite(reward_tick_value)
+                            and reward_tick_value > 0.0
+                        ):
+                            reward_currency = (
+                                tp_distance_ticks
+                                * reward_tick_value
+                                * suggested_volume
+                            )
+                            if actual_risk > 0:
+                                rr_ratio = reward_currency / actual_risk
 
                     notional_value = _linearized_account_currency_notional(
                         volume=abs(suggested_volume),
@@ -2781,6 +2935,7 @@ def run_trade_risk_analyze(  # noqa: C901
                             "price": "symbol_price",
                             "notional_value": "account_currency_linearized",
                             "tick_value": "account_currency_per_tick_per_lot",
+                            "reward_currency": "account_currency",
                             **(
                                 {"kelly_fraction": "fraction"}
                                 if sizing_method == "kelly"
@@ -2793,6 +2948,9 @@ def run_trade_risk_analyze(  # noqa: C901
                             "contract_size": contract_size,
                             "tick_size": tick_size,
                             "risk_tick_value": round(risk_tick_value, 8),
+                            "reward_tick_value": _round_optional_number(
+                                reward_tick_value, 8
+                            ),
                             "volume_step": volume_step,
                             "volume_min": min_volume,
                             "volume_max": max_volume,
@@ -2996,7 +3154,20 @@ def run_trade_stress_test(
         side_sign = 1.0 if side == "BUY" else -1.0
         ticks_moved = (shocked_price - current_price) / tick_size
         raw_pnl_sign = side_sign * ticks_moved
-        applied_tick_value = tick_value_profit if raw_pnl_sign >= 0.0 else tick_value_loss
+        tick_value_role = "reward" if raw_pnl_sign >= 0.0 else "risk"
+        applied_tick_value = (
+            _resolve_reward_tick_value(
+                tick_value=tick_value,
+                tick_value_profit=tick_value_profit,
+                tick_value_loss=tick_value_loss,
+            )
+            if tick_value_role == "reward"
+            else _resolve_risk_tick_value(
+                tick_value=tick_value,
+                tick_value_loss=tick_value_loss,
+                tick_value_profit=tick_value_profit,
+            )
+        )
         if not math.isfinite(applied_tick_value) or applied_tick_value <= 0.0:
             warnings_out.append(
                 {
@@ -3027,6 +3198,7 @@ def run_trade_stress_test(
                     "ticks_moved": round(float(ticks_moved), 4),
                     "tick_size": round(float(tick_size), 10),
                     "tick_value_used": round(float(applied_tick_value), 8),
+                    "tick_value_role": tick_value_role,
                 }
             )
         rows.append(row)

@@ -1108,6 +1108,7 @@ def _candidate_risk_preview_fields(
         entry_price=entry_price,
         stop_loss=take_profit,
         side=reward_side,
+        tick_value_role="reward",
     )
     if reward_currency is not None:
         candidate_risk["reward_currency"] = round(float(reward_currency), 2)

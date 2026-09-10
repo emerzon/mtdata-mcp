@@ -1762,7 +1762,16 @@ def _normalize_trade_risk_payload(  # noqa: C901
             return []
         compact_rows: List[Dict[str, Any]] = []
         value_keys = (
-            ("entry",) if pending else ("current_mark", "risk_reference_price")
+            (
+                (
+                    "entry",
+                    "entry_price_basis",
+                    "trigger_price",
+                    "stop_limit_price",
+                )
+                if pending
+                else ("current_mark", "risk_reference_price")
+            )
         ) + (
             "volume",
             "sl",
@@ -1772,6 +1781,9 @@ def _normalize_trade_risk_payload(  # noqa: C901
             "risk_currency",
             "risk_pct",
             "stop_overrun_currency",
+            "reward_currency",
+            "reward_status",
+            "rr_ratio",
         )
         for row in rows:
             if not isinstance(row, dict):
