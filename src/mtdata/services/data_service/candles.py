@@ -27,6 +27,13 @@ from ...shared.constants import (
 from ...shared.schema import DenoiseSpec, IndicatorSpec, SimplifySpec, TimeframeLiteral
 from ...shared.symbols import is_probably_crypto_symbol
 from ...shared.validators import invalid_timeframe_error
+from ...utils.bar_completion import (
+    _drop_incomplete_tail,
+    _is_last_bar_forming,
+)
+from ...utils.bar_completion import (
+    _drop_incomplete_tail_frame as _drop_incomplete_tail_df,
+)
 from ...utils.coercion import coerce_finite_float, coerce_scalar, round_finite
 from ...utils.denoise import (
     DenoiseCausalityError,
@@ -328,69 +335,6 @@ def _resolve_live_bar_reference_epoch(symbol: Optional[str], timeframe: str) -> 
     del symbol, timeframe
     system_epoch = _utc_epoch_seconds(datetime.now(dt_timezone.utc))
     return float(system_epoch)
-
-
-def _is_last_bar_forming(
-    rates_or_df: Any,
-    timeframe: str,
-    *,
-    current_time_epoch: Optional[float] = None,
-) -> bool:
-    """Return True if the last bar in *rates_or_df* is still forming."""
-    try:
-        current_time = (
-            float(current_time_epoch)
-            if current_time_epoch is not None and math.isfinite(float(current_time_epoch))
-            else float(_utc_epoch_seconds(datetime.now(dt_timezone.utc)))
-        )
-        if isinstance(rates_or_df, pd.DataFrame):
-            if len(rates_or_df) == 0:
-                return False
-            epoch_column = '__epoch' if '__epoch' in rates_or_df.columns else 'time'
-            if epoch_column not in rates_or_df.columns:
-                return True
-            last_epoch = float(rates_or_df[epoch_column].iloc[-1])
-        else:
-            if rates_or_df is None or len(rates_or_df) == 0:
-                return False
-            last_epoch = float(rates_or_df[-1]["time"])
-        return current_time < bar_close_epoch(last_epoch, timeframe)
-    except Exception:
-        # A non-empty tail whose timestamp cannot be classified must not be
-        # silently presented as a completed candle.
-        try:
-            return rates_or_df is not None and len(rates_or_df) > 0
-        except Exception:
-            return False
-
-
-def _drop_incomplete_tail(
-    rates: Any,
-    timeframe: str,
-    *,
-    current_time_epoch: Optional[float] = None,
-) -> Any:
-    """Remove every unfinished tail bar from chronologically ordered rates."""
-    while (
-        rates is not None
-        and len(rates) > 0
-        and _is_last_bar_forming(rates, timeframe, current_time_epoch=current_time_epoch)
-    ):
-        rates = rates[:-1]
-    return rates
-
-
-def _drop_incomplete_tail_df(
-    df: pd.DataFrame,
-    timeframe: str,
-    *,
-    current_time_epoch: Optional[float] = None,
-) -> Tuple[pd.DataFrame, bool]:
-    """Remove every unfinished tail row; return (frame, trimmed)."""
-    original_count = len(df)
-    while len(df) > 0 and _is_last_bar_forming(df, timeframe, current_time_epoch=current_time_epoch):
-        df = df.iloc[:-1]
-    return df, len(df) != original_count
 
 
 def _build_candle_freshness_diagnostics(

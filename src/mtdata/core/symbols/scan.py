@@ -16,7 +16,6 @@ from typing import (
 
 from pydantic import Field
 
-from ...services.data_service.candles import _drop_incomplete_tail
 from ...shared.constants import (
     FETCH_RETRY_ATTEMPTS,
     FETCH_RETRY_DELAY,
@@ -30,6 +29,7 @@ from ...shared.schema import (
 )
 from ...shared.symbols import _alnum_upper
 from ...shared.validators import invalid_timeframe_error
+from ...utils.bar_completion import _drop_incomplete_tail
 from ...utils.freshness import (
     QUOTE_STALE_SECONDS,
     closed_session_context,
