@@ -316,7 +316,14 @@ def test_compact_empty_news_discloses_provider_attempts_and_fallback() -> None:
 
     assert compact["status"] == "no_results"
     assert compact["providers_queried"] == ["finviz", "mt5"]
-    assert compact["provider_failures"] == {"mt5": "terminal feed unavailable"}
+    assert compact["provider_failures"] == {
+        "mt5": {
+            "error": "terminal feed unavailable",
+            "error_code": "provider_request_failed",
+            "retryable": False,
+            "endpoints": ["provider"],
+        }
+    }
     assert compact["related_tools"] == ["news", "calendar"]
     assert "view='market'" in compact["hint"]
 

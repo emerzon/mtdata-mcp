@@ -7,7 +7,7 @@ import pytest
 from pydantic import BaseModel, Field
 from typing_extensions import TypedDict
 
-from mtdata.core.cli import api as cli
+from mtdata.core.cli.parsing import discovery as cli_discovery
 from mtdata.shared.schema import get_function_info
 
 
@@ -47,16 +47,16 @@ def test_get_function_info_resolves_future_annotations():
     enabled_type = params["enabled"]["type"]
     spec_type = params["spec"]["type"]
 
-    assert get_origin(count_type) in (cli.Union, cli.types.UnionType)
+    assert get_origin(count_type) in (cli_discovery.Union, cli_discovery.types.UnionType)
     assert int in get_args(count_type)
     assert type(None) in get_args(count_type)
 
-    assert get_origin(enabled_type) in (cli.Union, cli.types.UnionType)
+    assert get_origin(enabled_type) in (cli_discovery.Union, cli_discovery.types.UnionType)
     assert bool in get_args(enabled_type)
     assert type(None) in get_args(enabled_type)
 
-    base_type, _ = cli._unwrap_optional_type(spec_type)
-    kwargs, is_mapping = cli._resolve_param_kwargs(params["spec"], None)
+    base_type, _ = cli_discovery._unwrap_optional_type(spec_type)
+    kwargs, is_mapping = cli_discovery.resolve_param_kwargs(params["spec"], None)
 
     assert base_type is ExampleSpec
     assert is_mapping is True
@@ -68,7 +68,7 @@ def test_annotated_scalar_constraints_survive_cli_resolution():
         return None
 
     param = get_function_info(constrained)["params"][0]
-    kwargs, is_mapping = cli._resolve_param_kwargs(param, None)
+    kwargs, is_mapping = cli_discovery.resolve_param_kwargs(param, None)
 
     assert is_mapping is False
     assert kwargs["type"]("2") == 2
@@ -78,7 +78,7 @@ def test_annotated_scalar_constraints_survive_cli_resolution():
 
 def test_union_of_models_is_parsed_as_mapping_input():
     annotation = Union[PriceBarrier, RangeBarrier]
-    kwargs, is_mapping = cli._resolve_param_kwargs(
+    kwargs, is_mapping = cli_discovery.resolve_param_kwargs(
         {"name": "barrier", "type": annotation, "required": True, "default": None},
         None,
     )

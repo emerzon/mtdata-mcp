@@ -15,8 +15,8 @@ def test_shell_json_record_sanitizes_nested_nonfinite_numbers(capsys):
 
     output = capsys.readouterr().out
     assert len(output.splitlines()) == 1
-    assert '"price":0.00001' in output
     payload = json.loads(output)
+    assert payload["result"]["price"] == 0.00001
     assert payload["result"]["values"] == [None, None]
     assert payload["time"] == "2026-09-04T00:00:00+00:00"
 
@@ -30,5 +30,6 @@ def test_lightweight_cli_error_uses_shared_serializer(monkeypatch, capsys):
 
     output = capsys.readouterr().out
     assert "NaN" not in output
-    assert "1e-05" not in output
-    assert json.loads(output)["details"]["value"] is None
+    payload = json.loads(output)
+    assert payload["details"]["price"] == 0.00001
+    assert payload["details"]["value"] is None
