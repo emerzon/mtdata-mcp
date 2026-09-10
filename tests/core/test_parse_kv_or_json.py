@@ -43,6 +43,10 @@ class TestParseKvOrJson(unittest.TestCase):
         out = parse_kv_or_json("a: 1 b: x")
         self.assertEqual(out, {"a": 1, "b": "x"})
 
+    def test_kv_string_accepts_wildcard_key(self):
+        out = parse_kv_or_json("*=-3")
+        self.assertEqual(out, {"*": -3})
+
     def test_kv_values_use_native_json_like_types(self):
         out = parse_kv_or_json(
             'enabled=false optional=null count=3 ratio=0.25 weights=[1,2] code="001"'
@@ -73,6 +77,7 @@ class TestParseKvOrJson(unittest.TestCase):
         for value in (
             "n_sims 20 seed=42",
             "broken n_sims=20 seed=42",
+            "n_sims=20,",
             "n_sims=20,,seed=42",
             "n_sims==20 seed=42",
         ):

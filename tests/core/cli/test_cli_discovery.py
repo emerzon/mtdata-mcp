@@ -1260,7 +1260,19 @@ class TestCreateCommandFunction:
         assert "must be a mapping of symbols to percentage shocks" not in output
         mock_fn.assert_not_called()
 
-    def test_trade_stress_test_accepts_percent_suffix_shocks(self, capsys):
+    @pytest.mark.parametrize(
+        ("shocks", "expected"),
+        [
+            ("EURUSD=-2%", {"EURUSD": -2.0}),
+            ("*=-3", {"*": -3.0}),
+        ],
+    )
+    def test_trade_stress_test_accepts_documented_kv_shocks(
+        self,
+        shocks,
+        expected,
+        capsys,
+    ):
         mock_fn = MagicMock(return_value={"ok": True})
         func_info = {
             "func": mock_fn,
@@ -1277,14 +1289,14 @@ class TestCreateCommandFunction:
         }
         cmd_fn = create_command_function(func_info, cmd_name="trade_stress_test")
         args = argparse.Namespace(
-            shocks="EURUSD=-2%",
+            shocks=shocks,
             json=False,
             verbose=False,
         )
 
         assert cmd_fn(args) == 0
         request = mock_fn.call_args.kwargs["request"]
-        assert request.shocks == {"EURUSD": -2.0}
+        assert request.shocks == expected
 
     def test_labels_invalid_barrier_has_json_remediation(self, capsys):
         mock_fn = MagicMock(return_value={"ok": True})

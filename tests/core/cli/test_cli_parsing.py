@@ -1673,6 +1673,9 @@ class TestParseKvString:
         assert result is not None
         assert result["a"] == 1
 
+    def test_empty_json_mapping_is_not_a_parse_failure(self):
+        assert _parse_kv_string("{}") == {}
+
     @patch("mtdata.utils.utils.parse_kv_or_json", side_effect=Exception("fail"))
     def test_exception_returns_none(self, mock_parse):
         result = _parse_kv_string("bad")

@@ -1259,7 +1259,7 @@ def _apply_denoise_companion_params(
     if not isinstance(denoise_params, str) or not denoise_params.strip():
         return denoise
     extra = _parse_kv_string(denoise_params)
-    if not extra:
+    if extra is None:
         parser.error(
             "Invalid --denoise-params value. "
             "Use JSON object syntax or key=value pairs."

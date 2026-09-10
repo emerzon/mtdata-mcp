@@ -165,9 +165,13 @@ def parse_kv_or_json(obj: Any) -> Dict[str, Any]:
         import re
         if re.fullmatch(r"[A-Za-z]:[\\/].*", s):
             return {}
+        if s.startswith(",") or s.endswith(",") or ",," in s:
+            raise ValueError("Malformed mapping delimiter; remove stray commas.")
         out: Dict[str, Any] = {}
+        key_pattern = r"(?:[A-Za-z_][\w.\-]*|\*)"
         pair_pattern = re.compile(
-            r'(?:^|[\s,])([A-Za-z_][\w.\-]*)\s*([=:])\s*(.*?)\s*(?=(?:[\s,]+[A-Za-z_][\w.\-]*\s*[=:])|$)'
+            rf"(?:^|[\s,])({key_pattern})\s*([=:])\s*(.*?)\s*"
+            rf"(?=(?:[\s,]+{key_pattern}\s*[=:])|$)"
         )
         matches = list(pair_pattern.finditer(s))
         if not matches:
@@ -200,8 +204,6 @@ def parse_kv_or_json(obj: Any) -> Dict[str, Any]:
                 f"Malformed mapping fragment: {trailing.strip()!r}; "
                 "use complete key=value pairs."
             )
-        if trailing.count(",") > 1 or ",," in s:
-            raise ValueError("Malformed mapping delimiter; remove duplicate commas.")
         return out
     return {}
 

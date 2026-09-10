@@ -3228,6 +3228,40 @@ class TestEdgeCases:
             "params": {"window": 7},
         }
 
+    @pytest.mark.parametrize("param_name", ["denoise", "config"])
+    def test_malformed_mapping_companion_returns_usage_error(
+        self,
+        param_name,
+        capsys,
+    ):
+        mock_fn = MagicMock(return_value={"success": True})
+        func_info = {
+            "func": mock_fn,
+            "params": [
+                {
+                    "name": param_name,
+                    "type": Dict[str, Any],
+                    "required": False,
+                    "default": None,
+                },
+            ],
+        }
+        cmd_fn = create_command_function(func_info, cmd_name="test_cmd")
+        args = argparse.Namespace(
+            **{
+                f"{param_name}_params": "bad",
+                "json": True,
+                "verbose": False,
+            }
+        )
+
+        assert cmd_fn(args) == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["error_code"] == "cli_invalid_arguments"
+        assert f"--{param_name}-params" in payload["error"]
+        assert "key=value" in payload["error"]
+        mock_fn.assert_not_called()
+
     def test_denoise_companion_promotes_pipeline_controls(self):
         mock_fn = MagicMock(return_value="ok")
         func_info = {

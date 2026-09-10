@@ -76,7 +76,7 @@ def parse_kv_string(s: str, *, debug: Callable[[str], None]) -> Optional[Dict[st
         from ....utils.utils import parse_kv_or_json
 
         result = parse_kv_or_json(s)
-        return result if result else None
+        return result
     except Exception as exc:
         debug(f"Failed to parse kv string '{s}': {exc}")
         return None
@@ -732,6 +732,16 @@ def create_command_function(  # noqa: C901
                 extra_val = getattr(args, extra_param_name, None)
                 if isinstance(extra_val, str) and extra_val.strip():
                     extra = parse_kv_string(extra_val)
+                    if extra is None:
+                        render_cli_result(
+                            _build_cli_error(
+                                f"Invalid --{extra_param_name.replace('_', '-')} "
+                                "value. Use JSON object syntax or key=value pairs."
+                            ),
+                            args=args,
+                            cmd_name=cmd_name,
+                        )
+                        return 2
                     if extra:
                         if param_name == "denoise" and isinstance(arg_value, dict):
                             from mtdata.utils.denoise.api import (
