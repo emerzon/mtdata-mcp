@@ -6,6 +6,11 @@ from zoneinfo import ZoneInfo
 
 FINVIZ_CALENDAR_TIMEZONE = "America/New_York"
 _FINVIZ_CALENDAR_TZ = ZoneInfo(FINVIZ_CALENDAR_TIMEZONE)
+_FINVIZ_DATE_ONLY_TOKEN_RE = re.compile(
+    r"^(\d{4}-\d{2}-\d{2})"
+    r"(?:T00:00:00(?:\.0+)?(?:Z|[+-]\d{2}:?\d{2})?)?$",
+    re.IGNORECASE,
+)
 
 
 def _finviz_market_date(now: Optional[datetime.datetime] = None) -> datetime.date:
@@ -165,22 +170,33 @@ def parse_finviz_datetime(
     return parsed.astimezone(datetime.timezone.utc)
 
 
-def finviz_timestamp_is_date_only(value: Any, parsed: Optional[datetime.datetime] = None) -> bool:
-    """True when a provider timestamp is a calendar date, not a clock time."""
+def parse_finviz_date_only_token(value: Any) -> Optional[datetime.date]:
+    """Return the provider calendar date when ``value`` is explicitly date-only."""
+    if isinstance(value, datetime.datetime):
+        return None
+    if isinstance(value, datetime.date):
+        return value
     text = str(value or "").strip()
-    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
-        return True
-    if re.search(r"T00:00:00(?:Z)?$", text, flags=re.IGNORECASE):
-        return True
-    if parsed is None:
-        return False
-    utc = parsed.astimezone(datetime.timezone.utc)
-    return (
-        utc.hour == 0
-        and utc.minute == 0
-        and utc.second == 0
-        and utc.microsecond == 0
-    )
+    match = _FINVIZ_DATE_ONLY_TOKEN_RE.fullmatch(text)
+    if match is None:
+        return None
+    try:
+        return datetime.date.fromisoformat(match.group(1))
+    except ValueError:
+        return None
+
+
+def finviz_timestamp_is_date_only(
+    value: Any,
+    parsed: Optional[datetime.datetime] = None,
+) -> bool:
+    """True when the provider token carries date-only, rather than clock, precision.
+
+    ``parsed`` remains accepted for compatibility, but its UTC wall clock cannot
+    establish source precision: a real evening New York timestamp can convert to
+    midnight UTC.
+    """
+    return parse_finviz_date_only_token(value) is not None
 
 
 def normalize_finviz_dates_in_rows(
@@ -315,6 +331,8 @@ __all__ = [
     "normalize_finviz_dates_in_rows",
     "parse_finviz_publication_date",
     "parse_finviz_datetime",
+    "parse_finviz_date_only_token",
+    "finviz_timestamp_is_date_only",
     "finviz_earnings_period_window",
     "parse_finviz_earnings_date",
     "resolve_date_range",

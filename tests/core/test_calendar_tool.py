@@ -555,6 +555,43 @@ def test_economic_calendar_utc_midnight_is_date_only() -> None:
     assert "local_time" not in result
 
 
+@pytest.mark.parametrize(
+    ("raw_value", "scheduled_at", "local_time"),
+    [
+        (
+            "2026-01-15 19:00",
+            "2026-01-16T00:00:00Z",
+            "2026-01-15T19:00:00-05:00",
+        ),
+        (
+            "2026-07-15 20:00",
+            "2026-07-16T00:00:00Z",
+            "2026-07-15T20:00:00-04:00",
+        ),
+        (
+            "2026-01-15T19:00:00-05:00",
+            "2026-01-16T00:00:00Z",
+            "2026-01-15T19:00:00-05:00",
+        ),
+    ],
+)
+def test_economic_calendar_utc_midnight_keeps_source_clock_precision(
+    raw_value,
+    scheduled_at,
+    local_time,
+) -> None:
+    from mtdata.core.finviz.calendar import _normalize_finviz_economic_calendar_time
+
+    result = _normalize_finviz_economic_calendar_time(
+        {"event": "Evening release", "date": raw_value}
+    )
+
+    assert result["event_time_precision"] == "exact"
+    assert result["scheduled_at"] == scheduled_at
+    assert result["date"] == scheduled_at
+    assert result["local_time"] == local_time
+
+
 def test_economic_calendar_compact_items_include_scheduled_at() -> None:
     from mtdata.core.finviz.calendar import _compact_finviz_calendar_item
 

@@ -958,6 +958,48 @@ def test_finviz_naive_datetimes_use_new_york_dst_offsets() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("raw_value", "expected_utc"),
+    [
+        (
+            "2026-01-15 19:00",
+            datetime(2026, 1, 16, 0, 0, tzinfo=timezone.utc),
+        ),
+        (
+            "2026-07-15 20:00",
+            datetime(2026, 7, 16, 0, 0, tzinfo=timezone.utc),
+        ),
+        (
+            "2026-01-15T19:00:00-05:00",
+            datetime(2026, 1, 16, 0, 0, tzinfo=timezone.utc),
+        ),
+    ],
+)
+def test_finviz_real_timestamps_at_utc_midnight_are_not_date_only(
+    raw_value,
+    expected_utc,
+) -> None:
+    parsed = svc.parse_finviz_datetime(raw_value)
+
+    assert parsed == expected_utc
+    assert svc.finviz_timestamp_is_date_only(raw_value, parsed) is False
+
+
+@pytest.mark.parametrize(
+    "raw_value",
+    [
+        "2026-01-15",
+        "2026-01-15T00:00:00",
+        "2026-01-15T00:00:00Z",
+        "2026-01-15T00:00:00+00:00",
+    ],
+)
+def test_finviz_explicit_date_tokens_remain_date_only(raw_value) -> None:
+    parsed = svc.parse_finviz_datetime(raw_value)
+
+    assert svc.finviz_timestamp_is_date_only(raw_value, parsed) is True
+
+
 def test_finviz_general_news_preserves_yearless_date_precision(monkeypatch) -> None:
     parse_publication_date = svc.parse_finviz_publication_date
     monkeypatch.setattr(
@@ -1015,6 +1057,7 @@ def test_finviz_economic_candidates_normalize_new_york_wall_time(monkeypatch) ->
 
     assert item.published_at is None
     assert item.scheduled_at == datetime(2026, 8, 13, 12, 30, tzinfo=timezone.utc)
+    assert item.timestamp_precision == "exact"
     assert item.metadata["provider_timezone"] == "America/New_York"
 
 

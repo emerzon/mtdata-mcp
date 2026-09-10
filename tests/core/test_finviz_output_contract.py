@@ -595,6 +595,7 @@ class TestFinvizCalendarOutputContract:
                 "scheduled_at": "2026-01-06T18:30:00Z",
                 "local_time": "2026-01-06T13:30:00-05:00",
                 "local_timezone": "America/New_York",
+                "event_time_precision": "exact",
                 "event": "CPI",
                 "impact": "high",
                 "country": "United States",
@@ -908,6 +909,7 @@ class TestFinvizCalendarOutputContract:
                 "scheduled_at": "2026-05-08T09:45:00Z",
                 "local_time": "2026-05-08T05:45:00-04:00",
                 "local_timezone": "America/New_York",
+                "event_time_precision": "exact",
                 "impact": "medium",
             }
         ]
@@ -943,6 +945,7 @@ class TestFinvizCalendarOutputContract:
                 "scheduled_at": "2026-05-08T12:30:00Z",
                 "local_time": "2026-05-08T08:30:00-04:00",
                 "local_timezone": "America/New_York",
+                "event_time_precision": "exact",
                 "impact": "high",
                 "country": "United States",
                 "country_code": "US",

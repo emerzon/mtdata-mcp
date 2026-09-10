@@ -96,6 +96,50 @@ def test_max_age_ends_at_now_and_rejects_future_events(monkeypatch, keep_recent)
         assert result["status"] == "no_results"
 
 
+def test_max_age_keeps_exact_utc_midnight_without_lookahead(monkeypatch):
+    class FrozenDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return cls(2026, 1, 16, 0, 30, tzinfo=timezone.utc)
+
+    monkeypatch.setattr("mtdata.core.news.datetime", FrozenDateTime)
+    monkeypatch.setattr(
+        "mtdata.core.news.fetch_unified_news",
+        lambda **kwargs: {
+            "success": True,
+            "recent_events": [
+                {
+                    "kind": "economic_event",
+                    "event": "Evening release",
+                    "scheduled_at": "2026-01-16T00:00:00Z",
+                    "event_time_precision": "exact",
+                },
+                {
+                    "kind": "economic_event",
+                    "event": "Date-only release",
+                    "scheduled_at": "2026-01-16",
+                    "event_time_precision": "date_only",
+                },
+                {
+                    "kind": "economic_event",
+                    "event": "Future release",
+                    "scheduled_at": "2026-01-16T01:00:00Z",
+                    "event_time_precision": "exact",
+                },
+            ],
+        },
+    )
+
+    result = _raw_news(max_age="1h", detail="full", limit=5)
+
+    assert [item["event"] for item in result["recent_events"]] == [
+        "Evening release"
+    ]
+    assert result["returned"] == 1
+    assert result["recency"]["excluded_date_only_count"] == 1
+    assert result["recency"]["end"] == "2026-01-16T00:30:00Z"
+
+
 def test_date_only_events_cannot_be_treated_as_midnight(monkeypatch):
     monkeypatch.setattr(
         "mtdata.core.news.fetch_unified_news",

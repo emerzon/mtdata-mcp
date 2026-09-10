@@ -308,6 +308,11 @@ of scheduled time, event, symbol, category, reference, country, and currency.
 If duplicate variants disagree on a non-empty field, the merged field is
 `null` and `provider_conflicts` keeps the alternatives.
 
+Economic `event_time_precision` follows the provider token, not the converted
+UTC clock. A real New York timestamp such as `19:00` in winter remains
+`exact` even though it converts to `00:00Z` on the next UTC date. An explicit
+date-only token remains `date_only` and keeps its provider calendar date.
+
 `country_attribution` is `provider`, `inferred`, or `unknown`. Country
 filters warn when unknown rows were dropped.
 

@@ -2026,6 +2026,8 @@ class FinvizNewsSource(_EndpointErrorTrackingSource):
                 timestamp_precision = (
                     "date_only"
                     if finviz_timestamp_is_date_only(item.get("date"), scheduled_at)
+                    else "exact"
+                    if scheduled_at is not None
                     else None
                 )
                 reference_date = _economic_reference_date(item, scheduled_at)

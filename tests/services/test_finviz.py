@@ -3439,6 +3439,7 @@ class TestFinvizTools:
                 "scheduled_at": "2026-01-04T13:30:00Z",
                 "local_time": "2026-01-04T08:30:00-05:00",
                 "local_timezone": "America/New_York",
+                "event_time_precision": "exact",
                 "impact": "high",
             }
         ]

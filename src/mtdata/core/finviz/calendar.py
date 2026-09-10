@@ -50,7 +50,7 @@ from mtdata.services.finviz import (
 )
 from mtdata.services.finviz.dates import (
     finviz_earnings_period_window,
-    finviz_timestamp_is_date_only,
+    parse_finviz_date_only_token,
     parse_finviz_earnings_date,
 )
 from mtdata.services.finviz.utils import finviz_percent_value
@@ -423,10 +423,9 @@ def _normalize_finviz_economic_calendar_time(item: Dict[str, Any]) -> Dict[str, 
     parsed = _parse_finviz_calendar_time(raw_value)
     if parsed is None:
         return normalized
-    if finviz_timestamp_is_date_only(raw_value, parsed):
-        event_date = parsed.astimezone(timezone.utc).date().isoformat()
-        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(raw_value or "").strip()):
-            event_date = str(raw_value).strip()
+    date_only = parse_finviz_date_only_token(raw_value)
+    if date_only is not None:
+        event_date = date_only.isoformat()
         normalized["event_time_precision"] = "date_only"
         normalized["scheduled_at"] = event_date
         normalized["date"] = event_date
@@ -440,6 +439,7 @@ def _normalize_finviz_economic_calendar_time(item: Dict[str, Any]) -> Dict[str, 
     scheduled_at = format_datetime_utc(utc_time)
     normalized["date"] = scheduled_at
     normalized["scheduled_at"] = scheduled_at
+    normalized["event_time_precision"] = "exact"
     return normalized
 
 
