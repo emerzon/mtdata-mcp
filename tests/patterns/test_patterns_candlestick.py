@@ -1161,24 +1161,37 @@ def test_detect_candlestick_patterns_reapplies_min_strength_after_enrichment(
     assert res["data"] == []
 
 
-def test_attach_candlestick_volume_confirmation_uses_full_multibar_signal_window():
-    row = {"start_index": 20, "end_index": 22, "confidence": 0.4}
-    volume = np.full(30, 100.0, dtype=float)
-    volume[20:23] = np.array([220.0, 90.0, 90.0], dtype=float)
+def test_attach_candlestick_volume_confirmation_uses_final_breakout_window():
+    row = {"start_index": 20, "end_index": 24, "confidence": 0.4}
+    volume = np.full(30, 10.0, dtype=float)
+    volume[20:23] = 500.0
+    volume[23:25] = 20.0
 
     candlestick_mod._attach_candlestick_volume_confirmation(
         row,
         volume,
         "tick_volume",
-        {"use_volume_confirmation": True, "volume_confirm_min_ratio": 1.1},
+        {
+            "use_volume_confirmation": True,
+            "volume_confirm_breakout_bars": 2,
+            "volume_confirm_lookback_bars": 4,
+            "volume_confirm_min_ratio": 1.1,
+        },
     )
 
-    assert row["volume_confirmation"]["status"] == "confirmed"
-    assert row["volume_confirmation"]["baseline_sufficient"] is True
-    assert row["volume_confirmation"]["baseline_bars_used"] == 20
-    assert row["volume_confirmation"]["baseline_bars_required"] == 20
-    assert row["volume_confirmation"]["signal_avg_volume"] > 130.0
-    assert row["volume_confirmation"]["signal_to_baseline_ratio"] > 1.1
+    confirmation = row["volume_confirmation"]
+    assert confirmation["status"] == "rejected"
+    assert confirmation["signal_bars_used"] == 2
+    assert confirmation["signal_window"] == {"start_index": 23, "end_index": 24}
+    assert confirmation["signal_avg_volume"] == pytest.approx(20.0)
+    assert confirmation["baseline_sufficient"] is True
+    assert confirmation["baseline_bars_used"] == 4
+    assert confirmation["baseline_bars_required"] == 4
+    assert confirmation["baseline_window"] == {"start_index": 19, "end_index": 22}
+    assert confirmation["baseline_avg_volume"] == pytest.approx(377.5)
+    assert confirmation["signal_to_baseline_ratio"] == pytest.approx(
+        20.0 / 377.5
+    )
 
 
 def test_attach_candlestick_volume_confirmation_skips_partial_baseline():

@@ -212,6 +212,14 @@ Detector config is strict. Candlestick mode accepts
 `regime_alignment_bonus`, and `regime_countertrend_penalty`; other keys return
 `unknown_config_key` instead of being ignored.
 
+Volume confirmation averages the final `volume_confirm_breakout_bars` inside
+the detected candlestick pattern. Its baseline is the
+`volume_confirm_lookback_bars` immediately before that trailing signal window,
+not necessarily before the whole pattern. Full rows expose `signal_window`,
+`signal_bars_used`, and `baseline_window` indexes so both averages are
+auditable. A pattern shorter than the requested breakout window uses all of its
+bars and reports the actual count in `signal_bars_used`.
+
 In `mode=all`, un-namespaced config keys apply to every detector that has the
 field. Nest under a section name to retune one detector, for example
 `--config '{"harmonic": {"min_confidence": 0.7}}'`. An unknown key inside a

@@ -59,14 +59,10 @@ def _candlestick_volume_warmup_bars(config: Optional[Dict[str, Any]]) -> int:
         _DEFAULT_VOLUME_CONFIRM_LOOKBACK_BARS,
         minimum=breakout_bars + 1,
     )
-    # A multi-bar pattern whose signal lands on the first visible bar begins
-    # before it, so the volume baseline needs the pattern's own span on top of
-    # the lookback or it is measured over a shorter window than requested.
-    return (
-        int(lookback_bars)
-        + int(breakout_bars)
-        + max(0, _MAX_CANDLESTICK_PATTERN_SPAN - 1)
-    )
+    # A signal on the first visible bar may use earlier bars from its pattern.
+    # Fetch enough history for that trailing signal slice and its full baseline.
+    signal_bars = min(int(breakout_bars), int(_MAX_CANDLESTICK_PATTERN_SPAN))
+    return int(lookback_bars) + max(0, signal_bars - 1)
 
 
 ta: Any = None
@@ -1410,10 +1406,11 @@ def _attach_candlestick_volume_confirmation(
     bonus = _config_float(config, "volume_confirm_bonus", 0.08, minimum=0.0)
     penalty = _config_float(config, "volume_confirm_penalty", 0.06, minimum=0.0)
     signal_end = max(int(start_index), int(end_index))
-    pattern_start = min(int(start_index), int(end_index))
-    signal_start = max(0, min(pattern_start, int(signal_end - breakout_bars + 1)))
+    pattern_start = max(0, min(int(start_index), int(end_index)))
+    signal_start = max(pattern_start, int(signal_end - breakout_bars + 1))
     baseline_end = int(signal_start - 1)
     baseline_start = max(0, int(baseline_end - lookback_bars + 1))
+    signal_used = int(signal_end - signal_start + 1)
     baseline_used = int(baseline_end - baseline_start + 1) if baseline_end >= 0 else 0
     signal_avg = _volume_window_mean(volume, signal_start, signal_end)
     baseline_avg = (
@@ -1423,8 +1420,17 @@ def _attach_candlestick_volume_confirmation(
     )
     payload["lookback_bars"] = int(lookback_bars)
     payload["breakout_bars"] = int(breakout_bars)
+    payload["signal_bars_used"] = int(max(0, signal_used))
+    payload["signal_window"] = {
+        "start_index": int(signal_start),
+        "end_index": int(signal_end),
+    }
     payload["baseline_bars_required"] = int(lookback_bars)
     payload["baseline_bars_used"] = int(max(0, baseline_used))
+    payload["baseline_window"] = {
+        "start_index": int(baseline_start) if baseline_used > 0 else None,
+        "end_index": int(baseline_end) if baseline_used > 0 else None,
+    }
     baseline_sufficient = int(baseline_used) >= int(lookback_bars)
     payload["baseline_sufficient"] = bool(baseline_sufficient)
     if baseline_avg is not None:

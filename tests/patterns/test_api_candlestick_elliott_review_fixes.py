@@ -267,13 +267,12 @@ class TestCandlestickConfirmationSpan:
 
 
 class TestCandlestickVolumeWarmup:
-    def test_warmup_covers_the_longest_pattern_span(self):
-        """A multi-bar pattern on the first visible bar starts before it."""
+    def test_warmup_covers_trailing_signal_and_full_baseline(self):
         warmup = _candlestick_volume_warmup_bars(
             {"volume_confirm_lookback_bars": 20, "volume_confirm_breakout_bars": 2}
         )
 
-        assert warmup > 20 + 2
+        assert warmup == 21
 
     def test_disabled_confirmation_needs_no_warmup(self):
         assert _candlestick_volume_warmup_bars({"use_volume_confirmation": False}) == 0
