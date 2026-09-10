@@ -460,6 +460,75 @@ def _news_compact_provenance(result: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def _compact_news_provider_failures(value: Any) -> Dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+
+    compact: Dict[str, Any] = {}
+    for provider, provider_failure in sorted(value.items()):
+        if not isinstance(provider_failure, dict):
+            if provider_failure not in (None, ""):
+                compact[str(provider)] = str(provider_failure)
+            continue
+
+        if (
+            isinstance(provider_failure.get("endpoints"), list)
+            and provider_failure.get("error") not in (None, "")
+        ):
+            compact[str(provider)] = dict(provider_failure)
+            continue
+
+        endpoint_failures: list[tuple[str, Dict[str, Any]]] = []
+        if provider_failure.get("error") not in (None, ""):
+            endpoint = str(provider_failure.get("endpoint") or "provider")
+            endpoint_failures.append((endpoint, provider_failure))
+        else:
+            endpoint_failures.extend(
+                (str(endpoint), detail)
+                for endpoint, detail in sorted(provider_failure.items())
+                if isinstance(detail, dict)
+                and detail.get("error") not in (None, "")
+            )
+        if not endpoint_failures:
+            continue
+
+        primary = endpoint_failures[0][1]
+        summary: Dict[str, Any] = {
+            "error": str(primary["error"]),
+            "error_code": str(
+                primary.get("error_code") or "provider_request_failed"
+            ),
+            "retryable": any(
+                detail.get("retryable") is True
+                for _endpoint, detail in endpoint_failures
+            ),
+            "endpoints": [endpoint for endpoint, _detail in endpoint_failures],
+        }
+        error_codes = sorted(
+            {
+                str(detail.get("error_code"))
+                for _endpoint, detail in endpoint_failures
+                if detail.get("error_code") not in (None, "")
+            }
+        )
+        if len(error_codes) > 1:
+            summary["error_codes"] = error_codes
+        retry_after_seconds = next(
+            (
+                detail.get("retry_after_seconds")
+                for _endpoint, detail in endpoint_failures
+                if detail.get("retry_after_seconds") not in (None, "")
+            ),
+            None,
+        )
+        if retry_after_seconds is not None:
+            summary["retry_after_seconds"] = retry_after_seconds
+        if len(endpoint_failures) > 1:
+            summary["failure_count"] = len(endpoint_failures)
+        compact[str(provider)] = summary
+    return compact
+
+
 def normalize_news_output(
     result: Dict[str, Any],
     *,
@@ -486,6 +555,11 @@ def normalize_news_output(
     for key, subvalue in result.items():
         key_text = str(key)
         if key_text in _NEWS_COMPACT_TOP_LEVEL_KEYS:
+            continue
+        if key_text == "provider_failures":
+            provider_failures = _compact_news_provider_failures(subvalue)
+            if provider_failures:
+                out[key] = provider_failures
             continue
         if key_text == "symbol" and subvalue is None:
             continue

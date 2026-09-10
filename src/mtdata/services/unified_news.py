@@ -1488,12 +1488,116 @@ def _build_ycnbc_symbol_candidates(context: InstrumentContext) -> List[str]:
     return _unique_preserve_order(mapped)
 
 
-class YCNBCNewsSource:
+def _provider_failure_is_retryable(error_code: Any, error: Any) -> bool:
+    evidence = f"{_safe_text(error_code)} {_safe_text(error)}".lower()
+    return any(
+        marker in evidence
+        for marker in (
+            "429",
+            "connection",
+            "rate limit",
+            "rate_limit",
+            "temporar",
+            "timeout",
+            "timed out",
+            "unavailable",
+        )
+    )
+
+
+def _provider_failure_detail(
+    *,
+    provider: str,
+    endpoint: str,
+    payload: Optional[Dict[str, Any]] = None,
+    exc: Optional[BaseException] = None,
+) -> Dict[str, Any]:
+    if payload is not None:
+        error = _safe_text(payload.get("error")) or (
+            f"{provider} provider request failed at {endpoint}."
+        )
+        error_code = _safe_text(payload.get("error_code")) or "provider_request_failed"
+        retryable_value = payload.get("retryable")
+        retryable = (
+            retryable_value
+            if isinstance(retryable_value, bool)
+            else _provider_failure_is_retryable(error_code, error)
+        )
+    else:
+        error = str(exc) or exc.__class__.__name__ if exc is not None else (
+            f"{provider} provider request failed at {endpoint}."
+        )
+        error_code = "provider_request_failed"
+        retryable = (
+            isinstance(exc, (TimeoutError, ConnectionError))
+            or _provider_failure_is_retryable(exc.__class__.__name__, error)
+            if exc is not None
+            else False
+        )
+
+    detail: Dict[str, Any] = {
+        "provider": provider,
+        "endpoint": endpoint,
+        "error": error,
+        "error_code": error_code,
+        "retryable": bool(retryable),
+    }
+    if payload is not None:
+        for key in ("retry_after_seconds", "remediation"):
+            if payload.get(key) not in (None, ""):
+                detail[key] = payload[key]
+    return detail
+
+
+class _EndpointErrorTrackingSource:
+    name: str
+
+    def __init__(self) -> None:
+        self.endpoint_errors: Dict[str, Dict[str, Any]] = {}
+        self.endpoint_attempts: set[str] = set()
+        self.endpoint_successes: set[str] = set()
+
+    def reset_endpoint_diagnostics(self) -> None:
+        self.endpoint_errors.clear()
+        self.endpoint_attempts.clear()
+        self.endpoint_successes.clear()
+
+    def _record_endpoint_success(self, endpoint: str) -> None:
+        self.endpoint_attempts.add(endpoint)
+        self.endpoint_successes.add(endpoint)
+        self.endpoint_errors.pop(endpoint, None)
+
+    def _record_endpoint_error(self, endpoint: str, payload: Any) -> None:
+        self.endpoint_attempts.add(endpoint)
+        if isinstance(payload, dict) and (
+            payload.get("success") is False or payload.get("error") not in (None, "")
+        ):
+            self.endpoint_successes.discard(endpoint)
+            self.endpoint_errors[endpoint] = _provider_failure_detail(
+                provider=self.name,
+                endpoint=endpoint,
+                payload=payload,
+            )
+            return
+        self._record_endpoint_success(endpoint)
+
+    def _record_endpoint_exception(self, endpoint: str, exc: BaseException) -> None:
+        self.endpoint_attempts.add(endpoint)
+        self.endpoint_successes.discard(endpoint)
+        self.endpoint_errors[endpoint] = _provider_failure_detail(
+            provider=self.name,
+            endpoint=endpoint,
+            exc=exc,
+        )
+
+
+class YCNBCNewsSource(_EndpointErrorTrackingSource):
     """Optional CNBC scraping source for general and quote-page news."""
 
     name = "ycnbc"
 
     def __init__(self) -> None:
+        super().__init__()
         self._available: Optional[bool] = None
         self._general_cache: Optional[tuple[float, List[NewsItem]]] = None
 
@@ -1521,6 +1625,7 @@ class YCNBCNewsSource:
             return []
         cached = self._general_cache
         if cached is not None and monotonic() - cached[0] <= _YCNBC_GENERAL_CACHE_TTL_SECONDS:
+            self._record_endpoint_success("general_news")
             return deepcopy(cached[1][:limit])
         try:
             news_cls, _stocks_cls = _import_ycnbc()
@@ -1563,11 +1668,14 @@ class YCNBCNewsSource:
                     rank += 1
                     if len(out) >= limit:
                         self._general_cache = (monotonic(), out)
+                        self._record_endpoint_success("general_news")
                         return deepcopy(out)
             self._general_cache = (monotonic(), out)
+            self._record_endpoint_success("general_news")
             return deepcopy(out[:limit])
-        except Exception:
+        except Exception as exc:
             logger.exception("Error fetching YCNBC general candidates")
+            self._record_endpoint_exception("general_news", exc)
             return []
 
     def fetch_related_candidates(self, context: InstrumentContext, limit: int) -> List[NewsItem]:
@@ -1623,40 +1731,26 @@ class YCNBCNewsSource:
                     )
                     rank += 1
                     if len(out) >= limit:
+                        self._record_endpoint_success("related_news")
                         return out
+            self._record_endpoint_success("related_news")
             return out
-        except Exception:
+        except Exception as exc:
             logger.exception("Error fetching YCNBC related candidates for %s", context.symbol)
+            self._record_endpoint_exception("related_news", exc)
             return []
 
 
-class FinvizNewsSource:
+class FinvizNewsSource(_EndpointErrorTrackingSource):
     """Finviz-backed news provider and market context provider."""
 
     name = "finviz"
 
     def __init__(self) -> None:
-        self.endpoint_errors: Dict[str, Any] = {}
+        super().__init__()
 
     def is_available(self) -> bool:
         return True
-
-    def _record_endpoint_error(self, endpoint: str, payload: Any) -> None:
-        if isinstance(payload, dict) and payload.get("success") is False:
-            self.endpoint_errors[endpoint] = {
-                "error": payload.get("error"),
-                "error_code": payload.get("error_code"),
-                "retryable": payload.get("retryable"),
-                "retry_after_seconds": payload.get("retry_after_seconds"),
-            }
-        else:
-            self.endpoint_errors.pop(endpoint, None)
-
-    def _record_endpoint_exception(self, endpoint: str, exc: BaseException) -> None:
-        self.endpoint_errors[endpoint] = {
-            "error": str(exc) or exc.__class__.__name__,
-            "error_code": "provider_request_failed",
-        }
 
     def fetch_general_candidates(self, limit: int) -> List[NewsItem]:
         try:
@@ -1987,12 +2081,13 @@ class FinvizNewsSource:
             return []
 
 
-class MT5NewsSource:
+class MT5NewsSource(_EndpointErrorTrackingSource):
     """MT5 local news provider."""
 
     name = "mt5"
 
     def __init__(self, db_path: Optional[str] = None):
+        super().__init__()
         self.db_path = db_path
         self._available: Optional[bool] = None
 
@@ -2007,16 +2102,17 @@ class MT5NewsSource:
         return self._available
 
     def fetch_general_candidates(self, limit: int) -> List[NewsItem]:
-        return self._fetch_news(limit=limit)
+        return self._fetch_news(limit=limit, endpoint="general_news")
 
     def fetch_related_candidates(self, context: InstrumentContext, limit: int) -> List[NewsItem]:
-        return self._fetch_news(limit=max(limit, 20))
+        return self._fetch_news(limit=max(limit, 20), endpoint="related_news")
 
-    def _fetch_news(self, limit: int) -> List[NewsItem]:
+    def _fetch_news(self, limit: int, *, endpoint: str) -> List[NewsItem]:
         if not self.is_available():
             return []
         try:
             result = get_mt5_news(news_db_path=self.db_path, limit=limit)
+            self._record_endpoint_error(endpoint, result)
             if not result.get("success"):
                 return []
             out: List[NewsItem] = []
@@ -2058,9 +2154,32 @@ class MT5NewsSource:
                     )
                 )
             return out
-        except Exception:
+        except Exception as exc:
             logger.exception("Error fetching MT5 news candidates")
+            self._record_endpoint_exception(endpoint, exc)
             return []
+
+
+def _source_endpoint_failures(
+    source_details: Dict[str, Dict[str, Any]],
+) -> Dict[str, Dict[str, Dict[str, Any]]]:
+    failures: Dict[str, Dict[str, Dict[str, Any]]] = {}
+    for provider, details in source_details.items():
+        endpoint_errors = details.get("endpoint_errors")
+        if isinstance(endpoint_errors, dict) and endpoint_errors:
+            failures[provider] = dict(endpoint_errors)
+    return failures
+
+
+def _provider_failures_are_retryable(
+    provider_failures: Dict[str, Dict[str, Dict[str, Any]]],
+) -> bool:
+    return any(
+        detail.get("retryable") is True
+        for endpoint_errors in provider_failures.values()
+        for detail in endpoint_errors.values()
+        if isinstance(detail, dict)
+    )
 
 
 class NewsAggregator:
@@ -2153,6 +2272,15 @@ class NewsAggregator:
                 "recent_events": [],
             }
 
+        for selected_source in selected_sources.values():
+            reset_diagnostics = getattr(
+                selected_source,
+                "reset_endpoint_diagnostics",
+                None,
+            )
+            if callable(reset_diagnostics):
+                reset_diagnostics()
+
         general_candidates: List[NewsItem] = []
         related_candidates: List[NewsItem] = []
         market_context_candidates: List[NewsItem] = []
@@ -2187,19 +2315,37 @@ class NewsAggregator:
                         calendar_items = calendar_fetcher(candidate_limit)
                         calendar_candidates.extend(calendar_items)
                 endpoint_errors = dict(getattr(source, "endpoint_errors", {}) or {})
-                source_details[name] = {
-                    "success": not bool(endpoint_errors)
+                endpoint_attempts = set(
+                    getattr(source, "endpoint_attempts", set()) or set()
+                )
+                endpoint_successes = set(
+                    getattr(source, "endpoint_successes", set()) or set()
+                )
+                source_succeeded = (
+                    bool(endpoint_successes)
+                    if endpoint_attempts
+                    else not bool(endpoint_errors)
                     or bool(
                         general_items
                         or news_items
                         or context_items
                         or calendar_items
-                    ),
+                    )
+                )
+                source_details[name] = {
+                    "success": source_succeeded,
                     "general_candidates": len(general_items),
                     "related_candidates": len(news_items),
                     "market_context_candidates": len(context_items),
                     "calendar_candidates": len(calendar_items),
                 }
+                if endpoint_attempts:
+                    source_details[name]["endpoints_attempted"] = sorted(
+                        endpoint_attempts
+                    )
+                    source_details[name]["endpoints_succeeded"] = sorted(
+                        endpoint_successes
+                    )
                 if endpoint_errors:
                     source_details[name]["endpoint_errors"] = endpoint_errors
             except NewsSymbolUnavailableError as exc:
@@ -2221,16 +2367,38 @@ class NewsAggregator:
                 }
             except Exception as exc:
                 logger.exception("Error collecting news from %s", name)
-                source_details[name] = {"success": False, "error": str(exc)}
+                failure = _provider_failure_detail(
+                    provider=name,
+                    endpoint="collection",
+                    exc=exc,
+                )
+                source_details[name] = {
+                    "success": False,
+                    "error": failure["error"],
+                    "error_code": failure["error_code"],
+                    "retryable": failure["retryable"],
+                    "endpoint_errors": {"collection": failure},
+                }
 
+        endpoint_failures = _source_endpoint_failures(source_details)
         if source_details and not any(details.get("success") for details in source_details.values()):
             return {
                 "success": False,
                 "error": "All news sources failed",
+                "error_code": "all_news_sources_failed",
+                "operation": "news",
+                "retryable": _provider_failures_are_retryable(endpoint_failures),
+                "remediation": (
+                    "Retry when retryable is true, pin another source, or use "
+                    "detail='full' to inspect each failed provider endpoint."
+                ),
+                "related_tools": ["news", "calendar"],
                 "symbol": context.symbol if context is not None else None,
                 "instrument": context.to_dict() if context is not None else None,
                 "sources_used": [],
+                "sources_attempted": list(selected_sources),
                 "source_details": source_details,
+                "provider_failures": endpoint_failures,
                 "general_news": [],
                 "related_news": [],
                 "market_context": [],
@@ -2444,12 +2612,6 @@ class NewsAggregator:
                 + details["selected_upcoming"]
                 + details["selected_recent"]
             )
-        endpoint_failures = {
-            name: details.get("endpoint_errors")
-            for name, details in source_details.items()
-            if isinstance(details.get("endpoint_errors"), dict)
-            and details.get("endpoint_errors")
-        }
         payload = {
             "success": True,
             "partial": bool(endpoint_failures),

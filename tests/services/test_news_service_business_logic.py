@@ -44,7 +44,7 @@ def _record(timestamp: datetime, subject: str = "Fed preview"):
     )
 
 
-def test_get_mt5_news_surfaces_warning_for_inverted_date_range(monkeypatch) -> None:
+def test_get_mt5_news_returns_typed_error_for_inverted_date_range(monkeypatch) -> None:
     class FakeParser:
         header_info = {"version": 1}
         parse_health = {"status": "ok", "candidates_scanned": 1, "records_parsed": 1,
@@ -65,10 +65,13 @@ def test_get_mt5_news_surfaces_warning_for_inverted_date_range(monkeypatch) -> N
         to_date="2026-03-10",
     )
 
-    assert result["success"] is True
+    assert result["success"] is False
+    assert result["error_code"] == "invalid_date_range"
+    assert result["retryable"] is False
+    assert result["error"] == "from_date must be before or equal to to_date"
     assert result["count"] == 0
     assert result["news"] == []
-    assert result["warning"] == "from_date is after to_date; returning no results"
+    assert "from_date" in result["remediation"]
 
 
 def test_mt5_news_record_preserves_absolute_published_time() -> None:

@@ -280,6 +280,58 @@ def test_mt5_source_uses_absolute_published_time(monkeypatch) -> None:
     assert items[0].published_at == datetime(2026, 3, 29, 7, 54, 32, tzinfo=timezone.utc)
 
 
+def test_ycnbc_source_exception_becomes_typed_provider_failure(monkeypatch) -> None:
+    class BrokenNews:
+        def __init__(self) -> None:
+            raise TimeoutError("CNBC request timed out")
+
+    monkeypatch.setattr(svc, "_import_ycnbc", lambda: (BrokenNews, None))
+    source = svc.YCNBCNewsSource()
+    source._available = True
+    aggregator = svc.NewsAggregator()
+    aggregator._sources = {"ycnbc": source}
+
+    result = aggregator.fetch_news(source="ycnbc")
+
+    assert result["success"] is False
+    assert result["error_code"] == "all_news_sources_failed"
+    assert result["retryable"] is True
+    assert result["provider_failures"]["ycnbc"]["general_news"] == {
+        "provider": "ycnbc",
+        "endpoint": "general_news",
+        "error": "CNBC request timed out",
+        "error_code": "provider_request_failed",
+        "retryable": True,
+    }
+
+
+def test_mt5_source_exception_becomes_typed_provider_failure(monkeypatch) -> None:
+    monkeypatch.setattr(
+        svc,
+        "get_mt5_news",
+        lambda **_kwargs: (_ for _ in ()).throw(
+            TimeoutError("MT5 news request timed out")
+        ),
+    )
+    source = svc.MT5NewsSource()
+    source._available = True
+    aggregator = svc.NewsAggregator()
+    aggregator._sources = {"mt5": source}
+
+    result = aggregator.fetch_news(source="mt5")
+
+    assert result["success"] is False
+    assert result["error_code"] == "all_news_sources_failed"
+    assert result["retryable"] is True
+    assert result["provider_failures"]["mt5"]["general_news"] == {
+        "provider": "mt5",
+        "endpoint": "general_news",
+        "error": "MT5 news request timed out",
+        "error_code": "provider_request_failed",
+        "retryable": True,
+    }
+
+
 def test_fetch_unified_news_rejects_unknown_equity_symbol(monkeypatch) -> None:
     monkeypatch.setattr(svc, "get_symbol_info_cached", lambda symbol: None)
     monkeypatch.setattr(
@@ -2099,6 +2151,8 @@ def test_finviz_partial_calendar_failure_is_not_silent_success(monkeypatch) -> N
         "finviz_rate_limited"
     )
     assert result["provider_failures"]["finviz"]["upcoming_events"] == {
+        "provider": "finviz",
+        "endpoint": "upcoming_events",
         "error": "Finviz rate limit encountered. Retry after 60 seconds.",
         "error_code": "finviz_rate_limited",
         "retryable": True,
@@ -2112,9 +2166,13 @@ def test_finviz_partial_calendar_failure_is_not_silent_success(monkeypatch) -> N
     assert compact["partial"] is True
     assert compact["status"] == "partial"
     assert compact["warnings"]
-    assert compact["provider_failures"]["finviz"]["upcoming_events"]["error_code"] == (
-        "finviz_rate_limited"
-    )
+    assert compact["provider_failures"]["finviz"] == {
+        "error": "Finviz rate limit encountered. Retry after 60 seconds.",
+        "error_code": "finviz_rate_limited",
+        "retryable": True,
+        "endpoints": ["upcoming_events"],
+        "retry_after_seconds": 60,
+    }
 
 
 def test_pinned_ycnbc_missing_dependency_is_source_unavailable(monkeypatch) -> None:
@@ -2155,7 +2213,23 @@ def test_fetch_unified_news_returns_failure_when_all_sources_error(monkeypatch) 
 
     assert result["success"] is False
     assert result["error"] == "All news sources failed"
+    assert result["error_code"] == "all_news_sources_failed"
+    assert result["retryable"] is False
+    assert "pin another source" in result["remediation"]
     assert result["source_details"]["broken"]["success"] is False
+    assert result["provider_failures"]["broken"]["collection"]["provider"] == "broken"
+    assert result["provider_failures"]["broken"]["collection"]["error"] == "boom"
+
+    from mtdata.core.news import normalize_news_output
+
+    compact = normalize_news_output(result, detail="compact")
+    assert "source_details" not in compact
+    assert compact["provider_failures"]["broken"] == {
+        "error": "boom",
+        "error_code": "provider_request_failed",
+        "retryable": False,
+        "endpoints": ["collection"],
+    }
 
 
 def test_symbol_news_reserves_fresh_direct_headline_before_relevance_slice(

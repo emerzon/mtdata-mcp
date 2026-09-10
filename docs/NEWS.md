@@ -138,6 +138,11 @@ context, not a live tape.
   When `--source ycnbc` is pinned but that extra is unavailable, the command
   returns `source_unavailable` with install/restart guidance instead of
   presenting the missing adapter as an empty result.
-- A failed Finviz endpoint does not erase successful buckets from another
-  endpoint. The result is marked `partial=true` and `status=partial`; full
-  detail records the affected endpoint under source diagnostics.
+- A provider endpoint failure does not erase successful buckets from another
+  endpoint. The result is marked `partial=true` and `status=partial`; compact
+  `provider_failures` keeps one concise code, retryability flag, and endpoint
+  list per provider, while full detail keeps each endpoint error.
+- If every selected source fails, the response uses
+  `error_code=all_news_sources_failed`. Its `retryable` flag is true when at
+  least one provider failure is retryable, and `provider_failures` identifies
+  the failing adapters instead of reporting a successful empty feed.

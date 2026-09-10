@@ -463,7 +463,13 @@ def get_mt5_news(
             all_categories = list(set(r.category for r in records if r.category))
             all_sources = list(set(r.source for r in records if r.source))
             payload = {
-                "success": True,
+                "success": False,
+                "error": "from_date must be before or equal to to_date",
+                "error_code": "invalid_date_range",
+                "retryable": False,
+                "remediation": (
+                    "Set from_date to a timestamp earlier than or equal to to_date."
+                ),
                 "count": 0,
                 "total_records": len(records),
                 "database_path": str(news_db_path),
@@ -472,7 +478,6 @@ def get_mt5_news(
                 "available_categories": all_categories[:20],
                 "available_sources": all_sources[:20],
                 "news": [],
-                "warning": "from_date is after to_date; returning no results",
             }
             return _finalize_news_payload(payload, use_client_tz)
 
