@@ -808,6 +808,7 @@ def _build_engine_diagnostics(
     *,
     df: pd.DataFrame,
     need: int,
+    method_minimum_history_bars: int,
     lookback: Optional[int],
     seasonality: int,
     quantity_l: str,
@@ -828,7 +829,8 @@ def _build_engine_diagnostics(
     fmt_time = _format_time_minimal_local if _use_client_tz() else _format_time_minimal
     diagnostics: Dict[str, Any] = {
         "lookback_bars_requested": int(lookback) if lookback is not None else None,
-        "minimum_history_bars_requested": int(need),
+        "history_fetch_bars_requested": int(need),
+        "minimum_history_bars_requested": int(method_minimum_history_bars),
         "history_bars_received": int(len(df)),
         "history_bars_used": int(len(df)),
         "target_points_used": int(len(target_series)),
@@ -854,9 +856,18 @@ def _forecast_history_sample_quality(
     horizon: int,
     history_bars: int,
     lookback_requested: Optional[int] = None,
+    method_minimum_history_bars: Optional[int] = None,
 ) -> Dict[str, Any]:
-    recommended = max(30, 3 * max(1, int(horizon)))
+    horizon_recommended = max(30, 3 * max(1, int(horizon)))
+    method_minimum = (
+        max(1, int(method_minimum_history_bars))
+        if method_minimum_history_bars is not None
+        else None
+    )
+    recommended = max(horizon_recommended, method_minimum or 0)
     bars = max(0, int(history_bars))
+    horizon_recommended_ok = bars >= horizon_recommended
+    method_minimum_ok = method_minimum is None or bars >= method_minimum
     recommended_ok = bars >= recommended
     requested = (
         max(1, int(lookback_requested))
@@ -870,30 +881,69 @@ def _forecast_history_sample_quality(
         "forecast_reliability": "adequate" if sample_ok else "low",
         "recommended_history_bars": recommended,
     }
+    if method_minimum is not None:
+        out["history_recommendation_basis"] = (
+            "method_minimum"
+            if method_minimum >= horizon_recommended
+            else "horizon_sample_rule"
+        )
+        out["method_minimum_history_bars"] = method_minimum
+        out["method_history_satisfied"] = method_minimum_ok
+        out["method_history_shortfall_bars"] = max(0, method_minimum - bars)
     if requested is not None:
         out["lookback_satisfied"] = lookback_satisfied
         out["lookback_shortfall_bars"] = max(0, requested - bars)
     if not recommended_ok:
         out["history_shortfall_bars"] = recommended - bars
     if not sample_ok:
-        if not recommended_ok and not lookback_satisfied:
+        if not method_minimum_ok and not lookback_satisfied:
+            reason = "below_method_minimum_and_requested_lookback"
+        elif not method_minimum_ok:
+            reason = "below_method_minimum_history"
+        elif not horizon_recommended_ok and not lookback_satisfied:
             reason = "below_recommended_history_and_requested_lookback"
-        elif not recommended_ok:
+        elif not horizon_recommended_ok:
             reason = "below_recommended_history"
         else:
             reason = "requested_lookback_shortfall"
         out["forecast_reliability_reason"] = reason
         warning_parts: List[str] = []
-        if not recommended_ok:
+        issues: List[Dict[str, Any]] = []
+        if not method_minimum_ok and method_minimum is not None:
+            issues.append(
+                {
+                    "code": "history_below_method_minimum",
+                    "method": method,
+                    "required_bars": method_minimum,
+                    "received_bars": bars,
+                    "shortfall_bars": method_minimum - bars,
+                }
+            )
+            warning_parts.append(
+                f"Low-history forecast: method '{method}' used {bars} bars; its "
+                f"minimum history is {method_minimum} bars "
+                f"({method_minimum - bars} bars short)."
+            )
+        elif not horizon_recommended_ok:
             warning_parts.append(
                 f"Low-history forecast: method '{method}' used {bars} bars; at least "
-                f"{recommended} are recommended for horizon {int(horizon)}."
+                f"{horizon_recommended} are recommended for horizon {int(horizon)}."
             )
         if requested is not None and not lookback_satisfied:
+            issues.append(
+                {
+                    "code": "requested_lookback_shortfall",
+                    "required_bars": requested,
+                    "received_bars": bars,
+                    "shortfall_bars": requested - bars,
+                }
+            )
             warning_parts.append(
                 f"Requested lookback was not satisfied: {bars} of {requested} bars "
                 f"were available ({requested - bars} bars short)."
             )
+        if issues:
+            out["history_sample_issues"] = issues
         warning_parts.append(
             "Treat the result as exploratory and validate it with "
             "forecast_backtest_run."
@@ -2211,6 +2261,14 @@ def forecast_engine(  # noqa: C901
             return {"error": str(ex)}
         if p.get("seasonality") is None and "time" in df.columns:
             seasonality = default_seasonality(timeframe, df["time"])
+        method_minimum_history_bars = _calculate_lookback_bars(
+            method_l,
+            horizon,
+            None,
+            seasonality,
+            timeframe,
+            params=p,
+        )
         history_warnings = df.attrs.get("warnings")
         if not isinstance(history_warnings, list):
             history_warnings = []
@@ -2287,6 +2345,7 @@ def forecast_engine(  # noqa: C901
         engine_diagnostics = _build_engine_diagnostics(
             df=df,
             need=need,
+            method_minimum_history_bars=method_minimum_history_bars,
             lookback=lookback,
             seasonality=seasonality,
             quantity_l=quantity_l,
@@ -2298,6 +2357,7 @@ def forecast_engine(  # noqa: C901
             horizon=horizon,
             history_bars=len(df),
             lookback_requested=lookback,
+            method_minimum_history_bars=method_minimum_history_bars,
         )
         engine_diagnostics.update(
             {

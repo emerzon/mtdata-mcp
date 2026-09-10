@@ -249,8 +249,20 @@ def test_forecast_engine_surfaces_short_history_reliability():
     assert out["success"] is True
     assert out["history_sample_ok"] is False
     assert out["forecast_reliability"] == "low"
-    assert out["forecast_reliability_reason"] == "below_recommended_history"
-    assert out["recommended_history_bars"] == 36
+    assert out["forecast_reliability_reason"] == "below_method_minimum_history"
+    assert out["recommended_history_bars"] == 300
+    assert out["method_minimum_history_bars"] == 300
+    assert out["method_history_satisfied"] is False
+    assert out["method_history_shortfall_bars"] == 297
+    assert out["history_sample_issues"] == [
+        {
+            "code": "history_below_method_minimum",
+            "method": "theta",
+            "required_bars": 300,
+            "received_bars": 3,
+            "shortfall_bars": 297,
+        }
+    ]
     assert any("Low-history forecast" in item for item in out["warnings"])
 
 

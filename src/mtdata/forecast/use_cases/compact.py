@@ -948,6 +948,7 @@ def _forecast_generate_data_window(payload: Dict[str, Any]) -> Optional[Dict[str
             ("history_end_time", "history_end"),
             ("history_bars_used", "history_bars_used"),
             ("lookback_bars_requested", "lookback_bars_requested"),
+            ("history_fetch_bars_requested", "history_fetch_bars_requested"),
             ("minimum_history_bars_requested", "minimum_history_bars_requested"),
         ):
             value = diagnostics.get(source_key)
@@ -1584,6 +1585,7 @@ def _forecast_training_period(payload: Dict[str, Any]) -> Optional[Dict[str, Any
         ("history_bars_used", "history_bars_used"),
         ("target_points_used", "target_points_used"),
         ("lookback_bars_requested", "lookback_bars_requested"),
+        ("history_fetch_bars_requested", "history_fetch_bars_requested"),
         ("minimum_history_bars_requested", "minimum_history_bars_requested"),
         ("history_bars_received", "history_bars_received"),
     ):

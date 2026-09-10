@@ -178,10 +178,48 @@ def test_explicit_lookback_shortfall_degrades_forecast_reliability() -> None:
     assert result["success"] is True
     assert result["history_sample_ok"] is False
     assert result["forecast_reliability"] == "low"
-    assert result["forecast_reliability_reason"] == "requested_lookback_shortfall"
+    assert result["forecast_reliability_reason"] == (
+        "below_method_minimum_and_requested_lookback"
+    )
+    assert result["method_minimum_history_bars"] == 100
+    assert result["method_history_shortfall_bars"] == 55
     assert result["lookback_satisfied"] is False
     assert result["lookback_shortfall_bars"] == 55
     assert any("45 of 100 bars" in warning for warning in result["warnings"])
+
+
+def test_thin_theta_history_reports_method_minimum_in_compact_fields() -> None:
+    result = fe.forecast_engine(
+        symbol="EURUSD",
+        timeframe="H1",
+        method="theta",
+        horizon=10,
+        lookback=40,
+        ci_alpha=None,
+        prefetched_df=_history_frame(40),
+    )
+
+    assert result["success"] is True
+    assert result["history_sample_ok"] is False
+    assert result["forecast_reliability"] == "low"
+    assert result["forecast_reliability_reason"] == "below_method_minimum_history"
+    assert result["recommended_history_bars"] == 300
+    assert result["method_minimum_history_bars"] == 300
+    assert result["method_history_satisfied"] is False
+    assert result["method_history_shortfall_bars"] == 260
+    assert result["lookback_satisfied"] is True
+    assert result["history_sample_issues"] == [
+        {
+            "code": "history_below_method_minimum",
+            "method": "theta",
+            "required_bars": 300,
+            "received_bars": 40,
+            "shortfall_bars": 260,
+        }
+    ]
+    assert result["diagnostics"]["history_fetch_bars_requested"] == 40
+    assert result["diagnostics"]["minimum_history_bars_requested"] == 300
+    assert any("minimum history is 300 bars" in warning for warning in result["warnings"])
 
 
 def test_historical_range_uses_information_cutoff_for_target_states() -> None:
