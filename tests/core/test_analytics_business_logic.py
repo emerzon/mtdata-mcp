@@ -3078,6 +3078,9 @@ def test_portfolio_risk_resolves_and_accepts_valid_proposed_broker_volume() -> N
     assert proposed["symbol"] == "EURUSD"
     assert proposed["side"] == "buy"
     assert proposed["volume"] == 0.01
+    assert proposed["model_status"] == "modeled"
+    assert "model_status_reason" not in proposed
+    assert result["data_quality"]["proposed_trade_modeled"] is True
     assert proposed["margin_required"] == 10.0
     assert proposed["symbol_input"] == "EUR/USD"
     assert proposed["mark_price"] == pytest.approx(1.1001)
@@ -3124,6 +3127,52 @@ def test_portfolio_risk_same_symbol_proposal_keeps_base_exposure() -> None:
     assert proposed["before_cvar"] == pytest.approx(baseline["cvar"])
     assert proposed["incremental_cvar"] == pytest.approx(
         proposed["cvar"] - baseline["cvar"]
+    )
+
+
+def test_portfolio_risk_unmodeled_proposal_omits_incremental_cvar() -> None:
+    gateway = FakeGateway()
+    gateway.positions = [
+        {
+            "ticket": 1,
+            "symbol": "EURUSD",
+            "type": 0,
+            "volume": 1.0,
+            "price_current": 1.1,
+        }
+    ]
+    gateway.bar_rows["GBPUSD"] = _bars(50)
+
+    result = decompose_portfolio_risk(
+        PortfolioRiskDecomposeRequest(
+            lookback=300,
+            horizon_bars=[1],
+            confidence=[0.95],
+            simulations=500,
+            seed=42,
+            allow_partial=True,
+            proposed_trade={
+                "symbol": "GBPUSD",
+                "side": "buy",
+                "volume": 0.01,
+            },
+        ),
+        gateway,
+    )
+
+    assert result["success"] is True
+    assert result["proposed_trade"]["model_status"] == "unmodeled"
+    assert (
+        result["proposed_trade"]["model_status_reason"]
+        == "insufficient_return_history"
+    )
+    assert result["data_quality"]["proposed_trade_modeled"] is False
+    assert result["data_quality"]["symbols_omitted"] == ["GBPUSD"]
+    assert all("before_cvar" not in row for row in result["risk"])
+    assert all("incremental_cvar" not in row for row in result["risk"])
+    assert any(
+        "incremental CVaR is unavailable" in warning
+        for warning in result["warnings"]
     )
 
 

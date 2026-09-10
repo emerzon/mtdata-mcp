@@ -432,6 +432,41 @@ def test_compact_portfolio_risk_hoists_calibration_and_keeps_failures() -> None:
     assert _json_size(compact) <= _json_size(raw) * 0.72
 
 
+def test_compact_portfolio_risk_keeps_unmodeled_proposal_status() -> None:
+    raw = {
+        "success": True,
+        "risk": [{"horizon_bars": 1, "cvar": 1200.0}],
+        "proposed_trade": {
+            "symbol": "GBPUSD",
+            "side": "buy",
+            "volume": 0.1,
+            "model_status": "unmodeled",
+            "model_status_reason": "insufficient_return_history",
+        },
+        "data_quality": {
+            "allow_partial": True,
+            "proposed_trade_modeled": False,
+            "symbols_requested": ["EURUSD", "GBPUSD"],
+            "symbols_modeled": ["EURUSD"],
+            "symbols_omitted": ["GBPUSD"],
+        },
+    }
+
+    compact = shape_public_tool_output(
+        raw,
+        tool_name="portfolio_risk_decompose",
+        detail="compact",
+    )
+
+    assert compact["proposed_trade"]["model_status"] == "unmodeled"
+    assert (
+        compact["proposed_trade"]["model_status_reason"]
+        == "insufficient_return_history"
+    )
+    assert compact["data_quality"]["proposed_trade_modeled"] is False
+    assert all("incremental_cvar" not in row for row in compact["risk"])
+
+
 @pytest.mark.parametrize(
     ("tool_name", "raw", "result_key", "removed_keys", "budget"),
     [

@@ -224,7 +224,12 @@ the nearest valid volume instead of modeling a trade the broker would reject.
 `side` accepts `buy`/`sell` or `long`/`short` and is echoed as canonical
 `buy`/`sell`. The proposed trade is marked from one frozen quote snapshot
 (`ask` for buy, `bid` for sell) and the response includes `mark_price`,
-`mark_price_basis`, and `quote_time`.
+`mark_price_basis`, and `quote_time`. `proposed_trade.model_status` says whether
+the trade entered the scenario matrix. Only a `modeled` proposal emits
+`before_cvar` and `incremental_cvar`. With partial completion, a proposal that
+lacks sufficient returns is `unmodeled` with
+`model_status_reason=insufficient_return_history`; incremental CVaR is omitted,
+not reported as zero.
 
 ```bash
 mtdata-cli portfolio_risk_decompose --timeframe H1 --lookback 1000 --horizon-bars 1,5 --confidence 0.95,0.99 --json

@@ -631,6 +631,18 @@ def decompose_portfolio_risk(  # noqa: C901
     if request.method == "bootstrap_historical":
         standardized = returns.copy()
         current_vol = pd.Series(1.0, index=returns.columns)
+    proposed_modeled = bool(
+        proposed_validated is not None
+        and proposed_sensitivity is not None
+        and proposed_sensitivity[0] in standardized.columns
+    )
+    proposed_model_status_reason: Optional[str] = None
+    if proposed_validated is not None and not proposed_modeled:
+        proposed_model_status_reason = (
+            "pricing_unavailable"
+            if proposed_sensitivity is None
+            else "insufficient_return_history"
+        )
     rng = np.random.default_rng(request.seed)
     risk_rows = []
     scenario_details: Dict[int, np.ndarray] = {}
@@ -640,7 +652,7 @@ def decompose_portfolio_risk(  # noqa: C901
         dtype=float,
     )
     base_sensitivity_vec = sensitivity_vec.copy()
-    if proposed_sensitivity and proposed_sensitivity[0] in standardized.columns:
+    if proposed_modeled and proposed_sensitivity is not None:
         proposed_idx = standardized.columns.get_loc(proposed_sensitivity[0])
         base_sensitivity_vec[proposed_idx] -= proposed_sensitivity[1]
     for horizon in request.horizon_bars:
@@ -703,7 +715,18 @@ def decompose_portfolio_risk(  # noqa: C901
                     if equity_value > 0.0
                     else {}
                 ),
-                **({"before_cvar": base_es, "incremental_cvar": (after_es - base_es) if after_es is not None and base_es is not None else None} if proposed_sensitivity else {}),
+                **(
+                    {
+                        "before_cvar": base_es,
+                        "incremental_cvar": (
+                            after_es - base_es
+                            if after_es is not None and base_es is not None
+                            else None
+                        ),
+                    }
+                    if proposed_modeled
+                    else {}
+                ),
                 "component_cvar": component_rows,
                 "worst_simulated_pnl": float(np.min(pnl)),
             })
@@ -764,6 +787,12 @@ def decompose_portfolio_risk(  # noqa: C901
             "symbol": proposed_symbol,
             "side": proposed_side,
             "volume": proposed_volume,
+            "model_status": "modeled" if proposed_modeled else "unmodeled",
+            **(
+                {"model_status_reason": proposed_model_status_reason}
+                if proposed_model_status_reason is not None
+                else {}
+            ),
             "mark_price": proposed_validated.get("mark_price"),
             "mark_price_basis": proposed_validated.get("mark_price_basis"),
             "quote_time": proposed_validated.get("quote_time"),
@@ -820,6 +849,16 @@ def decompose_portfolio_risk(  # noqa: C901
         warnings_out.append(
             "Some priced symbols lacked sufficient return history and were omitted because allow_partial=true."
         )
+    if proposed_model_status_reason == "insufficient_return_history":
+        warnings_out.append(
+            "The proposed trade lacked sufficient return history and was omitted "
+            "from portfolio scenarios; incremental CVaR is unavailable."
+        )
+    elif proposed_model_status_reason == "pricing_unavailable":
+        warnings_out.append(
+            "The proposed trade could not be priced and was omitted from portfolio "
+            "scenarios; incremental CVaR is unavailable."
+        )
     data_start = format_epoch_utc(float(returns.index[0]))
     data_end = format_epoch_utc(float(returns.index[-1]))
     model_context.update(
@@ -854,6 +893,11 @@ def decompose_portfolio_risk(  # noqa: C901
             "symbols_modeled": modeled_symbols,
             "symbols_omitted": omitted_symbols,
             "aligned_coverage": float(len(returns) / max(len(item) for item in series.values())),
+            **(
+                {"proposed_trade_modeled": proposed_modeled}
+                if proposed_validated is not None
+                else {}
+            ),
         },
         "warnings": warnings_out,
         "units": {
