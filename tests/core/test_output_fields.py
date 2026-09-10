@@ -136,21 +136,23 @@ def test_output_fields_partial_projection_is_explicit() -> None:
 def test_output_fields_total_miss_returns_structured_error() -> None:
     payload = {"success": True, "value": 1}
 
-    result = _select_output_fields(payload, "missing")
+    result = _select_output_fields(payload, "missing", tool_name="sample_tool")
 
-    assert result == {
-        "success": False,
-        "error": "None of the requested output fields are available in this response contract.",
-        "error_code": "output_fields_unresolved",
-        "unresolved_output_fields": ["missing"],
-        "valid_output_fields": ["value"],
-        "output_fields_status": "failed",
-        "remediation": (
+    assert result["success"] is False
+    assert result["error"] == (
+        "None of the requested output fields are available in this response contract."
+    )
+    assert result["error_code"] == "output_fields_unresolved"
+    assert result["request_id"]
+    assert result["operation"] == "sample_tool"
+    assert result["unresolved_output_fields"] == ["missing"]
+    assert result["valid_output_fields"] == ["value"]
+    assert result["output_fields_status"] == "failed"
+    assert result["remediation"] == (
         "Choose one or more paths from valid_output_fields and retry "
         "--output-fields. Targeted full-detail paths may be selected directly "
         "without requesting the complete full payload."
-        ),
-    }
+    )
 
 
 def test_output_fields_resolves_declared_path_through_empty_collection() -> None:

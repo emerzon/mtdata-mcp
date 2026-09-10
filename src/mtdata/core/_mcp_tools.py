@@ -1638,17 +1638,15 @@ def _select_output_fields(
                 selected["warnings"] = warnings_out
         elif value.get("success") is not False and not bool(value.get("error")):
             selected.update(
-                {
-                    "success": False,
-                    "error": (
-                        "None of the requested output fields are available in "
-                        "this response contract."
-                    ),
-                    "error_code": "output_fields_unresolved",
-                    "output_fields_status": "failed",
-                    "remediation": projection_remediation,
-                }
+                build_error_payload(
+                    "None of the requested output fields are available in "
+                    "this response contract.",
+                    code="output_fields_unresolved",
+                    operation=tool_name or None,
+                    remediation=projection_remediation,
+                )
             )
+            selected["output_fields_status"] = "failed"
     return selected
 
 

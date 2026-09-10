@@ -2883,6 +2883,8 @@ class TestEdgeCases:
         payload = json.loads(capsys.readouterr().out)
         assert payload["success"] is False
         assert payload["error_code"] == "output_fields_unresolved"
+        assert payload["operation"] == "sample_tool"
+        assert payload["request_id"]
         assert payload["output_fields_status"] == "failed"
         assert payload["unresolved_output_fields"] == ["missing"]
         assert payload["valid_output_fields"] == ["value"]
@@ -2940,6 +2942,8 @@ class TestEdgeCases:
         output = capsys.readouterr().out
         assert "success: false" in output
         assert "error_code: output_fields_unresolved" in output
+        assert "operation: sample_tool" in output
+        assert "request_id:" in output
         assert "output_fields_status: failed" in output
         assert "unresolved_output_fields[1]: missing" in output
         assert "valid_output_fields[1]: value" in output
