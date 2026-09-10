@@ -985,8 +985,12 @@ def test_trade_var_cvar_marks_unresolved_high_confidence_sample() -> None:
     )
 
     assert out["success"] is True
-    assert out["summary"]["sample_quality"]["status"] == "insufficient"
-    assert out["summary"]["sample_quality"]["tail_observations"] == 1
+    quality = out["summary"]["sample_quality"]
+    assert quality["status"] == "insufficient"
+    assert quality["tail_observations"] == 1
+    assert quality["effective_tail_observations"] == 0.02
+    assert quality["min_effective_tail_observations"] == 5.0
+    assert quality["min_observations_for_confidence"] == 500
     assert out["summary"]["tail_observations"] == 1
     assert out["scenario_generation"] == "empirical_observed_pnl"
     assert "data_start" not in out
@@ -998,6 +1002,89 @@ def test_trade_var_cvar_marks_unresolved_high_confidence_sample() -> None:
     assert out["window"]["as_of"] == out["window"]["data_end"]
     assert out["window"]["timezone"] == "UTC"
     assert any("insufficient" in str(item).lower() for item in out["warnings"])
+
+
+@pytest.mark.parametrize(
+    ("observations", "expected_status", "expected_discrete_tail"),
+    [
+        (21, "insufficient", 2),
+        (99, "insufficient", 5),
+        (100, "ok", 5),
+    ],
+)
+def test_trade_var_cvar_historical_requires_effective_tail_support(
+    observations: int,
+    expected_status: str,
+    expected_discrete_tail: int,
+) -> None:
+    position = SimpleNamespace(
+        ticket=11,
+        symbol="EURUSD",
+        type=0,
+        volume=1.0,
+        price_current=100.0,
+        price_open=99.0,
+        profit=1.0,
+    )
+    rates = [
+        {
+            "time": index + 1,
+            "close": 100.0 + (index % 7) - (index * 0.01),
+        }
+        for index in range(observations + 1)
+    ]
+    gateway = SimpleNamespace(
+        ensure_connection=lambda: None,
+        account_info=lambda: SimpleNamespace(equity=1000.0, currency="USD"),
+        positions_get=lambda symbol=None: [position],
+        symbol_info=lambda symbol: _symbol_info(),
+        symbol_info_tick=lambda symbol: SimpleNamespace(
+            bid=99.0,
+            ask=101.0,
+            time=1,
+        ),
+        copy_rates_from_pos=lambda symbol, timeframe, start, count: rates,
+        POSITION_TYPE_BUY=0,
+        POSITION_TYPE_SELL=1,
+        ORDER_TYPE_BUY=0,
+        ORDER_TYPE_SELL=1,
+    )
+
+    out = run_trade_var_cvar_calculate(
+        TradeVarCvarRequest(
+            timeframe="H1",
+            lookback=observations + 1,
+            min_observations=2,
+            confidence=0.95,
+            method="historical",
+            transform="pct",
+            detail="compact",
+        ),
+        gateway=gateway,
+    )
+
+    quality = out["summary"]["sample_quality"]
+    assert out["success"] is True
+    assert quality["status"] == expected_status
+    assert quality["tail_observations"] == expected_discrete_tail
+    assert quality["effective_tail_observations"] == pytest.approx(
+        observations * 0.05
+    )
+    assert quality["min_effective_tail_observations"] == 5.0
+    assert quality["min_observations_for_confidence"] == 100
+    assert quality["tail_observations_basis"] == (
+        "discrete_values_at_or_below_var_threshold"
+    )
+    assert quality["effective_tail_observations_basis"] == (
+        "observations_times_one_minus_confidence"
+    )
+    if expected_status == "ok":
+        assert "warnings" not in out
+    else:
+        assert any(
+            "effective tail observations" in warning
+            for warning in out["warnings"]
+        )
 
 
 def test_trade_var_cvar_compact_keeps_history_window() -> None:

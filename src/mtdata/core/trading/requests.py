@@ -708,10 +708,10 @@ class TradeVarCvarRequest(BaseModel):
         50,
         ge=2,
         description=(
-            "Caller floor on aligned PnL observations. High-confidence "
-            "historical VaR also requires enough observations to resolve more "
-            "than one tail point; thinner samples are marked "
-            "sample_quality=insufficient."
+            "Caller floor on aligned PnL observations. Historical VaR/CVaR also "
+            "requires at least five effective tail observation-equivalents "
+            "(observations * (1 - confidence)); the caller floor cannot waive "
+            "that confidence-specific sample-quality requirement."
         ),
     )
     detail: DetailLiteral = Field(

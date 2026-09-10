@@ -861,12 +861,19 @@ def _extract_trade_risk_kelly_inputs(
     return inputs, missing, "sizing" if sizing is not None else None
 
 
+_MIN_EFFECTIVE_HISTORICAL_TAIL_OBSERVATIONS = 5.0
+
+
 def _empirical_min_observations_for_confidence(confidence: float) -> int:
-    """Minimum n so historical VaR has at least two empirical tail points."""
+    """Minimum n that supplies meaningful historical Expected Shortfall mass."""
     alpha = 1.0 - float(confidence)
     if alpha <= 0.0:
         return 2
-    return int(math.ceil(1.0 / alpha)) + 1
+    required = _MIN_EFFECTIVE_HISTORICAL_TAIL_OBSERVATIONS / alpha
+    nearest_integer = round(required)
+    if math.isclose(required, nearest_integer, rel_tol=1e-12, abs_tol=1e-12):
+        return max(2, int(nearest_integer))
+    return max(2, int(math.ceil(required)))
 
 
 def _historical_tail_observations(n: int, confidence: float) -> int:
@@ -3966,17 +3973,32 @@ def run_trade_var_cvar_calculate(  # noqa: C901
     data_end = _format_var_cvar_timestamp(portfolio_pnl.index[-1])
     as_of = data_end
     tail_observations = sum(1 for value in pnl_values if value <= threshold)
+    historical_effective_tail_observations: Optional[float] = None
     ewma_effective_observations: Optional[float] = None
     ewma_effective_tail_observations: Optional[float] = None
     if method_value == "historical":
         tail_observations = _historical_tail_observations(
             len(pnl_values), confidence_value
         )
-        required_for_confidence = _empirical_min_observations_for_confidence(
-            confidence_value
+        historical_effective_tail_observations = float(
+            len(pnl_values) * (1.0 - confidence_value)
+        )
+        required_for_confidence = max(
+            int(min_observations),
+            _empirical_min_observations_for_confidence(confidence_value),
         )
         sample_sufficient = (
-            len(pnl_values) >= required_for_confidence and tail_observations >= 2
+            len(pnl_values) >= required_for_confidence
+            and (
+                historical_effective_tail_observations
+                >= _MIN_EFFECTIVE_HISTORICAL_TAIL_OBSERVATIONS
+                or math.isclose(
+                    historical_effective_tail_observations,
+                    _MIN_EFFECTIVE_HISTORICAL_TAIL_OBSERVATIONS,
+                    rel_tol=1e-12,
+                    abs_tol=1e-12,
+                )
+            )
         )
         scenario_generation = "empirical_observed_pnl"
     elif method_value == "ewma":
@@ -4013,9 +4035,31 @@ def run_trade_var_cvar_calculate(  # noqa: C901
         "min_observations": int(min_observations),
         "min_observations_for_confidence": int(required_for_confidence),
         "tail_observations": int(tail_observations),
-        "min_tail_observations": 2 if method_value == "historical" else 1,
+        "min_tail_observations": (
+            int(_MIN_EFFECTIVE_HISTORICAL_TAIL_OBSERVATIONS)
+            if method_value == "historical"
+            else 1
+        ),
     }
-    if method_value == "ewma":
+    if method_value == "historical":
+        sample_quality.update(
+            {
+                "tail_observations_basis": (
+                    "discrete_values_at_or_below_var_threshold"
+                ),
+                "effective_tail_observations": round(
+                    float(historical_effective_tail_observations or 0.0),
+                    4,
+                ),
+                "min_effective_tail_observations": (
+                    _MIN_EFFECTIVE_HISTORICAL_TAIL_OBSERVATIONS
+                ),
+                "effective_tail_observations_basis": (
+                    "observations_times_one_minus_confidence"
+                ),
+            }
+        )
+    elif method_value == "ewma":
         sample_quality.update(
             {
                 "effective_observations": round(
@@ -4031,21 +4075,26 @@ def run_trade_var_cvar_calculate(  # noqa: C901
         )
     var_warnings: List[str] = []
     if not sample_sufficient:
-        var_warnings.append(
+        warning = (
             "Sample is insufficient for an unqualified "
             f"{confidence_value * 100.0:g}% {method_value} VaR/CVaR estimate: "
             f"observations={len(pnl_values)}, tail_observations={tail_observations}, "
             f"need at least {required_for_confidence} observations"
-            + (
-                " and 2 tail points."
-                if method_value == "historical"
-                else (
-                    " on an effective-weight basis and 2 effective tail points."
-                    if method_value == "ewma"
-                    else "."
-                )
-            )
         )
+        if method_value == "historical":
+            warning += (
+                f" and {_MIN_EFFECTIVE_HISTORICAL_TAIL_OBSERVATIONS:g} effective "
+                "tail observations; "
+                f"effective_tail_observations="
+                f"{historical_effective_tail_observations or 0.0:.4g}."
+            )
+        elif method_value == "ewma":
+            warning += (
+                " on an effective-weight basis and 2 effective tail points."
+            )
+        else:
+            warning += "."
+        var_warnings.append(warning)
 
     forming_candle_status = (
         "included"
