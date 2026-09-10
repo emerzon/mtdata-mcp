@@ -235,6 +235,41 @@ def _trade_journal_net_pnl(row: Dict[str, Any]) -> Optional[float]:
     return _trade_history_deal_net_pnl(row)
 
 
+def _trade_journal_is_reversal(row: Dict[str, Any]) -> bool:
+    deal_effect = str(row.get("deal_effect") or "").strip().lower()
+    if deal_effect == "reverse":
+        return True
+    position_action = str(row.get("position_action") or "").strip().lower()
+    if position_action.startswith("reverse_"):
+        return True
+    entry_text = str(
+        row.get("entry_label") or row.get("entry") or ""
+    ).strip().lower()
+    normalized_entry = entry_text.replace("_", " ")
+    return "inout" in normalized_entry or "in out" in normalized_entry
+
+
+def _trade_journal_realized_side(row: Dict[str, Any]) -> str:
+    position_side = str(row.get("position_side") or "").strip()
+    if not _trade_journal_is_reversal(row):
+        return position_side or str(row.get("type") or "").strip() or "Unknown"
+
+    normalized_side = position_side.lower()
+    if normalized_side == "long":
+        return "short"
+    if normalized_side == "short":
+        return "long"
+
+    fill_side = str(
+        row.get("fill_side") or row.get("type") or ""
+    ).strip().lower()
+    if fill_side.startswith("buy"):
+        return "short"
+    if fill_side.startswith("sell"):
+        return "long"
+    return position_side or "Unknown"
+
+
 def _trade_journal_position_key(row: Dict[str, Any]) -> Optional[str]:
     for key in ("position_ticket", "position_id", "position_by_id"):
         value = row.get(key)
@@ -635,7 +670,7 @@ def _run_trade_journal_request(  # noqa: C901
         dimension = side_filter["dimension"]
         value = side_filter["value"]
         if dimension == "position_side":
-            actual = str(row.get("position_side") or "").strip().lower()
+            actual = _trade_journal_realized_side(row).lower()
             return actual == value
         actual = str(
             row.get("fill_side") or row.get("type") or ""
@@ -818,9 +853,7 @@ def _run_trade_journal_request(  # noqa: C901
             continue
         enriched = dict(row)
         enriched["symbol"] = symbol
-        enriched["side"] = (
-            str(row.get("position_side") or row.get("type") or "").strip() or "Unknown"
-        )
+        enriched["side"] = _trade_journal_realized_side(row)
         enriched["exit_trigger"] = (
             str(row.get("exit_trigger") or "").strip() or "Unspecified"
         )

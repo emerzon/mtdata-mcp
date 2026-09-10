@@ -2153,6 +2153,62 @@ def test_trade_journal_side_filter_keeps_matching_entry_costs() -> None:
     assert out["items"][0]["deal_ticket"] == 11
 
 
+def test_trade_journal_inout_pnl_uses_closed_position_side() -> None:
+    history_rows = [
+        {
+            "deal_ticket": 21,
+            "position_ticket": 100,
+            "symbol": "EURUSD",
+            "deal_effect": "reverse",
+            "position_action": "reverse_short",
+            "position_side": "short",
+            "fill_side": "sell",
+            "entry": "INOUT",
+            "profit": 10.0,
+            "volume": 0.2,
+        },
+        {
+            "deal_ticket": 22,
+            "position_ticket": 200,
+            "symbol": "GBPUSD",
+            "deal_effect": "reverse",
+            "position_action": "reverse_long",
+            "position_side": "long",
+            "fill_side": "buy",
+            "entry": "INOUT",
+            "profit": -4.0,
+            "volume": 0.2,
+        },
+    ]
+
+    with patch(
+        "mtdata.core.trading.account._run_trade_history_request",
+        return_value={"success": True, "items": history_rows},
+    ):
+        full = trade_journal_analyze(detail="full", __cli_raw=True)
+        long_only = trade_journal_analyze(
+            side="long",
+            detail="full",
+            __cli_raw=True,
+        )
+        short_only = trade_journal_analyze(
+            side="short",
+            detail="full",
+            __cli_raw=True,
+        )
+
+    items_by_ticket = {row["deal_ticket"]: row for row in full["items"]}
+    assert items_by_ticket[21]["side"] == "long"
+    assert items_by_ticket[22]["side"] == "short"
+    side_breakdowns = {
+        row["side"]: row for row in full["breakdowns"]["by_side"]
+    }
+    assert side_breakdowns["long"]["net_pnl"] == 10.0
+    assert side_breakdowns["short"]["net_pnl"] == -4.0
+    assert {row["deal_ticket"] for row in long_only["items"]} == {21}
+    assert {row["deal_ticket"] for row in short_only["items"]} == {22}
+
+
 def test_trade_journal_deal_filter_keeps_matching_entry_costs() -> None:
     history_rows = [
         {

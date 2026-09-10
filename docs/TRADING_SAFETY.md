@@ -382,6 +382,9 @@ summarizes *exit* deals (wins, losses, averages) for review. It matches entry
 fills by position ticket and allocates their commission and fees by closed
 volume. Check `entry_cost_coverage`: an entry outside the requested history
 window leaves that exit on the explicitly reported exit-deal-only PnL basis.
+Journal side filters and `by_side` attribute realized PnL to the position being
+closed. An MT5 `INOUT` reversal therefore belongs to the opposite side from the
+new position represented by that same fill.
 History deal rows preserve MT5's `profit`, `commission`, `swap`, and `fee`
 components and also report `net_pnl` as their sum. `profit_basis` makes clear
 that the broker `profit` value excludes those separately reported cost fields.

@@ -543,6 +543,9 @@ See [TRADING_RISK.md](TRADING_RISK.md) for position sizing (fixed-fraction + Kel
 matching entry fill is present in the requested history window, entry commission
 and fees are allocated by closed volume. Check `entry_cost_coverage` and
 `pnl_basis`: unmatched exits remain exit-deal-only and may overstate net PnL.
+Journal `side` and `by_side` describe the position side whose PnL was realized.
+For an MT5 `INOUT` reversal, that is the closed side, opposite the new position
+side represented by the same fill.
 These averages are useful for journal review, but they are not Kelly inputs
 because they are not normalized to a consistent stake or unit of risk.
 
@@ -912,8 +915,10 @@ paths stay canonical snake_case at every detail level, including `--detail full`
 `--detail summary` returns period aggregates (counts, net P&L for deals, period
 bounds) without a row tape.
 For deal history and journals, `--side buy|sell` filters the execution
-`fill_side`, while `--side long|short` filters the economic `position_side`
-after open/close direction is derived. Responses echo this choice in
+`fill_side`. In raw deal history, `--side long|short` filters the economic
+`position_side` after open/close direction is derived. In journal output it
+filters the side whose PnL was realized; an `INOUT` reversal is therefore
+attributed to its closed side. Responses echo this choice in
 `side_filter.dimension`. Order-lifecycle history has no derived position side,
 so it accepts only `buy|sell`.
 Order-history `order_type` values use canonical uppercase tokens such as `BUY`
