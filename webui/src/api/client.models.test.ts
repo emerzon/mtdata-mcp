@@ -22,29 +22,44 @@ describe('getModels / readyCheck client surface', () => {
     vi.resetModules()
   })
 
-  it('getModels normalizes missing models array and calls models', async () => {
+  it('getModels rejects a malformed models response', async () => {
     getMock.mockResolvedValueOnce({ data: { success: true } })
     const { getModels } = await import('./client')
-    const result = await getModels('theta')
+    await expect(getModels('theta')).rejects.toThrow(
+      'Models response omitted the required models collection'
+    )
     expect(getMock).toHaveBeenCalled()
     const [path, config] = getMock.mock.calls[0]
     expect(String(path)).toBe('models')
     expect(config?.params).toEqual({ method: 'theta' })
-    expect(result.models).toEqual([])
-    expect(result.count).toBe(0)
   })
 
-  it('getModels preserves models list and count', async () => {
+  it('getModels preserves models list, count, and detail level', async () => {
     getMock.mockResolvedValueOnce({
       data: {
         models: [{ model_id: 'm1', method: 'theta' }],
         count: 1,
+        detail_level: 'compact',
       },
     })
     const { getModels } = await import('./client')
     const result = await getModels()
     expect(result.models).toHaveLength(1)
     expect(result.count).toBe(1)
+    expect(result.detail_level).toBe('compact')
+  })
+
+  it('method clients reject missing method collections', async () => {
+    getMock.mockResolvedValue({ data: { success: true } })
+    const {
+      getMethods,
+      getVolatilityMethods,
+      getDenoiseMethods,
+    } = await import('./client')
+
+    await expect(getMethods()).rejects.toThrow('required methods collection')
+    await expect(getVolatilityMethods()).rejects.toThrow('required methods collection')
+    await expect(getDenoiseMethods()).rejects.toThrow('required methods collection')
   })
 
   it('readyCheck treats 503 as not ok without throwing', async () => {

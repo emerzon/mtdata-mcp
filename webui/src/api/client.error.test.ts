@@ -6,6 +6,15 @@ describe('getErrorMessage', () => {
     expect(getErrorMessage(new Error('network down'))).toBe('network down')
   })
 
+  it('extracts the canonical top-level API error envelope', () => {
+    expect(getErrorMessage({
+      success: false,
+      error: 'Symbol missing',
+      error_code: 'symbol_not_found',
+      request_id: 'request-1',
+    })).toBe('Symbol missing')
+  })
+
   it('extracts nested detail/error/message fields from plain objects', () => {
     expect(getErrorMessage({ detail: 'Symbol missing' })).toBe('Symbol missing')
     expect(getErrorMessage({ error: { message: 'bad request' } })).toBe('bad request')

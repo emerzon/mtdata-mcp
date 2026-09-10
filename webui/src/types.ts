@@ -279,6 +279,7 @@ export type MethodInfo = {
 }
 
 export type MethodsMeta = {
+  detail_level?: 'compact' | 'standard' | 'summary' | 'full'
   methods: MethodInfo[]
 }
 
@@ -337,7 +338,7 @@ export type StoredModelInfo = {
 
 export type ModelsResponse = {
   success?: boolean
-  detail?: string
+  detail_level?: 'compact' | 'standard' | 'summary' | 'full'
   count?: number
   models: StoredModelInfo[]
 }

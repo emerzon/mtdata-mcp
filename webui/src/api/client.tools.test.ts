@@ -25,7 +25,9 @@ describe('tools client adapters', () => {
   })
 
   it('listTools normalizes missing tools array and hits tools', async () => {
-    getMock.mockResolvedValueOnce({ data: { success: true } })
+    getMock.mockResolvedValueOnce({
+      data: { success: true, detail_level: 'compact' },
+    })
     const { listTools, TOOL_CATALOG_INDEX_LIMIT } = await import('./client')
     const result = await listTools({ search: 'regime' })
     expect(String(getMock.mock.calls[0][0])).toBe('tools')
@@ -34,16 +36,22 @@ describe('tools client adapters', () => {
     expect(getMock.mock.calls[0][1]?.params?.limit).toBe(TOOL_CATALOG_INDEX_LIMIT)
     expect(result.tools).toEqual([])
     expect(result.count).toBe(0)
+    expect(result.detail_level).toBe('compact')
   })
 
   it('getTool returns the named tool collection', async () => {
     getMock.mockResolvedValueOnce({
-      data: { success: true, tool: { name: 'tools_list', surface: 'dedicated_ui' } },
+      data: {
+        success: true,
+        detail_level: 'compact',
+        tool: { name: 'tools_list', surface: 'dedicated_ui' },
+      },
     })
     const { getTool } = await import('./client')
     const result = await getTool('tools_list')
     expect(String(getMock.mock.calls[0][0])).toBe('tools/tools_list')
     expect(result.tool).toEqual({ name: 'tools_list', surface: 'dedicated_ui' })
+    expect(result.detail_level).toBe('compact')
   })
 
   it('getTool fails when the required tool collection is omitted', async () => {

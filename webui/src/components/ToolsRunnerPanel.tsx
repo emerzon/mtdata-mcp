@@ -237,6 +237,7 @@ export function ToolsRunnerPanel({
                         <div className="text-[10px] text-slate-500 truncate">
                           {tool.category}
                           {tool.surface === 'dedicated_ui' ? ' · dedicated UI' : ''}
+                          {tool.safety?.requires_bearer_auth ? ' · auth' : ''}
                           {tool.safety?.requires_confirmation ? ' · confirm' : ''}
                           {tool.enabled === false ? ' · disabled' : ''}
                         </div>
@@ -289,6 +290,17 @@ export function ToolsRunnerPanel({
                     role="alert"
                   >
                     {selected.safety.warning}
+                  </div>
+                )}
+
+                {selected.safety?.requires_bearer_auth && (
+                  <div
+                    className="text-xs text-sky-200 bg-sky-950/40 border border-sky-800 rounded-lg px-3 py-2"
+                    role="note"
+                  >
+                    This mutation-capable tool requires WEBAPI_AUTH_TOKEN on the
+                    server and a matching Bearer token in the toolbar Auth control,
+                    including for dry-run previews.
                   </div>
                 )}
 

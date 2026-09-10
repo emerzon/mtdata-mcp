@@ -91,7 +91,7 @@ function extractErrorText(value: unknown): string | null {
   if (!value || typeof value !== 'object') return null
 
   const record = value as Record<string, unknown>
-  for (const key of ['detail', 'error', 'message', 'msg']) {
+  for (const key of ['error', 'message', 'detail', 'msg']) {
     const message = extractErrorText(record[key])
     if (message) return message
   }
@@ -188,16 +188,25 @@ export async function getTick(symbol: string, signal?: AbortSignal): Promise<Tic
 
 export async function getMethods(): Promise<MethodsMeta> {
   const { data } = await api.get<MethodsMeta>('methods')
+  if (!Array.isArray(data?.methods)) {
+    throw new Error('Methods response omitted the required methods collection')
+  }
   return data
 }
 
 export async function getVolatilityMethods(): Promise<VolatilityMethodsMeta> {
   const { data } = await api.get<VolatilityMethodsMeta>('volatility/methods')
+  if (!Array.isArray(data?.methods)) {
+    throw new Error('Volatility methods response omitted the required methods collection')
+  }
   return data
 }
 
 export async function getDenoiseMethods(): Promise<DenoiseMethodsMeta> {
   const { data } = await api.get<DenoiseMethodsMeta>('denoise/methods')
+  if (!Array.isArray(data?.methods)) {
+    throw new Error('Denoise methods response omitted the required methods collection')
+  }
   return data
 }
 
@@ -211,10 +220,13 @@ export async function getModels(method?: string, signal?: AbortSignal): Promise<
     params: method ? { method } : undefined,
     signal,
   })
+  if (!Array.isArray(data?.models)) {
+    throw new Error('Models response omitted the required models collection')
+  }
   return {
     ...data,
-    models: Array.isArray(data?.models) ? data.models : [],
-    count: typeof data?.count === 'number' ? data.count : Array.isArray(data?.models) ? data.models.length : 0,
+    models: data.models,
+    count: typeof data.count === 'number' ? data.count : data.models.length,
   }
 }
 
@@ -359,7 +371,7 @@ export type ToolsListPagination = {
 export type ToolsListResponse = {
   success?: boolean
   count?: number
-  detail?: string
+  detail_level?: 'compact' | 'standard' | 'full'
   categories?: Record<string, string[]>
   surfaces?: Record<string, number>
   pagination?: ToolsListPagination
@@ -371,6 +383,7 @@ export const TOOL_CATALOG_INDEX_LIMIT = 500
 
 export type ToolDetailResponse = {
   success?: boolean
+  detail_level?: 'compact' | 'standard' | 'full'
   tool: ToolCatalogEntry
 }
 

@@ -28,6 +28,7 @@ export type JsonSchema = {
 
 export type ToolSafety = {
   requires_confirmation?: boolean
+  requires_bearer_auth?: boolean
   is_live_trade_mutation?: boolean
   surface?: ToolSurface
   dedicated_path?: string
