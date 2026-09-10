@@ -53,7 +53,17 @@ def test_expired_entry_returns_none(tmp_path):
     store = _store(tmp_path, ttl_seconds=0.05)
     store.record("exp-key", {"success": True})
     assert store.check("exp-key") is not None
-    time.sleep(0.1)
+    # Deterministic expiry: backdate updated_at instead of relying on
+    # sub-100ms wall-clock timing, which flakes on loaded CI runners.
+    import sqlite3
+    import time as _time
+
+    with sqlite3.connect(tmp_path / "idempotency.sqlite3") as connection:
+        connection.execute(
+            "UPDATE trade_idempotency SET updated_at = ? WHERE key = ?",
+            (_time.time() - 1.0, "exp-key"),
+        )
+        connection.commit()
     assert store.check("exp-key") is None
 
 
