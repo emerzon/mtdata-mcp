@@ -826,16 +826,35 @@ def add_dynamic_arguments(  # noqa: C901
             str(param["name"]),
         ) in _OPTIONAL_POSITIONAL_PARAMS
 
-        required_symbol_alias = (
-            param["required"]
-            and str(param["name"]) in {"symbol", "symbols"}
+        named_only_required = (
+            (str(cmd_name or ""), str(param["name"]))
+            in _NAMED_ONLY_REQUIRED_PARAMS
         )
-        if required_symbol_alias:
-            parser.usage = (
-                "%(prog)s (SYMBOL | --symbol SYMBOL) [options]"
-                if str(param["name"]) == "symbol"
-                else "%(prog)s (SYMBOL [SYMBOL ...] | --symbols SYMBOLS) [options]"
+        is_first_required_scalar = (
+            param["required"]
+            and param == param_info["params"][0]
+            and not named_only_required
+            and not is_mapping_type
+            and kwargs.get("nargs") not in ("+", "*")
+        )
+        required_positional_alias = (
+            param["required"]
+            and not named_only_required
+            and (
+                str(param["name"]) in {"symbol", "symbols"}
+                or is_first_required_scalar
             )
+        )
+        if required_positional_alias:
+            if str(param["name"]) == "symbol":
+                parser.usage = "%(prog)s (SYMBOL | --symbol SYMBOL) [options]"
+            elif str(param["name"]) == "symbols":
+                parser.usage = (
+                    "%(prog)s (SYMBOL [SYMBOL ...] | --symbols SYMBOLS) [options]"
+                )
+            else:
+                token = str(param["name"]).upper()
+                parser.usage = f"%(prog)s ({token} | {hyph} {token}) [options]"
             positional_kwargs = {
                 k: v
                 for k, v in kwargs.items()
@@ -873,8 +892,7 @@ def add_dynamic_arguments(  # noqa: C901
         elif (
             param["required"]
             and param == param_info["params"][0]
-            and (str(cmd_name or ""), str(param["name"]))
-            not in _NAMED_ONLY_REQUIRED_PARAMS
+            and not named_only_required
         ):
             positional_kwargs = {k: v for k, v in kwargs.items() if k in ("help", "type", "choices", "metavar")}
             if (

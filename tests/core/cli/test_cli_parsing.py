@@ -1215,6 +1215,21 @@ class TestAddDynamicArguments:
         assert args._cli_option_symbol == "EURUSD"
         assert args.count == 20
 
+    def test_first_required_scalar_accepts_named_option(self):
+        parser = argparse.ArgumentParser()
+        func_info = {
+            "params": [
+                {"name": "name", "type": str, "required": True, "default": None},
+            ]
+        }
+        add_dynamic_arguments(parser, func_info, cmd_name="indicators_describe")
+        named = parser.parse_args(["--name", "rsi"])
+        assert named._cli_option_name == "rsi"
+        assert not hasattr(named, "name")
+        positional = parser.parse_args(["ema"])
+        assert positional.name == "ema"
+        assert not hasattr(positional, "_cli_option_name")
+
     def test_first_required_param_has_positional_and_flag_actions(self):
         parser = argparse.ArgumentParser()
         func_info = {

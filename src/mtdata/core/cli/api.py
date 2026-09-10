@@ -35,11 +35,8 @@ from ...shared.feature_flags import (
 from ...utils.coercion import UNPARSED_BOOL, parse_bool_like
 from ...utils.security import redact_url_credentials
 from .._mcp_instance import mcp
-from .._mcp_tools import (
-    _normalize_output_fields,
-    shape_public_tool_output,
-)
 from .._mcp_tools import get_tool_registry as get_registered_tools
+from .._mcp_tools import shape_public_tool_output
 from ..error_envelope import build_error_payload, normalize_error_payload
 from ..output_contract import resolve_output_contract
 from ..output_serialization import dumps_json, sanitize_json
@@ -590,6 +587,12 @@ _CLI_NEAR_MISS_REMEDIATIONS: Dict[tuple[str, str], str] = {
     ("market_microstructure_analyze", "--timeframe"): (
         "market_microstructure_analyze is a tick-window tool. Use --minutes-back "
         "and --bucket-seconds, not a candle --timeframe."
+    ),
+    ("indicators_describe", "--indicator"): (
+        "indicators_describe takes the catalog name positionally or with --name."
+    ),
+    ("denoise_describe", "--method"): (
+        "denoise_describe takes the method name positionally or with --name."
     ),
 }
 
