@@ -154,7 +154,7 @@ class TestWebApiSecurity:
         finally:
             web_api._clear_api_access_runtime_settings_cache()
         assert resp.status_code == 403
-        assert resp.json()["detail"]["error_code"] == "web_api_remote_forbidden"
+        assert resp.json()["error_code"] == "web_api_remote_forbidden"
 
     def test_forwarded_headers_disable_loopback_bypass(self):
         request = SimpleNamespace(
@@ -173,7 +173,7 @@ class TestWebApiSecurity:
             web_api._clear_api_access_runtime_settings_cache()
         assert resp.status_code == 401
         assert resp.headers["www-authenticate"] == "Bearer"
-        assert resp.json()["detail"]["error_code"] == "web_api_auth_required"
+        assert resp.json()["error_code"] == "web_api_auth_required"
 
     def test_bearer_token_allows_request(self, monkeypatch):
         monkeypatch.setenv("WEBAPI_AUTH_TOKEN", "secret")
@@ -367,7 +367,7 @@ class TestGetInstruments:
             response = _client.get("/api/instruments")
 
         assert response.status_code == 503
-        assert response.json()["detail"]["error_code"] == "mt5_connection_error"
+        assert response.json()["error_code"] == "mt5_connection_error"
 
 
 # ===========================================================================
@@ -381,15 +381,36 @@ class TestGetMethods:
             res = web_api.get_methods(detail="full")
         assert res["methods"][0]["method"] == "theta"
 
-    def test_returns_empty_on_none(self):
+    def test_none_payload_fails_closed(self):
         with patch("mtdata.core.web_api._get_methods_impl", return_value=None):
-            res = web_api.get_methods(detail="full")
-        assert res == {"methods": []}
+            response = _client.get("/api/methods", params={"detail": "full"})
+        assert response.status_code == 500
+        assert response.json()["error_code"] == "forecast_methods_payload_invalid"
 
-    def test_returns_empty_on_no_methods_key(self):
+    def test_missing_methods_collection_fails_closed(self):
         with patch("mtdata.core.web_api._get_methods_impl", return_value={"other": 1}):
-            res = web_api.get_methods(detail="full")
-        assert res == {"methods": []}
+            response = _client.get("/api/methods", params={"detail": "full"})
+        assert response.status_code == 500
+        assert response.json()["error_code"] == "forecast_methods_payload_invalid"
+
+    def test_valid_empty_methods_collection_remains_successful(self):
+        data = {"methods": []}
+        with patch("mtdata.core.web_api._get_methods_impl", return_value=data), patch(
+            "mtdata.core.web_api_handlers.get_forecast_methods_payload",
+            return_value=data,
+        ):
+            response = _client.get("/api/methods")
+        assert response.status_code == 200
+        assert response.json() == {"methods": [], "detail_level": "compact"}
+
+    def test_malformed_methods_row_fails_closed(self):
+        with patch(
+            "mtdata.core.web_api._get_methods_impl",
+            return_value={"methods": ["theta"]},
+        ):
+            response = _client.get("/api/methods")
+        assert response.status_code == 500
+        assert response.json()["error_code"] == "forecast_methods_payload_invalid"
 
     def test_uses_shared_snapshot_backed_methods_payload(self):
         data = {
@@ -437,14 +458,15 @@ class TestGetMethods:
             },
         ]
 
-    def test_snapshot_exception_keeps_original_methods(self):
+    def test_snapshot_exception_fails_closed(self):
         data = {"methods": [{"method": "custom", "available": True, "requires": []}]}
         with patch("mtdata.core.web_api._get_methods_impl", return_value=data), patch(
             "mtdata.core.web_api_handlers.get_forecast_methods_payload",
             side_effect=RuntimeError("boom"),
         ):
-            res = web_api.get_methods(detail="full")
-        assert res == data
+            response = _client.get("/api/methods", params={"detail": "full"})
+        assert response.status_code == 500
+        assert response.json()["error_code"] == "forecast_methods_payload_invalid"
 
     def test_default_compact_filters_snapshot_metadata(self):
         data = {"methods": [{"method": "theta", "available": True, "requires": []}]}
@@ -470,7 +492,7 @@ class TestGetMethods:
             resp = _client.get("/api/methods")
         assert resp.status_code == 200
         assert resp.json() == {
-            "detail": "compact",
+            "detail_level": "compact",
             "methods": [
                 {
                     "method": "theta",
@@ -504,7 +526,7 @@ class TestGetMethods:
         ):
             resp = _client.get("/api/methods", params={"detail": "full"})
         assert resp.status_code == 200
-        assert resp.json() == enriched
+        assert resp.json() == {**enriched, "detail_level": "full"}
 
     def test_rejects_invalid_methods_detail_query(self):
         resp = _client.get("/api/methods", params={"detail": "not_a_level"})
@@ -526,7 +548,12 @@ class TestGetModels:
         with patch("mtdata.core.web_api._get_models_impl", return_value=data):
             resp = _client.get("/api/models")
         assert resp.status_code == 200
-        assert resp.json() == data
+        assert resp.json() == {
+            "success": True,
+            "detail_level": "compact",
+            "count": 1,
+            "models": data["models"],
+        }
 
     def test_passes_method_and_detail_to_models_impl(self):
         data = {
@@ -544,14 +571,40 @@ class TestGetModels:
         with patch("mtdata.core.web_api._get_models_impl", return_value=data) as mock_models:
             resp = _client.get("/api/models", params={"method": "nhits", "detail": "full"})
         assert resp.status_code == 200
-        assert resp.json() == data
+        assert resp.json() == {
+            "success": True,
+            "detail_level": "full",
+            "count": 1,
+            "models": data["models"],
+        }
         mock_models.assert_called_once_with(method="nhits", detail="full")
 
-    def test_returns_empty_payload_on_invalid_models_result(self):
+    def test_invalid_models_result_fails_closed(self):
         with patch("mtdata.core.web_api._get_models_impl", return_value=None):
             resp = _client.get("/api/models", params={"detail": "full"})
-        assert resp.status_code == 200
-        assert resp.json() == {"success": True, "detail": "full", "count": 0, "models": []}
+        assert resp.status_code == 500
+        assert resp.json()["error_code"] == "forecast_models_payload_invalid"
+
+    def test_valid_empty_models_collection_remains_successful(self):
+        data = {"success": True, "detail": "compact", "models": []}
+        with patch("mtdata.core.web_api._get_models_impl", return_value=data):
+            response = _client.get("/api/models")
+        assert response.status_code == 200
+        assert response.json() == {
+            "success": True,
+            "detail_level": "compact",
+            "count": 0,
+            "models": [],
+        }
+
+    def test_malformed_models_row_fails_closed(self):
+        with patch(
+            "mtdata.core.web_api._get_models_impl",
+            return_value={"success": True, "models": ["model-id"]},
+        ):
+            response = _client.get("/api/models")
+        assert response.status_code == 500
+        assert response.json()["error_code"] == "forecast_models_payload_invalid"
 
     def test_rejects_invalid_detail_query(self):
         resp = _client.get("/api/models", params={"detail": "not_a_level"})
@@ -569,10 +622,17 @@ class TestGetVolMethods:
             res = web_api.get_vol_methods()
         assert res == data
 
-    def test_non_dict_returns_empty(self):
+    def test_non_dict_fails_closed(self):
         with patch("mtdata.core.web_api._get_vol_methods", return_value="bad"):
-            res = web_api.get_vol_methods()
-        assert res == {"methods": []}
+            response = _client.get("/api/volatility/methods")
+        assert response.status_code == 500
+        assert response.json()["error_code"] == "volatility_methods_payload_invalid"
+
+    def test_valid_empty_collection_remains_successful(self):
+        with patch("mtdata.core.web_api._get_vol_methods", return_value={"methods": []}):
+            response = _client.get("/api/volatility/methods")
+        assert response.status_code == 200
+        assert response.json() == {"methods": []}
 
 
 # ===========================================================================
@@ -586,15 +646,23 @@ class TestGetDenoiseMethods:
             res = web_api.get_denoise_methods()
         assert res == data
 
-    def test_non_dict_returns_empty(self):
+    def test_non_dict_fails_closed(self):
         with patch("mtdata.core.web_api._get_denoise_methods", return_value="bad"):
-            res = web_api.get_denoise_methods()
-        assert res == {"methods": []}
+            response = _client.get("/api/denoise/methods")
+        assert response.status_code == 500
+        assert response.json()["error_code"] == "denoise_methods_payload_invalid"
 
-    def test_dict_no_methods_key(self):
+    def test_dict_without_methods_fails_closed(self):
         with patch("mtdata.core.web_api._get_denoise_methods", return_value={"other": 1}):
-            res = web_api.get_denoise_methods()
-        assert res == {"methods": []}
+            response = _client.get("/api/denoise/methods")
+        assert response.status_code == 500
+        assert response.json()["error_code"] == "denoise_methods_payload_invalid"
+
+    def test_valid_empty_collection_remains_successful(self):
+        with patch("mtdata.core.web_api._get_denoise_methods", return_value={"methods": []}):
+            response = _client.get("/api/denoise/methods")
+        assert response.status_code == 200
+        assert response.json() == {"methods": []}
 
 
 # ===========================================================================
@@ -827,7 +895,7 @@ class TestGetHistory:
              patch("mtdata.core.web_api._fetch_candles_impl", side_effect=RuntimeError("fail")):
             resp = _client.get("/api/history", params={"symbol": "EURUSD"})
         assert resp.status_code == 500
-        detail = resp.json()["detail"]
+        detail = resp.json()
         assert detail["error_code"] == "history_fetch_internal_error"
         assert detail["error"] == "History fetch failed."
 
@@ -836,7 +904,7 @@ class TestGetHistory:
              patch("mtdata.core.web_api._fetch_candles_impl", side_effect=MT5ConnectionError("mt5 unavailable")):
             resp = _client.get("/api/history", params={"symbol": "EURUSD"})
         assert resp.status_code == 503
-        assert resp.json()["detail"]["error_code"] == "history_mt5_unavailable"
+        assert resp.json()["error_code"] == "history_mt5_unavailable"
 
     def test_non_dict_result(self):
         with patch.object(mt5_connection, "_ensure_connection", return_value=True), \
@@ -926,7 +994,7 @@ class TestGetHistory:
                 "denoise_params": "level=3,level=4",
             })
         assert resp.status_code == 400
-        detail = resp.json()["detail"]
+        detail = resp.json()
         assert detail["error_code"] == "denoise_params_invalid"
         assert detail["error"] == "Duplicate mapping key: 'level'."
         mock_norm.assert_not_called()
@@ -962,7 +1030,7 @@ class TestGetHistory:
                 "denoise_params": "x" * 4097,
             })
         assert resp.status_code == 400
-        detail = resp.json()["detail"]
+        detail = resp.json()
         assert detail["error_code"] == "denoise_params_too_large"
         assert detail["details"] == {"max_chars": 4096}
 
@@ -978,7 +1046,7 @@ class TestGetHistory:
              patch("mtdata.core.web_api._get_denoise_methods", side_effect=RuntimeError("bad metadata")):
             resp = _client.get("/api/history", params={"symbol": "EURUSD", "denoise_method": "wavelet"})
         assert resp.status_code == 500
-        assert resp.json()["detail"]["error_code"] == "denoise_validation_failed"
+        assert resp.json()["error_code"] == "denoise_validation_failed"
 
     def test_denoise_json_extra_params_no_params_key(self):
         """When JSON dict has no 'params' key, non-reserved keys become params."""
@@ -1037,7 +1105,7 @@ class TestGetHistory:
                 "denoise_params": denoise_params_json,
             })
         assert resp.status_code == 400
-        detail = resp.json()["detail"]
+        detail = resp.json()
         assert detail["error_code"] == "denoise_params_invalid"
         assert "columns" in detail["error"]
 
@@ -1054,7 +1122,7 @@ class TestGetHistory:
                 "denoise_params": denoise_params_json,
             })
         assert resp.status_code == 400
-        detail = resp.json()["detail"]
+        detail = resp.json()
         assert detail["error_code"] == "denoise_params_invalid"
         assert "columns[1]" in detail["error"]
 
@@ -1089,7 +1157,7 @@ class TestGetHistory:
                 "denoise_params": denoise_params_json,
             })
         assert resp.status_code == 400
-        detail = resp.json()["detail"]
+        detail = resp.json()
         assert detail["error_code"] == "denoise_params_invalid"
         assert "causality" in detail["error"]
 
@@ -1106,7 +1174,7 @@ class TestGetHistory:
                 "denoise_params": denoise_params_json,
             })
         assert resp.status_code == 400
-        detail = resp.json()["detail"]
+        detail = resp.json()
         assert detail["error_code"] == "denoise_params_invalid"
         assert "params" in detail["error"]
 
@@ -1211,21 +1279,21 @@ class TestGetPivots:
             mock_ctr.return_value = MagicMock(return_value={"error": "bad", "levels": []})
             resp = _client.get("/api/pivots", params={"symbol": "EURUSD", "method": "classic"})
         assert resp.status_code == 400
-        assert resp.json()["detail"]["error_code"] == "pivot_tool_error"
+        assert resp.json()["error_code"] == "pivot_tool_error"
 
     def test_no_levels_found(self):
         with patch("mtdata.core.web_api._call_tool_raw") as mock_ctr:
             mock_ctr.return_value = MagicMock(return_value={"levels": [{"level": "P", "fibonacci": 1.1}]})
             resp = _client.get("/api/pivots", params={"symbol": "EURUSD", "method": "classic"})
         assert resp.status_code == 404
-        assert resp.json()["detail"]["error_code"] == "pivot_levels_missing"
+        assert resp.json()["error_code"] == "pivot_levels_missing"
 
     def test_non_dict_result(self):
         with patch("mtdata.core.web_api._call_tool_raw") as mock_ctr:
             mock_ctr.return_value = MagicMock(return_value=42)
             resp = _client.get("/api/pivots", params={"symbol": "EURUSD", "method": "classic"})
         assert resp.status_code == 500
-        assert resp.json()["detail"]["error_code"] == "pivot_payload_invalid"
+        assert resp.json()["error_code"] == "pivot_payload_invalid"
 
     def test_typeerror_fallback(self):
         """When the raw function raises TypeError, falls back to calling original."""
@@ -1253,7 +1321,7 @@ class TestGetPivots:
         with patch("mtdata.core.web_api._call_tool_raw", return_value=raw_fn):
             resp = _client.get("/api/pivots", params={"symbol": "EURUSD", "method": "classic"})
         assert resp.status_code == 500
-        assert resp.json()["detail"]["error_code"] == "pivot_compute_failed"
+        assert resp.json()["error_code"] == "pivot_compute_failed"
 
     def test_string_not_json(self):
         import json as _json_mod
@@ -1262,7 +1330,7 @@ class TestGetPivots:
             with patch.object(web_api, "json", _json_mod, create=True):
                 resp = _client.get("/api/pivots", params={"symbol": "EURUSD", "method": "classic"})
         assert resp.status_code == 500
-        assert resp.json()["detail"]["error_code"] == "pivot_output_invalid"
+        assert resp.json()["error_code"] == "pivot_output_invalid"
 
 
 # ===========================================================================
@@ -1368,9 +1436,12 @@ class TestPostForecastPrice:
         with patch("mtdata.core.web_api._run_forecast_generate_impl", return_value=result):
             resp = _client.post("/api/forecast/price", json={"symbol": "EURUSD"})
         assert resp.status_code == 503
-        detail = resp.json()["detail"]
+        detail = resp.json()
         for key, value in result.items():
+            if key == "request_id":
+                continue
             assert detail[key] == value
+        assert detail["request_id"] == resp.headers["x-request-id"]
 
     def test_passes_all_params(self):
         with patch("mtdata.core.web_api._run_forecast_generate_impl", return_value={}) as mock_fc:
@@ -1460,7 +1531,7 @@ class TestPostForecastPrice:
         ):
             resp = _client.post("/api/forecast/price", json={"symbol": "EURUSD"})
         assert resp.status_code == 500
-        detail = resp.json()["detail"]
+        detail = resp.json()
         assert detail["error_code"] == "forecast_internal_error"
         assert "secret trace" not in detail["error"]
 
@@ -1471,7 +1542,7 @@ class TestPostForecastPrice:
         ):
             resp = _client.post("/api/forecast/price", json={"symbol": "EURUSD"})
         assert resp.status_code == 503
-        assert resp.json()["detail"]["error_code"] == "forecast_mt5_unavailable"
+        assert resp.json()["error_code"] == "forecast_mt5_unavailable"
 
 
 # ===========================================================================
@@ -1495,7 +1566,7 @@ class TestPostForecastVolatility:
         with patch("mtdata.core.web_api._forecast_vol_impl", side_effect=RuntimeError("engine exploded")):
             resp = _client.post("/api/forecast/volatility", json={"symbol": "EURUSD"})
         assert resp.status_code == 500
-        detail = resp.json()["detail"]
+        detail = resp.json()
         assert detail["error_code"] == "forecast_volatility_internal_error"
         assert "engine exploded" not in detail["error"]
 
@@ -1533,7 +1604,7 @@ class TestPostBacktest:
         with patch("mtdata.core.web_api._run_forecast_backtest_impl", side_effect=RuntimeError("secret trace")):
             resp = _client.post("/api/backtest", json={"symbol": "EURUSD"})
         assert resp.status_code == 500
-        detail = resp.json()["detail"]
+        detail = resp.json()
         assert detail["error_code"] == "backtest_internal_error"
         assert "secret trace" not in detail["error"]
 
@@ -1671,7 +1742,7 @@ class TestGetSupportResistance:
             )
 
         assert response.status_code == 400
-        assert response.json()["detail"]["error_code"] == "no_data_for_range"
+        assert response.json()["error_code"] == "no_data_for_range"
 
 
 # ===========================================================================
@@ -1718,7 +1789,7 @@ class TestHistoryDenoiseEdgeCases:
                 "denoise_params": denoise_params_json,
             })
         assert resp.status_code == 400
-        assert resp.json()["detail"]["error_code"] == "denoise_params_invalid"
+        assert resp.json()["error_code"] == "denoise_params_invalid"
 
 
 class TestMethodsAvailabilityEdgeCases:
@@ -1742,12 +1813,12 @@ class TestMethodsAvailabilityEdgeCases:
         assert res["methods"][0]["requires"] == ["chronos"]
         assert res["methods"][0]["namespace"] == "pretrained"
 
-    def test_snapshot_exception_passes(self):
-        """Exceptions while reading the shared snapshot are swallowed."""
+    def test_snapshot_exception_fails_closed(self):
         data = {"methods": [{"method": "timesfm", "available": False}]}
         with patch("mtdata.core.web_api._get_methods_impl", return_value=data), patch(
             "mtdata.core.web_api_handlers.get_forecast_methods_payload",
             side_effect=RuntimeError("boom"),
         ):
-            res = web_api.get_methods()
-        assert res == data
+            response = _client.get("/api/methods")
+        assert response.status_code == 500
+        assert response.json()["error_code"] == "forecast_methods_payload_invalid"

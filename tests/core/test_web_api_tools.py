@@ -9,6 +9,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from mtdata.bootstrap.runtime import WebApiRuntimeSettings
 from mtdata.core import web_api
 from mtdata.core.report.requests import ReportGenerateRequest
 from mtdata.core.trading.requests import TradeModifyRequest, TradePlaceRequest
@@ -38,6 +39,7 @@ _TRADE_PLACE_ARGS = {
     "stop_loss": 1.05,
     "take_profit": 1.15,
 }
+_MUTATION_AUTH_HEADERS = {"Authorization": "Bearer mutation-test-token"}
 _DOMAIN_FAILURES = [
     ({"success": False, "error": "Unknown symbol EURX", "error_code": "symbol_not_found"}, 404),
     ({"success": False, "error": "Ticket 123 not found.", "error_code": "ticket_not_found"}, 404),
@@ -61,6 +63,13 @@ def _trade_place_functions():
     return patch(
         "mtdata.core.web_api_tools.get_tool_functions",
         return_value={"trade_place": _fake_trade_place},
+    )
+
+
+def _mutation_access():
+    return patch(
+        "mtdata.core.web_api._get_api_access_runtime_settings",
+        return_value=WebApiRuntimeSettings(auth_token="mutation-test-token"),
     )
 
 
@@ -89,11 +98,14 @@ class TestToolClassification:
         assert tool_requires_confirmation("tools_list") is False
         assert "trade_place" in MUTATING_TOOLS
         assert "forecast_generate" in DEDICATED_UI_TOOLS
+        assert tool_safety_meta("trade_place")["requires_bearer_auth"] is True
+        assert tool_safety_meta("tools_list")["requires_bearer_auth"] is False
 
     def test_forecast_training_is_catalogued_as_confirmed_mutation(self):
         safety = tool_safety_meta("forecast_train")
 
         assert safety["requires_confirmation"] is True
+        assert safety["requires_bearer_auth"] is True
         assert safety["is_live_trade_mutation"] is False
         assert "stored state" in safety["warning"]
 
@@ -111,6 +123,7 @@ class TestToolClassification:
             surface = row["surface"]
             assert surface in {"dedicated_ui", "generic_runner", "intentional_omit"}
             assert classify_tool_surface(name) == surface
+            assert row["requires_bearer_auth"] is (name in MUTATING_TOOLS)
             if surface == "dedicated_ui":
                 assert row["frontend"] == DEDICATED_UI_TOOLS[name]
             elif surface == "intentional_omit":
@@ -127,7 +140,7 @@ class TestListAndInvoke:
         assert tool["name"] == "tools_list"
         assert tool["surface"] == "dedicated_ui"
         assert "safety" in tool
-        assert payload["detail"] == "compact"
+        assert payload["detail_level"] == "compact"
         assert payload["pagination"]["limit"] == TOOLS_CATALOG_DEFAULT_LIMIT
 
     def test_list_tools_rejects_unknown_category(self):
@@ -444,7 +457,7 @@ class TestWebApiRoutes:
         assert res.status_code == 200
         body = res.json()
         assert body["count"] >= 1
-        assert body["detail"] == "compact"
+        assert body["detail_level"] == "compact"
         assert any(t["name"] == "tools_list" for t in body["tools"])
         assert body["pagination"]["returned"] == body["count"]
 
@@ -452,7 +465,7 @@ class TestWebApiRoutes:
         res = self.client.get("/api/v1/tools")
         assert res.status_code == 200
         body = res.json()
-        assert body["detail"] == "compact"
+        assert body["detail_level"] == "compact"
         assert body["count"] <= TOOLS_CATALOG_DEFAULT_LIMIT
         assert body["pagination"]["limit"] == TOOLS_CATALOG_DEFAULT_LIMIT
         assert body["pagination"]["offset"] == 0
@@ -492,7 +505,7 @@ class TestWebApiRoutes:
         res = self.client.get("/api/v1/tools/tools_list")
         assert res.status_code == 200
         body = res.json()
-        assert body["detail"] == "compact"
+        assert body["detail_level"] == "compact"
         tool = body["tool"]
         assert tool["name"] == "tools_list"
         assert "description" in tool
@@ -530,9 +543,9 @@ class TestWebApiRoutes:
         full_tool = full.json()["tool"]
         bare_tool = without_fields.json()["tool"]
 
-        assert compact.json()["detail"] == "compact"
-        assert standard.json()["detail"] == "standard"
-        assert full.json()["detail"] == "full"
+        assert compact.json()["detail_level"] == "compact"
+        assert standard.json()["detail_level"] == "standard"
+        assert full.json()["detail_level"] == "full"
         assert {"name", "description", "safety", "input_schema"} <= set(compact_tool)
         assert "cli" not in compact_tool
         assert "module" not in compact_tool
@@ -570,7 +583,7 @@ class TestWebApiRoutes:
         )
 
         assert res.status_code == 422
-        envelope = res.json()["detail"]
+        envelope = res.json()
         _assert_error_envelope(
             envelope,
             error_code="web_api_validation_error",
@@ -583,7 +596,7 @@ class TestWebApiRoutes:
         res = self.client.get("/api/v1/tools", params={"category": "tradng"})
 
         assert res.status_code == 422
-        envelope = res.json()["detail"]
+        envelope = res.json()
         _assert_error_envelope(
             envelope,
             error_code="web_api_validation_error",
@@ -597,7 +610,7 @@ class TestWebApiRoutes:
         assert res.status_code == 404
         body = res.json()
         assert body.get("success") is not True
-        envelope = body["detail"]
+        envelope = body
         _assert_error_envelope(
             envelope, error_code="tool_not_found", operation="not_a_real_tool"
         )
@@ -614,18 +627,79 @@ class TestWebApiRoutes:
         assert len(body["result"]["tools"]) == 1
         assert "count" not in body["result"]
 
-    def test_invoke_trade_live_without_confirm_blocked(self):
-        res = self.client.post(
-            "/api/v1/tools/trade_place/invoke",
-            json={
-                "arguments": {**_TRADE_PLACE_ARGS, "dry_run": False},
-                "confirm": False,
-            },
+    @pytest.mark.parametrize("prefix", ["/api", "/api/v1"])
+    @pytest.mark.parametrize(
+        ("tool_name", "arguments"),
+        [
+            ("trade_place", {**_TRADE_PLACE_ARGS, "dry_run": True}),
+            ("trade_place", {**_TRADE_PLACE_ARGS, "dry_run": False}),
+            ("forecast_task_cancel", {"task_id": "task-1"}),
+        ],
+    )
+    def test_mutating_invocation_requires_configured_auth(
+        self,
+        prefix,
+        tool_name,
+        arguments,
+    ):
+        with patch(
+            "mtdata.core.web_api._get_api_access_runtime_settings",
+            return_value=WebApiRuntimeSettings(),
+        ):
+            res = self.client.post(
+                f"{prefix}/tools/{tool_name}/invoke",
+                json={"arguments": arguments, "confirm": True},
+            )
+
+        assert res.status_code == 503
+        envelope = res.json()
+        _assert_error_envelope(
+            envelope,
+            error_code="web_api_mutation_auth_not_configured",
+            operation=tool_name,
         )
+        assert envelope["details"]["environment_variable"] == "WEBAPI_AUTH_TOKEN"
+        assert "Authorization: Bearer" in envelope["remediation"]
+        assert envelope["documentation"].endswith(
+            "/docs/WEB_API.md#authentication"
+        )
+        assert res.headers["x-request-id"] == envelope["request_id"]
+
+    def test_mutating_invocation_rejects_api_key_instead_of_bearer(self):
+        with _mutation_access():
+            res = self.client.post(
+                "/api/v1/tools/trade_place/invoke",
+                json={
+                    "arguments": {**_TRADE_PLACE_ARGS, "dry_run": True},
+                    "confirm": False,
+                },
+                headers={"X-API-Key": "mutation-test-token"},
+            )
+
+        assert res.status_code == 401
+        assert res.headers["www-authenticate"] == "Bearer"
+        envelope = res.json()
+        _assert_error_envelope(
+            envelope,
+            error_code="web_api_mutation_auth_required",
+            operation="trade_place",
+        )
+        assert "X-API-Key" in envelope["remediation"]
+
+    def test_invoke_trade_live_without_confirm_blocked(self):
+        with _mutation_access():
+            res = self.client.post(
+                "/api/v1/tools/trade_place/invoke",
+                json={
+                    "arguments": {**_TRADE_PLACE_ARGS, "dry_run": False},
+                    "confirm": False,
+                },
+                headers=_MUTATION_AUTH_HEADERS,
+            )
         assert res.status_code == 400
         body = res.json()
         assert body.get("success") is not True
-        envelope = body["detail"]
+        envelope = body
         _assert_error_envelope(
             envelope,
             error_code="confirmation_required",
@@ -642,10 +716,11 @@ class TestWebApiRoutes:
         arguments = dict(_TRADE_PLACE_ARGS)
         if dry_run is not None:
             arguments["dry_run"] = dry_run
-        with _trade_place_functions():
+        with _mutation_access(), _trade_place_functions():
             res = self.client.post(
                 "/api/v1/tools/trade_place/invoke",
                 json={"arguments": arguments, "confirm": False},
+                headers=_MUTATION_AUTH_HEADERS,
             )
         assert res.status_code == 200
         body = res.json()
@@ -654,13 +729,14 @@ class TestWebApiRoutes:
         assert body["result"]["would_send_order"] is False
 
     def test_invoke_trade_live_with_confirm(self):
-        with _trade_place_functions():
+        with _mutation_access(), _trade_place_functions():
             res = self.client.post(
                 "/api/v1/tools/trade_place/invoke",
                 json={
                     "arguments": {**_TRADE_PLACE_ARGS, "dry_run": False},
                     "confirm": True,
                 },
+                headers=_MUTATION_AUTH_HEADERS,
             )
         assert res.status_code == 200
         body = res.json()
@@ -680,7 +756,7 @@ class TestWebApiRoutes:
         assert res.status_code == status_code
         body = res.json()
         assert body.get("success") is not True
-        envelope = body["detail"]
+        envelope = body
         _assert_error_envelope(
             envelope,
             error_code=payload["error_code"],
@@ -697,7 +773,7 @@ class TestWebApiRoutes:
         assert res.status_code == 404
         body = res.json()
         assert body.get("success") is not True
-        envelope = body["detail"]
+        envelope = body
         _assert_error_envelope(
             envelope,
             error_code="tool_not_found",
@@ -714,7 +790,7 @@ class TestWebApiRoutes:
         assert res.status_code == 403
         body = res.json()
         assert body.get("success") is not True
-        envelope = body["detail"]
+        envelope = body
         _assert_error_envelope(
             envelope,
             error_code="tool_not_available",
@@ -737,6 +813,7 @@ class TestWebApiRoutes:
             "18446744073709551615",
         )
         with (
+            _mutation_access(),
             patch("mtdata.core.web_api_tools.ensure_tools_bootstrapped"),
             patch(
                 "mtdata.core.web_api_tools.get_tool_functions",
@@ -754,6 +831,7 @@ class TestWebApiRoutes:
                         },
                         "confirm": False,
                     },
+                    headers=_MUTATION_AUTH_HEADERS,
                 )
                 assert res.status_code == 200, res.text
                 assert res.json()["result"]["ticket"] == int(ticket)
@@ -770,7 +848,7 @@ class TestWebApiRoutes:
         assert res.status_code == 400
         body = res.json()
         assert body.get("success") is not True
-        envelope = body["detail"]
+        envelope = body
         _assert_error_envelope(
             envelope, error_code="tool_param_error", operation="demo"
         )

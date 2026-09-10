@@ -55,7 +55,7 @@ def test_post_trade_ideas_maps_missing_symbol_to_404() -> None:
         response = _client.post("/api/v1/trade-ideas", json={"symbol": "NOPE"})
 
     assert response.status_code == 404
-    assert response.json()["detail"]["error_code"] == "symbol_not_found"
+    assert response.json()["error_code"] == "symbol_not_found"
 
 
 def test_post_trade_ideas_rejects_live_risk_pct_and_unknown_fields() -> None:

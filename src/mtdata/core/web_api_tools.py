@@ -206,6 +206,7 @@ def tool_safety_meta(name: str) -> Dict[str, Any]:
     key = str(name or "").strip()
     meta: Dict[str, Any] = {
         "requires_confirmation": tool_requires_confirmation(key),
+        "requires_bearer_auth": key in MUTATING_TOOLS,
         "is_live_trade_mutation": key in LIVE_TRADE_MUTATION_TOOLS,
         "surface": classify_tool_surface(key),
     }
@@ -385,7 +386,7 @@ def list_tools_for_webapi(
 
     return {
         "success": True,
-        "detail": catalog.get("detail") if catalog else detail_mode,
+        "detail_level": catalog.get("detail") if catalog else detail_mode,
         "count": len(enriched),
         "categories": queried["categories"],
         "surfaces": surfaces,
@@ -427,7 +428,7 @@ def get_tool_for_webapi(
         )
 
     enriched = _enrich_catalog_row(match, include_fields=include_fields)
-    return {"success": True, "detail": detail_mode, "tool": enriched}
+    return {"success": True, "detail_level": detail_mode, "tool": enriched}
 
 
 def invoke_tool_for_webapi(
@@ -586,6 +587,7 @@ def coverage_inventory_rows() -> List[Dict[str, Any]]:
                     )
                 ),
                 "requires_confirmation": tool_requires_confirmation(name),
+                "requires_bearer_auth": name in MUTATING_TOOLS,
             }
             if name == "market_depth_fetch":
                 entry["gated"] = True

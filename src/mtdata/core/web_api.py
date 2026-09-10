@@ -127,6 +127,7 @@ from .web_api_runtime import (
     run_webapi,
 )
 from .web_api_tools import (
+    MUTATING_TOOLS,
     TOOLS_CATALOG_DEFAULT_LIMIT,
     TOOLS_CATALOG_MAX_LIMIT,
     ToolCatalogCategory,
@@ -148,11 +149,27 @@ logger = logging.getLogger(__name__)
 _bearer_auth = HTTPBearer(auto_error=False)
 
 
-def _raise_auth_error(status_code: int, message: str, *, code: str, headers: Optional[Dict[str, str]] = None) -> None:
-    payload = build_error_payload(message, code=code, operation="web_api_auth")
+def _raise_auth_error(
+    status_code: int,
+    message: str,
+    *,
+    code: str,
+    operation: str = "web_api_auth",
+    headers: Optional[Dict[str, str]] = None,
+    details: Optional[Dict[str, Any]] = None,
+    remediation: Optional[str] = None,
+) -> None:
+    payload = build_error_payload(
+        message,
+        code=code,
+        operation=operation,
+        details=details,
+        remediation=remediation,
+        documentation="docs/WEB_API.md#authentication",
+    )
     logger.warning(
         "transport=web_api operation=%s request_id=%s status=%s error=%s",
-        "web_api_auth",
+        operation,
         payload["request_id"],
         status_code,
         payload["error"],
@@ -188,6 +205,18 @@ def _clear_api_access_runtime_settings_cache() -> None:
     _get_api_access_runtime_settings.cache_clear()
 
 
+def _supplied_bearer_token(
+    credentials: Optional[HTTPAuthorizationCredentials],
+) -> Optional[str]:
+    if not isinstance(credentials, HTTPAuthorizationCredentials):
+        return None
+    scheme = str(credentials.scheme or "").strip().lower()
+    token = str(credentials.credentials or "").strip()
+    if scheme != "bearer" or not token:
+        return None
+    return token
+
+
 def _require_api_access(
     request: Request,
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer_auth),
@@ -195,12 +224,7 @@ def _require_api_access(
 ) -> None:
     runtime = _get_api_access_runtime_settings()
     configured_token = str(runtime.auth_token or "").strip()
-    supplied_token = None
-    if isinstance(credentials, HTTPAuthorizationCredentials):
-        scheme = str(credentials.scheme or "").strip().lower()
-        token = str(credentials.credentials or "").strip()
-        if scheme == "bearer" and token:
-            supplied_token = token
+    supplied_token = _supplied_bearer_token(credentials)
     if not supplied_token and isinstance(x_api_key, str) and x_api_key.strip():
         supplied_token = x_api_key.strip()
 
@@ -222,6 +246,52 @@ def _require_api_access(
         "Remote API access requires WEBAPI_AUTH_TOKEN.",
         code="web_api_remote_forbidden",
     )
+
+
+def _require_mutating_tool_access(
+    tool_name: str,
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer_auth),
+) -> None:
+    name = str(tool_name or "").strip()
+    if name not in MUTATING_TOOLS:
+        return
+    runtime = _get_api_access_runtime_settings()
+    configured_token = str(runtime.auth_token or "").strip()
+    if not configured_token:
+        _raise_auth_error(
+            503,
+            (
+                f"Mutating Web API tool '{name}' is disabled until "
+                "WEBAPI_AUTH_TOKEN is configured."
+            ),
+            code="web_api_mutation_auth_not_configured",
+            operation=name,
+            details={
+                "environment_variable": "WEBAPI_AUTH_TOKEN",
+                "requires_bearer_auth": True,
+            },
+            remediation=(
+                "Set WEBAPI_AUTH_TOKEN to a strong value, restart mtdata-webapi, "
+                "then send Authorization: Bearer <token>. Use the Web UI Auth "
+                "control to configure the token for the current tab."
+            ),
+        )
+    supplied_token = _supplied_bearer_token(credentials)
+    if supplied_token and hmac.compare_digest(supplied_token, configured_token):
+        return
+    _raise_auth_error(
+        401,
+        f"Mutating Web API tool '{name}' requires bearer authentication.",
+        code="web_api_mutation_auth_required",
+        operation=name,
+        headers={"WWW-Authenticate": "Bearer"},
+        details={"requires_bearer_auth": True},
+        remediation=(
+            "Send Authorization: Bearer <WEBAPI_AUTH_TOKEN>. X-API-Key and "
+            "loopback access do not authorize mutating tool invocations."
+        ),
+    )
+
 
 load_environment()
 app = create_web_api_app()
@@ -641,10 +711,14 @@ def get_tool(
     )
 
 
-@api_router.post("/tools/{tool_name}/invoke")
+@api_router.post(
+    "/tools/{tool_name}/invoke",
+    dependencies=[Depends(_require_mutating_tool_access)],
+)
 def invoke_tool(tool_name: str, body: ToolInvokeBody) -> Dict[str, Any]:
     """Invoke a registered MCP tool.
 
+    Bearer authentication protects every mutation-capable tool invocation.
     Confirm is required only when the prepared call can mutate state
     (`dry_run=false` for live trade and destructive store tools; always for
     mutating tools that have no dry-run preview). Domain failures return

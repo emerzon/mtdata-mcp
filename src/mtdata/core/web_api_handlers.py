@@ -318,33 +318,73 @@ def _compact_forecast_method_definition(method_def: Dict[str, Any]) -> Dict[str,
     return out
 
 
+def _require_internal_collection(
+    data: Any,
+    *,
+    key: str,
+    operation: str,
+    error_code: str,
+    label: str,
+) -> List[Dict[str, Any]]:
+    if isinstance(data, dict) and data.get("error"):
+        _raise_tool_error(
+            data,
+            operation=operation,
+            default_code=error_code,
+        )
+    rows = data.get(key) if isinstance(data, dict) else None
+    if (
+        not isinstance(data, dict)
+        or not isinstance(rows, list)
+        or any(not isinstance(row, dict) for row in rows)
+        or data.get("success") is False
+    ):
+        raise _http_error(
+            500,
+            f"Unexpected {label} payload.",
+            code=error_code,
+            operation=operation,
+            details={"required_collection": key},
+        )
+    return rows
+
+
 def get_methods_response(
     *,
     get_methods_impl: Callable[[], Any],
     detail: str = "compact",
 ) -> Dict[str, Any]:
     data = get_methods_impl()
-    if not isinstance(data, dict) or data.get("methods") is None:
-        return {"methods": []}
-    methods = data.get("methods")
-    if not isinstance(methods, list):
-        return {"methods": []}
+    _require_internal_collection(
+        data,
+        key="methods",
+        operation="get_methods",
+        error_code="forecast_methods_payload_invalid",
+        label="forecast methods",
+    )
     try:
         payload = get_forecast_methods_payload(method_data=data)
     except Exception:
-        return data
-    if detail != "compact":
-        return payload
-    methods_payload = payload.get("methods")
-    if not isinstance(methods_payload, list):
-        return {"methods": []}
+        _raise_internal_handler_error(
+            operation="get_methods",
+            code="forecast_methods_payload_invalid",
+            message="Forecast methods payload preparation failed.",
+        )
+    methods_payload = _require_internal_collection(
+        payload,
+        key="methods",
+        operation="get_methods",
+        error_code="forecast_methods_payload_invalid",
+        label="forecast methods",
+    )
     out = dict(payload)
-    out["methods"] = [
-        _compact_forecast_method_definition(method_def)
-        for method_def in methods_payload
-        if isinstance(method_def, dict)
-    ]
-    out["detail"] = "compact"
+    if detail == "compact":
+        out["methods"] = [
+            _compact_forecast_method_definition(method_def)
+            for method_def in methods_payload
+        ]
+    out.pop("detail", None)
+    out["detail_level"] = detail
     return out
 
 
@@ -355,26 +395,42 @@ def get_models_response(
     detail: str = "compact",
 ) -> Dict[str, Any]:
     data = get_models_impl(method=method, detail=detail)
-    if not isinstance(data, dict):
-        return {"success": True, "detail": detail, "count": 0, "models": []}
-    models = data.get("models")
-    if not isinstance(models, list):
-        return {"success": True, "detail": detail, "count": 0, "models": []}
-    return data
+    models = _require_internal_collection(
+        data,
+        key="models",
+        operation="get_models",
+        error_code="forecast_models_payload_invalid",
+        label="forecast models",
+    )
+    out = dict(data)
+    out.pop("detail", None)
+    out["detail_level"] = detail
+    out["count"] = len(models)
+    return out
 
 
 def get_vol_methods_response(*, get_vol_methods: Callable[[], Any]) -> Dict[str, Any]:
     data = get_vol_methods()
-    if not isinstance(data, dict):
-        return {"methods": []}
+    _require_internal_collection(
+        data,
+        key="methods",
+        operation="get_volatility_methods",
+        error_code="volatility_methods_payload_invalid",
+        label="volatility methods",
+    )
     return data
 
 
 def get_denoise_methods_response(*, get_denoise_methods: Callable[[], Any]) -> Dict[str, Any]:
     data = get_denoise_methods()
-    if isinstance(data, dict) and data.get("methods") is not None:
-        return data
-    return {"methods": []}
+    _require_internal_collection(
+        data,
+        key="methods",
+        operation="get_denoise_methods",
+        error_code="denoise_methods_payload_invalid",
+        label="denoise methods",
+    )
+    return data
 
 
 def get_dimred_methods_response(*, list_dimred_methods: Callable[[], Dict[str, Any]]) -> Dict[str, Any]:

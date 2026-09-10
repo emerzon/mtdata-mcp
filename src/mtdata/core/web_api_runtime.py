@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import logging
 from dataclasses import dataclass
+from http import HTTPStatus
 from importlib import metadata as importlib_metadata
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import JSONResponse, Response
 from starlette.staticfiles import StaticFiles
 
@@ -21,7 +23,12 @@ from ..bootstrap.runtime import (
     _validate_cors_origins,
     load_web_api_runtime_settings,
 )
-from .error_envelope import build_error_payload
+from .error_envelope import (
+    build_error_payload,
+    log_transport_exception,
+    new_request_id,
+    normalize_error_payload,
+)
 from .output_serialization import dumps_json
 from .request_context import current_request_id, normalize_request_id, request_id_scope
 
@@ -59,6 +66,74 @@ class WebUiMountResult:
     reason: str | None = None
 
 
+def _request_id_for(request: Request) -> str:
+    state_value = getattr(getattr(request, "state", None), "request_id", None)
+    state_request_id = normalize_request_id(
+        state_value if isinstance(state_value, str) else None
+    )
+    return state_request_id or current_request_id() or new_request_id()
+
+
+def _request_operation(request: Request) -> str:
+    path = request.url.path.rstrip("/")
+    if "/tools/" in path and path.endswith("/invoke"):
+        return path.rsplit("/", 2)[-2]
+    if path.endswith("/tools"):
+        return "tools_list"
+    if "/tools/" in path:
+        return "tools_get"
+    route_name = str(getattr(request.scope.get("route"), "name", "") or "").strip()
+    return route_name or "web_api_request"
+
+
+def _http_error_code(status_code: int) -> str:
+    codes = {
+        400: "web_api_bad_request",
+        401: "web_api_auth_required",
+        403: "web_api_forbidden",
+        404: "web_api_not_found",
+        405: "web_api_method_not_allowed",
+        409: "web_api_conflict",
+        415: "web_api_unsupported_media_type",
+        422: "web_api_validation_error",
+        429: "web_api_rate_limited",
+    }
+    if status_code >= 500:
+        return "internal_error"
+    return codes.get(status_code, "web_api_http_error")
+
+
+def _http_error_message(status_code: int, detail: Any) -> str:
+    if status_code < 500 and isinstance(detail, str) and detail.strip():
+        return detail.strip()
+    if status_code >= 500:
+        return "The Web API request failed due to an internal error."
+    try:
+        return HTTPStatus(status_code).phrase
+    except ValueError:
+        return "The Web API request failed."
+
+
+def _error_response(
+    *,
+    request: Request,
+    payload: dict[str, Any],
+    status_code: int,
+    headers: Any = None,
+) -> SafeJSONResponse:
+    request_id = _request_id_for(request)
+    content = dict(payload)
+    content["success"] = False
+    content["request_id"] = request_id
+    response_headers = dict(headers or {})
+    response_headers["X-Request-ID"] = request_id
+    return SafeJSONResponse(
+        status_code=status_code,
+        content=content,
+        headers=response_headers,
+    )
+
+
 def create_web_api_app(settings: WebApiRuntimeSettings | None = None) -> FastAPI:
     """Create the shared FastAPI app with configured CORS middleware."""
     runtime = settings or load_web_api_runtime_settings()
@@ -83,14 +158,6 @@ def create_web_api_app(settings: WebApiRuntimeSettings | None = None) -> FastAPI
     async def request_validation_error(
         request: Request, exc: RequestValidationError
     ) -> SafeJSONResponse:
-        path = request.url.path.rstrip("/")
-        operation = "web_api_request"
-        if "/tools/" in path and path.endswith("/invoke"):
-            operation = path.rsplit("/", 2)[-2]
-        elif path.endswith("/tools"):
-            operation = "tools_list"
-        elif "/tools/" in path:
-            operation = "tools_get"
         issues = [
             {
                 "location": [str(part) for part in error.get("loc", ())],
@@ -102,19 +169,72 @@ def create_web_api_app(settings: WebApiRuntimeSettings | None = None) -> FastAPI
         payload = build_error_payload(
             "Request validation failed.",
             code="web_api_validation_error",
-            request_id=current_request_id(),
-            operation=operation,
+            request_id=_request_id_for(request),
+            operation=_request_operation(request),
             details={"issues": issues},
         )
-        return SafeJSONResponse(status_code=422, content={"detail": payload})
+        return _error_response(request=request, payload=payload, status_code=422)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_exception_error(
+        request: Request, exc: StarletteHTTPException
+    ) -> SafeJSONResponse:
+        request_id = _request_id_for(request)
+        operation = _request_operation(request)
+        detail = exc.detail
+        if isinstance(detail, dict) and isinstance(detail.get("error"), str):
+            payload = normalize_error_payload(
+                detail,
+                default_code=_http_error_code(exc.status_code),
+                request_id=request_id,
+                operation=operation,
+            )
+        else:
+            payload = build_error_payload(
+                _http_error_message(exc.status_code, detail),
+                code=_http_error_code(exc.status_code),
+                request_id=request_id,
+                operation=operation,
+            )
+        return _error_response(
+            request=request,
+            payload=payload,
+            status_code=exc.status_code,
+            headers=exc.headers,
+        )
+
+    @app.exception_handler(Exception)
+    async def unhandled_exception_error(
+        request: Request, exc: Exception
+    ) -> SafeJSONResponse:
+        request_id = _request_id_for(request)
+        operation = _request_operation(request)
+        log_transport_exception(
+            logger,
+            transport="web_api",
+            operation=operation,
+            request_id=request_id,
+            exc=exc,
+        )
+        payload = build_error_payload(
+            "The Web API request failed due to an internal error.",
+            code="internal_error",
+            request_id=request_id,
+            operation=operation,
+            remediation=(
+                "Retry the request. If it continues to fail, use request_id to "
+                "correlate the failure with server logs."
+            ),
+            documentation="docs/TROUBLESHOOTING.md",
+        )
+        return _error_response(request=request, payload=payload, status_code=500)
 
     @app.middleware("http")
     async def attach_request_id(request: Request, call_next: Any) -> Response:
         request_id = normalize_request_id(request.headers.get("x-request-id"))
         if request_id is None:
-            from .error_envelope import new_request_id
-
             request_id = new_request_id()
+        request.state.request_id = request_id
         with request_id_scope(request_id):
             response = await call_next(request)
         response.headers["X-Request-ID"] = request_id
