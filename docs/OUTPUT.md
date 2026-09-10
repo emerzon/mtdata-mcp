@@ -35,6 +35,10 @@ Successful tool responses are JSON objects that carry a `success` flag plus the 
 
 > **Scripting tip:** branch on `success` first, then read the tool-specific fields. On the CLI, also check the [exit code](CLI.md#exit-codes).
 
+JSON serialization is type-preserving: string values are never reparsed or
+rewritten, and every finite float remains a JSON number with its value intact,
+including tiny or large values represented with exponent notation.
+
 ### Partial composite results
 
 Tools that combine independently requested symbols or sections use
@@ -190,8 +194,9 @@ searches unrelated nested objects for a matching key. A mixed projection keeps
 the resolved values and sets `output_fields_status=partial`. If no requested
 path resolves, the response sets `success=false`,
 `error_code=output_fields_unresolved`, and `output_fields_status=failed`; the
-CLI exits `1`. `valid_output_fields` lists paths available to targeted
-selection, including deep canonical `meta.*` paths and compact rows. Declared
+CLI exits `1`. The error envelope includes `request_id` and the tool name in
+`operation`. `valid_output_fields` lists paths available to targeted selection,
+including deep canonical `meta.*` paths and compact rows. Declared
 row paths remain resolvable through an empty collection, so a flat account can
 return `items=[]` for `trade_get_open --output-fields items.symbol` without
 reporting `items.symbol` as unresolved. Strategy-attribution fields such as

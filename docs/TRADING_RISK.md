@@ -202,13 +202,13 @@ impact. Useful for "what if EURUSD drops 2% and everything else 3%?" scenarios.
 # Per-symbol shocks
 mtdata-cli trade_stress_test --shocks '{"EURUSD":-2.0,"GBPUSD":-1.5}' --json
 
-# Wildcard shock applied to every position without an explicit entry
-mtdata-cli trade_stress_test --shocks '{"*":-3.0}' --detail full --json
+# Compact wildcard shock applied to every position without an explicit entry
+mtdata-cli trade_stress_test --shocks '*=-3' --detail full --json
 ```
 
 | Parameter | Default | Description |
 |-----------|---------|-------------|
-| `shocks` | (required) | Per-symbol percentage shocks, e.g. `{"EURUSD": -2.0}`. Use `"*"` as a fallback for symbols without an explicit entry. Each shock must be finite and **greater than -100**. `-100` is rejected because it would imply a zero or negative price; model a near-total wipeout with a shock such as `-99.99`. |
+| `shocks` | (required) | Per-symbol percentage shocks as JSON or compact `key=value` pairs, e.g. `{"EURUSD": -2.0}` or `EURUSD=-2`. Use `"*"` / `*=-3` as a fallback for symbols without an explicit entry. Each shock must be finite and **greater than -100**. `-100` is rejected because it would imply a zero or negative price; model a near-total wipeout with a shock such as `-99.99`. |
 | `include_unshocked` | `false` | Include positions that received no shock (no exact match and no `"*"` fallback). |
 | `detail` | `compact` | `full` adds per-position diagnostics. |
 

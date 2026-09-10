@@ -154,9 +154,8 @@ data[5]{symbol,group,description,currency_base,currency_profit,digits}:
     ...
 ```
 - `data[5]` is the number of rows returned
-- `{symbol,...,digits}` lists the columns/keys in each row. Compact collection
-  output may omit a column when every returned row carries the same default
-  value; use `--detail full` when you need a guaranteed field set.
+- `{symbol,...,digits}` lists the columns/keys in each row. TOON preserves the
+  semantic fields in the payload selected by the requested detail level.
 
 ### JSON
 Structured output for programmatic use:
@@ -169,9 +168,10 @@ environment or `.env` file. Accepted values are `json` and `toon`; an explicit
 `--json` flag always selects JSON. A nonblank unsupported environment value is
 a configuration error and exits with status 2 instead of changing formats.
 
-JSON output always keeps numeric values unminimized. Text output uses
-`--precision auto`, which compacts most tools while preserving full precision
-for an explicit set of sensitive outputs, including trading, quotes, forecasts,
+JSON preserves string contents and finite numeric values, including tiny and
+large values written with exponent notation. Text output uses `--precision
+auto`, which compacts most tools while preserving full precision for an
+explicit set of sensitive outputs, including trading, quotes, forecasts,
 reports, and price-level tools.
 
 Control display precision explicitly:
@@ -218,6 +218,7 @@ When some requested paths resolve, the usable values are retained and
 none resolve, the response has `success=false`,
 `error_code=output_fields_unresolved`, and the CLI exits `1`. Use
 `valid_output_fields` to retry with available compact or targeted-rich paths.
+This failure also includes the canonical `request_id` and `operation` metadata.
 Use canonical paths such as `meta.processing.indicators.engine` when you want
 the consolidated full-detail spelling. Compact `trade_get_open` rows keep
 `magic` and `comment`, so strategy-attribution projection does not require
@@ -234,14 +235,18 @@ metadata envelope. TOON may also apply numeric display precision.
 | Code | Meaning |
 |------|---------|
 | `0` | Command completed without a tool error |
-| `1` | Tool/provider failure, unresolved output projection, invalid tool payload, interrupted command, internal CLI error, or no command selected |
-| `2` | Argument parsing or command-line usage error, including a missing required symbol |
+| `1` | Tool/provider failure, unresolved output projection, blocked trading preview, invalid tool payload, interrupted command, internal CLI error, or no command selected |
+| `2` | Command-line usage or request-validation error, including a missing required symbol, malformed date or mapping, invalid preset, or unsupported one-shot invocation |
 
-Scripts should parse JSON error fields when they need to distinguish provider,
-validation, and internal failures that share exit code `1`.
-Trading dry-runs with `preview_ok=false` return `success=false`, print the
-retained preview body, and exit `1`; eligible previews return `success=true`,
-`preview_ok=true`, and exit `0`. Always inspect `blockers` before live use.
+Calling `mtdata-cli` without a command intentionally remains exit `1`. Scripts
+should parse JSON `error_code` and `error_category` fields when they need to
+distinguish failures within an exit-code class.
+
+Trading dry-runs with a top-level or nested `preview_ok=false` print the retained
+preview body and exit `1`. Most execution previews also return
+`success=false`; `trade_idea_compose` may retain `success=true` when composition
+succeeded but its nested execution preview was blocked. Eligible previews
+return `preview_ok=true` and exit `0`. Always inspect `blockers` before live use.
 
 ---
 
@@ -281,6 +286,10 @@ Format: `key=value key2=value2` (space-separated), `key=value,key2=value2`
 values use JSON-like scalar types: `true`/`false`, `null`, finite numbers, arrays,
 and objects become native values. Quote a numeric-looking value, such as
 `code="001"`, when it must remain a string.
+
+Companion mappings such as `--denoise-params` and `--config-params` use the same
+formats. A nonempty malformed mapping is a usage error (exit `2`); it is never
+silently replaced with defaults.
 
 ### Reduce Large Outputs (Simplify)
 Use `--simplify` to downsample returned rows for charting or large exports.
@@ -359,6 +368,11 @@ instant are returned; completed OHLC values from an overlapping bar are never
 included early. Calendar-period ends retain their date/session-label behavior.
 D1/W1/MN1 date-only bounds require `MT5_SERVER_TZ` (or a non-zero
 `MT5_TIME_OFFSET_MINUTES`); they do not silently assume UTC.
+
+Malformed bounds return `error_code=invalid_datetime`, retain a corrected
+example or remediation, and exit `2`. Each supplied bound is parsed before
+range-order and future-end checks, so an invalid `--start` is not masked by a
+future `--end`.
 
 Tick `--start`/`--end` date-only values and calendar phrases such as `today`
 always resolve in UTC, not the broker D1 session: `--start 2026-08-14` begins
