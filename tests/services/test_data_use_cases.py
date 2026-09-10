@@ -171,8 +171,8 @@ def test_run_data_fetch_candles_classifies_query_errors(message, expected_code):
     request = DataFetchCandlesRequest(
         symbol="EURUSD.bad",
         timeframe="H1",
-        start="2026-01-02T00:00:00Z",
-        end="2026-01-01T00:00:00Z",
+        start="2026-01-01T00:00:00Z",
+        end="2026-01-02T00:00:00Z",
     )
 
     result = run_data_fetch_candles(
@@ -3132,48 +3132,44 @@ def test_run_data_fetch_ticks_compact_retains_clock_skew_safety_fields():
 
 
 @pytest.mark.parametrize(
-    ("error", "start", "end", "error_code"),
+    ("start", "end", "error_code"),
     [
         (
-            "start must be before or equal to end.",
             "2026-07-16T12:00:00Z",
             "2026-07-15T12:00:00Z",
-            "data_fetch_ticks_invalid_date_range",
+            "invalid_date_range",
         ),
         (
-            "Could not parse start date 'garbage'.",
             "garbage",
             "2026-07-16T12:00:00Z",
-            "data_fetch_ticks_invalid_date",
+            "invalid_datetime",
         ),
         (
-            "No tick data available",
             "2099-01-01T00:00:00Z",
             "2099-01-01T01:00:00Z",
             "future_date_range",
         ),
     ],
 )
-def test_run_data_fetch_ticks_classifies_query_errors(
-    error: str,
+def test_run_data_fetch_ticks_validates_query_bounds(
     start: str,
     end: str,
     error_code: str,
 ) -> None:
+    fetch_ticks_impl = MagicMock(return_value={"success": True, "data": []})
     result = run_data_fetch_ticks(
         DataFetchTicksRequest(symbol="EURUSD", start=start, end=end),
         gateway=SimpleNamespace(ensure_connection=lambda: None),
-        fetch_ticks_impl=lambda **_kwargs: {"error": error},
+        fetch_ticks_impl=fetch_ticks_impl,
     )
 
     assert result["success"] is False
     assert result["error_code"] == error_code
-    assert result["details"] == {
-        "symbol": "EURUSD",
-        "timezone": "UTC",
-        "start": start,
-        "end": end,
-    }
+    assert result["details"]["symbol"] == "EURUSD"
+    assert result["details"]["timezone"] == "UTC"
+    assert result["details"]["start"] == start
+    assert result["details"]["end"] == end
+    fetch_ticks_impl.assert_not_called()
 
 
 def test_data_fetch_ticks_explains_ambiguous_dst_local_time() -> None:
@@ -3273,6 +3269,52 @@ def test_run_data_fetch_ticks_names_future_window_in_error_message() -> None:
 
     assert result["error_code"] == "future_date_range"
     assert "in the future" in result["error"]
+
+
+def test_data_fetch_candles_reports_invalid_start_before_future_end() -> None:
+    gateway = SimpleNamespace(ensure_connection=MagicMock(return_value=None))
+    fetch_candles_impl = MagicMock(return_value={"success": True, "data": []})
+
+    result = run_data_fetch_candles(
+        DataFetchCandlesRequest(
+            symbol="EURUSD",
+            start="notadate",
+            end="2099-01-01",
+        ),
+        gateway=gateway,
+        fetch_candles_impl=fetch_candles_impl,
+    )
+
+    assert result["error_code"] == "invalid_datetime"
+    assert result["details"]["invalid_fields"] == [
+        {"field": "start", "value": "notadate"}
+    ]
+    assert "ISO 8601" in result["remediation"]
+    gateway.ensure_connection.assert_not_called()
+    fetch_candles_impl.assert_not_called()
+
+
+def test_data_fetch_ticks_reports_invalid_start_before_future_end() -> None:
+    gateway = SimpleNamespace(ensure_connection=MagicMock(return_value=None))
+    fetch_ticks_impl = MagicMock(return_value={"success": True, "data": []})
+
+    result = run_data_fetch_ticks(
+        DataFetchTicksRequest(
+            symbol="EURUSD",
+            start="notadate",
+            end="2099-01-01",
+        ),
+        gateway=gateway,
+        fetch_ticks_impl=fetch_ticks_impl,
+    )
+
+    assert result["error_code"] == "invalid_datetime"
+    assert result["details"]["invalid_fields"] == [
+        {"field": "start", "value": "notadate"}
+    ]
+    assert "ISO 8601" in result["remediation"]
+    gateway.ensure_connection.assert_not_called()
+    fetch_ticks_impl.assert_not_called()
 
 
 @pytest.mark.parametrize("start", ["2026-01-01T00:00:00Z", None])

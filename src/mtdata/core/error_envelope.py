@@ -409,9 +409,13 @@ def _canonical_error_code(
         normalized_operation
         and normalized_code == f"{normalized_operation}_error"
     )
+    if normalized_code == "invalid_date":
+        return "invalid_datetime"
     if normalized_operation and normalized_code.startswith(f"{normalized_operation}_"):
         suffix = normalized_code[len(normalized_operation) + 1 :]
-        if suffix in {"invalid_date_range", "invalid_date", "symbol_not_found"}:
+        if suffix == "invalid_date":
+            return "invalid_datetime"
+        if suffix in {"invalid_date_range", "symbol_not_found"}:
             return suffix
     if normalized_code not in _GENERIC_ERROR_CODES and not is_operation_catch_all:
         return current_code
@@ -495,6 +499,20 @@ def normalize_error_payload(
         operation=operation_value,
     )
     error_code_changed = error_code != original_error_code
+    normalized_original_code = original_error_code.lower()
+    guidance_matches_canonical_code = bool(
+        error_code_changed
+        and (
+            normalized_original_code.endswith(f"_{error_code.lower()}")
+            or (
+                error_code == "invalid_datetime"
+                and (
+                    normalized_original_code == "invalid_date"
+                    or normalized_original_code.endswith("_invalid_date")
+                )
+            )
+        )
+    )
     rid = str(out.get("request_id") or "").strip() or (request_id or new_request_id())
 
     normalized_error = str(error_text)
@@ -529,7 +547,11 @@ def normalize_error_payload(
             "operation",
         }:
             continue
-        if error_code_changed and key in _GUIDANCE_KEYS:
+        if (
+            error_code_changed
+            and key in _GUIDANCE_KEYS
+            and not guidance_matches_canonical_code
+        ):
             continue
         if key in {"details", "warnings"}:
             value = _dedupe_error_sequence(value)

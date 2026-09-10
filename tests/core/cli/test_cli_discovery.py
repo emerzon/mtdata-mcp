@@ -19,6 +19,7 @@ from pydantic import ValidationError
 
 from mtdata.core.analytics_requests import BarrierSpec, StrategyValidateRequest
 from mtdata.core.data.requests import DataFetchCandlesRequest, WaitEventRequest
+from mtdata.core.patterns_requests import PatternsDetectRequest
 from mtdata.core.trading.requests import (
     TradeGetOpenRequest,
     TradeHistoryRequest,
@@ -599,6 +600,54 @@ class TestCreateCommandFunction:
         assert "candidates.0" in message
         assert expected in message
         assert "must be a JSON list" not in message
+
+    def test_invalid_pattern_date_uses_canonical_usage_error(self, capsys):
+        mock_fn = MagicMock(return_value={"success": True})
+        func_info = {
+            "func": mock_fn,
+            "request_model": PatternsDetectRequest,
+            "request_param_name": "request",
+            "params": [
+                {
+                    "name": "symbol",
+                    "type": str,
+                    "required": True,
+                    "default": None,
+                },
+                {
+                    "name": "start",
+                    "type": Optional[str],
+                    "required": False,
+                    "default": None,
+                },
+                {
+                    "name": "end",
+                    "type": Optional[str],
+                    "required": False,
+                    "default": None,
+                },
+            ],
+        }
+        cmd_fn = create_command_function(func_info, cmd_name="patterns_detect")
+        args = argparse.Namespace(
+            symbol="EURUSD",
+            start="notadate",
+            end="2026-05-01",
+            set_overrides=None,
+            json=True,
+            verbose=False,
+            detail="compact",
+            precision=None,
+            output_fields=None,
+        )
+
+        assert cmd_fn(args) == 2
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["error_code"] == "invalid_datetime"
+        assert "Value error" not in payload["error"]
+        assert "start='notadate'" in payload["error"]
+        assert "ISO 8601" in payload["remediation"]
+        mock_fn.assert_not_called()
 
     def test_wait_event_single_quote_event_arrays_are_coerced(self, capsys):
         mock_fn = MagicMock(return_value={"ok": True})

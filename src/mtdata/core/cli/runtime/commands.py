@@ -317,6 +317,8 @@ def friendly_validation_error(exc: ValidationError, *, cmd_name: str) -> str:
     for item in errors:
         loc = ".".join(str(part) for part in item.get("loc", ()))
         msg = str(item.get("msg") or "Invalid value.")
+        if msg.lower().startswith("value error, "):
+            msg = msg.split(",", 1)[1].strip()
         if cmd_name == "forecast_generate" and loc == "horizon":
             return "horizon must be between 1 and 500."
         if cmd_name == "report_generate" and "in the future" in msg.lower():
@@ -420,22 +422,47 @@ def create_command_function(  # noqa: C901
         example: Optional[str] = None,
     ) -> Dict[str, Any]:
         text = str(message).strip() or "Invalid command input."
+        normalized_text = text.lower()
+        if (
+            code == "cli_invalid_arguments"
+            and "could not parse historical datetime bound" in normalized_text
+        ):
+            code = "invalid_datetime"
+        elif code == "cli_invalid_arguments" and any(
+            phrase in normalized_text
+            for phrase in (
+                "start must be before end",
+                "start must be before or equal to end",
+            )
+        ):
+            code = "invalid_date_range"
+        elif (
+            code == "cli_invalid_arguments"
+            and "in the future" in normalized_text
+            and "historical" in normalized_text
+        ):
+            code = "future_date_range"
         if (
             cmd_name == "report_generate"
-            and "end must not be in the future" in text.lower()
+            and "end must not be in the future" in normalized_text
         ):
             code = "report_end_in_future"
+        resolved_remediation = remediation
+        if resolved_remediation is None and code not in {
+            "future_date_range",
+            "invalid_date_range",
+            "invalid_datetime",
+            "report_end_in_future",
+        }:
+            resolved_remediation = (
+                f"Run '{display_program_name(sys.argv[0])} {cmd_name} --help' "
+                "for accepted arguments."
+            )
         return build_error_payload(
             text,
             code=code,
             operation=cmd_name,
-            remediation=(
-                remediation
-                or (
-                    f"Run '{display_program_name(sys.argv[0])} {cmd_name} --help' "
-                    "for accepted arguments."
-                )
-            ),
+            remediation=resolved_remediation,
             example=example,
         )
 

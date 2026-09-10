@@ -372,3 +372,19 @@ def test_normalize_error_payload_preserves_malformed_datetime_diagnosis():
     assert "start='bad'" in out["error"]
     assert out["details"]["invalid_fields"][0]["field"] == "start"
     assert "ISO 8601" in out["remediation"]
+
+
+def test_normalize_error_payload_preserves_guidance_for_canonical_invalid_date():
+    out = normalize_error_payload(
+        {
+            "error": "Could not parse date 'bad'.",
+            "error_code": "data_fetch_candles_invalid_date",
+            "remediation": "Use an ISO 8601 date such as 2026-08-03.",
+            "documentation": "docs/CLI.md",
+        },
+        operation="data_fetch_candles",
+    )
+
+    assert out["error_code"] == "invalid_datetime"
+    assert out["remediation"] == "Use an ISO 8601 date such as 2026-08-03."
+    assert out["documentation"] == "docs/CLI.md"

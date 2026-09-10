@@ -44,6 +44,7 @@ from ...utils.utils import (
     _is_in_progress_calendar_day_end,
     _parse_end_datetime,
     _parse_start_datetime,
+    validate_historical_range,
 )
 from ..error_envelope import build_error_payload
 from ..execution_logging import run_logged_operation
@@ -173,6 +174,36 @@ def run_data_fetch_ticks(
     )
 
 
+def _historical_range_error(
+    request: DataFetchCandlesRequest | DataFetchTicksRequest,
+    *,
+    operation: str,
+) -> Optional[Dict[str, Any]]:
+    issue = validate_historical_range(request.start, request.end)
+    if issue is None:
+        return None
+    details: Dict[str, Any] = {
+        "symbol": request.symbol,
+        "timezone": "UTC",
+    }
+    if isinstance(request, DataFetchCandlesRequest):
+        details["timeframe"] = request.timeframe
+    issue_details = issue.get("details")
+    if isinstance(issue_details, dict):
+        details.update(issue_details)
+    if request.start is not None:
+        details["start"] = str(request.start)
+    if request.end is not None:
+        details["end"] = str(request.end)
+    return build_error_payload(
+        issue.get("error") or "Invalid historical date range.",
+        code=str(issue.get("error_code") or "invalid_datetime"),
+        operation=operation,
+        details=details,
+        remediation=issue.get("remediation"),
+    )
+
+
 def run_wait_event(
     request: WaitEventRequest,
     *,
@@ -208,28 +239,15 @@ def _run_data_fetch_candles_impl(
     fetch_candles_impl: Any,
     effective_limit: Optional[int] = None,
 ) -> Dict[str, Any]:
+    range_error = _historical_range_error(
+        request,
+        operation="data_fetch_candles",
+    )
+    if range_error is not None:
+        return range_error
     connection_error = _ensure_gateway_connection(gateway)
     if connection_error is not None:
         return connection_error
-    future_bound = _future_bound(request)
-    if future_bound is not None:
-        field, value = future_bound
-        details: Dict[str, Any] = {
-            "symbol": request.symbol,
-            "timeframe": request.timeframe,
-            "timezone": "UTC",
-        }
-        if request.start is not None:
-            details["start"] = str(request.start)
-        if request.end is not None:
-            details["end"] = str(request.end)
-        return build_error_payload(
-            f"{field} datetime {value} is in the future; historical candle ranges must have elapsed.",
-            code="future_date_range",
-            operation="data_fetch_candles",
-            details=details,
-            remediation="Use start and end timestamps at or before the current time.",
-        )
     selection = str(request.selection or ("first_n" if request.start else "last_n"))
     if (
         request.start in (None, "")
@@ -2229,24 +2247,12 @@ def _run_data_fetch_ticks_impl(
     fetch_ticks_impl: Any,
     effective_limit: Optional[int] = None,
 ) -> Dict[str, Any]:
-    future_bound = _future_bound(request)
-    if future_bound is not None:
-        field, value = future_bound
-        details: Dict[str, Any] = {
-            "symbol": request.symbol,
-            "timezone": "UTC",
-        }
-        if request.start is not None:
-            details["start"] = str(request.start)
-        if request.end is not None:
-            details["end"] = str(request.end)
-        return build_error_payload(
-            f"{field} datetime {value} is in the future; historical tick ranges must have elapsed.",
-            code="future_date_range",
-            operation="data_fetch_ticks",
-            details=details,
-            remediation="Use start and end timestamps at or before the current time.",
-        )
+    range_error = _historical_range_error(
+        request,
+        operation="data_fetch_ticks",
+    )
+    if range_error is not None:
+        return range_error
     requested_selection = str(
         getattr(request, "selection", None) or ""
     ).strip().lower()

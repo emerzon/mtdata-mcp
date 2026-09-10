@@ -774,6 +774,7 @@ def _result_has_tool_error(result: Any) -> bool:
 
 _CLI_USAGE_ERROR_CODES = frozenset(
     {
+        "ambiguous_local_time",
         "cli_background_process_required",
         "cli_invalid_arguments",
         "cli_missing_required",
@@ -783,6 +784,7 @@ _CLI_USAGE_ERROR_CODES = frozenset(
         "invalid_datetime",
         "invalid_input",
         "invalid_minutes_back",
+        "nonexistent_local_time",
         "report_end_in_future",
         "trade_idea_as_of_in_future",
     }
