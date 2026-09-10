@@ -1,10 +1,14 @@
 
 import logging
 import math
-import os
 import time
 from typing import Any, Dict, Literal, Optional
 
+from ..shared.feature_flags import (
+    MARKET_DEPTH_FETCH_ENV,
+    MARKET_DEPTH_FETCH_FEATURE,
+    feature_enabled,
+)
 from ..shared.market_units import (
     UNIT_BROKER_POINTS,
     UNIT_PERCENT,
@@ -63,7 +67,6 @@ from .output_contract import ensure_common_meta, normalize_output_verbosity_deta
 from .runtime_metadata import attach_mt5_source
 
 logger = logging.getLogger(__name__)
-_MARKET_DEPTH_ENABLE_ENV = "MTDATA_ENABLE_MARKET_DEPTH_FETCH"
 _MARKET_TICKER_STALE_SECONDS = QUOTE_STALE_SECONDS
 _MARKET_DEPTH_INITIAL_SNAPSHOT_ATTEMPTS = 20
 _MARKET_DEPTH_INITIAL_SNAPSHOT_INTERVAL_SECONDS = 0.01
@@ -130,13 +133,6 @@ def _market_ticker_points_per_pip(
         point=point,
         digits=digits,
     )
-
-
-def _market_depth_fetch_enabled() -> bool:
-    raw = os.getenv(_MARKET_DEPTH_ENABLE_ENV)
-    if raw is None:
-        return False
-    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _market_depth_level_field(level: Any, *names: str) -> Any:
@@ -334,12 +330,14 @@ def _market_depth_disabled_payload() -> Dict[str, Any]:
         "success": False,
         "error": (
             "market_depth_fetch is disabled. "
-            f"Set {_MARKET_DEPTH_ENABLE_ENV}=1 to enable it."
+            f"Set {MARKET_DEPTH_FETCH_ENV}=1 to enable it."
         ),
         "error_code": "feature_disabled",
-        "feature": "market_depth_fetch",
-        "env_var": _MARKET_DEPTH_ENABLE_ENV,
-        "enable_instructions": f"Set {_MARKET_DEPTH_ENABLE_ENV}=1 to enable market_depth_fetch.",
+        "feature": MARKET_DEPTH_FETCH_FEATURE,
+        "env_var": MARKET_DEPTH_FETCH_ENV,
+        "enable_instructions": (
+            f"Set {MARKET_DEPTH_FETCH_ENV}=1 to enable market_depth_fetch."
+        ),
         "why_disabled": "Market depth requires broker DOM support and is disabled by default.",
         "recommended_alternative": "market_ticker",
     }
@@ -729,7 +727,7 @@ def market_depth_fetch(symbol: str, spread: bool = False, require_dom: bool = Fa
 
     Parameters: symbol, spread, require_dom
     """
-    if not _market_depth_fetch_enabled():
+    if not feature_enabled(MARKET_DEPTH_FETCH_FEATURE):
         return run_logged_operation(
             logger,
             operation="market_depth_fetch",

@@ -6,7 +6,6 @@ import asyncio
 import inspect
 import logging
 import math
-import os
 import types
 from dataclasses import dataclass
 from functools import wraps as _wraps
@@ -25,6 +24,11 @@ from typing import (
 from pydantic import BaseModel, Field
 
 from ..shared.annotations import get_runtime_annotations, get_runtime_signature
+from ..shared.feature_flags import (
+    MARKET_DEPTH_FETCH_ENV,
+    MARKET_DEPTH_FETCH_FEATURE,
+    feature_enabled,
+)
 from ..shared.parameter_contracts import (
     OUTPUT_EXTRA_FULL_ALIASES,
     OUTPUT_EXTRAS,
@@ -48,7 +52,6 @@ from .request_context import ensure_request_id_scope
 
 _ORIG_TOOL_DECORATOR: Any = None
 _REGISTRY_UNSET = object()
-_MARKET_DEPTH_FETCH_ENV = "MTDATA_ENABLE_MARKET_DEPTH_FETCH"
 _TOOL_CATALOG_SCHEMA_VERSION = "1.0"
 logger = logging.getLogger(__name__)
 
@@ -563,15 +566,10 @@ def _tool_catalog_full_parameters(
 
 
 def _market_depth_fetch_catalog_state() -> Dict[str, Any]:
-    enabled = str(os.getenv(_MARKET_DEPTH_FETCH_ENV) or "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    enabled = feature_enabled(MARKET_DEPTH_FETCH_FEATURE)
     out: Dict[str, Any] = {
         "enabled": enabled,
-        "enable_env": _MARKET_DEPTH_FETCH_ENV,
+        "enable_env": MARKET_DEPTH_FETCH_ENV,
     }
     if not enabled:
         out.update(

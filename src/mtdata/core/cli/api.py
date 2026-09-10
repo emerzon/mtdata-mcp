@@ -7,7 +7,6 @@ import argparse
 import difflib
 import json
 import logging
-import os
 import shlex
 import sys
 from contextlib import redirect_stderr, redirect_stdout
@@ -28,6 +27,11 @@ from pydantic import ValidationError
 from ...bootstrap.settings import load_environment
 from ...bootstrap.tools import bootstrap_tools, cli_tool_module_names
 from ...forecast.requests import ForecastGenerateRequest
+from ...shared.feature_flags import (
+    MARKET_DEPTH_FETCH_ENV,
+    MARKET_DEPTH_FETCH_FEATURE,
+    feature_enabled,
+)
 from ...utils.coercion import UNPARSED_BOOL, parse_bool_like
 from ...utils.security import redact_url_credentials
 from .._mcp_instance import mcp
@@ -714,15 +718,12 @@ class _CLIArgumentParser(argparse.ArgumentParser):
                 operation = requested_command
         market_depth_disabled = (
             operation == "market_depth_fetch"
-            and str(os.getenv("MTDATA_ENABLE_MARKET_DEPTH_FETCH") or "")
-            .strip()
-            .lower()
-            not in {"1", "true", "yes", "on"}
+            and not feature_enabled(MARKET_DEPTH_FETCH_FEATURE)
         )
         if market_depth_disabled:
             message_text = (
                 "market_depth_fetch is disabled; set "
-                "MTDATA_ENABLE_MARKET_DEPTH_FETCH=1 before starting the CLI. "
+                f"{MARKET_DEPTH_FETCH_ENV}=1 before starting the CLI. "
                 "The broker must also provide Level 2/DOM data."
             )
         help_program = str(self.prog)
@@ -770,8 +771,8 @@ class _CLIArgumentParser(argparse.ArgumentParser):
             operation=operation,
             remediation=(
                 (
-                    'PowerShell: $env:MTDATA_ENABLE_MARKET_DEPTH_FETCH="1"; '
-                    "bash: export MTDATA_ENABLE_MARKET_DEPTH_FETCH=1. Then restart "
+                    f'PowerShell: $env:{MARKET_DEPTH_FETCH_ENV}="1"; '
+                    f"bash: export {MARKET_DEPTH_FETCH_ENV}=1. Then restart "
                     "the CLI; the broker must provide Level 2/DOM data."
                 )
                 if market_depth_disabled
@@ -789,8 +790,8 @@ class _CLIArgumentParser(argparse.ArgumentParser):
         )
         if market_depth_disabled:
             payload["details"] = {
-                "feature": "market_depth_fetch",
-                "enable_env": "MTDATA_ENABLE_MARKET_DEPTH_FETCH",
+                "feature": MARKET_DEPTH_FETCH_FEATURE,
+                "enable_env": MARKET_DEPTH_FETCH_ENV,
                 "broker_prerequisite": "Level 2/DOM market data",
             }
         output_format = _parse_error_output_format()

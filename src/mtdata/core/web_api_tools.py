@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, ValidationError
 
 from ..forecast.exceptions import ForecastError
+from ..shared.feature_flags import MARKET_DEPTH_FETCH_ENV
 from ..shared.tool_categories import TOOL_CATEGORY_IDS
 from ..utils.coercion import UNPARSED_BOOL, parse_strict_bool
 from ..utils.denoise import DenoiseCausalityError
@@ -591,7 +592,7 @@ def coverage_inventory_rows() -> List[Dict[str, Any]]:
             }
             if name == "market_depth_fetch":
                 entry["gated"] = True
-                entry["enable_env"] = row.get("enable_env") or "MTDATA_ENABLE_MARKET_DEPTH_FETCH"
+                entry["enable_env"] = row.get("enable_env") or MARKET_DEPTH_FETCH_ENV
                 entry["enabled"] = row.get("enabled")
             rows.append(entry)
     rows.sort(key=lambda r: str(r.get("name") or ""))

@@ -16,6 +16,7 @@ from typing import Any, Mapping
 from pydantic import BaseModel
 
 from ..shared.annotations import get_runtime_signature
+from ..shared.feature_flags import MARKET_DEPTH_FETCH_ENV
 
 
 @dataclass(frozen=True, order=True)
@@ -640,7 +641,7 @@ def evaluate_public_tool_schemas(*, include_gated: bool = False) -> SchemaEvalua
     """
 
     if include_gated:
-        os.environ["MTDATA_ENABLE_MARKET_DEPTH_FETCH"] = "1"
+        os.environ[MARKET_DEPTH_FETCH_ENV] = "1"
 
     from ..bootstrap.tools import bootstrap_tools
     from ._mcp_tools import get_tool_functions

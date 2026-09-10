@@ -7,6 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from ...shared.constants import TIMEFRAME_SECONDS
 from ..forecast_registry import ForecastRegistry
 from ..interface import ForecastMethod, ForecastResult
 from ..model_cache import model_cache
@@ -24,6 +25,7 @@ _TIMESFM3_DEFAULT_CHECKPOINT = "google/timesfm-3.0-pytorch"
 _TIMESFM3_QUANTILE_LEVELS = (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9)
 _TIMESFM3_WEIGHTS_LICENSE = "timesfm-non-commercial-license-v1.0"
 _TIMESFM3_LICENSE_WARNED = False
+_UNKNOWN_TIMEFRAME_FALLBACK_SECONDS = TIMEFRAME_SECONDS["H1"]
 
 
 class PretrainedMethod(ForecastMethod):
@@ -261,33 +263,11 @@ def _build_chronos2_covariate_frames(
 
 
 def _timeframe_seconds_hint(timeframe: Optional[str]) -> int:
+    """Resolve known MT5 timeframes, falling back to one hour for missing metadata."""
     token = str(timeframe or "").strip().upper()
-    if token.startswith("MN"):
-        try:
-            return int(token[2:] or 1) * 30 * 24 * 3600
-        except Exception:
-            return 30 * 24 * 3600
-    if token.startswith("W"):
-        try:
-            return int(token[1:] or 1) * 7 * 24 * 3600
-        except Exception:
-            return 7 * 24 * 3600
-    if token.startswith("D"):
-        try:
-            return int(token[1:] or 1) * 24 * 3600
-        except Exception:
-            return 24 * 3600
-    if token.startswith("H"):
-        try:
-            return int(token[1:] or 1) * 3600
-        except Exception:
-            return 3600
-    if token.startswith("M"):
-        try:
-            return int(token[1:] or 1) * 60
-        except Exception:
-            return 60
-    return 3600
+    return int(
+        TIMEFRAME_SECONDS.get(token, _UNKNOWN_TIMEFRAME_FALLBACK_SECONDS)
+    )
 
 
 def _ensure_chronos2_history_df(

@@ -230,6 +230,7 @@ from mtdata.forecast.methods.pretrained import (
     _resolve_chronos2_multivariate_columns,
     _resolve_chronos_device_map,
     _resolve_chronos_model_defaults,
+    _timeframe_seconds_hint,
     _unwrap_chronos_predict,
     _unwrap_chronos_quantiles,
 )
@@ -533,6 +534,13 @@ def test_ensure_chronos2_history_df_injects_missing_base_column() -> None:
     frame = _ensure_chronos2_history_df(history, series=series, base_col="__log_return", timeframe="H1")
     assert "__log_return" in frame.columns
     assert frame["__log_return"].tolist() == [0.1, 0.2, 0.3]
+
+
+def test_timeframe_seconds_hint_uses_canonical_values_and_explicit_fallback() -> None:
+    assert _timeframe_seconds_hint("M15") == 900
+    assert _timeframe_seconds_hint("MN1") == 2_592_000
+    assert _timeframe_seconds_hint("H5") == 3_600
+    assert _timeframe_seconds_hint(None) == 3_600
 
 
 def test_extract_chronos2_predict_df_output_returns_primary_and_multivariate_metadata() -> None:

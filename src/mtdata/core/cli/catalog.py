@@ -8,6 +8,11 @@ from __future__ import annotations
 
 import os
 
+from ...shared.feature_flags import (
+    MARKET_DEPTH_FETCH_FEATURE,
+    feature_enable_env,
+    feature_enabled,
+)
 from ...shared.tool_categories import TOOL_CATEGORY_IDS, tool_catalog_category
 
 # Shared by --help search and the unknown-command execute path.
@@ -99,8 +104,8 @@ CLI_COMMAND_NAMES = (
     "wait_event",
 )
 
-_OPTIONAL_COMMAND_ENV = {
-    "market_depth_fetch": "MTDATA_ENABLE_MARKET_DEPTH_FETCH",
+_OPTIONAL_COMMAND_FEATURE = {
+    "market_depth_fetch": MARKET_DEPTH_FETCH_FEATURE,
 }
 
 MULTI_VALUE_SYMBOL_POSITIONAL_COMMANDS = frozenset(
@@ -114,10 +119,6 @@ MULTI_VALUE_SYMBOL_POSITIONAL_COMMANDS = frozenset(
         "market_scan",
     }
 )
-
-def _env_enabled(name: str) -> bool:
-    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
-
 
 def known_command_names() -> tuple[str, ...]:
     """Return the discoverable CLI command catalog."""
@@ -221,9 +222,9 @@ def format_root_help(program: str) -> str:
         )
     )
     disabled = [
-        f"{command} (set {env_name}=1)"
-        for command, env_name in _OPTIONAL_COMMAND_ENV.items()
-        if not _env_enabled(env_name)
+        f"{command} (set {feature_enable_env(feature)}=1)"
+        for command, feature in _OPTIONAL_COMMAND_FEATURE.items()
+        if not feature_enabled(feature)
     ]
     if disabled:
         lines.extend(("", "  DISABLED FEATURES:", f"    {'; '.join(disabled)}"))
