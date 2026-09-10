@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pytest
@@ -632,7 +633,7 @@ def test_end_of_data_exit_uses_final_bar_close_across_outputs(monkeypatch):
     )
 
     expected_exit = forecast_backtest._format_time_minimal(
-        float(history["time"].iloc[-1]) + 14_400.0
+        forecast_backtest.bar_close_epoch(history["time"].iloc[-1], "H4")
     )
     trade = out["trades"][0]
     assert trade["exit_reason"] == "end_of_data"
@@ -641,6 +642,77 @@ def test_end_of_data_exit_uses_final_bar_close_across_outputs(monkeypatch):
     assert trade["bars_held"] == 5
     assert out["equity_curve"][-1]["time"] == expected_exit
     assert out["monthly_breakdown"][0]["month"] == "2026-02"
+
+
+@pytest.mark.parametrize(
+    ("timeframe", "broker_timezone", "final_open", "expected_close"),
+    [
+        (
+            "D1",
+            ZoneInfo("Europe/Helsinki"),
+            datetime(2026, 3, 28, 22, tzinfo=timezone.utc),
+            datetime(2026, 3, 29, 21, tzinfo=timezone.utc),
+        ),
+        (
+            "MN1",
+            timezone.utc,
+            datetime(2026, 2, 1, tzinfo=timezone.utc),
+            datetime(2026, 3, 1, tzinfo=timezone.utc),
+        ),
+    ],
+)
+def test_end_of_data_exit_uses_calendar_aware_bar_close(
+    monkeypatch,
+    timeframe,
+    broker_timezone,
+    final_open,
+    expected_close,
+):
+    history = _history_from_closes([1.0 + value / 100.0 for value in range(10)])
+    final_open_epoch = final_open.timestamp()
+    history["time"] = [
+        final_open_epoch - ((len(history) - 1 - index) * 86_400)
+        for index in range(len(history))
+    ]
+    persistent = pd.Series([1.0] * len(history))
+    monkeypatch.setattr(
+        "mtdata.utils.time._broker_calendar_timezone",
+        lambda _at_time: broker_timezone,
+    )
+    monkeypatch.setattr(
+        forecast_backtest,
+        "_fetch_history",
+        lambda *args, **kwargs: history,
+    )
+    monkeypatch.setattr(
+        forecast_backtest,
+        "_build_strategy_signal_series",
+        lambda *args, **kwargs: (persistent, {}, 1),
+    )
+
+    out = forecast_backtest.strategy_backtest(
+        symbol="EURUSD",
+        timeframe=timeframe,
+        lookback=5,
+        fast_period=2,
+        slow_period=3,
+        cost_model="fixed",
+        spread_bps=0.0,
+        slippage_bps=0.0,
+        detail="full",
+    )
+
+    expected_exit = forecast_backtest._format_time_minimal(
+        expected_close.timestamp()
+    )
+    trade = out["trades"][0]
+    assert expected_close.timestamp() != (
+        final_open_epoch + forecast_backtest.TIMEFRAME_SECONDS[timeframe]
+    )
+    assert trade["exit_reason"] == "end_of_data"
+    assert trade["exit_time_basis"] == "bar_close_time"
+    assert trade["exit_time"] == expected_exit
+    assert out["equity_curve"][-1]["time"] == expected_exit
 
 
 def test_max_hold_waits_for_fresh_signal_before_same_direction_reentry(monkeypatch):

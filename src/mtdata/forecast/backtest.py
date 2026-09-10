@@ -2230,10 +2230,7 @@ def strategy_backtest(  # noqa: C901
                     entry_idx=int(entry_idx),
                     exit_idx=int(final_exit_idx),
                     entry_time=float(entry_time),
-                    exit_time=(
-                        float(times[final_exit_idx])
-                        + float(TIMEFRAME_SECONDS[timeframe])
-                    ),
+                    exit_time=bar_close_epoch(times[final_exit_idx], timeframe),
                     entry_price=float(entry_price),
                     exit_price=float(final_exit_price),
                     slippage_bps=float(slippage_bps),
