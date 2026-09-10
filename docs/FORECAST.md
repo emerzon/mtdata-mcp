@@ -55,8 +55,10 @@ Availability depends on extras you installed:
 - Supported foundation options on the Python 3.14 path include Chronos, Chronos-Bolt, and TimesFM (TimesFM via opt-in extra).
 - NeuralForecast methods (`nhits`, `tft`, `patchtst`, `nbeatsx`) need a manual `neuralforecast` + `torch` setup. On Windows Python 3.14 they do not resolve because `ray` (a NeuralForecast dependency) has no Windows cp314 wheels.
 - Always trust `forecast_list_methods --json` over static docs for what runs locally.
-- The unfiltered default returns the full catalog. Use `--profile quickstart`
-  when you only want the small native baseline set.
+- The unfiltered default searches the full catalog but returns the first 20
+  methods. Follow `pagination.next_offset`, or pass `--limit 100`, to retrieve
+  the remaining rows. Use `--profile quickstart` for the small native baseline
+  set.
 
 Full per-method keys, defaults, and dependencies: [forecast/METHODS.md](forecast/METHODS.md).
 
@@ -317,8 +319,12 @@ See [DENOISING.md](DENOISING.md) for available filters.
 Three tools are available for automated tuning and configuration search:
 
 All three accept `--lookback` as the fixed training bars available at every
-rolling-origin anchor. When it is omitted, candidate backtests use the
-expanding roughly 400-bar default.
+rolling-origin anchor. When it is omitted, there is no fixed 400-bar model
+window: the backtest fetch planner reserves 400 bars of pre-anchor history
+context (in addition to anchor spacing and horizon), and candidate fits use the
+history available at each expanding anchor. That fetch context is separate from
+the selected method's minimum history; native `theta` and `fourier_ols`, for
+example, require 300 bars.
 
 The default five-anchor accuracy searches are inexpensive exploratory runs.
 Results below 30 anchors are explicitly low-reliability and deployment-ineligible;

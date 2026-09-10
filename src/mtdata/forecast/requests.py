@@ -574,7 +574,9 @@ class _ForecastTuneRequestBase(_RollingWindowForecastRequest):
         description=(
             "Training bars available at each rolling-origin anchor. When set, "
             "tuning uses a fixed window matching forecast_generate lookback. "
-            "When omitted, candidate backtests use the expanding ~400-bar default."
+            "When omitted, fits use expanding anchor history and the fetch planner "
+            "reserves 400 pre-anchor context bars. That fetch context is not the "
+            "method minimum (native theta/fourier_ols: 300 bars)."
         ),
     )
     steps: int = Field(5, ge=1, le=MAX_BACKTEST_STEPS, description="Number of rolling-origin backtest anchors per trial.")
@@ -806,7 +808,9 @@ class ForecastOptimizeHintsRequest(_RollingWindowForecastRequest):
         description=(
             "Training bars available at each rolling-origin anchor. When set, "
             "the search uses a fixed window matching forecast_generate lookback. "
-            "When omitted, candidate backtests use the expanding ~400-bar default."
+            "When omitted, fits use expanding anchor history and the fetch planner "
+            "reserves 400 pre-anchor context bars. That fetch context is not the "
+            "method minimum (native theta/fourier_ols: 300 bars)."
         ),
     )
     steps: int = Field(5, ge=1, le=MAX_BACKTEST_STEPS, description="Number of rolling-origin backtest anchors per candidate.")

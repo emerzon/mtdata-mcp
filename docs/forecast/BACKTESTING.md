@@ -376,9 +376,11 @@ the full evidence blocks.
 
 ### Default Methods
 
-If `--methods` is not specified, the backtest uses available classical methods:
-- `naive`, `drift`, `seasonal_naive`, `theta`, `fourier_ols`
-- Plus `sf_autoarima`, `sf_theta` if statsforecast is installed
+If `--methods` is not specified, price and return backtests use the bounded
+baseline set `naive`, `drift`, and `theta`. Volatility backtests use `ewma` and
+`parkinson`. Optional methods are never added automatically; pass `--methods`
+explicitly to compare `seasonal_naive`, `fourier_ols`, StatsForecast, ML, or
+foundation methods.
 
 ### Comparing Categories
 
@@ -421,7 +423,7 @@ mtdata-cli forecast_tune_genetic EURUSD --timeframe H1 --methods fourier_ols --h
 | `--methods` / `--method` | `fourier_ols` | One or more methods to optimize |
 | `--metric` | `avg_rmse` | Metric to optimize |
 | `--mode` | `auto` | Uses the metric's standard direction; `min` or `max` explicitly overrides it |
-| `--lookback` | unset | Optional fixed training bars at each rolling-origin anchor. Omit for the method default (native theta/fourier_ols: 300 bars). |
+| `--lookback` | unset | Optional fixed training bars at each rolling-origin anchor. When unset, fits use expanding anchor history; the fetch planner reserves 400 pre-anchor context bars, while each method keeps its own minimum (native theta/fourier_ols: 300 bars). |
 | `--steps` | 5 | Rolling-origin anchors evaluated for every candidate |
 | `--spacing` | 20 | Bars between anchors; must be at least the horizon when steps is greater than 1 |
 | `--slippage-bps` | `0` | Execution slippage per side; always disclosed in tuning output |
