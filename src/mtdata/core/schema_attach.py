@@ -43,7 +43,8 @@ _PUBLIC_CONCISE_DESCRIPTION_OVERRIDES: Dict[tuple[str, str], str] = {
     ),
     ("wait_event", "symbol"): (
         "One symbol (e.g. EURUSD); cannot be combined with symbols. Omit for a "
-        "clock-only timeframe-boundary wait."
+        "clock-only boundary or duration timer. A duration wait with a symbol "
+        "requires watch_for."
     ),
 }
 
@@ -611,7 +612,7 @@ def _patch_wait_event_schema(schema: Dict[str, Any]) -> None:
     if not isinstance(wait_event_props, dict):
         return
 
-    for field_name in ("symbols", "watch_for", "end_on"):
+    for field_name in ("symbols", "max_wait_seconds", "watch_for", "end_on"):
         field_schema = wait_event_props.get(field_name)
         if isinstance(field_schema, dict):
             params[field_name] = copy.deepcopy(field_schema)
@@ -634,16 +635,42 @@ def _patch_wait_event_schema(schema: Dict[str, Any]) -> None:
                 "pattern": _NONBLANK_PATTERN,
             }
 
-    params.pop("max_wait_seconds", None)
     params.pop("poll_interval_seconds", None)
     for keyword in ("if", "then", "else", "allOf"):
         params_obj.pop(keyword, None)
     required = params_obj.setdefault("required", [])
-    if isinstance(required, list) and "timeframe" not in required:
-        required.append("timeframe")
+    if isinstance(required, list):
+        required[:] = [
+            field_name
+            for field_name in required
+            if field_name not in {"timeframe", "max_wait_seconds"}
+        ]
+    params_obj["if"] = {"required": ["timeframe"]}
+    params_obj["then"] = {"not": {"required": ["max_wait_seconds"]}}
+    params_obj["else"] = {
+        "required": ["max_wait_seconds"],
+        "properties": {"end_on": {"maxItems": 0}},
+    }
+    duration_scope_requires_watcher = {
+        "if": {"not": {"required": ["timeframe"]}},
+        "then": {
+            "required": ["watch_for"],
+            "properties": {"watch_for": {"minItems": 1}},
+        },
+    }
     params_obj["dependentSchemas"] = {
-        "symbol": {"not": {"required": ["symbols"]}},
-        "symbols": {"not": {"required": ["symbol"]}},
+        "symbol": {
+            "allOf": [
+                {"not": {"required": ["symbols"]}},
+                copy.deepcopy(duration_scope_requires_watcher),
+            ]
+        },
+        "symbols": {
+            "allOf": [
+                {"not": {"required": ["symbol"]}},
+                copy.deepcopy(duration_scope_requires_watcher),
+            ]
+        },
     }
 
     defs = wait_event_schema.get("$defs")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 from datetime import datetime, timezone
 from unittest.mock import patch
 
@@ -53,6 +54,14 @@ def test_wait_event_request_rejects_combined_stopping_modes() -> None:
         match="Do not combine timeframe with max_wait_seconds",
     ):
         WaitEventRequest(timeframe="M1", max_wait_seconds=30)
+
+
+def test_wait_event_request_rejects_missing_stopping_mode() -> None:
+    with pytest.raises(
+        ValidationError,
+        match="Provide exactly one of timeframe or max_wait_seconds",
+    ):
+        WaitEventRequest()
 
 
 def test_wait_event_request_rejects_non_positive_poll_interval() -> None:
@@ -464,15 +473,116 @@ def test_wait_event_missing_watch_type_returns_clear_error(_mock_gateway) -> Non
     assert "hint" in result
 
 
-def test_wait_event_public_signature_requires_timeframe_and_hides_timing_controls() -> None:
+def test_wait_event_public_signature_exposes_only_the_duration_budget() -> None:
     raw = _raw_wait_event()
+    signature = inspect.signature(raw)
 
-    with pytest.raises(TypeError, match="timeframe"):
-        raw(symbol="BTCUSD")
-    with pytest.raises(TypeError, match="max_wait_seconds"):
-        raw(symbol="BTCUSD", timeframe="M1", max_wait_seconds=30)
+    assert signature.parameters["timeframe"].default is None
+    assert signature.parameters["max_wait_seconds"].default is None
     with pytest.raises(TypeError, match="poll_interval_seconds"):
         raw(symbol="BTCUSD", timeframe="M1", poll_interval_seconds=1)
+
+
+@patch("mtdata.core.data.create_mt5_gateway", return_value=object())
+@patch("mtdata.core.data.run_wait_event", return_value={"success": True})
+def test_wait_event_rejects_missing_and_combined_wait_modes(
+    mock_run_wait,
+    _mock_gateway,
+) -> None:
+    missing = _raw_wait_event()()
+    combined = _raw_wait_event()(timeframe="M1", max_wait_seconds=5)
+
+    assert missing == {
+        "error": "Provide exactly one of timeframe or max_wait_seconds.",
+        "error_code": "wait_event_invalid_request",
+        "hint": (
+            "Choose exactly one wait horizon: set timeframe for a candle boundary, "
+            "or set max_wait_seconds for a duration. Omit end_on in duration mode."
+        ),
+    }
+    assert combined["error"] == "Do not combine timeframe with max_wait_seconds."
+    assert combined["error_code"] == "wait_event_invalid_request"
+    assert "exactly one wait horizon" in combined["hint"]
+    mock_run_wait.assert_not_called()
+
+
+@patch("mtdata.core.data.create_mt5_gateway", return_value=object())
+@patch("mtdata.core.data._compact_wait_event_public_result", side_effect=lambda result, **_: result)
+@patch("mtdata.core.data.run_wait_event", return_value={"success": True})
+def test_wait_event_duration_mode_forwards_budget_without_boundary(
+    mock_run_wait,
+    _mock_compact,
+    _mock_gateway,
+) -> None:
+    result = _raw_wait_event()(
+        max_wait_seconds=30,
+        watch_for=[
+            {"type": "order_filled", "symbol": "BTCUSD"},
+        ],
+    )
+
+    assert result == {"success": True}
+    request = mock_run_wait.call_args.args[0]
+    assert request.symbol is None
+    assert request.timeframe is None
+    assert request.max_wait_seconds == 30
+    assert request.end_on == []
+
+
+@patch("mtdata.core.data.create_mt5_gateway", return_value=object())
+@patch("mtdata.core.data._compact_wait_event_public_result", side_effect=lambda result, **_: result)
+@patch("mtdata.core.data.run_wait_event", return_value={"success": True})
+def test_wait_event_duration_timer_needs_no_symbol_or_watcher(
+    mock_run_wait,
+    _mock_compact,
+    _mock_gateway,
+) -> None:
+    result = _raw_wait_event()(max_wait_seconds=5)
+
+    assert result == {"success": True}
+    request = mock_run_wait.call_args.args[0]
+    assert request.symbol is None
+    assert request.symbols is None
+    assert request.watch_for == []
+    assert request.max_wait_seconds == 5
+
+
+@patch("mtdata.core.data.create_mt5_gateway", return_value=object())
+def test_wait_event_public_duration_timeout_echoes_actionable_budget(
+    _mock_gateway,
+) -> None:
+    result = _raw_wait_event()(
+        max_wait_seconds=0,
+        watch_for=[{"type": "order_created"}],
+    )
+
+    assert result["success"] is False
+    assert result["error_code"] == "wait_event_timeout"
+    assert result["wait_mode"] == "duration"
+    assert result["max_wait_seconds"] == 0.0
+    assert result["details"]["requested_wait_seconds"] == 0.0
+    assert "increase max_wait_seconds" in result["remediation"]
+
+
+@patch("mtdata.core.data.create_mt5_gateway", return_value=object())
+@patch("mtdata.core.data.run_wait_event", return_value={"success": True})
+def test_wait_event_duration_validation_is_actionable(
+    mock_run_wait,
+    _mock_gateway,
+) -> None:
+    symbol_timer = _raw_wait_event()(symbol="BTCUSD", max_wait_seconds=5)
+    duration_boundary = _raw_wait_event()(
+        max_wait_seconds=5,
+        end_on=[{"type": "candle_close", "timeframe": "M1"}],
+    )
+
+    assert symbol_timer["error_code"] == "wait_event_invalid_request"
+    assert "add watch_for for a monitored duration wait" in symbol_timer["error"]
+    assert "exactly one wait horizon" in symbol_timer["hint"]
+    assert duration_boundary["error_code"] == "wait_event_invalid_request"
+    assert "end_on requires a top-level timeframe" in duration_boundary["error"]
+    assert "Omit end_on in duration mode" in duration_boundary["hint"]
+    mock_run_wait.assert_not_called()
 
 
 @patch("mtdata.core.data.create_mt5_gateway", return_value=object())

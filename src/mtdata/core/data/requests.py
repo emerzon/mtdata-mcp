@@ -794,7 +794,8 @@ class WaitEventRequest(BaseModel):
             "stop_threat. Example: "
             "[{\"type\": \"price_change\", \"direction\": \"up\", "
             "\"threshold_mode\": \"fixed_pct\", \"threshold_value\": 0.1}]. "
-            "Omitting watch_for creates a boundary-only wait when timeframe is set."
+            "Omitting watch_for creates a boundary-only wait when timeframe is set "
+            "or a timer-only wait when max_wait_seconds is set."
         ),
     )
     end_on: List[WaitBoundaryEventSpec] = Field(default_factory=list)
@@ -809,14 +810,27 @@ class WaitEventRequest(BaseModel):
             "Cannot be combined with symbol."
         ),
     )
-    timeframe: Optional[TimeframeLiteral] = None
+    timeframe: Optional[TimeframeLiteral] = Field(
+        default=None,
+        description=(
+            "Candle-boundary wait horizon. Provide exactly one of timeframe or "
+            "max_wait_seconds."
+        ),
+    )
     order_ticket: Optional[int] = None
     position_ticket: Optional[int] = None
     magic: Optional[int] = Field(default=None, description=_MAGIC_NUMBER_DESCRIPTION)
     side: Optional[Literal["buy", "sell"]] = None
     buffer_seconds: float = Field(1.0, ge=0.0)
     poll_interval_seconds: float = Field(0.5, ge=_WAIT_EVENT_MIN_POLL_INTERVAL_SECONDS)
-    max_wait_seconds: Optional[float] = Field(None, ge=0.0)
+    max_wait_seconds: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        description=(
+            "Duration wait horizon in seconds. Provide exactly one of "
+            "max_wait_seconds or timeframe."
+        ),
+    )
     accept_preexisting: bool = False
 
     @field_validator("symbols")
@@ -905,9 +919,9 @@ class WaitEventRequest(BaseModel):
             and not self.watch_for
         ):
             raise ValueError(
-                "A symbol with max_wait_seconds and no timeframe or watch_for "
-                "is a timer, not a market wait. Omit the symbol for a timer, "
-                "or pass --timeframe / --watch-for."
+                "A symbol with max_wait_seconds and no watch_for is a timer, not "
+                "a market wait. Omit symbol and symbols for a timer, add watch_for "
+                "for a monitored duration wait, or use timeframe for a boundary wait."
             )
         if self.timeframe is not None:
             conflicting_timeframes = sorted(

@@ -18,10 +18,40 @@ _PAIR_BARRIER = {
 
 SCHEMA_CONTRACT_CASES = [
     (
-        "wait-requires-timeframe",
+        "wait-requires-one-horizon",
         "wait_event",
         {"timeframe": "H1"},
-        {"symbol": "EURUSD"},
+        {},
+    ),
+    (
+        "wait-horizons-are-exclusive",
+        "wait_event",
+        {"max_wait_seconds": 5},
+        {"timeframe": "H1", "max_wait_seconds": 5},
+    ),
+    (
+        "wait-duration-symbol-needs-watcher",
+        "wait_event",
+        {
+            "symbol": "EURUSD",
+            "max_wait_seconds": 5,
+            "watch_for": [{"type": "order_filled"}],
+        },
+        {"symbol": "EURUSD", "max_wait_seconds": 5},
+    ),
+    (
+        "wait-duration-excludes-boundary",
+        "wait_event",
+        {
+            "max_wait_seconds": 5,
+            "watch_for": [
+                {"type": "price_touch_level", "symbol": "EURUSD", "level": 1.1},
+            ],
+        },
+        {
+            "max_wait_seconds": 5,
+            "end_on": [{"type": "candle_close", "timeframe": "M1"}],
+        },
     ),
     (
         "asset-performance-order-needs-rank",

@@ -611,6 +611,11 @@ def add_dynamic_arguments(  # noqa: C901
             uscr,
             *_extra_option_flags(param["name"], cmd_name),
         )
+        if (
+            str(cmd_name or "") == "wait_event"
+            and str(param["name"]) == "max_wait_seconds"
+        ):
+            hidden_option_flags = ()
 
         param_names = {p.get("name") for p in (param_info.get("params") or []) if isinstance(p, dict)}
         kwargs, is_mapping_type = resolve_param_kwargs(

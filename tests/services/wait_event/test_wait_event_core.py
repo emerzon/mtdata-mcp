@@ -326,6 +326,7 @@ def test_wait_event_tool_exposes_minimal_public_contract(monkeypatch) -> None:
         "symbol",
         "symbols",
         "timeframe",
+        "max_wait_seconds",
         "accept_preexisting",
         "watch_for",
         "end_on",
@@ -642,6 +643,35 @@ def test_wait_event_compact_timeout_keeps_explicit_watch_types() -> None:
     assert "poll_interval_seconds" not in result
     assert "requested_wait_seconds" not in result["details"]
     assert "shorter timeframe" in result["remediation"]
+
+
+def test_wait_event_compact_duration_timeout_keeps_actionable_budget() -> None:
+    result = core_data._compact_wait_event_public_result(
+        {
+            "success": False,
+            "status": "timeout",
+            "wait_mode": "duration",
+            "error_code": "wait_event_timeout",
+            "error": "Wait timed out before a watched event was observed.",
+            "matched": False,
+            "event": None,
+            "elapsed_seconds": 5.0,
+            "poll_interval_seconds": 0.5,
+            "max_wait_seconds": 5.0,
+            "criteria": {
+                "watch_for": [{"type": "order_filled", "symbol": "EURUSD"}],
+                "end_on": [],
+            },
+        },
+        explicit_watch_for=True,
+        explicit_end_on=False,
+    )
+
+    assert result["max_wait_seconds"] == 5.0
+    assert result["waited_seconds"] == 5.0
+    assert result["details"]["requested_wait_seconds"] == 5.0
+    assert "increase max_wait_seconds" in result["remediation"]
+    assert "poll_interval_seconds" not in result
 
 
 def test_wait_event_compact_budget_error_keeps_remaining_seconds() -> None:

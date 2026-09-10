@@ -1975,7 +1975,7 @@ _COMMAND_USAGE_EXAMPLES: Dict[str, Tuple[str, Optional[str]]] = {
     ),
     "wait_event": (
         f"{CLI_PROGRAM} wait_event EURUSD --timeframe H1",
-        f"{CLI_PROGRAM} wait_event EURUSD --timeframe M5 "
+        f"{CLI_PROGRAM} wait_event EURUSD --max-wait-seconds 30 "
         "--watch-for order_filled",
     ),
     "trade_stress_test": (
@@ -2216,9 +2216,9 @@ def _wait_event_help_description(summary: str) -> str:
     return (
         f"{summary}\n\n"
         "Examples:\n"
+        f"  {CLI_PROGRAM} wait_event --max-wait-seconds 10\n"
         f"  {CLI_PROGRAM} wait_event EURUSD --timeframe H1\n"
-        f"  {CLI_PROGRAM} wait_event EURUSD --timeframe M5 --watch-for order_filled\n"
-        f"  {CLI_PROGRAM} wait_event EURUSD --timeframe M1 --watch-for "
+        f"  {CLI_PROGRAM} wait_event --max-wait-seconds 30 --watch-for "
         "'{\"type\":\"price_touch_level\",\"symbol\":\"EURUSD\",\"level\":1.16}'"
     )
 

@@ -314,7 +314,7 @@ def test_attach_schemas_to_tools_patches_wait_event_with_discriminated_watch_spe
     candle_close = tool_obj.schema["$defs"]["CandleCloseEventSpec"]
     assert "type" in candle_close["required"]
     assert "default" not in candle_close["properties"]["type"]
-    assert "max_wait_seconds" not in params
+    assert params["max_wait_seconds"]["minimum"] == 0.0
     assert "poll_interval_seconds" not in params
     symbols_schema = params["symbols"]
     symbols_array = next(
@@ -332,11 +332,35 @@ def test_attach_schemas_to_tools_patches_wait_event_with_discriminated_watch_spe
     assert symbols_array["items"]["pattern"].startswith("^")
     assert symbols_array["items"]["pattern"].endswith("$")
     parameters = tool_obj.schema["parameters"]
-    assert parameters["required"] == ["timeframe"]
-    assert not {"if", "then", "else", "allOf"}.intersection(parameters)
+    assert parameters.get("required", []) == []
+    assert parameters["if"] == {"required": ["timeframe"]}
+    assert parameters["then"] == {
+        "not": {"required": ["max_wait_seconds"]},
+    }
+    assert parameters["else"] == {
+        "required": ["max_wait_seconds"],
+        "properties": {"end_on": {"maxItems": 0}},
+    }
+    duration_scope_requires_watcher = {
+        "if": {"not": {"required": ["timeframe"]}},
+        "then": {
+            "required": ["watch_for"],
+            "properties": {"watch_for": {"minItems": 1}},
+        },
+    }
     assert parameters["dependentSchemas"] == {
-        "symbol": {"not": {"required": ["symbols"]}},
-        "symbols": {"not": {"required": ["symbol"]}},
+        "symbol": {
+            "allOf": [
+                {"not": {"required": ["symbols"]}},
+                duration_scope_requires_watcher,
+            ]
+        },
+        "symbols": {
+            "allOf": [
+                {"not": {"required": ["symbol"]}},
+                duration_scope_requires_watcher,
+            ]
+        },
     }
 
 

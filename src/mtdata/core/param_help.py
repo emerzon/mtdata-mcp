@@ -980,7 +980,8 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
     ("trade_place", "expiration"): "Future pending-order expiration (dateparser string or positive UTC epoch seconds); use the literal GTC token for no expiration.",
     ("wait_event", "symbol"): (
         "Single trading symbol (e.g. EURUSD). Cannot be combined with symbols. "
-        "Omit symbol and symbols for a clock-only timeframe-boundary wait."
+        "Omit symbol and symbols for a clock-only boundary or duration timer. "
+        "A duration wait with a symbol requires a non-empty watch_for."
     ),
     ("wait_event", "symbols"): (
         "Basket of 1-12 trading symbols. Cannot be combined with symbol; omitted-symbol "
@@ -988,9 +989,14 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "must belong to the basket."
     ),
     ("wait_event", "timeframe"): (
-        "Required wait horizon. The engine derives the wait budget internally, "
-        "sleeps directly for boundary-only waits, and polls only when explicit "
-        "event watchers need observation."
+        "Candle-boundary horizon. Use exactly one of timeframe or "
+        "max_wait_seconds. Boundary waits use an internal safety budget of one "
+        "timeframe plus a one-second safety buffer."
+    ),
+    ("wait_event", "max_wait_seconds"): (
+        "Duration horizon in seconds (minimum 0); use instead of timeframe. "
+        "Without watch_for, omit symbol/symbols for a timer; symbol-scoped "
+        "duration waits require at least one watcher."
     ),
     ("wait_event", "watch_for"): (
         "Event names or JSON event objects. Supported types (required fields): "
@@ -1006,8 +1012,9 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "minutes or ticks); price_touch_level/price_break_level (level in price "
         "units; optional direction, tolerance, confirm_ticks for breaks); "
         "price_enter_zone (lower and upper in price units). Put candle_close "
-        "boundaries in end_on. Omit for a boundary-only wait. Explicit watchers "
-        "make an unmatched timeout or boundary a failed wait. Examples: order_filled; "
+        "boundaries in end_on. Omit for a boundary-only wait or duration timer. "
+        "Explicit watchers make an unmatched timeout or boundary a failed wait. "
+        "Examples: order_filled; "
         "'{\"type\":\"order_filled\",\"symbol\":\"EURUSD\"}'; "
         "'{\"type\":\"price_change\",\"direction\":\"up\",\"threshold_mode\":"
         "\"fixed_pct\",\"threshold_value\":0.1}'; "
@@ -1017,8 +1024,8 @@ COMMAND_PARAM_HELP_OVERRIDES: Dict[tuple[str, str], str] = {
         "\"threshold_mode\":\"ratio_to_baseline\",\"threshold_value\":2}'."
     ),
     ("wait_event", "end_on"): (
-        "Optional timeframe-mode boundaries. Explicit boundary timeframes must "
-        "match the top-level timeframe."
+        "Optional timeframe-mode boundaries. Do not use in duration mode. "
+        "Explicit boundary timeframes must match the top-level timeframe."
     ),
     ("causal_discover_signals", "allow_partial"): (
         "Keep symbols with usable history and report excluded symbols; false "

@@ -658,8 +658,10 @@ def test_tools_list_searches_parameters_and_preserves_full_gated_schema(monkeypa
     bootstrap_tools()
     raw_tools_list = getattr(tools_list, "__wrapped__", tools_list)
 
-    parameter_match = raw_tools_list(search="max_wait_seconds")
-    assert parameter_match["tools"] == []
+    parameter_match = raw_tools_list(search="max_wait_seconds", detail="full")
+    assert [row["name"] for row in parameter_match["tools"]] == ["wait_event"]
+    wait_schema = parameter_match["tools"][0]["input_schema"]
+    assert wait_schema["properties"]["max_wait_seconds"]["minimum"] == 0.0
 
     gated = raw_tools_list(search="market_depth_fetch", detail="full")
     assert gated["count"] == 0

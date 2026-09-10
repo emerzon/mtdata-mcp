@@ -1,4 +1,4 @@
-# Wait for a candle close or a fill
+# Wait for a boundary, duration, or event
 
 **Audience:** User
 
@@ -18,13 +18,21 @@ runner, which has no progress bar for a long wait.
 
 ## Pick a wait target
 
-Choose a **timeframe** as the wait horizon. The call stops at its next candle
-boundary (for example the next H1 close), or earlier when an explicit watcher
-matches. The engine keeps the wait budget and observation cadence internal.
+Choose exactly one wait horizon:
+
+- `--timeframe` stops at the next candle boundary (for example, the next H1
+  close), or earlier when an explicit watcher matches.
+- `--max-wait-seconds` stops after that duration, or earlier when an explicit
+  watcher matches.
+
+Do not combine or omit both options. There is no default public horizon.
+`end_on` belongs only to timeframe mode.
 
 Boundary-only waits do not poll: they sleep directly to the calculated boundary.
 When explicit market or account watchers are present, the engine polls only as
-needed to observe those events.
+needed to observe those events. Poll cadence remains internal. A timeframe wait
+also has an internal safety budget of one timeframe plus a one-second safety
+buffer.
 
 Intraday boundaries are calculated on the configured broker-server candle
 grid and then converted to UTC. This matters for frames such as H4 when broker
@@ -47,28 +55,41 @@ A timeframe wait with no symbol and no extra watch list is a pure clock wait
 (no candle payload), including on weekends. It returns `clock_boundary` and
 does not infer a market session. Passing the symbol includes a best-effort closed-candle
 snapshot when the boundary hits. Omitting `--watch-for` waits only for that
-candle boundary. The internal one-timeframe budget prevents a symbol-bound weekend H1 wait
-from blocking until Sunday reopen.
+candle boundary. The internal one-timeframe-plus-buffer budget prevents a
+symbol-bound weekend H1 wait from blocking until Sunday reopen.
 
 ---
 
-## Example 2 — wait for a fill within M5
+## Example 2 — wait up to 30 seconds for a fill
 
 ```powershell
-mtdata-cli wait_event EURUSD --timeframe M5 --watch-for '[{"type":"order_filled","symbol":"EURUSD"}]' --json
+mtdata-cli wait_event EURUSD --max-wait-seconds 30 --watch-for '[{"type":"order_filled","symbol":"EURUSD"}]' --json
 ```
 
-If nothing fills before the M5 boundary, the command fails (`success=false`,
-`error_code=wait_event_boundary_reached`) and the CLI exits nonzero. That is
-intentional: a script can decide whether to retry. If the internal budget
-expires before a reachable boundary, the failure is `wait_event_timeout`.
-When the symbol's market is closed — for example the FX weekend — that timeout
-also reports `market_status=closed` and `assumed_closure_end`, and the
-remediation points at reopen instead of asking you to wait longer.
+If nothing fills in 30 seconds, the command fails (`success=false`,
+`error_code=wait_event_timeout`) and the CLI exits nonzero. The result includes
+the requested and elapsed durations plus a retry hint. When the symbol's market
+is closed — for example the FX weekend — the timeout also reports
+`market_status=closed` and `assumed_closure_end`, and the remediation points at
+reopen instead of asking you to wait longer.
 
 Pass an explicit `--watch-for` when the wait should return early for an event,
-as in the fill example above. Omitting `--watch-for` waits
-only for the candle boundary.
+as in the fill example above. A duration wait with a request-level `symbol` or
+`symbols` requires a non-empty watch list. A watcher may instead carry its own
+symbol.
+
+---
+
+## Example 3 — pause for five seconds
+
+```powershell
+mtdata-cli wait_event --max-wait-seconds 5 --json
+```
+
+With no symbol and no `--watch-for`, duration mode is a timer. It does not
+connect to MT5 or poll market/account state. It completes successfully with
+`completion_reason=duration_elapsed`. Adding a symbol without a watcher is
+rejected because it would look like a market wait while behaving as a timer.
 
 ---
 
@@ -82,7 +103,8 @@ MCP assistant instead. See [WEBUI.md](WEBUI.md#do-not-run-these-from-the-browser
 ## Watcher contract
 
 `--watch-for` accepts event names or JSON objects with a `type`. `--end-on`
-is only for candle-close boundaries.
+is only for candle-close boundaries and requires top-level `--timeframe`; it
+cannot be used with `--max-wait-seconds`.
 
 Account events (optional `symbol`, `order_ticket`/`position_ticket`, `magic`,
 `side=buy|sell`):
@@ -126,6 +148,6 @@ mtdata-cli wait_event EURUSD --timeframe H1 --end-on '[{"type":"candle_close","t
   historical entry deal for a ticket that is already closed, or that was
   already open when the wait began, is ignored.
 - Put candle-close boundaries in `end_on`, not in `watch_for`.
-- `--detail full` adds elapsed timing diagnostics and poll counts without
-  exposing internal timing controls.
+- `--detail full` adds elapsed timing diagnostics and poll counts. Poll cadence
+  remains internal.
 - `wait_event --help` repeats this contract, including complete JSON examples.

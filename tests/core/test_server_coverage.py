@@ -1388,13 +1388,39 @@ class TestMcpToolSchemas:
         order_filled = (schema.get("$defs") or {})["OrderFilledEventSpec"]
         assert "type" in order_filled["required"]
         assert "default" not in order_filled["properties"]["type"]
-        assert "max_wait_seconds" not in props
+        assert props["max_wait_seconds"]["minimum"] == 0.0
         assert "poll_interval_seconds" not in props
-        assert "timeframe" in schema["required"]
-        assert not {"if", "then", "else", "allOf"}.intersection(schema)
+        required = schema.get("required", [])
+        assert "timeframe" not in required
+        assert "max_wait_seconds" not in required
+        assert schema["if"] == {"required": ["timeframe"]}
+        assert schema["then"] == {
+            "not": {"required": ["max_wait_seconds"]},
+        }
+        assert schema["else"] == {
+            "required": ["max_wait_seconds"],
+            "properties": {"end_on": {"maxItems": 0}},
+        }
+        duration_scope_requires_watcher = {
+            "if": {"not": {"required": ["timeframe"]}},
+            "then": {
+                "required": ["watch_for"],
+                "properties": {"watch_for": {"minItems": 1}},
+            },
+        }
         assert schema["dependentSchemas"] == {
-            "symbol": {"not": {"required": ["symbols"]}},
-            "symbols": {"not": {"required": ["symbol"]}},
+            "symbol": {
+                "allOf": [
+                    {"not": {"required": ["symbols"]}},
+                    duration_scope_requires_watcher,
+                ]
+            },
+            "symbols": {
+                "allOf": [
+                    {"not": {"required": ["symbol"]}},
+                    duration_scope_requires_watcher,
+                ]
+            },
         }
 
     def test_prioritized_tools_list_tools_schemas_are_compact_and_aligned(self):

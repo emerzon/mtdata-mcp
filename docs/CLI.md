@@ -791,19 +791,19 @@ venue ID. Use `--venue` for one of the static exchange calendars. The former
 positional venue shorthand is not supported because it collided with valid
 broker-symbol names.
 
-### Wait for a candle close
+### Wait for a candle close or duration
 
 Do not run long waits from the Web UI. See [WAIT_EVENT.md](WAIT_EVENT.md).
 
 ```bash
 mtdata-cli wait_event EURUSD --timeframe H1 --watch-for '[]' --json
-mtdata-cli wait_event EURUSD --timeframe M5 --watch-for order_filled --json
+mtdata-cli wait_event EURUSD --max-wait-seconds 30 --watch-for order_filled --json
 ```
 
 The first command is boundary-only. The second can return early when an order
-fills and otherwise ends at the M5 boundary. `timeframe` is the required wait
-horizon. The wait budget and polling cadence are internal: boundary-only waits
-sleep directly to the boundary, while explicit event watchers are polled.
+fills and otherwise times out after 30 seconds. Choose exactly one horizon:
+`timeframe` for a candle boundary or `max_wait_seconds` for a duration. Boundary
+mode keeps its safety budget and polling cadence internal.
 
 ### Place Orders
 `trade_place` requires `symbol`, `volume`, and `order_type`.
