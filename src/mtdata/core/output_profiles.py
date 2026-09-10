@@ -42,14 +42,6 @@ _CATALOG_TOOLS = frozenset(
         "tools_list",
     }
 )
-_CATALOG_KEEP_PAGINATION_TOTAL = frozenset(
-    {
-        "denoise_list_methods",
-        "forecast_list_methods",
-        "indicators_list",
-        "tools_list",
-    }
-)
 _TASK_TOOLS = frozenset(
     {
         "forecast_task_cancel",
@@ -278,6 +270,8 @@ def apply_public_output_profile(
     if not isinstance(result, dict):
         return result
     normalized = str(tool_name or "").strip().lower()
+    result = dict(result)
+    _apply_page_beyond_total_guidance(result)
     if result.get("error"):
         error_result = dict(result)
         _normalize_warnings(error_result)
@@ -400,7 +394,7 @@ def _shape_trading(
                 scope=f"{tool_name}.{quote_key}",
             )
     _compact_trade_rows(out)
-    _compact_pagination(out)
+    _compact_pagination(out, include_core=False)
     if isinstance(out.get("items"), list):
         out.pop("count", None)
 
@@ -569,6 +563,7 @@ def _shape_analysis_info(
     if tool_name in _TASK_TOOLS:
         _compact_task_payload(out)
     _compact_analysis_token_payload(out, tool_name=tool_name, detail=detail)
+    _compact_pagination(out)
     _normalize_warnings(out)
     if freshness and (warning := freshness.to_warning()):
         append_output_warning(out, warning)
@@ -680,10 +675,7 @@ def _compact_catalog_payload(
     if payload.get("catalog_total") == payload.get("filtered_total"):
         payload.pop("catalog_total", None)
     _drop_keys(payload, {"count_by_category", "truncation_reason"})
-    _compact_pagination(
-        payload,
-        keep_total=tool_name in _CATALOG_KEEP_PAGINATION_TOTAL,
-    )
+    _compact_pagination(payload)
 
     if tool_name == "tools_list":
         tools = payload.get("tools")
@@ -767,8 +759,13 @@ def _compact_task_payload(payload: MutableMapping[str, Any]) -> None:
     payload["tasks"] = compact_tasks
     if not compact_tasks:
         payload.pop("summary", None)
-        payload.pop("message", None)
-        payload.pop("hint", None)
+        pagination = payload.get("pagination")
+        if not (
+            isinstance(pagination, Mapping)
+            and pagination.get("page_beyond_total") is True
+        ):
+            payload.pop("message", None)
+            payload.pop("hint", None)
 
 
 def _compact_error_payload(payload: Mapping[str, Any]) -> Dict[str, Any]:
@@ -2311,31 +2308,114 @@ def _compact_trading_token_payload(
             payload.pop("protection_summary", None)
 
 
+_COMPACT_PAGINATION_CONTEXT_FIELDS = (
+    "scope",
+    "selection",
+    "source_events_returned",
+    "total_lower_bound",
+    "provider_total",
+    "provider_returned",
+    "mode",
+    "snapshot_start",
+    "snapshot_end",
+    "page_beyond_total",
+    "suggested_offset",
+)
+
+
+def _apply_page_beyond_total_guidance(
+    payload: MutableMapping[str, Any],
+) -> None:
+    pagination = payload.get("pagination")
+    if (
+        payload.get("success") is False
+        or not isinstance(pagination, Mapping)
+        or pagination.get("page_beyond_total") is not True
+    ):
+        return
+    offset = pagination.get("offset")
+    total = pagination.get("total")
+    suggested_offset = pagination.get("suggested_offset", 0)
+    payload["empty"] = True
+    payload["empty_reason"] = "page_beyond_total"
+    payload["message"] = (
+        f"No rows exist at offset={offset}; the filtered collection contains "
+        f"{total} row(s)."
+    )
+    if suggested_offset == 0:
+        payload["hint"] = (
+            "Retry with offset=0 to read the populated page and restart pagination."
+        )
+    else:
+        payload["hint"] = (
+            f"Retry with offset={suggested_offset} for the last populated page, "
+            "or offset=0 to restart pagination."
+        )
+
+
 def _compact_pagination(
     payload: MutableMapping[str, Any],
     *,
-    keep_total: bool = False,
+    include_core: bool = True,
 ) -> None:
     pagination = payload.get("pagination")
     if not isinstance(pagination, Mapping):
         return
-    total = pagination.get("total")
-    if pagination.get("has_more") is not True:
-        if keep_total and total is not None:
-            payload["pagination"] = {"total": total}
-        else:
+    payload.pop("count", None)
+    if not include_core:
+        if pagination.get("has_more") is not True:
             payload.pop("pagination", None)
+            return
+        compact_continuation: Dict[str, Any] = {"has_more": True}
+        if pagination.get("next_cursor") not in (None, ""):
+            compact_continuation["next_cursor"] = pagination["next_cursor"]
+        else:
+            offset = pagination.get("offset")
+            returned = pagination.get("returned")
+            if isinstance(offset, int) and isinstance(returned, int):
+                compact_continuation["next_offset"] = offset + returned
+        payload["pagination"] = compact_continuation
         return
-    compact: Dict[str, Any] = {"has_more": True}
-    if keep_total and total is not None:
-        compact["total"] = total
-    if pagination.get("next_cursor") not in (None, ""):
-        compact["next_cursor"] = pagination["next_cursor"]
-    else:
-        offset = pagination.get("offset")
-        returned = pagination.get("returned")
-        if isinstance(offset, int) and isinstance(returned, int):
-            compact["next_offset"] = offset + returned
+    try:
+        offset = max(0, int(pagination.get("offset") or 0))
+    except (TypeError, ValueError):
+        offset = 0
+    try:
+        returned = max(0, int(pagination.get("returned") or 0))
+    except (TypeError, ValueError):
+        returned = 0
+    has_more = pagination.get("has_more") is True
+    compact: Dict[str, Any] = {
+        "offset": offset,
+        "limit": pagination.get("limit"),
+        "returned": returned,
+        "has_more": has_more,
+        "total": pagination.get("total"),
+    }
+    for key in _COMPACT_PAGINATION_CONTEXT_FIELDS:
+        if key in pagination and pagination[key] is not None:
+            compact[key] = pagination[key]
+    if has_more:
+        if pagination.get("next_cursor") not in (None, ""):
+            compact["next_cursor"] = pagination["next_cursor"]
+            if pagination.get("continuation_direction") not in (None, ""):
+                compact["continuation_direction"] = pagination[
+                    "continuation_direction"
+                ]
+            if pagination.get("cursor_expires_at") not in (None, ""):
+                compact["cursor_expires_at"] = pagination["cursor_expires_at"]
+        else:
+            next_offset = pagination.get("next_offset")
+            source_advance = pagination.get(
+                "provider_returned",
+                pagination.get("source_events_returned", returned),
+            )
+            compact["next_offset"] = (
+                next_offset
+                if isinstance(next_offset, int)
+                else offset
+                + (source_advance if isinstance(source_advance, int) else returned)
+            )
     payload["pagination"] = compact
 
 
@@ -2833,6 +2913,7 @@ def _shape_candles(payload: Mapping[str, Any], *, detail: str) -> Dict[str, Any]
     out.pop("source", None)
     if source:
         out["source"] = source.compact()
+    _compact_pagination(out)
 
     _normalize_warnings(out)
     if gaps:
@@ -2903,16 +2984,7 @@ def _shape_ticks(payload: Mapping[str, Any], *, detail: str) -> Dict[str, Any]:
     out.pop("source", None)
     if source:
         out["source"] = source.compact()
-    pagination = out.get("pagination")
-    if isinstance(pagination, Mapping):
-        if pagination.get("has_more") is True:
-            out["pagination"] = {
-                key: pagination[key]
-                for key in ("has_more", "next_cursor")
-                if key in pagination
-            }
-        else:
-            out.pop("pagination", None)
+    _compact_pagination(out)
     _normalize_warnings(out)
     if freshness and (warning := freshness.to_warning()):
         empty_result = payload.get("empty") is True

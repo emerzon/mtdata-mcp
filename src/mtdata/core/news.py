@@ -529,6 +529,65 @@ def _compact_news_provider_failures(value: Any) -> Dict[str, Any]:
     return compact
 
 
+def _news_queried_providers(result: Dict[str, Any]) -> list[str]:
+    for key in ("providers_queried", "sources_used", "providers_used"):
+        values = result.get(key)
+        if not isinstance(values, list):
+            continue
+        providers = [
+            str(provider).strip()
+            for provider in values
+            if str(provider or "").strip()
+        ]
+        if providers:
+            return list(dict.fromkeys(providers))
+    source_details = result.get("source_details")
+    if isinstance(source_details, dict):
+        return [
+            str(provider)
+            for provider in source_details
+            if str(provider or "").strip()
+        ]
+    return []
+
+
+def _news_provider_failures(result: Dict[str, Any]) -> Dict[str, Any]:
+    existing = result.get("provider_failures")
+    if isinstance(existing, dict):
+        return _compact_news_provider_failures(existing)
+    source_details = result.get("source_details")
+    return _compact_news_provider_failures({
+        str(provider): details
+        for provider, details in (
+            source_details.items() if isinstance(source_details, dict) else []
+        )
+        if isinstance(details, dict)
+        and details.get("success") is False
+        and details.get("error") not in (None, "")
+    })
+
+
+def _retain_beyond_total_news_provenance(
+    out: Dict[str, Any],
+    *,
+    pre_pagination: Dict[str, Any],
+    normalized: Dict[str, Any],
+) -> None:
+    pagination = out.get("pagination")
+    if (
+        not isinstance(pagination, dict)
+        or pagination.get("page_beyond_total") is not True
+    ):
+        return
+    queried = _news_queried_providers(pre_pagination)
+    if not queried:
+        queried = _news_queried_providers(normalized)
+    out["providers_queried"] = queried
+    provider_failures = _news_provider_failures(pre_pagination)
+    if provider_failures:
+        out["provider_failures"] = provider_failures
+
+
 def normalize_news_output(
     result: Dict[str, Any],
     *,
@@ -600,23 +659,8 @@ def normalize_news_output(
     if not has_visible_buckets and not has_raw_items:
         if result.get("success") is False or result.get("error") not in (None, ""):
             return out
-        queried = [
-            str(provider)
-            for provider in (result.get("sources_used") or [])
-            if str(provider or "").strip()
-        ]
-        source_details = result.get("source_details")
-        provider_failures = {
-            str(provider): str(details.get("error"))
-            for provider, details in (
-                source_details.items()
-                if isinstance(source_details, dict)
-                else []
-            )
-            if isinstance(details, dict)
-            and details.get("success") is False
-            and details.get("error") not in (None, "")
-        }
+        queried = _news_queried_providers(result)
+        provider_failures = _news_provider_failures(result)
         out["status"] = "no_results"
         out["providers_queried"] = queried
         if provider_failures:
@@ -1526,6 +1570,11 @@ def news(
             limit_per_bucket=effective_limit_per_bucket,
             offset=offset_value,
             symbol_mode=symbol not in (None, ""),
+        )
+        _retain_beyond_total_news_provenance(
+            out,
+            pre_pagination=raw,
+            normalized=normalized,
         )
         if default_compact_global_limit:
             out["compact_global_limit"] = _NEWS_COMPACT_BROAD_LIMIT

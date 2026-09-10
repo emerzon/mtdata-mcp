@@ -1466,7 +1466,7 @@ def forecast_models_list(
                 "models_cached": total_count,
             }
             if total_count > 0:
-                last_offset = ((total_count - 1) // int(limit)) * int(limit)
+                last_offset = int(out["pagination"]["suggested_offset"])
                 out["message"] = (
                     f"No models are present on the requested page at offset={int(offset)}; "
                     f"{total_count} model(s) match the current filters."
@@ -1475,10 +1475,6 @@ def forecast_models_list(
                     f"Use offset={last_offset} for the last populated page, or offset=0 "
                     "to restart pagination."
                 )
-                out["suggested_offsets"] = {
-                    "first": 0,
-                    "last": last_offset,
-                }
             elif method:
                 out["message"] = f"No stored forecast models matched method={method!r}."
             elif adapter:

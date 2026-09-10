@@ -60,7 +60,7 @@ def test_compact_analysis_keeps_only_non_nominal_freshness_warning() -> None:
     ]
 
 
-def test_catalog_compact_uses_exception_list_and_minimal_pagination() -> None:
+def test_catalog_compact_uses_exception_list_and_core_pagination() -> None:
     payload = {
         "success": True,
         "detail": "compact",
@@ -103,14 +103,21 @@ def test_catalog_compact_uses_exception_list_and_minimal_pagination() -> None:
             {"method": "arima", "category": "classical"},
             {"method": "nbeatsx", "category": "neural"},
         ],
-        "pagination": {"has_more": True, "total": 10, "next_offset": 2},
+        "pagination": {
+            "offset": 0,
+            "limit": 2,
+            "returned": 2,
+            "has_more": True,
+            "total": 10,
+            "next_offset": 2,
+        },
         "unavailable": [
             {"method": "nbeatsx", "reason": "Requires neuralforecast"}
         ],
     }
 
 
-def test_catalog_compact_keeps_pagination_total_when_complete() -> None:
+def test_catalog_compact_keeps_core_pagination_when_complete() -> None:
     payload = {
         "success": True,
         "tools": [{"name": "calendar", "category": "news"}],
@@ -130,7 +137,13 @@ def test_catalog_compact_keeps_pagination_total_when_complete() -> None:
         detail="compact",
     )
 
-    assert result["pagination"] == {"total": 2}
+    assert result["pagination"] == {
+        "offset": 0,
+        "limit": 20,
+        "returned": 2,
+        "has_more": False,
+        "total": 2,
+    }
 
 
 def test_denoise_catalog_omits_default_filters_and_derived_flags() -> None:
@@ -397,6 +410,13 @@ def test_task_list_compact_keeps_actionable_task_state() -> None:
 
     assert result == {
         "success": True,
+        "pagination": {
+            "offset": 0,
+            "limit": None,
+            "returned": 1,
+            "has_more": False,
+            "total": 1,
+        },
         "tasks": [
             {
                 "task_id": "abc",

@@ -19,7 +19,7 @@ from ..shared.symbols import (
 from ._mcp_instance import mcp
 from .error_envelope import build_error_payload
 from .execution_logging import run_logged_operation
-from .output_contract import normalize_output_verbosity_detail
+from .output_contract import build_pagination_meta, normalize_output_verbosity_detail
 
 logger = logging.getLogger(__name__)
 
@@ -645,6 +645,22 @@ def _barrier_pricing_inputs(payload: Dict[str, Any]) -> Dict[str, Any]:
     return inputs
 
 
+def _normalize_options_pagination(payload: Dict[str, Any]) -> Dict[str, Any]:
+    pagination = payload.get("pagination")
+    if not isinstance(pagination, dict) or not isinstance(
+        pagination.get("total"), int
+    ):
+        return payload
+    out = dict(payload)
+    out["pagination"] = build_pagination_meta(
+        total=int(pagination["total"]),
+        returned=int(pagination.get("returned") or 0),
+        offset=int(pagination.get("offset") or 0),
+        limit=pagination.get("limit"),
+    )
+    return out
+
+
 def _apply_options_detail(
     payload: Dict[str, Any],
     *,
@@ -1035,13 +1051,17 @@ def options_expirations(
             payload["expirations"] = expirations[start_index:stop_index]
             payload["expiration_count"] = len(payload["expirations"])
             payload["available_count"] = available_count
-            payload["pagination"] = {
-                "offset": start_index,
-                "limit": effective_limit,
-                "returned": len(payload["expirations"]),
-                "has_more": stop_index < available_count,
-                "next_offset": stop_index if stop_index < available_count else None,
-            }
+            pagination = build_pagination_meta(
+                total=available_count,
+                returned=len(payload["expirations"]),
+                offset=start_index,
+                limit=effective_limit,
+            )
+            if pagination["has_more"]:
+                pagination["next_offset"] = start_index + len(
+                    payload["expirations"]
+                )
+            payload["pagination"] = pagination
         return _apply_options_detail(
             payload,
             detail=detail,
@@ -1285,12 +1305,15 @@ def options_chain(
             if "No options data" in text or "no options" in text.lower():
                 return _options_provider_no_data_error(symbol_value, exc)
             raise
-        return _apply_options_detail(
+        normalized = _normalize_options_pagination(
             _attach_options_symbol_mapping(
                 payload,
                 requested_symbol=symbol,
                 provider_symbol=symbol_value,
-            ),
+            )
+        )
+        return _apply_options_detail(
+            normalized,
             detail=detail,
             kind="chain",
         )

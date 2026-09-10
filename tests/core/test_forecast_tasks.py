@@ -1002,7 +1002,8 @@ class TestForecastModels:
         assert result["pagination"]["total"] == 3
         assert result["model_store"]["models_cached"] == 3
         assert "requested page" in result["message"]
-        assert result["suggested_offsets"] == {"first": 0, "last": 2}
+        assert result["pagination"]["page_beyond_total"] is True
+        assert result["pagination"]["suggested_offset"] == 2
         assert "forecast_train" not in result.get("hint", "")
 
     def test_delete_existing_defaults_to_metadata_preview(self):

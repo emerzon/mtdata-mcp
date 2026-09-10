@@ -239,15 +239,22 @@ size.
 Start-anchored candle ranges use the same continuation pattern. When
 `pagination.has_more` is true, reuse `pagination.next_cursor` with the original
 symbol, timeframe, start, and end values. A provider-bounded candle page reports
-`total: null`, `more_available: null`, and an evidence-based
-`total_lower_bound`; it never presents the fetched prefix as the full range.
+`total: null` and an evidence-based `total_lower_bound`; it never presents the
+fetched prefix as the full range.
 
-Full list output returns the complete normalized pagination block. Compact
-output omits pagination when the collection is complete. When more data exists,
-it returns only `has_more` plus `next_cursor` or `next_offset`. Catalog tools
-(`tools_list`, `indicators_list`, `denoise_list_methods`, and
-`forecast_list_methods`) also keep `pagination.total` so the collection size
-stays visible.
+Every pageable compact response keeps one pagination block, including complete
+and empty pages. The five core fields are always `offset`, `limit`, `returned`,
+`has_more`, and `total`. An offset page adds `next_offset` only when more rows
+remain. A cursor page adds `next_cursor` instead and may retain fields needed to
+continue safely, such as `continuation_direction`, `selection`,
+`source_events_returned`, or `total_lower_bound`. Full output may additionally
+include `more_available` and provider diagnostics.
+
+`total` is an exact integer when the filtered collection is known before
+slicing. This includes catalogs, symbols and options collections, forecast
+tasks and models, denoise methods, market scan and radar rows, and unified news
+pages. It is explicitly `null`, never silently omitted, when a bounded provider
+or cursor probe cannot determine the complete collection size.
 
 Public `limit` parameters always cap returned rows (including returned candles or
 ticks). Historical samples used only for analysis are named `lookback`,
@@ -256,29 +263,41 @@ an analytical window.
 
 ```json
 {
-  "total": 420,
-  "returned": 50,
   "offset": 0,
   "limit": 50,
+  "returned": 50,
   "has_more": true,
-  "more_available": 370
+  "total": 420,
+  "next_offset": 50
 }
 ```
 
 | Field | Meaning |
 |-------|---------|
-| `total` | Exact rows available before paging, or `null` when the provider cannot determine it |
-| `total_lower_bound` | Present only when `total` is unknown; minimum rows known to exist |
-| `returned` | Rows in this response |
 | `offset` | Zero-based start index of this page |
 | `limit` | Page size requested (`null` when unbounded) |
+| `returned` | Rows in this response |
 | `has_more` | `true` when more rows remain after this page |
-| `more_available` | Exact count of rows remaining, or `null` when `total` is unknown |
+| `total` | Exact rows available before paging, or `null` when the provider cannot determine it |
+| `next_offset` | Next offset for an offset page; present only when `has_more` is true |
+| `next_cursor` | Opaque continuation for a cursor page; present only when `has_more` is true |
+| `total_lower_bound` | Present only when `total` is unknown; minimum rows known to exist |
+| `more_available` | Full-detail exact rows remaining, or `null` when unknown |
 
 When a bounded provider can only prove that another row exists, `total` and
 `more_available` remain `null`; `total_lower_bound` and `has_more` carry the
 available evidence without presenting a page-size-dependent estimate as an
 exact universe count.
+
+An offset at or beyond a non-empty collection is a successful empty page, not a
+transport error. It returns `success=true`, `empty=true`,
+`empty_reason="page_beyond_total"`, `returned=0`, and `has_more=false`.
+`pagination.page_beyond_total=true` distinguishes it from a genuinely empty
+collection, while `pagination.suggested_offset` and the root `message`/`hint`
+identify the last populated page and how to restart. News keeps the providers
+queried before the page was sliced, so an out-of-range offset does not look like
+a provider outage. A collection with `total=0` is simply empty and is not
+marked beyond-total.
 
 The `pagination` object is authoritative and is the only pagination
 representation in canonical payloads. Root-level `total_count`, `offset`,
@@ -309,6 +328,7 @@ Page through results with `--offset` and `--limit`:
 ```bash
 mtdata-cli tools_list --category forecast --limit 20 --offset 0 --json
 mtdata-cli tools_list --category forecast --limit 20 --offset 20 --json
+mtdata-cli market_radar --symbols EURUSD,GBPUSD,USDJPY --limit 2 --offset 2 --json
 ```
 
 ---

@@ -113,6 +113,40 @@ def test_market_radar_keeps_watchlist_order() -> None:
     assert result["rows"][1]["quote_not_live_ready"] is False
 
 
+@pytest.mark.parametrize(
+    ("offset", "expected_symbols", "page_beyond_total"),
+    [
+        (1, ["GBPUSD"], False),
+        (3, [], True),
+    ],
+)
+def test_market_radar_supports_offset_pages(
+    offset: int,
+    expected_symbols: list[str],
+    page_beyond_total: bool,
+) -> None:
+    def caller(name: str, kwargs: Dict[str, Any]) -> Any:
+        assert name == "scan"
+        return _scan_rows("EURUSD", "GBPUSD", "USDJPY")
+
+    result = run_market_radar(
+        MarketRadarRequest(
+            symbols="EURUSD,GBPUSD,USDJPY",
+            rank_by="watchlist",
+            limit=1,
+            offset=offset,
+        ),
+        call_section=caller,
+    )
+
+    assert result["success"] is True
+    assert [row["symbol"] for row in result["rows"]] == expected_symbols
+    assert result["pagination"]["offset"] == offset
+    assert result["pagination"].get("page_beyond_total", False) is page_beyond_total
+    if page_beyond_total:
+        assert result["pagination"]["suggested_offset"] == 2
+
+
 def test_market_radar_forwards_rank_order_to_scan() -> None:
     captured: Dict[str, Any] = {}
 

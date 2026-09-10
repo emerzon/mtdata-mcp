@@ -190,10 +190,12 @@ def test_options_expirations_compact_paginates_provider_calendar(monkeypatch):
     assert result["expirations"] == ["2026-03-19", "2026-04-19", "2026-05-19"]
     assert result["available_count"] == 12
     assert result["pagination"] == {
+        "total": 12,
+        "returned": 3,
         "offset": 2,
         "limit": 3,
-        "returned": 3,
         "has_more": True,
+        "more_available": 7,
         "next_offset": 5,
     }
 

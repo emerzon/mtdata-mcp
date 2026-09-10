@@ -486,6 +486,14 @@ def build_pagination_meta(
         "has_more": more_available > 0,
         "more_available": more_available,
     }
+    if returned_value == 0 and total_value > 0 and offset_value >= total_value:
+        suggested_offset = (
+            0
+            if limit_value is None
+            else ((total_value - 1) // limit_value) * limit_value
+        )
+        pagination["page_beyond_total"] = True
+        pagination["suggested_offset"] = suggested_offset
     return pagination
 
 

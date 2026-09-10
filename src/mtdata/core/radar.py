@@ -118,6 +118,11 @@ class MarketRadarRequest(BaseModel):
             "The full requested watchlist is scanned first, up to that candidate cap."
         ),
     )
+    offset: int = Field(
+        default=0,
+        ge=0,
+        description="Number of ranked radar rows to skip before applying limit.",
+    )
     detail: DetailLiteral = Field(default="compact")
     allow_partial: bool = Field(
         default=True,
@@ -478,13 +483,14 @@ def run_market_radar(
     rows = payload.get("rows")
     if isinstance(rows, list):
         total = len(rows)
-        sliced = rows[:limit]
+        offset = int(request.offset)
+        sliced = rows[offset : offset + limit]
         payload["rows"] = sliced
         payload["count"] = len(sliced)
         payload["pagination"] = build_pagination_meta(
             total=total,
             returned=len(sliced),
-            offset=0,
+            offset=offset,
             limit=limit,
         )
     payload = attach_mt5_source(payload)
@@ -498,7 +504,8 @@ def market_radar(request: MarketRadarRequest) -> Dict[str, Any]:
 
     Pass comma-separated symbols to keep a personal list. Omit symbols to try
     common majors that this broker lists, then fall back to top markets.
-    At most 20 names are returned. Rows are activity context, not signals.
+    At most 20 names are returned. Use ``offset`` with ``limit`` to page the
+    ranked watchlist. Rows are activity context, not signals.
     """
 
     return run_logged_operation(
