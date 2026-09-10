@@ -968,7 +968,6 @@ class TestRecordingToolDecorator:
             assert "detail" in sig.parameters
             assert "json" in sig.parameters
             assert "output_fields" in sig.parameters
-            assert "extras" not in sig.parameters
             assert "verbose" not in sig.parameters
             assert "precision" not in sig.parameters
 
@@ -1010,7 +1009,6 @@ class TestRecordingToolDecorator:
             assert "detail" in sig.parameters
             assert "json" in sig.parameters
             assert "output_fields" in sig.parameters
-            assert "extras" not in sig.parameters
             assert "verbose" not in sig.parameters
             assert "precision" not in sig.parameters
             raw = wrapped(__cli_raw=True)
@@ -1337,7 +1335,6 @@ class TestMcpToolSchemas:
             props = schema.get("properties") or {}
             assert props["json"]["type"] == "boolean", name
             assert "output_fields" in props, name
-            assert "extras" not in props, name
             schema_attach._validate_local_def_refs(schema)
 
     def test_wait_event_list_tools_schema_omits_legacy_varargs(self):
@@ -1517,7 +1514,6 @@ class TestMcpToolSchemas:
         assert "compact" in props["detail"]["enum"]
         assert props["json"]["type"] == "boolean"
         assert "output_fields" in props
-        assert "extras" not in props
 
         params_schema = props["params"]
         assert (

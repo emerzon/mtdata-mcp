@@ -476,14 +476,6 @@ def invoke_tool_for_webapi(
     # Strip UI-only keys if callers leak them
     args.pop("confirm", None)
     args.pop("__confirm", None)
-    if "extras" in args:
-        raise _http_error(
-            400,
-            "extras was removed; use the tool's detail parameter.",
-            code="tool_param_error",
-            operation=name,
-            details={"parameter": "extras", "replacement": "detail"},
-        )
     # The HTTP surface is always structured JSON; consume presentation-only
     # parameters here instead of leaking them into the raw domain callable.
     args.pop("json", None)

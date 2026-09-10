@@ -143,7 +143,6 @@ def test_attach_schemas_to_tools_preserves_tool_params_and_adds_public_output_co
     assert props["output"]["type"] == "string"
     assert "detail" in params.get("required", [])
     assert props["json"]["type"] == "boolean"
-    assert "extras" not in props
     assert "output_fields" in props
 
 

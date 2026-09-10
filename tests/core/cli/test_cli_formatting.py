@@ -112,7 +112,7 @@ def test_format_result_for_cli_does_not_mutate_candle_payload() -> None:
 
 
 def test_render_cli_result_does_not_mutate_input(capsys) -> None:
-    args = argparse.Namespace(json=True, verbose=False, extras=None, precision=None)
+    args = argparse.Namespace(json=True, verbose=False, precision=None)
     result = {
         "success": True,
         "symbol": {

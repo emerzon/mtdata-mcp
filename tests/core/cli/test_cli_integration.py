@@ -2866,31 +2866,6 @@ class TestForecastGenerateIntegration:
 class TestEdgeCases:
 
     @patch("mtdata.core.cli.api.discover_tools")
-    def test_invalid_extras_preserves_json_argument_error_contract(
-        self, mock_discover, capsys
-    ):
-        def sample_tool():
-            return {"success": True, "value": 1}
-
-        mock_discover.return_value = {
-            "sample_tool": {
-                "func": sample_tool,
-                "meta": {"description": "Sample tool"},
-            }
-        }
-
-        with patch(
-            "sys.argv",
-            ["cli.py", "sample_tool", "--extras", "nonsense", "--json"],
-        ), pytest.raises(SystemExit, match="2"):
-            main()
-
-        payload = json.loads(capsys.readouterr().out)
-        assert payload["success"] is False
-        assert payload["error_code"] == "cli_invalid_arguments"
-        assert "extras" in payload["error"]
-
-    @patch("mtdata.core.cli.api.discover_tools")
     def test_all_unresolved_output_fields_fail_with_structured_json(
         self, mock_discover, capsys
     ):
@@ -3164,7 +3139,6 @@ class TestEdgeCases:
             {"success": True, "bid": 1.1, "ask": 1.2, "symbol": "EURUSD"},
             args=Namespace(
                 json=True,
-                extras=None,
                 fields="bid,ask",
                 precision=None,
                 verbose=False,

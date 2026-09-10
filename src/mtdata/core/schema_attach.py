@@ -1811,7 +1811,6 @@ def _enforce_public_output_contract(schema: Dict[str, Any]) -> None:
             "description": "Return structured JSON instead of default TOON text.",
         },
     )
-    props.pop("extras", None)
     props.setdefault(
         "output_fields",
         {

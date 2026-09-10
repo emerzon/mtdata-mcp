@@ -304,27 +304,6 @@ class TestListAndInvoke:
             "bid": 1.1,
         }
 
-    def test_invoke_rejects_invalid_extras(self):
-        with (
-            patch("mtdata.core.web_api_tools.ensure_tools_bootstrapped"),
-            patch(
-                "mtdata.core.web_api_tools.get_tool_functions",
-                return_value={"demo": lambda: {"success": True}},
-            ),
-            pytest.raises(HTTPException) as exc,
-        ):
-            invoke_tool_for_webapi(
-                "demo",
-                arguments={"extras": "not-a-real-extra"},
-            )
-
-        assert exc.value.status_code == 400
-        _assert_error_envelope(
-            exc.value.detail, error_code="tool_param_error", operation="demo"
-        )
-        assert exc.value.detail["details"]["parameter"] == "extras"
-        assert exc.value.detail["details"]["replacement"] == "detail"
-
     @pytest.mark.parametrize(
         ("tool_name", "arguments"),
         [
@@ -514,7 +493,6 @@ class TestWebApiRoutes:
         assert isinstance(schema, dict)
         assert "json" not in schema["properties"]
         assert "output_fields" in schema["properties"]
-        assert "extras" not in schema["properties"]
         assert "cli" not in tool
         assert "module" not in tool
 
@@ -835,23 +813,3 @@ class TestWebApiRoutes:
                 )
                 assert res.status_code == 200, res.text
                 assert res.json()["result"]["ticket"] == int(ticket)
-
-    def test_invoke_extras_uses_error_envelope(self):
-        with patch(
-            "mtdata.core.web_api_tools.get_tool_functions",
-            return_value={"demo": lambda: {"success": True}},
-        ):
-            res = self.client.post(
-                "/api/v1/tools/demo/invoke",
-                json={"arguments": {"extras": "not-a-real-extra"}, "confirm": False},
-            )
-        assert res.status_code == 400
-        body = res.json()
-        assert body.get("success") is not True
-        envelope = body
-        _assert_error_envelope(
-            envelope, error_code="tool_param_error", operation="demo"
-        )
-        assert envelope["details"]["parameter"] == "extras"
-        assert envelope["details"]["replacement"] == "detail"
-        assert res.headers.get("x-request-id") == envelope["request_id"]

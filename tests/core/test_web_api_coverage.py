@@ -110,11 +110,6 @@ class TestPydanticModels:
         assert ForecastVolBody(symbol="EURUSD", detail="standard").detail == "standard"
         assert BacktestBody(symbol="EURUSD", detail="full").detail == "full"
 
-    @pytest.mark.parametrize("body_type", [ForecastPriceBody, ForecastVolBody, BacktestBody])
-    def test_forecast_bodies_reject_removed_extras(self, body_type):
-        with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-            body_type(symbol="EURUSD", extras="metadata")
-
     def test_forecast_price_body_rejects_removed_target(self):
         with pytest.raises(ValidationError):
             ForecastPriceBody(symbol="GBPUSD", target="return")
@@ -506,7 +501,7 @@ class TestGetMethods:
             ],
         }
 
-    def test_extras_keeps_enriched_snapshot_metadata(self):
+    def test_full_detail_keeps_enriched_snapshot_metadata(self):
         data = {"methods": [{"method": "theta", "available": True, "requires": []}]}
         enriched = {
             "methods": [

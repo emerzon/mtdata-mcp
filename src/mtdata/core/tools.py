@@ -113,7 +113,6 @@ def tools_list(
         if compact_mode:
             for key in (
                 "categories",
-                "output_extras",
                 "parameter_schema",
                 "schema_version",
                 "detail",

@@ -559,7 +559,6 @@ def test_tools_list_filters_and_paginates_rows():
     assert not {"total_count", "offset", "limit", "has_more"} & out.keys()
     assert all(row["category"] == "forecast" for row in out["tools"])
     assert "categories" not in out
-    assert "output_extras" not in out
 
 
 def test_tools_list_defaults_to_short_page_and_allows_full_explicit_limit():
@@ -626,7 +625,7 @@ def test_tools_list_standard_includes_catalog_metadata():
     out = raw_tools_list(limit=1, detail="standard")
 
     assert out["categories"]
-    assert out["output_extras"]
+    assert out["parameter_schema"]["available_in_detail"] == "full"
 
 
 def test_tools_list_keeps_disabled_tools_out_of_callable_rows(monkeypatch):

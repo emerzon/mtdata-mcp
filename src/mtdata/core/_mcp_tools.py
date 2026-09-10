@@ -29,10 +29,6 @@ from ..shared.feature_flags import (
     MARKET_DEPTH_FETCH_FEATURE,
     feature_enabled,
 )
-from ..shared.parameter_contracts import (
-    OUTPUT_EXTRA_FULL_ALIASES,
-    OUTPUT_EXTRAS,
-)
 from ..shared.tool_categories import tool_catalog_category
 from ..utils.coercion import UNPARSED_BOOL, coerce_scalar, parse_bool_like
 from .error_envelope import (
@@ -861,11 +857,6 @@ def registered_tool_catalog(*, detail: str = "compact") -> Dict[str, Any]:
         "detail": detail_mode,
         "count": len(tools),
         "categories": categories,
-        "output_extras": {
-            "accepted": sorted(OUTPUT_EXTRAS),
-            "full_aliases": sorted(OUTPUT_EXTRA_FULL_ALIASES),
-            "support": "best_effort_by_tool",
-        },
         "tools": tools,
     }
 

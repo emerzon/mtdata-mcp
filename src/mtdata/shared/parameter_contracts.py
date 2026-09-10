@@ -2,22 +2,6 @@ from __future__ import annotations
 
 from typing import Final
 
-OUTPUT_EXTRAS: Final[frozenset[str]] = frozenset(
-    {
-        "metadata",
-        "diagnostics",
-        "request",
-        "raw",
-        "raw_rows",
-        "method_docs",
-        "guidance",
-    }
-)
-OUTPUT_EXTRA_FULL_ALIASES: Final[frozenset[str]] = frozenset(
-    {
-        "all",
-    }
-)
 PARAMETER_HELP: Final[dict[str, str]] = {
     "symbol": "Trading symbol (e.g. EURUSD).",
     "symbols": "Comma-separated trading symbols (e.g. EURUSD,GBPUSD).",

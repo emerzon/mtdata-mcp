@@ -69,7 +69,6 @@ class SchemaEvaluationReport:
 _EXPECTED_DEFAULT_TOOL_COUNT = 83
 _EXPECTED_GATED_TOOL_COUNT = 83
 _OUTPUT_CONTROLS = frozenset({"json", "output_fields"})
-_LEGACY_OUTPUT_CONTROLS = frozenset({"extras"})
 _FINVIZ_DOMAIN_FIELDS = frozenset({"equity_profile"})
 _PYDANTIC_CONSTRAINT_KEYWORDS = frozenset(
     {"allow_inf_nan", "ge", "gt", "le", "lt", "max_length", "min_length"}
@@ -388,15 +387,6 @@ def _evaluate_tool(  # noqa: C901
             name,
             control,
             "Every public tool must expose the shared output control.",
-        )
-    for control in sorted(_LEGACY_OUTPUT_CONTROLS & properties.keys()):
-        _finding(
-            findings,
-            "error",
-            "legacy_output_control",
-            name,
-            control,
-            "Legacy output controls must not be public.",
         )
     if "fields" in properties and name not in _FINVIZ_DOMAIN_FIELDS:
         _finding(
