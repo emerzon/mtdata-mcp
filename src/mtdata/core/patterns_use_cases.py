@@ -664,6 +664,8 @@ def run_patterns_detect(  # noqa: C901
             end=request.end,
             denoise=request.denoise,
         )
+        if isinstance(out, dict) and out.get("error"):
+            return out
         if isinstance(out, dict) and not out.get("error"):
             _attach_pattern_window_metadata(
                 out,

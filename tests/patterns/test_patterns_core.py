@@ -554,6 +554,37 @@ def test_patterns_detect_candlestick_passes_config(monkeypatch):
     assert captured["config"] == {"use_volume_confirmation": False}
 
 
+def test_patterns_detect_summary_preserves_candlestick_detector_error(monkeypatch):
+    expected = {
+        "success": False,
+        "error": "No candlestick detectors match whitelist 'bogus'.",
+        "error_code": "unsupported_detector",
+        "requested_detectors": ["bogus"],
+        "unsupported_detectors": ["bogus"],
+        "available_detectors": ["doji", "engulfing"],
+        "valid_values": {"whitelist": ["doji", "engulfing"]},
+    }
+    monkeypatch.setattr(
+        core_patterns,
+        "_detect_candlestick_patterns",
+        lambda **_kwargs: dict(expected),
+    )
+
+    result = patterns_detect(
+        symbol="EURUSD",
+        timeframe="H1",
+        mode="candlestick",
+        detail="summary",
+        whitelist="bogus",
+    )
+
+    assert result["success"] is False
+    assert result["error_code"] == "unsupported_detector"
+    assert result["available_detectors"] == ["doji", "engulfing"]
+    assert result["valid_values"] == {"whitelist": ["doji", "engulfing"]}
+    assert "n_patterns" not in result
+
+
 @pytest.mark.parametrize(
     ("detail", "expected_rows", "expected_output_cap"),
     [

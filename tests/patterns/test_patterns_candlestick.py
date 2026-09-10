@@ -11,6 +11,7 @@ import mtdata.core.patterns_support as patterns_support_mod
 import mtdata.patterns.candlestick as candlestick_mod
 import mtdata.services.data_service.candles as data_service_mod
 from mtdata.core import patterns as core_patterns
+from mtdata.core.error_envelope import normalize_error_payload
 from mtdata.core.patterns_requests import PatternsDetectRequest
 from mtdata.patterns.candlestick import (
     _extract_candlestick_rows,
@@ -461,17 +462,25 @@ def test_detect_candlestick_patterns_whitelist_accepts_display_names(monkeypatch
 
 
 def test_detect_candlestick_patterns_whitelist_error_lists_detectors(monkeypatch):
+    detector_names = [
+        f"detector{prefix}{suffix}"
+        for prefix in ("a", "b")
+        for suffix in "abcdefghijklmnopqrstuvwxyz"
+    ][:45]
+    detector_methods = [f"cdl_{name}" for name in detector_names]
+
     class _FakeFrame(pd.DataFrame):
         @property
         def _constructor(self):
             return _FakeFrame
 
     monkeypatch.setattr(candlestick_mod, "_ensure_candlestick_runtime", lambda: None)
+    monkeypatch.setattr(candlestick_mod, "ta", SimpleNamespace())
     monkeypatch.setattr(candlestick_mod, "TIMEFRAME_MAP", {"H1": 1})
     monkeypatch.setattr(
         candlestick_mod,
         "_get_candlestick_pattern_methods",
-        lambda _temp: ["cdl_doji", "cdl_hammer"],
+        lambda _temp: detector_methods,
     )
     monkeypatch.setattr(
         data_service_mod,
@@ -499,8 +508,21 @@ def test_detect_candlestick_patterns_whitelist_error_lists_detectors(monkeypatch
     )
 
     assert "No candlestick detectors match whitelist 'foo'" in res["error"]
-    assert "DOJI" in res["error"]
-    assert "HAMMER" in res["error"]
+    assert "... (+5)" in res["error"]
+    expected_detectors = sorted(detector_names)
+    assert res["success"] is False
+    assert res["error_code"] == "unsupported_detector"
+    assert res["parameter"] == "whitelist"
+    assert res["requested_detectors"] == ["foo"]
+    assert res["unsupported_detectors"] == ["foo"]
+    assert res["available_detectors"] == expected_detectors
+    assert res["valid_values"] == {"whitelist": expected_detectors}
+
+    public_error = normalize_error_payload(res, operation="patterns_detect")
+    assert "available_detectors" in public_error["remediation"]
+    assert public_error["documentation"].endswith(
+        "/docs/forecast/PATTERN_SEARCH.md#filtering-patterns"
+    )
 
 
 def test_aggregate_dispatcher_evaluates_supported_zero_hit_whitelist(monkeypatch):

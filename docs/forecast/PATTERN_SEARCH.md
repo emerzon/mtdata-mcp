@@ -296,6 +296,13 @@ request an unbounded historical scan.
 mtdata-cli patterns_detect EURUSD --mode candlestick --whitelist "ENGULFING,HAMMER,DOJI"
 ```
 
+If none of the requested names can run, the tool returns
+`error_code=unsupported_detector`. `requested_detectors` and
+`unsupported_detectors` contain canonicalized request names, while
+`available_detectors` and `valid_values.whitelist` contain the complete active
+backend catalog even if the human-readable error preview is abbreviated. Use
+`mode` to select another detector family; `whitelist` filters candlesticks only.
+
 **By confidence:**
 ```bash
 mtdata-cli patterns_detect EURUSD --mode candlestick --min-strength 0.85

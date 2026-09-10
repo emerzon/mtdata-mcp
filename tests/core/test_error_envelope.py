@@ -175,6 +175,22 @@ def test_generic_tool_error_includes_retry_guidance():
     assert "Retry the request" in out["remediation"]
 
 
+def test_unsupported_detector_error_has_canonical_pattern_guidance():
+    out = build_error_payload(
+        "No candlestick detectors match whitelist 'bogus'.",
+        code="unsupported_detector",
+        operation="patterns_detect",
+        valid_values={"whitelist": ["doji", "engulfing"]},
+    )
+
+    assert out["error_code"] == "unsupported_detector"
+    assert "available_detectors" in out["remediation"]
+    assert out["valid_values"] == {"whitelist": ["doji", "engulfing"]}
+    assert out["documentation"].endswith(
+        "/docs/forecast/PATTERN_SEARCH.md#filtering-patterns"
+    )
+
+
 def test_options_tool_error_points_to_provider_status():
     out = build_error_payload(
         "Failed to fetch options chain: Yahoo options provider failed.",

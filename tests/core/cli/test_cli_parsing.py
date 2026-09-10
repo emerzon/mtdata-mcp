@@ -325,6 +325,12 @@ def test_default_toon_parse_errors_use_structured_stdout_envelope(
             "Use --lookback for history bars",
         ),
         (
+            "patterns_detect",
+            "unrecognized arguments: --pattern bogus",
+            ["mtdata-cli", "patterns_detect", "--pattern", "bogus"],
+            "Use --mode to choose the detector family",
+        ),
+        (
             "regime_detect",
             "unrecognized arguments: --limit 100",
             ["mtdata-cli", "regime_detect", "--limit", "100"],

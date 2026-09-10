@@ -321,6 +321,40 @@ def _format_candlestick_detector_labels(
     return ", ".join(shown) + suffix
 
 
+_UNSUPPORTED_DETECTOR_REMEDIATION = (
+    "Pass whitelist with one or more canonical names from available_detectors. "
+    "whitelist filters candlestick mode only; use mode to choose another detector "
+    "family."
+)
+
+
+def _unsupported_candlestick_detector_error(
+    *,
+    message: str,
+    available_detector_names: set[str],
+    requested_order: List[str],
+    unsupported_detectors: List[str],
+    robust_filtered_names: List[str],
+    failed_detectors: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    available_detectors = sorted(available_detector_names)
+    payload: Dict[str, Any] = {
+        "success": False,
+        "error": message,
+        "error_code": "unsupported_detector",
+        "parameter": "whitelist",
+        "requested_detectors": list(requested_order),
+        "unsupported_detectors": sorted(unsupported_detectors),
+        "filtered_by_robust_only": sorted(robust_filtered_names),
+        "available_detectors": available_detectors,
+        "valid_values": {"whitelist": available_detectors},
+        "remediation": _UNSUPPORTED_DETECTOR_REMEDIATION,
+    }
+    if failed_detectors:
+        payload["failed_detectors"] = sorted(failed_detectors)
+    return payload
+
+
 def _parse_min_strength(min_strength: float) -> float:
     try:
         thr = float(min_strength)
@@ -1078,17 +1112,18 @@ def detect_candlestick_patterns(  # noqa: C901
             sorted(available_detector_names)
         )
         requested = ", ".join(whitelist_parts) if whitelist_parts else str(whitelist)
-        return {
-            "error": (
+        return _unsupported_candlestick_detector_error(
+            message=(
                 "No candlestick detectors match whitelist "
                 f"'{requested}'. Available detectors: {available}"
             ),
-            "requested_detectors": requested_order,
-            "unsupported_detectors": sorted(
+            available_detector_names=available_detector_names,
+            requested_order=requested_order,
+            unsupported_detectors=sorted(
                 (requested_names or set()) - backend_detector_names
             ),
-            "filtered_by_robust_only": robust_filtered_names,
-        }
+            robust_filtered_names=robust_filtered_names,
+        )
     if selected_names is None and not available_detector_names and not dispatcher_method:
         return {
             "error": "No candlestick detectors match the requested filters.",
@@ -1169,6 +1204,21 @@ def detect_candlestick_patterns(  # noqa: C901
         available = _format_candlestick_detector_labels(
             sorted(available_detector_names)
         )
+        if requested_names is not None and unsupported_detectors:
+            requested = (
+                ", ".join(whitelist_parts) if whitelist_parts else str(whitelist)
+            )
+            return _unsupported_candlestick_detector_error(
+                message=(
+                    "No candlestick detectors produced outputs for whitelist "
+                    f"'{requested}'. Available detectors: {available}"
+                ),
+                available_detector_names=available_detector_names,
+                requested_order=requested_order,
+                unsupported_detectors=unsupported_detectors,
+                robust_filtered_names=robust_filtered_names,
+                failed_detectors=unresolved_failures,
+            )
         return {
             "error": (
                 "No requested candlestick detectors produced outputs. "

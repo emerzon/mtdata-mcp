@@ -841,6 +841,10 @@ _CLI_NEAR_MISS_REMEDIATIONS: Dict[tuple[str, str], str] = {
         "patterns_detect does not take --limit. Use --lookback for history bars "
         "and --top-k to cap result rows."
     ),
+    ("patterns_detect", "--pattern"): (
+        "patterns_detect does not take --pattern. Use --mode to choose the detector "
+        "family, and --whitelist to filter candlestick detector names."
+    ),
     ("regime_detect", "--limit"): (
         "regime_detect does not take --limit. Use --fetch-limit for bars fetched "
         "or the model-fit window, and --lookback for the summary window."

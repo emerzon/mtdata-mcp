@@ -191,6 +191,16 @@ _ERROR_GUIDANCE: Dict[str, Dict[str, Any]] = {
         ),
         "related_tools": ["indicators_list"],
     },
+    "unsupported_detector": {
+        "remediation": (
+            "Pass whitelist with one or more canonical names from "
+            "available_detectors. whitelist filters candlestick mode only; use "
+            "mode to choose another detector family."
+        ),
+        "documentation": canonical_documentation_url(
+            "docs/forecast/PATTERN_SEARCH.md#filtering-patterns"
+        ),
+    },
     "ticket_not_found": {
         "remediation": (
             "Use trade_get_open or trade_get_pending to find an active ticket, "
