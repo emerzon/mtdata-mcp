@@ -108,6 +108,8 @@ def _strip_verbose_only_fields(value: Any) -> Any:
                     out = dict(value)
                 out.pop(key, None)
                 continue
+            if not isinstance(subvalue, (dict, list, tuple)):
+                continue
             stripped = _strip_verbose_only_fields(subvalue)
             if stripped is not subvalue:
                 if out is None:
@@ -117,6 +119,8 @@ def _strip_verbose_only_fields(value: Any) -> Any:
     if isinstance(value, list):
         out = None
         for index, item in enumerate(value):
+            if not isinstance(item, (dict, list, tuple)):
+                continue
             stripped = _strip_verbose_only_fields(item)
             if stripped is not item:
                 if out is None:
@@ -126,6 +130,8 @@ def _strip_verbose_only_fields(value: Any) -> Any:
     if isinstance(value, tuple):
         out = None
         for index, item in enumerate(value):
+            if not isinstance(item, (dict, list, tuple)):
+                continue
             stripped = _strip_verbose_only_fields(item)
             if stripped is not item:
                 if out is None:

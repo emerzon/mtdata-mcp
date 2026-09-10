@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
 import pandas as pd
 
 from ...bootstrap.settings import mt5_config
@@ -101,17 +102,16 @@ from ...utils.time import (
     _format_time_minimal,
     _format_time_minimal_local,
     _resolve_client_tz,
+    _timezone_uses_zulu_suffix,
     bar_close_epoch,
     display_timezone_label,
     format_epoch_utc,
     timeframe_bar_open_epoch,
 )
 from ...utils.utils import (
-    _format_numeric_rows_from_df,
     _normalize_ohlcv_arg,
     _parse_end_datetime,
     _parse_start_datetime,
-    _table_from_rows,
     _utc_epoch_seconds,
 )
 from .errors import (
@@ -273,6 +273,86 @@ def _round_row_price_columns(
                 rounded[idx] = _round_price_value(rounded[idx], digits)
         rounded_rows.append(rounded)
     return rounded_rows
+
+
+def _round_price_series_vectorized(
+    series: pd.Series,
+    digits: int,
+) -> pd.Series:
+    """Round numeric prices in bulk while matching Python's half-even result."""
+    if digits <= 0:
+        return series
+
+    def _scalar_fallback() -> pd.Series:
+        return pd.Series(
+            [
+                _round_price_value(value, digits)
+                for value in series.tolist()
+            ],
+            index=series.index,
+            dtype=object,
+        )
+
+    if not pd.api.types.is_numeric_dtype(series.dtype) or digits > 15:
+        return _scalar_fallback()
+
+    values = series.to_numpy(dtype=float, copy=True)
+    finite = np.isfinite(values)
+    if not bool(finite.any()):
+        return pd.Series(values, index=series.index)
+
+    factor = 10.0 ** digits
+    scaled = np.abs(values[finite]) * factor
+    if (
+        not math.isfinite(factor)
+        or not bool(np.isfinite(scaled).all())
+        or bool((scaled >= float(2**52)).any())
+    ):
+        return _scalar_fallback()
+
+    rounded = values.copy()
+    rounded[finite] = np.round(values[finite], digits)
+
+    # NumPy's fast decimal scaling differs from Python's correctly rounded
+    # ``round`` at exact half-way values (for example 2.675 at two digits).
+    # Those values are sparse in provider/indicator columns, so repair only
+    # that subset with the scalar reference behavior.
+    fractions = scaled - np.floor(scaled)
+    tie_tolerance = np.maximum(np.spacing(scaled) * 2.0, 1e-12)
+    tie_positions = np.flatnonzero(np.abs(fractions - 0.5) <= tie_tolerance)
+    finite_positions = np.flatnonzero(finite)
+    for position in tie_positions:
+        source_position = int(finite_positions[position])
+        rounded[source_position] = _round_price_value(
+            values[source_position],
+            digits,
+        )
+    return pd.Series(rounded, index=series.index)
+
+
+def _candle_table_from_frame(
+    df: pd.DataFrame,
+    headers: List[str],
+    *,
+    digits: int,
+    price_columns: frozenset[str],
+) -> Dict[str, Any]:
+    """Build public candle records with one columnar rounding/conversion pass."""
+    public_frame = df.loc[:, headers].copy()
+    if digits > 0:
+        for column in headers:
+            if column in price_columns:
+                public_frame[column] = _round_price_series_vectorized(
+                    public_frame[column],
+                    digits,
+                )
+    records = public_frame.to_dict("records")
+    return {
+        "data": records,
+        "row_key": "data",
+        "success": True,
+        "count": len(records),
+    }
 
 
 _PRICE_INDICATOR_PREFIXES = (
@@ -1207,11 +1287,20 @@ def _format_rate_times(epoch_series: pd.Series, *, use_client_tz: bool) -> pd.Se
     return formatted
 
 
-def _build_rates_df(rates: Any, use_client_tz: bool) -> pd.DataFrame:
+def _build_rates_df(
+    rates: Any,
+    use_client_tz: bool,
+    *,
+    format_time: bool = True,
+) -> pd.DataFrame:
     """Normalize raw MT5 rates into a DataFrame with epoch and display time columns."""
     df = _rates_to_df(rates)
     df['__epoch'] = df['time']
-    df["time"] = _format_rate_times(df["time"], use_client_tz=use_client_tz)
+    if format_time:
+        df["time"] = _format_rate_times(
+            df["time"],
+            use_client_tz=use_client_tz,
+        )
     if 'volume' not in df.columns and 'tick_volume' in df.columns:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -1903,7 +1992,11 @@ def _rebuild_candle_indicator_window(
     headers: List[str],
 ) -> Tuple[pd.DataFrame, List[str]]:
     """Rebuild the warmup window and re-run the pre-indicator stages."""
-    df = _build_rates_df(rates, use_client_tz)
+    df = _build_rates_df(
+        rates,
+        use_client_tz,
+        format_time=False,
+    )
     if denoise:
         normalized = _normalize_denoise_spec(denoise, default_when='pre_ti')
         if normalized and str(normalized.get('when', 'pre_ti')).lower() == 'pre_ti':
@@ -2084,11 +2177,39 @@ def _format_candle_times(
     tz_used_name = 'UTC'
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        time_values = pd.to_datetime(epochs, unit='s', utc=True)
+        time_values = pd.to_datetime(
+            epochs,
+            unit='s',
+            utc=True,
+            errors="coerce",
+        )
         if use_client_tz:
             tz_used_name = getattr(client_tz, 'zone', None) or str(client_tz)
             time_values = time_values.dt.tz_convert(client_tz)
-        df['time'] = time_values.map(lambda value: _format_datetime_minute_explicit(value.to_pydatetime()))
+        formatted = time_values.dt.strftime("%Y-%m-%dT%H:%M%z")
+        if _timezone_uses_zulu_suffix(time_values.dt.tz):
+            formatted = formatted.str.replace(r"\+0000$", "Z", regex=True)
+        else:
+            formatted = formatted.str.replace(
+                r"([+-]\d{2})(\d{2})$",
+                r"\1:\2",
+                regex=True,
+            )
+        missing = formatted.isna()
+        if bool(missing.any()):
+            formatter = (
+                _format_time_minimal_local
+                if use_client_tz
+                else _format_time_minimal
+            )
+            formatted.loc[missing] = epochs.loc[missing].map(
+                lambda value: (
+                    formatter(float(value))
+                    if pd.notna(value)
+                    else None
+                )
+            )
+        df['time'] = formatted
     df.attrs['_tz_used_name'] = tz_used_name
 
 
@@ -2501,7 +2622,11 @@ def fetch_candles(  # noqa: C901
         # Construct DataFrame to support indicators and consistent output
         client_tz = None if force_utc else _resolve_client_tz()
         _use_ctz = client_tz is not None
-        df = _build_rates_df(rates, _use_ctz)
+        df = _build_rates_df(
+            rates,
+            _use_ctz,
+            format_time=False,
+        )
         if include_spread:
             _normalize_candle_spread_columns(
                 df,
@@ -2814,9 +2939,8 @@ def fetch_candles(  # noqa: C901
         )
         ti_added_cols = [str(c) for c in ti_cols if isinstance(c, str)]
         price_indicator_cols = _price_indicator_columns(ti_added_cols)
-        rows = _format_numeric_rows_from_df(df, headers, stringify=False)
-        rows = _round_row_price_columns(
-            rows,
+        payload = _candle_table_from_frame(
+            df,
             headers,
             digits=price_digits,
             price_columns=frozenset([*_CANDLE_PRICE_COLUMNS, *price_indicator_cols]),
@@ -2830,8 +2954,6 @@ def fetch_candles(  # noqa: C901
             start_datetime=start_datetime,
             end_datetime=end_datetime,
         )
-        # Build tabular payload
-        payload = _table_from_rows(headers, rows)
         # `candles` is the domain-specific row count for this tool; avoid
         # duplicating the generic `count` field in public output.
         payload.pop("count", None)

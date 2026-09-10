@@ -23,16 +23,20 @@ _SYMBOL_SEARCH_CALL_PATTERN = re.compile(
 )
 
 
+def _normalize_cli_command_hint(value: str) -> str:
+    program = current_cli_program_name()
+    return _SYMBOL_SEARCH_CALL_PATTERN.sub(
+        lambda match: (
+            f"{program} symbols_list --search-term "
+            f"{match.group('quote')}{match.group('term')}{match.group('quote')}"
+        ),
+        value,
+    )
+
+
 def _normalize_cli_command_hints(value: Any) -> Any:
     if isinstance(value, str):
-        program = current_cli_program_name()
-        return _SYMBOL_SEARCH_CALL_PATTERN.sub(
-            lambda match: (
-                f"{program} symbols_list --search-term "
-                f"{match.group('quote')}{match.group('term')}{match.group('quote')}"
-            ),
-            value,
-        )
+        return _normalize_cli_command_hint(value)
     if isinstance(value, dict):
         return {key: _normalize_cli_command_hints(item) for key, item in value.items()}
     if isinstance(value, list):
@@ -71,6 +75,7 @@ def _format_result_for_cli(
         cmd_name=cmd_name,
         precision=precision_policy.mode,
         preserve_payload_shape=preserve_payload_shape,
+        normalize_hints=fmt_s != CLI_FORMAT_JSON,
     )
     if fmt_s == CLI_FORMAT_JSON:
         payload = {"text": prepared} if isinstance(prepared, str) else prepared
@@ -78,6 +83,7 @@ def _format_result_for_cli(
             payload,
             indent=2,
             compact_numbers=precision_policy.simplify_numbers,
+            string_normalizer=_normalize_cli_command_hint,
         )
     if isinstance(prepared, str):
         return prepared
@@ -585,8 +591,9 @@ def _prepare_cli_payload(
     cmd_name: str,
     precision: Any = None,
     preserve_payload_shape: bool = False,
+    normalize_hints: bool = True,
 ) -> Any:
-    prepared = _normalize_cli_command_hints(result)
+    prepared = _normalize_cli_command_hints(result) if normalize_hints else result
     if preserve_payload_shape:
         return prepared
     compact_numbers = resolve_output_precision(

@@ -821,6 +821,35 @@ class TestFormatResultForCli:
         )
         assert "symbols_list(search_term" not in payload["remediation"]
 
+    def test_json_normalizes_cli_hints_during_serialization_without_prewalk(self):
+        result = {
+            "data": [
+                {
+                    "note": (
+                        "Verify with "
+                        "symbols_list(search_term='EURUSD')."
+                    )
+                }
+            ]
+        }
+
+        with patch(
+            "mtdata.core.cli.formatting._normalize_cli_command_hints",
+            side_effect=AssertionError("JSON must not prewalk the payload"),
+        ):
+            payload = json.loads(
+                _format_result_for_cli(
+                    result,
+                    fmt="json",
+                    verbose=False,
+                    cmd_name="data_fetch_candles",
+                )
+            )
+
+        assert payload["data"][0]["note"].endswith(
+            "mtdata-cli symbols_list --search-term 'EURUSD'."
+        )
+
     def test_symbol_search_remediation_uses_module_invocation_name(self, monkeypatch):
         monkeypatch.setattr(sys, "argv", [r"C:\code\mtdata\__main__.py", "market_ticker"])
         payload = json.loads(
