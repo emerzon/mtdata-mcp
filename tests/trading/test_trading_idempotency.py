@@ -167,8 +167,17 @@ def test_sqlite_store_reserves_atomically_across_workers(tmp_path):
 
 
 def test_sqlite_store_expires_completed_outcomes(tmp_path):
-    store = SQLiteIdempotencyStore(tmp_path / "idempotency.sqlite3", ttl_seconds=0.05)
+    store = SQLiteIdempotencyStore(tmp_path / "idempotency.sqlite3", ttl_seconds=60.0)
     store.record("key-1", {"success": True})
-    time.sleep(0.1)
+    assert store.check("key-1") is not None
+    import sqlite3
+    import time as _now
+
+    with sqlite3.connect(tmp_path / "idempotency.sqlite3") as connection:
+        connection.execute(
+            "UPDATE trade_idempotency SET updated_at = ? WHERE key = ?",
+            (_now.time() - 120.0, "key-1"),
+        )
+        connection.commit()
 
     assert store.check("key-1") is None
