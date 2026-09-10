@@ -1,6 +1,5 @@
 """Lightweight command-line entry point."""
 
-import errno
 import sys
 from contextlib import redirect_stdout
 from difflib import get_close_matches
@@ -10,6 +9,7 @@ from typing import Optional, Sequence
 from ...utils.minimal_output_toon import _format_to_toon
 from ..error_envelope import build_error_payload
 from ..output_serialization import dumps_json
+from . import io_safety as cli_io
 from .catalog import (
     COMMAND_SUGGESTION_CUTOFF,
     display_program_name,
@@ -24,7 +24,6 @@ from .catalog_cache import (
 )
 from .output_format import (
     CLI_FORMAT_JSON,
-    _invalid_output_format_payload,
     resolve_cli_output_format_env,
 )
 from .version import cli_version
@@ -65,9 +64,11 @@ def _non_global_tokens(argv: Sequence[str]) -> list[str]:
 def _print_cli_version(*, as_json: bool) -> int:
     version = cli_version()
     if as_json:
-        print(dumps_json({"name": "mtdata-cli", "version": version}, indent=None))
+        cli_io.write_cli_text(
+            dumps_json({"name": "mtdata-cli", "version": version}, indent=None)
+        )
     else:
-        print(f"mtdata-cli {version}")
+        cli_io.write_cli_text(f"mtdata-cli {version}")
     return 0
 
 
@@ -84,16 +85,8 @@ def _print_missing_command_error(program: str, *, as_json: bool) -> int:
         if as_json
         else format_root_help(program)
     )
-    print(rendered)
+    cli_io.write_cli_text(rendered)
     return 1
-
-
-def _invalid_output_format_status(argv: Sequence[str]) -> Optional[int]:
-    payload = _invalid_output_format_payload(argv)
-    if payload is None:
-        return None
-    print(dumps_json(payload, indent=None))
-    return 2
 
 
 def _leading_command_token(argv: Sequence[str]) -> Optional[str]:
@@ -112,31 +105,13 @@ def _leading_command_token(argv: Sequence[str]) -> Optional[str]:
     return None
 
 
-def _is_broken_pipe_error(exc: BaseException) -> bool:
-    if isinstance(exc, BrokenPipeError):
-        return True
-    if not isinstance(exc, OSError):
-        return False
-    if getattr(exc, "winerror", None) in {109, 232}:
-        return True
-    return getattr(exc, "errno", None) in {errno.EPIPE, errno.ECONNRESET}
-
-
-def _silence_broken_pipe() -> None:
-    for stream in (sys.stdout, sys.stderr):
-        try:
-            stream.flush()
-        except Exception:
-            pass
-
-
 def main(argv: Optional[Sequence[str]] = None) -> int:
     """Handle cheap entry-point modes before importing the full tool graph."""
     try:
         return _main(argv)
     except Exception as exc:
-        if _is_broken_pipe_error(exc):
-            _silence_broken_pipe()
+        if cli_io.is_broken_pipe_error(exc):
+            cli_io.silence_broken_pipe()
             return 0
         raise
 
@@ -149,13 +124,13 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
     if effective_argv in (["--version"], ["-V"]):
         return _print_cli_version(as_json=False)
     if effective_argv in (["--help"], ["-h"]):
-        print(format_root_help(program))
+        cli_io.write_cli_text(format_root_help(program))
         return 0
     if not effective_argv:
-        print(format_root_help(program))
+        cli_io.write_cli_text(format_root_help(program))
         return 1
 
-    invalid_format_status = _invalid_output_format_status(effective_argv)
+    invalid_format_status = cli_io.invalid_output_format_status(effective_argv)
     if invalid_format_status is not None:
         return invalid_format_status
 
@@ -166,7 +141,7 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
     if remainder[0] in _VERSION_TOKENS and not _non_global_tokens(remainder[1:]):
         return _print_cli_version(as_json=json_requested)
     if remainder[0] in _HELP_TOKENS and not _non_global_tokens(remainder[1:]):
-        print(format_root_help(program))
+        cli_io.write_cli_text(format_root_help(program))
         return 0
 
     raw_command = _leading_command_token(effective_argv)
@@ -196,7 +171,7 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
             if _json_output_requested(effective_argv)
             else _format_to_toon(payload)
         )
-        print(rendered)
+        cli_io.write_cli_text(rendered)
         return 2
 
     cacheable = is_cacheable_catalog_invocation(
@@ -215,9 +190,8 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
             fingerprint=cache_fingerprint,
         )
         if cached_output is not None:
-            sys.stdout.write(cached_output)
-            if not cached_output.endswith("\n"):
-                sys.stdout.write("\n")
+            if cached_output:
+                cli_io.write_cli_text(cached_output)
             return 0
 
     from . import api
@@ -243,7 +217,8 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
             status = _run_api()
     except SystemExit as exc:
         rendered_output = output_buffer.getvalue()
-        sys.stdout.write(rendered_output)
+        if rendered_output:
+            cli_io.write_cli_text(rendered_output)
         status = int(exc.code or 0) if isinstance(exc.code, (int, type(None))) else 1
         if status == 0 and rendered_output:
             store_catalog_output(
@@ -256,10 +231,13 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
             return 0
         raise
     except BaseException:
-        sys.stdout.write(output_buffer.getvalue())
+        rendered_output = output_buffer.getvalue()
+        if rendered_output:
+            cli_io.write_cli_text(rendered_output)
         raise
     rendered_output = output_buffer.getvalue()
-    sys.stdout.write(rendered_output)
+    if rendered_output:
+        cli_io.write_cli_text(rendered_output)
     if status == 0 and rendered_output:
         store_catalog_output(
             command=normalized_command,

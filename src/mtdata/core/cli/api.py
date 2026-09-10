@@ -5,7 +5,6 @@ Automatically discovers function parameters and creates CLI arguments
 
 import argparse
 import difflib
-import errno
 import json
 import logging
 import os
@@ -41,6 +40,7 @@ from ..error_envelope import build_error_payload, normalize_error_payload
 from ..output_contract import resolve_output_contract
 from ..output_serialization import dumps_json, sanitize_json
 from ..request_context import ensure_request_id_scope
+from . import io_safety as cli_io
 from .catalog import (
     COMMAND_SUGGESTION_CUTOFF,
     current_cli_program_name,
@@ -54,7 +54,6 @@ from .formatting import (
 )
 from .output_format import (
     CLI_FORMAT_JSON,
-    _invalid_output_format_payload,
     resolve_cli_output_format_env,
 )
 from .parsing import discovery as cli_discovery
@@ -458,98 +457,6 @@ def _literal_choices_for_cli_param(
     return choices or None
 
 
-def _normalize_console_text(text: str) -> str:
-    normalized = str(text)
-    for src, dst in {
-        "\u2192": "->",
-        "\u2190": "<-",
-        "\u2026": "...",
-    }.items():
-        normalized = normalized.replace(src, dst)
-    return normalized
-
-
-def _should_force_utf8_stream(target: Any) -> bool:
-    buffer = getattr(target, "buffer", None)
-    if buffer is None or not hasattr(buffer, "write"):
-        return False
-    try:
-        return not bool(target.isatty())
-    except Exception:
-        return False
-
-
-def _is_broken_pipe_error(exc: BaseException, *, stream: Any = None) -> bool:
-    """True when stdout/stderr was closed by a downstream consumer (head, Select-Object)."""
-    if isinstance(exc, BrokenPipeError):
-        return True
-    if not isinstance(exc, OSError):
-        return False
-    winerror = getattr(exc, "winerror", None)
-    if winerror in {109, 232}:
-        return True
-    errno_value = getattr(exc, "errno", None)
-    if errno_value in {errno.EPIPE, errno.ECONNRESET}:
-        return True
-    if errno_value == errno.EINVAL and stream in {sys.stdout, sys.stderr}:
-        return True
-    return False
-
-
-def _silence_broken_pipe() -> None:
-    """Flush stdio after a closed pipe so shutdown does not raise again."""
-    for stream in (sys.stdout, sys.stderr):
-        try:
-            stream.flush()
-        except Exception:
-            pass
-
-
-def _write_cli_text(text: str, *, stream: Any = None) -> None:
-    target = stream if stream is not None else sys.stdout
-    payload = str(text)
-    rendered = payload if payload.endswith("\n") else f"{payload}\n"
-    if _should_force_utf8_stream(target):
-        buffer = getattr(target, "buffer", None)
-        if buffer is not None and hasattr(buffer, "write"):
-            try:
-                buffer.write(rendered.encode("utf-8"))
-                if hasattr(target, "flush"):
-                    try:
-                        target.flush()
-                    except Exception:
-                        pass
-                return
-            except Exception as exc:
-                if _is_broken_pipe_error(exc, stream=target):
-                    raise BrokenPipeError(*exc.args) from exc
-    try:
-        target.write(rendered)
-    except UnicodeEncodeError:
-        safe_text = _normalize_console_text(payload)
-        safe_rendered = safe_text if safe_text.endswith("\n") else f"{safe_text}\n"
-        encoding = getattr(target, "encoding", None) or "utf-8"
-        encoded = safe_rendered.encode(encoding, errors="replace")
-        buffer = getattr(target, "buffer", None)
-        if buffer is not None and hasattr(buffer, "write"):
-            buffer.write(encoded)
-        else:
-            target.write(encoded.decode(encoding, errors="replace"))
-    except OSError as exc:
-        if _is_broken_pipe_error(exc, stream=target):
-            raise BrokenPipeError(*exc.args) from exc
-        raise
-    if hasattr(target, "flush"):
-        try:
-            target.flush()
-        except OSError as exc:
-            if _is_broken_pipe_error(exc, stream=target):
-                raise BrokenPipeError(*exc.args) from exc
-            pass
-        except Exception:
-            pass
-
-
 def _render_cli_result(result: Any, *, args: Any, cmd_name: str) -> Any:
     contract = resolve_output_contract(args)
     verbose = contract.verbose
@@ -569,7 +476,7 @@ def _render_cli_result(result: Any, *, args: Any, cmd_name: str) -> Any:
         preserve_payload_shape=True,
     )
     if output:
-        _write_cli_text(output)
+        cli_io.write_cli_text(output)
     return result
 
 
@@ -649,14 +556,6 @@ def _parse_error_output_format() -> str:
 
 def _json_parse_errors_requested() -> bool:
     return _parse_error_output_format() == CLI_FORMAT_JSON
-
-
-def _invalid_output_format_status(argv: Sequence[str]) -> Optional[int]:
-    payload = _invalid_output_format_payload(argv)
-    if payload is None:
-        return None
-    _write_cli_text(dumps_json(payload, indent=2))
-    return 2
 
 
 _CLI_NEAR_MISS_REMEDIATIONS: Dict[tuple[str, str], str] = {
@@ -905,7 +804,7 @@ class _CLIArgumentParser(argparse.ArgumentParser):
                 cmd_name=operation,
             )
         )
-        _write_cli_text(rendered)
+        cli_io.write_cli_text(rendered)
         self.exit(2)
 
 
@@ -2205,8 +2104,8 @@ def main():  # noqa: C901
     try:
         return _main()
     except Exception as exc:
-        if _is_broken_pipe_error(exc):
-            _silence_broken_pipe()
+        if cli_io.is_broken_pipe_error(exc):
+            cli_io.silence_broken_pipe()
             return 0
         raise
 
@@ -2219,7 +2118,7 @@ def _main():  # noqa: C901
         return 0
 
     load_environment()
-    invalid_format_status = _invalid_output_format_status(raw_argv)
+    invalid_format_status = cli_io.invalid_output_format_status(raw_argv)
     if invalid_format_status is not None:
         return invalid_format_status
     # Discover only the requested command family for one-shot execution. Root
@@ -2245,7 +2144,7 @@ def _main():  # noqa: C901
         argv = _normalize_cli_argv_aliases(sys.argv[1:], functions)
     except ValueError as exc:
         parser_prog = display_program_name(sys.argv[0])
-        _write_cli_text(
+        cli_io.write_cli_text(
             dumps_json(
                 build_error_payload(
                     str(exc),
@@ -2644,7 +2543,7 @@ def _main():  # noqa: C901
 
     if not args.command:
         if _resolve_cli_formatter(args) == "json":
-            _write_cli_text(
+            cli_io.write_cli_text(
                 dumps_json(
                     build_error_payload(
                         "A command is required.",
@@ -2657,7 +2556,7 @@ def _main():  # noqa: C901
                 )
             )
         else:
-            _write_cli_text(format_root_help(parser_prog))
+            cli_io.write_cli_text(format_root_help(parser_prog))
         return 1
 
     output_contract = _resolve_cli_output_contract_or_error(parser, args)
@@ -2678,7 +2577,7 @@ def _main():  # noqa: C901
             traceback.print_exc()
         if _json_parse_errors_requested():
             command = str(getattr(args, "command", None) or "cli")
-            _write_cli_text(
+            cli_io.write_cli_text(
                 dumps_json(
                     build_error_payload(
                         f"Unexpected {type(e).__name__}: {e}",
@@ -2757,7 +2656,7 @@ def _write_shell_batch_record(record: Dict[str, Any]) -> None:
             return redact_url_credentials(value)
         return value
 
-    _write_cli_text(
+    cli_io.write_cli_text(
         dumps_json(
             _redact(record),
             separators=(",", ":"),
@@ -2954,7 +2853,7 @@ def run_shell(
                         }
                     )
                 elif "--json" in effective_command_argv:
-                    _write_cli_text(dumps_json(payload, indent=None))
+                    cli_io.write_cli_text(dumps_json(payload, indent=None))
                 else:
                     print(message, file=sys.stderr)
                     print(payload["remediation"], file=sys.stderr)

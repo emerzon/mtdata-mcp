@@ -35,8 +35,8 @@ from mtdata.core.cli.api import (
     _quote_cli_value,
     _render_cli_result,
     _resolve_cli_formatter,
-    _write_cli_text,
 )
+from mtdata.core.cli.io_safety import write_cli_text
 from mtdata.utils.minimal_output import format_result_minimal
 
 # ========================================================================
@@ -2377,7 +2377,7 @@ class TestFormatResultForCli:
 
 
 # ========================================================================
-# _write_cli_text
+# write_cli_text
 # ========================================================================
 
 
@@ -2401,7 +2401,7 @@ class TestWriteCliText:
                 return None
 
         stream = _FakeStream()
-        _write_cli_text("Price $267 → $268", stream=stream)
+        write_cli_text("Price $267 → $268", stream=stream)
         assert "".join(stream.parts) == "Price $267 -> $268\n"
 
     def test_non_tty_stream_writes_utf8_bytes(self):
@@ -2431,7 +2431,7 @@ class TestWriteCliText:
                 return None
 
         stream = _FakeStream()
-        _write_cli_text("Lundi de Pâques 清明节", stream=stream)
+        write_cli_text("Lundi de Pâques 清明节", stream=stream)
         assert stream.parts == []
         assert (
             b"".join(stream.buffer.parts).decode("utf-8") == "Lundi de Pâques 清明节\n"
@@ -2446,7 +2446,7 @@ class TestWriteCliText:
                 return None
 
         with pytest.raises(BrokenPipeError):
-            _write_cli_text("hello", stream=_ClosedStdout())
+            write_cli_text("hello", stream=_ClosedStdout())
 
 
 # ========================================================================

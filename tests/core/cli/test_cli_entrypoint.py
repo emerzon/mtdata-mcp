@@ -203,7 +203,7 @@ def test_cli_main_returns_zero_on_broken_pipe(monkeypatch):
         raise BrokenPipeError()
 
     monkeypatch.setattr(cli, "_main", _raise_pipe)
-    monkeypatch.setattr(cli, "_silence_broken_pipe", lambda: None)
+    monkeypatch.setattr(cli.cli_io, "silence_broken_pipe", lambda: None)
     assert cli.main(["--help"]) == 0
 
 
@@ -324,6 +324,26 @@ def test_invalid_output_format_fails_in_lightweight_entrypoint(monkeypatch, caps
     assert payload["valid_values"] == {
         "MTDATA_OUTPUT_FORMAT": ["json", "toon"]
     }
+
+
+def test_invalid_output_format_is_identical_across_entry_paths(monkeypatch, capsys):
+    import mtdata.core.cli as cli
+    from mtdata.core.cli import api
+
+    monkeypatch.setenv("MTDATA_OUTPUT_FORMAT", "jsoon")
+    monkeypatch.setattr(
+        "mtdata.core.error_envelope.new_request_id",
+        lambda: "fixed-request",
+    )
+
+    assert cli.main(["tools_list"]) == 2
+    lightweight_output = capsys.readouterr().out
+
+    with patch("sys.argv", ["cli.py", "tools_list"]):
+        assert api.main() == 2
+    full_output = capsys.readouterr().out
+
+    assert lightweight_output == full_output
 
 
 def test_explicit_json_overrides_invalid_output_environment(monkeypatch, capsys):
