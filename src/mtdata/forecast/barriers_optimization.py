@@ -1777,8 +1777,9 @@ def forecast_barrier_optimize(  # noqa: C901
         if parameter_error is not None:
             if "return_grid" in parameter_error["unknown_keys"]:
                 parameter_error["remediation"] = (
-                    "Pass return_grid as the top-level return_grid option; correct or "
-                    "remove every other unknown key and use only valid_keys inside params."
+                    "Grid inclusion follows --detail: full and standard include the "
+                    "candidate grid, compact omits it. Remove return_grid from params "
+                    "and use only valid_keys."
                 )
             return parameter_error
         if grid_style_val != 'preset' and preset_val is not None:

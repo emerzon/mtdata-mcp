@@ -48,8 +48,10 @@ UTC request instant ──▶ MT5 adapter ──▶ terminal clock axis ──�
   mtdata uses the local machine timezone when it can detect it, otherwise UTC.
   Explicit but invalid IANA timezone names are rejected at startup.
 
-Every timestamped payload includes a `timezone` field for displayed values.
-Internal filtering and range comparisons stay on the UTC epoch axis.
+Full-detail timestamped payloads include timezone metadata (root `timezone`
+and/or `meta.time`). Compact output omits nominal time telemetry; use
+`--detail full` when a parser needs an explicit timezone field. Internal
+filtering and range comparisons stay on the UTC epoch axis.
 
 Live quote freshness is anchored to the wall clock after quote acquisition.
 Broker ticks less than 10 seconds ahead are retained as live but disclose a

@@ -565,8 +565,9 @@ does not combine statistics from different member-specific optima.
 Use `--search-profile fast` for the fast profile. Explicit `params` values such
 as `n_sims` and `tp_steps` override the profile values. Parameter names are
 strict and method-aware: unknown keys fail before history is fetched. The
-documented `sims` alias remains accepted. Pass command options such as
-`return_grid` at the top level (`--return-grid false`), not inside `params`.
+documented `sims` alias remains accepted. Grid inclusion follows `--detail`
+(`full`/`standard` include the candidate grid; `compact` omits it). Do not
+pass `return_grid` inside `params`.
 
 **Grid Styles**:
 

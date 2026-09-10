@@ -306,6 +306,13 @@ def test_news_page_beyond_total_keeps_pre_pagination_provider_provenance(
     result = shape_public_tool_output(page, tool_name="news", detail="compact")
 
     assert result["providers_queried"] == ["finviz", "mt5"]
-    assert result["provider_failures"] == {"mt5": "terminal unavailable"}
+    assert result["provider_failures"] == {
+        "mt5": {
+            "error": "terminal unavailable",
+            "error_code": "provider_request_failed",
+            "retryable": False,
+            "endpoints": ["provider"],
+        }
+    }
     assert result["empty_reason"] == "page_beyond_total"
     assert result["pagination"]["suggested_offset"] == 1

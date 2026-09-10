@@ -84,8 +84,10 @@ credentials. When account context is unavailable, `provider` remains `mt5` and
 tick retrieval method remains in its tool-specific field.
 
 Payloads computed without MT5 identify their actual producer instead. For
-example, venue-level `market_status` uses
-`provider: mtdata_exchange_calendar` with its holiday-calendar provider.
+example, venue-level `market_status` uses `mtdata_exchange_calendar` when the
+venue maps to a dedicated exchange calendar. Venues without that mapping, such
+as ASX, use `mtdata_market_sessions` with
+`holiday_provider: python_holidays.country_fallback`.
 Pure timers omit `source` because they observe only elapsed time. A narrower
 legacy label may remain in `data_lineage`; it never replaces the structured
 source context.

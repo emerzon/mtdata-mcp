@@ -134,12 +134,13 @@ Inferred session (`current_time_in_recent_session`) remains advisory for
 unclassified broker CFDs.
 
 The symbol forms of `market_ticker`, `market_status`, and `market_snapshot`
-share `quote_as_of` as the UTC tick join key. They also expose root
-`data_age_seconds`, `data_stale`, and `usable_for_live_trading` whenever a tick
-is available, so a pre-trade workflow can apply one freshness contract across
-all three responses. Tool-specific aliases such as ticker `time`, status
-`last_tick_time`, and compact snapshot `snapshot.time` remain descriptive
-views of the same quote instant.
+share `quote_as_of` as the UTC tick join key. Compact responses keep
+`data_age_seconds` and `usable_for_live_trading` whenever a tick is available;
+healthy compact output omits `data_stale=false`. Use `--detail full` for the
+complete freshness block, including an explicit `data_stale` field.
+Tool-specific aliases such as ticker `time`, status `last_tick_time`, and
+compact snapshot `snapshot.time` remain descriptive views of the same quote
+instant.
 
 A displayed quote can be live while MT5's cached submission tick is unsafe.
 Compact `market_status` keeps `send_path_freshness_error` and the submission

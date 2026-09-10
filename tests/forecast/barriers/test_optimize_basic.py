@@ -51,7 +51,8 @@ class TestBarrierOptimizeBasic(_BarrierTestBase):
         )
 
         self.assertEqual(result["unknown_keys"], ["return_grid"])
-        self.assertIn("top-level", result["remediation"])
+        self.assertIn("detail", result["remediation"])
+        self.assertNotIn("top-level return_grid", result["remediation"])
 
     def test_min_barrier_pips_is_accepted_as_optimizer_param(self):
         result = forecast_barrier_optimize(
