@@ -50,18 +50,19 @@ def test_record_none_key_is_noop(tmp_path):
 
 
 def test_expired_entry_returns_none(tmp_path):
-    store = _store(tmp_path, ttl_seconds=0.05)
+    # Generous TTL so the "still present" assert never races wall-clock
+    # stalls on loaded CI runners; expiry itself is forced deterministically
+    # by backdating updated_at instead of sleeping.
+    store = _store(tmp_path, ttl_seconds=60.0)
     store.record("exp-key", {"success": True})
     assert store.check("exp-key") is not None
-    # Deterministic expiry: backdate updated_at instead of relying on
-    # sub-100ms wall-clock timing, which flakes on loaded CI runners.
     import sqlite3
     import time as _time
 
     with sqlite3.connect(tmp_path / "idempotency.sqlite3") as connection:
         connection.execute(
             "UPDATE trade_idempotency SET updated_at = ? WHERE key = ?",
-            (_time.time() - 1.0, "exp-key"),
+            (_time.time() - 120.0, "exp-key"),
         )
         connection.commit()
     assert store.check("exp-key") is None
@@ -168,8 +169,17 @@ def test_sqlite_store_reserves_atomically_across_workers(tmp_path):
 
 
 def test_sqlite_store_expires_completed_outcomes(tmp_path):
-    store = SQLiteIdempotencyStore(tmp_path / "idempotency.sqlite3", ttl_seconds=0.05)
+    store = SQLiteIdempotencyStore(tmp_path / "idempotency.sqlite3", ttl_seconds=60.0)
     store.record("key-1", {"success": True})
-    time.sleep(0.1)
+    assert store.check("key-1") is not None
+    import sqlite3
+    import time as _now
+
+    with sqlite3.connect(tmp_path / "idempotency.sqlite3") as connection:
+        connection.execute(
+            "UPDATE trade_idempotency SET updated_at = ? WHERE key = ?",
+            (_now.time() - 120.0, "key-1"),
+        )
+        connection.commit()
 
     assert store.check("key-1") is None
