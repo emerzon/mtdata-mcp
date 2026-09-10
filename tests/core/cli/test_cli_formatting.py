@@ -2426,6 +2426,42 @@ class TestWriteCliText:
 
 
 class TestRenderCliResult:
+    def test_toon_keeps_canonical_fields_present_in_json(self, capsys):
+        result = {
+            "success": True,
+            "symbol": "EURUSD",
+            "bid": 1.1,
+            "ask": 1.1002,
+            "spread": 0.0002,
+            "spread_points": 20.0,
+            "spread_pct": 0.01818,
+            "send_path_tick_fresh": False,
+            "usable_for_live_trading": False,
+        }
+        common_args = {
+            "detail": "compact",
+            "verbose": False,
+            "precision": None,
+            "output_fields": None,
+        }
+
+        _render_cli_result(
+            result,
+            args=argparse.Namespace(json=False, **common_args),
+            cmd_name="market_ticker",
+        )
+        toon = capsys.readouterr().out
+        _render_cli_result(
+            result,
+            args=argparse.Namespace(json=True, **common_args),
+            cmd_name="market_ticker",
+        )
+        json_payload = json.loads(capsys.readouterr().out)
+
+        for field in ("spread_points", "spread_pct", "send_path_tick_fresh"):
+            assert field in json_payload
+            assert f"{field}:" in toon
+
     def test_detail_full_uses_verbose_output_contract(self, capsys):
         args = argparse.Namespace(detail="full", json=False, verbose=False)
 

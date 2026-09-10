@@ -40,7 +40,6 @@ from ...utils.security import redact_url_credentials
 from .._mcp_instance import mcp
 from .._mcp_tools import (
     _get_pydantic_model_fields,
-    _normalize_output_fields,
     shape_public_tool_output,
 )
 from .._mcp_tools import get_tool_registry as get_registered_tools
@@ -724,7 +723,6 @@ def _render_cli_result(result: Any, *, args: Any, cmd_name: str) -> Any:
     contract = resolve_output_contract(args)
     verbose = contract.verbose
     output_fields = getattr(args, "output_fields", None)
-    projection_requested = bool(_normalize_output_fields(output_fields))
     result = shape_public_tool_output(
         result,
         tool_name=cmd_name,
@@ -737,7 +735,7 @@ def _render_cli_result(result: Any, *, args: Any, cmd_name: str) -> Any:
         verbose=verbose,
         cmd_name=cmd_name,
         precision=getattr(args, "precision", None),
-        preserve_payload_shape=projection_requested,
+        preserve_payload_shape=True,
     )
     if output:
         _write_cli_text(output)
