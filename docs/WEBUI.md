@@ -74,7 +74,7 @@ This is not an order.
 | Idea | Preview-only compose: narrative, TP/SL, size, gates, and dry-run. Draws entry/TP/SL on the chart. Cannot place an order. |
 | Watch | Persistent watchlist with quote, spread, change, and a read-only session strip. Click a row to load the chart; Compose opens a preview-only idea. |
 | Tools | Search-and-run form for the full tool list (news, reports, orders, …). |
-| Auth | Paste an API token only if you started the server with `WEBAPI_AUTH_TOKEN`. It stays in this tab’s memory and clears on reload. |
+| Auth | Paste the server's `WEBAPI_AUTH_TOKEN`. It is required for mutation-capable Tools calls, including dry-run previews. It stays in this tab’s memory and clears on reload. |
 
 On a narrow screen, extra controls move under **More**. Press Escape to close
 panels.
@@ -102,6 +102,8 @@ fill the form, and run.
 
 - `trade_idea_compose` is a preview-only research idea (forecast, barriers, size, dry-run). It does not need confirm and cannot place an order.
 - Research tools (candles, news, forecasts, reports) do not need a confirm tick.
+- Mutation-capable order/model/task tools require `WEBAPI_AUTH_TOKEN` on the
+  server and the same value in **Auth**, including for dry-run previews.
 - Order changes (`trade_place`, `trade_modify`, `trade_close`) and a few
   destructive model/task tools require **confirm** only for a live run
   (`dry_run=false`, or a mutating tool with no preview). A dry-run preview
@@ -126,7 +128,7 @@ fill the form, and run.
 | Connection chip is not ready | MetaTrader 5 must be running and logged in. See [Troubleshooting](TROUBLESHOOTING.md#web-ui). |
 | No candles after picking a symbol | Add the symbol to Market Watch in MetaTrader 5, then reload. |
 | Forecast or overlay error banner | The rest of the chart can still work. Read the banner; retry after MT5 is ready. |
-| API asks for a token | Enter the same value as `WEBAPI_AUTH_TOKEN` in **Auth**. |
+| API asks for a token | Set `WEBAPI_AUTH_TOKEN` in `.env`, restart `mtdata-webapi`, then enter the same value in **Auth**. |
 
 More HTTP detail lives in [WEB_API.md](WEB_API.md). What the UI covers versus
 omits is listed for contributors in [WEBUI_TOOL_COVERAGE.md](WEBUI_TOOL_COVERAGE.md).

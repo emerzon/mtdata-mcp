@@ -110,16 +110,18 @@ Settings for the FastAPI server that powers the React Web UI.
 | `WEBAPI_HOST` | `127.0.0.1` | Bind address |
 | `WEBAPI_PORT` | `8000` | Listen port |
 | `WEBAPI_ALLOW_REMOTE` | `false` | Set to `1` to allow non-loopback binds |
-| `WEBAPI_AUTH_TOKEN` | — | Bearer / API-key token. **Required** when binding to a non-loopback address. |
+| `WEBAPI_AUTH_TOKEN` | — | API authentication token. **Required** for every mutation-capable Tools invocation (including dry-run previews) and when binding to a non-loopback address. Mutating calls must send `Authorization: Bearer <token>`; read-only calls may also use `X-API-Key`. |
 | `CORS_ORIGINS` | `http://127.0.0.1:5173,http://localhost:5173` | Comma-separated allowed origins. Wildcard `*` is rejected when credentials are enabled. |
 | `WEBUI_DIST_DIR` | `webui/dist` | Path to the built Web UI static files (`index.html` required). Relative defaults are resolved from the process working directory, then parent directories. Run `mtdata-webapi` from the repository root, or set an absolute path. When missing, `/app` returns enablement guidance instead of a silent skip. |
 
 ```ini
+# Protect mutation-capable tools on the default loopback bind
+WEBAPI_AUTH_TOKEN=replace-with-a-long-random-secret
+
 # Expose the Web API on the local network with auth
 WEBAPI_ALLOW_REMOTE=1
 WEBAPI_HOST=0.0.0.0
 WEBAPI_PORT=9000
-WEBAPI_AUTH_TOKEN=my-secret-token
 CORS_ORIGINS=http://192.168.1.10:5173
 ```
 

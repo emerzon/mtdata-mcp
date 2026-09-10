@@ -7,9 +7,11 @@ If you only skim one trading doc, make it this one. The `trade_*` tools send **r
 > **These tools default to preview mode.** `dry_run` defaults to **`true`**. A
 > request reaches MT5 only when you explicitly pass `--dry-run false` in the
 > CLI or `dry_run=false` through Python/MCP. The Web API Tools path
-> additionally requires `"confirm": true` only when `arguments` set
-> `"dry_run": false` (an omitted `dry_run` is still a preview and does not
-> need confirm). Use a **demo account** until you trust your setup — mtdata
+> requires a configured `WEBAPI_AUTH_TOKEN` and matching Bearer header for
+> every mutation-capable tool call, including previews. It additionally
+> requires `"confirm": true` when `arguments` set `"dry_run": false` (an
+> omitted `dry_run` is still a preview and does not need confirm). Use a
+> **demo account** until you trust your setup — mtdata
 > has no separate paper-trading mode. `trade_idea_compose` is stricter: it is
 > preview-only and has no live-send flag.
 

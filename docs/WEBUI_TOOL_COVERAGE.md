@@ -26,15 +26,17 @@ from mtdata.core.web_api_tools import coverage_inventory_rows
 coverage_inventory_rows()
 ```
 
-Each row includes `name`, `category`, `surface`, `frontend`, and
-`requires_confirmation`. Gated tools stay in this inventory even when disabled.
+Each row includes `name`, `category`, `surface`, `frontend`,
+`requires_confirmation`, and `requires_bearer_auth`. Gated tools stay in this
+inventory even when disabled.
 
 ## Surface meanings
 
 - **dedicated_ui** — primary path is a specialized chart or research control.
   The tool remains runnable from the Tools runner.
 - **generic_runner** — default. Discoverable and invocable from the SPA Tools
-  runner. Mutating tools still require the confirm gate rather than being omitted.
+  runner. Mutation-capable tools require Bearer authentication, plus the confirm
+  gate when the prepared call can change state, rather than being omitted.
 - **intentional_omit** — listed with a rationale but not invocable from the SPA.
   Use CLI or MCP instead.
 

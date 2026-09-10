@@ -49,12 +49,34 @@ curl "http://127.0.0.1:8000/api/v1/history?symbol=EURUSD&timeframe=H1&limit=50"
 
 ## Authentication
 
-By default the API binds to `127.0.0.1` and permits loopback clients without a token.
+By default the API binds to `127.0.0.1`. Loopback clients may use read-only
+routes and invoke read-only tools without a token. Every invocation of a
+mutation-capable tool requires a configured `WEBAPI_AUTH_TOKEN` and a matching
+`Authorization: Bearer <token>` header, including `dry_run=true` previews.
+Loopback location, `X-API-Key`, and `"confirm": true` do not replace that
+credential.
 
-If you want remote access, set `WEBAPI_ALLOW_REMOTE=1`, use a non-loopback `WEBAPI_HOST`, and provide `WEBAPI_AUTH_TOKEN`. When a token is configured, clients must send either:
+If you want remote access, set `WEBAPI_ALLOW_REMOTE=1`, use a non-loopback `WEBAPI_HOST`, and provide `WEBAPI_AUTH_TOKEN`. When a token is configured, read-only clients may send either:
 
 - `Authorization: Bearer <token>`
 - `X-API-Key: <token>`
+
+Mutation-capable Tools calls must use the Bearer form. If the server has no
+token configured, those calls fail with HTTP 503 and
+`error_code=web_api_mutation_auth_not_configured`. Set a long random value in
+`.env`, restart `mtdata-webapi`, then enter the same value in the Web UI
+**Auth** control or send it in the request:
+
+```ini
+WEBAPI_AUTH_TOKEN=replace-with-a-long-random-secret
+```
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/tools/trade_place/invoke \
+  -H "Authorization: Bearer $WEBAPI_AUTH_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"arguments":{"symbol":"EURUSD","volume":0.01,"order_type":"BUY","dry_run":true},"confirm":false}'
+```
 
 The bundled Web UI has an **Auth** control in the chart toolbar. Enter the
 same token there after the page loads. The token is held only in the current
@@ -67,18 +89,22 @@ Credentialed CORS requests require explicit origins. `CORS_ORIGINS=*` is rejecte
 Security checklist for remote access:
 
 - Keep the default local bind (`127.0.0.1`) unless another machine must connect.
-- Set `WEBAPI_AUTH_TOKEN` before using `WEBAPI_ALLOW_REMOTE=1`.
+- Set `WEBAPI_AUTH_TOKEN` before invoking any mutation-capable tool or using `WEBAPI_ALLOW_REMOTE=1`.
 - Use explicit `CORS_ORIGINS`; do not rely on browser defaults.
 - Treat API access as sensitive because endpoints can expose account, symbol, and market context from the running MT5 terminal.
 
 ## Response Style
 
-Responses are JSON. Most endpoints return compact, UI-oriented payloads rather than the full CLI/MCP output contract. Use `detail=full` for richer historical rows or method diagnostics.
+Responses are JSON. Most endpoints return compact, UI-oriented payloads rather than the full CLI/MCP output contract. Use the `detail=full` request parameter for richer historical rows or method diagnostics. When a successful Web API wrapper echoes that choice, the response field is `detail_level`; `detail` is not overloaded as both a verbosity string and an error container.
 
 Every response includes `X-Request-ID`. Clients may supply a log-safe identifier
 in the same request header (1–128 letters, digits, `.`, `_`, `:`, or `-`); the
 server otherwise generates one. Error envelopes and request-scoped operation
 logs use that same identifier so a failed HTTP call can be traced end to end.
+Validation failures, raised HTTP errors, and unexpected route failures return
+the canonical envelope directly at the top level:
+`{success: false, error, error_code, request_id, operation}`. They are always
+JSON; FastAPI's nested `{detail: ...}` and plain-text 500 shapes are not used.
 
 ## Endpoints
 
@@ -268,7 +294,7 @@ List trained model artifacts currently available in the model store.
 
 - **Query Params:** `method` (optional method-name filter), `detail` (response
   detail level; default `compact`)
-- **Default response:** compact model rows plus `count`, `detail`, and
+- **Default response:** compact model rows plus `count`, `detail_level`, and
   `success`; request `detail=full` for storage paths, timestamps, TTL, and
   artifact-size diagnostics.
 
@@ -345,13 +371,13 @@ List registered MCP tools for the Web UI runner (bootstraps the full tool surfac
 
 - **Query Params:** `category` (canonical catalog ID), `search`, `detail` (`compact`|`standard`|`full`, default `compact`), `include_fields` (bool), `limit` (default 20, max 1000), `offset` (default 0)
 - Unknown `category` or `detail` values return HTTP 422 with the parameter name and valid values. An empty `tools` array is reserved for a valid filter that matched nothing.
-- **Response:** a page of tools with `surface` (`dedicated_ui`|`generic_runner`|`intentional_omit`) and `safety` metadata, plus `pagination` (`total`, `returned`, `offset`, `limit`, `has_more`, `more_available`). `categories` and `surfaces` cover the full filtered set, not only the current page.
+- **Response:** a page of tools with top-level `detail_level`, `surface` (`dedicated_ui`|`generic_runner`|`intentional_omit`) and `safety` metadata, plus `pagination` (`total`, `returned`, `offset`, `limit`, `has_more`, `more_available`). `categories` and `surfaces` cover the full filtered set, not only the current page.
 
 #### `GET /api/tools/{tool_name}`
 Return one tool for the form runner.
 
 - **Query Params:** `detail` (`compact`|`standard`|`full`, default `compact`), `include_fields` (bool, default `true`)
-- Compact keeps `name`, `description`, `safety`, and the canonical `input_schema` used to build the form. `detail=full` adds CLI bindings, module, and parameter metadata. Set `include_fields=false` to omit `input_schema`.
+- Compact keeps `name`, `description`, `safety`, and the canonical `input_schema` used to build the form. The wrapper reports the selected mode as `detail_level`. `detail=full` adds CLI bindings, module, and parameter metadata. Set `include_fields=false` to omit `input_schema`.
 
 #### `POST /api/tools/{tool_name}/invoke`
 Invoke a registered tool.
@@ -379,7 +405,10 @@ as `intentional_omit`: they can run longer than an HTTP request and the generic
 runner has no progress or cancellation contract. Run those tools through CLI or
 MCP instead.
 
-`"confirm": true` is required only when the invocation can mutate state.
+Bearer authentication is required for every invocation whose tool can mutate
+trading or stored state, even when that request is a dry-run preview.
+`"confirm": true` is a separate intent gate required only when the invocation
+can actually mutate state.
 Trade tools and destructive model/task tools that expose `dry_run` default
 to preview (`dry_run=true`, including when the flag is omitted) and do
 not need confirm. Live submission needs both `"dry_run": false` inside
@@ -389,9 +418,9 @@ needs confirm. See [TRADING_SAFETY.md](TRADING_SAFETY.md) and
 [WEBUI_TOOL_COVERAGE.md](WEBUI_TOOL_COVERAGE.md).
 
 A successful invoke returns HTTP 200 with `{success: true, tool, surface, result}`.
-Every failed invoke returns HTTP 4xx/5xx with FastAPI's `{detail: <error envelope>}`
-body. The envelope is `{success: false, error, error_code, operation, request_id}`
-and may include `details`. Confirmation blocks use `error_code=confirmation_required`
+Every failed invoke returns HTTP 4xx/5xx with the canonical error envelope at
+the top level: `{success: false, error, error_code, operation, request_id}`.
+The envelope may include `details`. Confirmation blocks use `error_code=confirmation_required`
 and keep `requires_confirmation`, `safety`, and `hint` under `details`. Unknown
 tools use `error_code=tool_not_found`. Invalid parameters are 422, not-found codes
 404, omitted long-running tools 403, MT5 connection failures 503, internal faults
