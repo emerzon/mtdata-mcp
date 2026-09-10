@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import os
+import random
 import re
 import threading
 from datetime import datetime, timedelta, timezone
@@ -48,6 +49,7 @@ from ..utils.utils import _parse_end_datetime, _parse_start_datetime
 
 _FORECAST_RESERVED_COLUMNS = {"unique_id", "ds", "y"}
 _FORECAST_PREFERRED_COLUMNS = ("y_hat", "mean", "median", "pred", "forecast")
+DEFAULT_NEURAL_SEED = 42
 
 
 def empirical_interval_support(
@@ -912,6 +914,8 @@ def nf_build_model_kwargs(
     accel: Optional[str] = None,
     enable_progress_bar: bool = False,
     early_stop_patience_steps: Optional[int] = None,
+    seed: int = DEFAULT_NEURAL_SEED,
+    deterministic: bool = True,
 ) -> Dict[str, Any]:
     """Build keyword arguments for a NeuralForecast model constructor.
 
@@ -946,11 +950,16 @@ def nf_build_model_kwargs(
             pass
     if early_stop_patience_steps is not None and "early_stop_patience_steps" in ctor_params:
         model_kwargs["early_stop_patience_steps"] = int(early_stop_patience_steps)
+    if "random_seed" in ctor_params:
+        model_kwargs["random_seed"] = int(seed)
+    elif "seed" in ctor_params:
+        model_kwargs["seed"] = int(seed)
 
     base_trainer: Dict[str, Any] = {
         'accelerator': accel,
         'devices': 1,
         'num_nodes': 1,
+        'deterministic': bool(deterministic),
     }
     quiet_opts: Dict[str, Any] = {
         'logger': False,
@@ -1037,7 +1046,11 @@ class _NfEnvGuard:
                 os.environ[key] = restored
 
 
-def _nf_build_trainer_kwargs(accel: str) -> Dict[str, Any]:
+def _nf_build_trainer_kwargs(
+    accel: str,
+    *,
+    deterministic: bool = True,
+) -> Dict[str, Any]:
     """Build trainer kwargs for the NeuralForecast constructor."""
     import inspect as _inspect
 
@@ -1047,6 +1060,7 @@ def _nf_build_trainer_kwargs(accel: str) -> Dict[str, Any]:
         'num_nodes': 1,
     }
     cand_opts: Dict[str, Any] = {
+        'deterministic': bool(deterministic),
         'logger': False,
         'enable_progress_bar': False,
         'enable_checkpointing': False,
@@ -1069,6 +1083,39 @@ def _nf_build_trainer_kwargs(accel: str) -> Dict[str, Any]:
         return {**base_trainer, **cand_opts}
 
 
+def _nf_seed_everything(seed: int) -> str:
+    """Seed NeuralForecast training through Lightning, with a local fallback."""
+    import inspect as _inspect
+
+    seed_value = int(seed)
+    try:
+        try:
+            import lightning.pytorch as _lightning
+        except Exception:
+            import pytorch_lightning as _lightning
+
+        seed_fn = _lightning.seed_everything
+        try:
+            seed_params = _inspect.signature(seed_fn).parameters
+        except Exception:
+            seed_params = {}
+        kwargs = {"workers": True} if "workers" in seed_params else {}
+        seed_fn(seed_value, **kwargs)
+        return f"{_lightning.__name__}.seed_everything"
+    except Exception:
+        random.seed(seed_value)
+        np.random.seed(seed_value)
+        try:
+            import torch as _torch
+
+            _torch.manual_seed(seed_value)
+            if hasattr(_torch, "cuda") and _torch.cuda.is_available():
+                _torch.cuda.manual_seed_all(seed_value)
+        except Exception:
+            pass
+        return "python_numpy_torch_fallback"
+
+
 def nf_create_and_fit(
     *,
     model_class,
@@ -1079,6 +1126,8 @@ def nf_create_and_fit(
     exog_future: Optional[np.ndarray] = None,
     future_times: Optional[List[float]] = None,
     val_size: int = 0,
+    seed: int = DEFAULT_NEURAL_SEED,
+    deterministic: bool = True,
 ) -> Any:
     """Instantiate a NeuralForecast wrapper, fit it, and return the fitted NF object.
 
@@ -1092,6 +1141,7 @@ def nf_create_and_fit(
     except Exception as ex:
         raise RuntimeError(f"Failed to import neuralforecast: {ex}")
 
+    _nf_seed_everything(int(seed))
     accel = str(model_kwargs.get('accelerator', 'cpu'))
     nf_kwargs: Dict[str, Any] = {
         'models': [model_class(**model_kwargs)],
@@ -1102,7 +1152,10 @@ def nf_create_and_fit(
     except Exception:
         _nf_init_params = {}
     if 'trainer_kwargs' in _nf_init_params:
-        nf_trainer = _nf_build_trainer_kwargs(accel)
+        nf_trainer = _nf_build_trainer_kwargs(
+            accel,
+            deterministic=deterministic,
+        )
         try:
             try:
                 import lightning.pytorch as _L

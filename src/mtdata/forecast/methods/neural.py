@@ -7,6 +7,7 @@ import pandas as pd
 
 from ..common import (
     _NF_ENV_LOCK,
+    DEFAULT_NEURAL_SEED,
     _extract_forecast_values,
     _nf_resolve_accelerator,
     _NfEnvGuard,
@@ -23,6 +24,18 @@ from ..interface import (
     ProgressReporter,
     TrainResult,
 )
+
+
+def _neural_resolve_seed(params: Dict[str, Any]) -> Tuple[int, str]:
+    raw_seed = params.get("seed")
+    seed_source = "parameter" if raw_seed is not None else "default"
+    try:
+        seed = int(raw_seed if raw_seed is not None else DEFAULT_NEURAL_SEED)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("seed must be an integer from 0 through 4294967295") from exc
+    if seed < 0 or seed > 4_294_967_295:
+        raise ValueError("seed must be an integer from 0 through 4294967295")
+    return seed, seed_source
 
 
 def _ensure_pytorch_lightning_distributed_compat() -> None:
@@ -132,6 +145,11 @@ class NeuralForecastMethod(ForecastMethod):
             "type": "int|null",
             "description": "Stop training early after this many non-improving validation checks (auto if omitted).",
         },
+        {
+            "name": "seed",
+            "type": "int",
+            "description": f"Deterministic training seed (default: {DEFAULT_NEURAL_SEED}).",
+        },
     ]
 
     @property
@@ -181,6 +199,7 @@ class NeuralForecastMethod(ForecastMethod):
         from ..common import _create_training_dataframes
 
         p = dict(params or {})
+        seed, seed_source = _neural_resolve_seed(p)
         x = np.asarray(series.values, dtype=float)
         n = int(x.size)
         if n < 5:
@@ -218,6 +237,8 @@ class NeuralForecastMethod(ForecastMethod):
             learning_rate=lr,
             accel=accel,
             early_stop_patience_steps=early_stop_patience_steps,
+            seed=seed,
+            deterministic=True,
         )
 
         with _NF_ENV_LOCK:
@@ -229,6 +250,8 @@ class NeuralForecastMethod(ForecastMethod):
                     Y_df=Y_df,
                     val_size=val_size,
                     exog_used=exog_used,
+                    seed=seed,
+                    deterministic=True,
                 )
 
         reporter.stage(3, "Training complete", force=True)
@@ -237,6 +260,8 @@ class NeuralForecastMethod(ForecastMethod):
         params_used = {
             'max_epochs': steps, 'input_size': input_size,
             'batch_size': batch_size,
+            'seed': seed,
+            'seed_source': seed_source,
         }
         if val_size > 0:
             params_used['val_size'] = val_size
@@ -245,7 +270,13 @@ class NeuralForecastMethod(ForecastMethod):
         return TrainResult(
             artifact_bytes=artifact_bytes,
             params_used=params_used,
-            metadata={"accelerator": accel, "timeframe": timeframe},
+            metadata={
+                "accelerator": accel,
+                "timeframe": timeframe,
+                "training_seed": seed,
+                "seed_source": seed_source,
+                "deterministic_training": True,
+            },
         )
 
     def predict_with_model(
@@ -261,6 +292,9 @@ class NeuralForecastMethod(ForecastMethod):
     ) -> ForecastResult:
         nf = model  # deserialized NeuralForecast object
         p = dict(params or {})
+        seed, seed_source = _neural_resolve_seed(p)
+        p["seed"] = seed
+        p["seed_source"] = seed_source
         exog_future_arr = kwargs.get("exog_future")
         if exog_future_arr is None:
             exog_future_arr = exog_future if exog_future is not None else p.get("exog_future")
@@ -302,8 +336,14 @@ class NeuralForecastMethod(ForecastMethod):
         )
         # Neural models also depend on input_size and batch_size
         p = params or {}
+        seed, _seed_source = _neural_resolve_seed(p)
+        fingerprint_params = fp.get("params")
+        if isinstance(fingerprint_params, dict):
+            fingerprint_params.pop("seed", None)
         fp["input_size"] = p.get("input_size")
         fp["batch_size"] = int(p.get("batch_size", 32))
+        fp["seed"] = seed
+        fp["deterministic_training"] = True
         return fp
 
 

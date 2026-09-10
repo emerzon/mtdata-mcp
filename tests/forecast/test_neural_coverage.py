@@ -2,6 +2,7 @@
 
 import sys
 import types
+from contextlib import nullcontext
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -37,7 +38,13 @@ _mt5_mock.TIMEFRAME_H12 = 16396; _mt5_mock.TIMEFRAME_D1 = 16408
 _mt5_mock.TIMEFRAME_W1 = 32769; _mt5_mock.TIMEFRAME_MN1 = 49153
 sys.modules["MetaTrader5"] = _mt5_mock
 
-from mtdata.forecast.interface import ForecastResult
+from mtdata.forecast.common import (
+    DEFAULT_NEURAL_SEED,
+    _nf_build_trainer_kwargs,
+    _nf_seed_everything,
+    nf_build_model_kwargs,
+)
+from mtdata.forecast.interface import ForecastMethod, ForecastResult
 from mtdata.forecast.methods.neural import (
     NBEATSXMethod,
     NeuralForecastMethod,
@@ -45,6 +52,7 @@ from mtdata.forecast.methods.neural import (
     PatchTSTMethod,
     TFTMethod,
     _neural_resolve_hyperparams,
+    _neural_resolve_seed,
     _neural_resolve_validation_settings,
     _resolve_nf_model_class,
 )
@@ -111,6 +119,83 @@ class TestNeuralHyperparams:
         assert val_size == 0
         assert patience is None
 
+    def test_seed_uses_fixed_default_and_validates_range(self):
+        assert _neural_resolve_seed({}) == (DEFAULT_NEURAL_SEED, "default")
+        assert _neural_resolve_seed({"seed": 7}) == (7, "parameter")
+        with pytest.raises(ValueError, match="0 through 4294967295"):
+            _neural_resolve_seed({"seed": -1})
+
+
+class TestNeuralDeterminismWiring:
+    def test_model_kwargs_use_supported_seed_and_deterministic_trainer_api(self):
+        class Model:
+            def __init__(
+                self,
+                h,
+                input_size,
+                batch_size,
+                max_steps,
+                random_seed=1,
+                **trainer_kwargs,
+            ):
+                pass
+
+        kwargs = nf_build_model_kwargs(
+            model_class=Model,
+            fh=12,
+            input_size=24,
+            batch_size=32,
+            steps=50,
+            seed=7,
+            deterministic=True,
+        )
+
+        assert kwargs["random_seed"] == 7
+        assert kwargs["deterministic"] is True
+
+    def test_trainer_kwargs_enable_deterministic_mode_when_supported(
+        self,
+        monkeypatch,
+    ):
+        class Trainer:
+            def __init__(
+                self,
+                accelerator,
+                devices,
+                num_nodes,
+                deterministic=False,
+            ):
+                pass
+
+        lightning = types.ModuleType("lightning")
+        lightning_pytorch = types.ModuleType("lightning.pytorch")
+        lightning_pytorch.Trainer = Trainer
+        lightning.pytorch = lightning_pytorch
+        monkeypatch.setitem(sys.modules, "lightning", lightning)
+        monkeypatch.setitem(sys.modules, "lightning.pytorch", lightning_pytorch)
+
+        kwargs = _nf_build_trainer_kwargs("cpu", deterministic=True)
+
+        assert kwargs["deterministic"] is True
+
+    def test_framework_seed_api_is_called(self, monkeypatch):
+        calls = []
+
+        def seed_everything(seed, workers=False):
+            calls.append((seed, workers))
+
+        lightning = types.ModuleType("lightning")
+        lightning_pytorch = types.ModuleType("lightning.pytorch")
+        lightning_pytorch.seed_everything = seed_everything
+        lightning.pytorch = lightning_pytorch
+        monkeypatch.setitem(sys.modules, "lightning", lightning)
+        monkeypatch.setitem(sys.modules, "lightning.pytorch", lightning_pytorch)
+
+        provider = _nf_seed_everything(17)
+
+        assert calls == [(17, True)]
+        assert provider == "lightning.pytorch.seed_everything"
+
 
 # ── NeuralForecastMethod and subclasses  (lines 90-177) ─────────────────────
 
@@ -137,9 +222,71 @@ class TestNeuralForecastMethodProperties:
         assert sf["return"] is True
         assert sf["volatility"] is False
         assert sf["ci"] is False
+        assert any(param["name"] == "seed" for param in m.PARAMS)
+
+    def test_seed_is_part_of_artifact_identity(self):
+        method = NHITSMethod()
+
+        default = method.training_fingerprint(12, 24, {})
+        explicit_default = method.training_fingerprint(
+            12,
+            24,
+            {"seed": DEFAULT_NEURAL_SEED},
+        )
+        different = method.training_fingerprint(12, 24, {"seed": 7})
+
+        assert default["seed"] == DEFAULT_NEURAL_SEED
+        assert default["deterministic_training"] is True
+        assert default == explicit_default
+        assert ForecastMethod.hash_fingerprint(default) != (
+            ForecastMethod.hash_fingerprint(different)
+        )
 
 
 class TestNeuralForecastMethodForecast:
+    def test_train_wires_seed_into_artifact_metadata(self):
+        method = NHITSMethod()
+        fitted = object()
+
+        with (
+            patch(
+                "mtdata.forecast.methods.neural._resolve_nf_model_class",
+                return_value=object,
+            ),
+            patch(
+                "mtdata.forecast.methods.neural._nf_resolve_accelerator",
+                return_value="cpu",
+            ),
+            patch(
+                "mtdata.forecast.methods.neural._NfEnvGuard",
+                return_value=nullcontext(),
+            ),
+            patch(
+                "mtdata.forecast.methods.neural.nf_build_model_kwargs",
+                return_value={"accelerator": "cpu"},
+            ) as build_kwargs,
+            patch(
+                "mtdata.forecast.methods.neural.nf_create_and_fit",
+                return_value=fitted,
+            ) as fit,
+            patch.object(method, "serialize_artifact", return_value=b"artifact"),
+        ):
+            result = method.train(
+                _make_series(50),
+                horizon=12,
+                seasonality=24,
+                params={},
+            )
+
+        assert build_kwargs.call_args.kwargs["seed"] == DEFAULT_NEURAL_SEED
+        assert build_kwargs.call_args.kwargs["deterministic"] is True
+        assert fit.call_args.kwargs["seed"] == DEFAULT_NEURAL_SEED
+        assert fit.call_args.kwargs["deterministic"] is True
+        assert result.params_used["seed"] == DEFAULT_NEURAL_SEED
+        assert result.params_used["seed_source"] == "default"
+        assert result.metadata["training_seed"] == DEFAULT_NEURAL_SEED
+        assert result.metadata["deterministic_training"] is True
+
     def test_forecast_uses_ephemeral_train_predict(self):
         m = NHITSMethod()
         series = _make_series(50)

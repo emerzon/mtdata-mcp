@@ -184,10 +184,15 @@ Deep models via NeuralForecast. Not installed by `requirements.txt` or any extra
 
 | Method | Key params (default) | Notes |
 |--------|----------------------|-------|
-| `nhits` | `input_size=auto`, `max_steps=50`, `batch_size=32` | N-HiTS |
-| `nbeatsx` | `input_size=auto`, `max_steps=50`, `batch_size=32` | N-BEATSx |
-| `tft` | `input_size=auto`, `max_steps=50`, `batch_size=32` | Temporal Fusion Transformer |
-| `patchtst` | `input_size=auto`, `max_steps=50`, `batch_size=32` | PatchTST |
+| `nhits` | `input_size=auto`, `max_steps=50`, `batch_size=32`, `seed=42` | N-HiTS |
+| `nbeatsx` | `input_size=auto`, `max_steps=50`, `batch_size=32`, `seed=42` | N-BEATSx |
+| `tft` | `input_size=auto`, `max_steps=50`, `batch_size=32`, `seed=42` | Temporal Fusion Transformer |
+| `patchtst` | `input_size=auto`, `max_steps=50`, `batch_size=32`, `seed=42` | PatchTST |
+
+Neural training seeds Lightning and the model's supported random-seed API and
+enables deterministic trainer mode. The effective seed is stored in model
+metadata and participates in artifact identity; override `seed` when you want a
+separate reproducible training run.
 
 ---
 
