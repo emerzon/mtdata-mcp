@@ -126,10 +126,17 @@ catalog.
 One-shot `tools_list`, `forecast_list_methods`, and
 `forecast_list_library_models` results are cached on disk after a successful
 build. The key includes the command arguments, mtdata source state, relevant
-environment settings, and installed forecast-library versions. Responses expose
-`catalog_source: rebuilt|cached`; a source edit or dependency-version change
-causes an automatic rebuild. A single-library model query only discovers that
-library.
+environment settings (including client and broker timezone settings), and
+installed forecast-library versions. Responses expose
+`catalog_source: rebuilt|cached`; a source, `.env`, timezone, or
+dependency-version change causes an automatic rebuild.
+
+The cache keeps the newest 64 results for at most 14 days and 16 MiB, pruning
+older entries automatically. It lives under
+`%LOCALAPPDATA%\mtdata\catalogs-v1` on Windows and
+`${XDG_CACHE_HOME:-~/.cache}/mtdata/catalogs-v1` elsewhere. Cleanup only removes
+files positively identified as mtdata catalog entries. A single-library model
+query only discovers that library.
 
 ---
 

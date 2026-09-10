@@ -141,6 +141,11 @@ def test_catalog_cache_hit_does_not_import_cli_api(monkeypatch, capsys):
 
     monkeypatch.setattr(
         cli,
+        "catalog_cache_fingerprint",
+        lambda: "pre-bootstrap",
+    )
+    monkeypatch.setattr(
+        cli,
         "load_catalog_output",
         lambda **_kwargs: (
             '{"success":true,"catalog_source":"cached","tools":[]}\n'
@@ -161,6 +166,11 @@ def test_catalog_cache_miss_stores_successful_rendered_output(
     from mtdata.core.cli import api
 
     stored = []
+    monkeypatch.setattr(
+        cli,
+        "catalog_cache_fingerprint",
+        lambda: "pre-bootstrap",
+    )
     monkeypatch.setattr(cli, "load_catalog_output", lambda **_kwargs: None)
     monkeypatch.setattr(
         cli,
@@ -183,6 +193,7 @@ def test_catalog_cache_miss_stores_successful_rendered_output(
     assert json.loads(rendered)["catalog_source"] == "rebuilt"
     assert stored[0]["command"] == "tools_list"
     assert stored[0]["output"] == rendered
+    assert stored[0]["fingerprint"] == "pre-bootstrap"
 
 
 def test_cli_main_returns_zero_on_broken_pipe(monkeypatch):

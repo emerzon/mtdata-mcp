@@ -17,6 +17,7 @@ from .catalog import (
     known_command_names,
 )
 from .catalog_cache import (
+    catalog_cache_fingerprint,
     is_cacheable_catalog_invocation,
     load_catalog_output,
     store_catalog_output,
@@ -202,11 +203,16 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
         normalized_command,
         effective_argv,
     )
+    cache_fingerprint = None
     if cacheable:
+        # Pin the pre-bootstrap context: api.main() may load .env values into
+        # os.environ, but the next one-shot process checks the cache before that.
+        cache_fingerprint = catalog_cache_fingerprint()
         cached_output = load_catalog_output(
             command=normalized_command,
             argv=effective_argv,
             program=program,
+            fingerprint=cache_fingerprint,
         )
         if cached_output is not None:
             sys.stdout.write(cached_output)
@@ -245,6 +251,7 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
                 argv=effective_argv,
                 program=program,
                 output=rendered_output,
+                fingerprint=cache_fingerprint,
             )
             return 0
         raise
@@ -259,6 +266,7 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
             argv=effective_argv,
             program=program,
             output=rendered_output,
+            fingerprint=cache_fingerprint,
         )
     return status
 
