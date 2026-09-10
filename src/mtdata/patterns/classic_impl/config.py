@@ -193,8 +193,10 @@ class ClassicDetectorConfig:
     # forever. 0 means scan to the end of the series, matching head-and-shoulders.
     neckline_break_lookahead_bars: int = 0
     # Detection-window bounds for all returned patterns, including completed
-    # structures. include_completed controls lifecycle visibility; it does not
-    # bypass these recency and geometry-quality limits.
+    # structures. The span cap counts inclusive fitted/structure geometry when
+    # a detector provides explicit bounds, otherwise the inclusive result span.
+    # include_completed controls lifecycle visibility; it does not bypass these
+    # recency and geometry-quality limits.
     max_pattern_age_bars: int = 300
     max_pattern_span_bars: int = 300
     include_lifecycle_metadata: bool = True

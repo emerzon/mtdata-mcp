@@ -83,6 +83,40 @@ class TestFormingConfidenceCap(TestCase):
         processed = _postprocess_classic_results(results, cfg, n=100)
         assert processed[0].confidence <= 0.95
 
+    def test_span_limit_counts_inclusive_geometry_bars(self):
+        result = self._make_result(
+            status="completed",
+            confidence=0.8,
+            start_index=0,
+            end_index=100,
+        )
+        cfg = ClassicDetectorConfig(
+            max_pattern_age_bars=500,
+            max_pattern_span_bars=100,
+        )
+
+        assert _postprocess_classic_results([result], cfg, n=101) == []
+
+    def test_span_limit_excludes_separate_confirmation_from_geometry(self):
+        result = self._make_result(
+            status="completed",
+            confidence=0.8,
+            start_index=0,
+            end_index=100,
+        )
+        result.details = {
+            "geometry_start_index": 0,
+            "geometry_end_index": 99,
+            "geometry_span_bars": 100,
+            "confirmation_index": 100,
+        }
+        cfg = ClassicDetectorConfig(
+            max_pattern_age_bars=500,
+            max_pattern_span_bars=100,
+        )
+
+        assert _postprocess_classic_results([result], cfg, n=101) == [result]
+
 
 class TestTimeframeAwareAgeLimits(TestCase):
     """Age/span limits must scale with timeframe duration."""

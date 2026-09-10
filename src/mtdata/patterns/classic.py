@@ -231,6 +231,23 @@ def _scan_classic_patterns(
     return merged
 
 
+def _classic_geometry_span_bars(result: ClassicPatternResult) -> int:
+    """Return the inclusive structure span used by the configured geometry cap."""
+    details = result.details if isinstance(result.details, dict) else {}
+    try:
+        geometry_start = int(details["geometry_start_index"])
+        geometry_end = int(details["geometry_end_index"])
+    except (KeyError, TypeError, ValueError):
+        try:
+            geometry_span = int(details.get("geometry_span_bars"))
+        except (TypeError, ValueError):
+            geometry_span = 0
+        if geometry_span > 0:
+            return geometry_span
+        geometry_start, geometry_end = int(result.start_index), int(result.end_index)
+    return max(0, geometry_end - geometry_start + 1)
+
+
 def _postprocess_classic_results(
     results: List[ClassicPatternResult],
     cfg: ClassicDetectorConfig,
@@ -245,7 +262,11 @@ def _postprocess_classic_results(
     # Apply the configured geometry-span bound to every lifecycle state.
     max_span = int(getattr(cfg, "max_pattern_span_bars", 0))
     if max_span > 0:
-        results = [r for r in results if (r.end_index - r.start_index) <= max_span]
+        results = [
+            result
+            for result in results
+            if _classic_geometry_span_bars(result) <= max_span
+        ]
 
     for r in results:
         raw_conf = float(r.confidence)

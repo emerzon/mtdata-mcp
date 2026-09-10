@@ -642,12 +642,16 @@ def detect_rounding(
             + 0.35 * float(np.clip(quad_r2, 0.0, 1.0))
             + 0.2 * amp_component,
         )
+        fit_start_index = int(n - W - 1)
+        fit_end_index = int(n - 2)
+        confirmation_index = int(n - 1)
+        window_bars = int(confirmation_index - fit_start_index + 1)
         candidate = _result(
             name,
             status,
             conf,
-            int(n - W - 1),
-            int(n - 1),
+            fit_start_index,
+            confirmation_index,
             t,
             {
                 "quad_a": float(qa),
@@ -658,9 +662,18 @@ def detect_rounding(
                 "left_edge": left_edge,
                 "right_edge": right_edge,
                 "amplitude_pct": float(amp_pct),
-                "window_bars": int(W),
+                "window_bars": window_bars,
+                "fit_start_index": fit_start_index,
+                "fit_end_index": fit_end_index,
+                "fit_window_bars": int(W),
+                "geometry_start_index": fit_start_index,
+                "geometry_end_index": fit_end_index,
+                "geometry_span_bars": int(W),
+                "confirmation_index": confirmation_index,
                 "bias": bias,
-                "breakout_index": int(n - 1) if status == "completed" else None,
+                "breakout_index": (
+                    confirmation_index if status == "completed" else None
+                ),
             },
         )
         candidates.append(candidate)

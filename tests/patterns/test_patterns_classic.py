@@ -1801,8 +1801,10 @@ def test_detect_rounding_tries_multiple_windows(monkeypatch):
 
     assert called == [100, 220] or called == [220, 100]
     assert out
-    assert out[0].details["window_bars"] == 100
-    assert out[0].details["quad_r2"] > 0.99
+    pattern = out[0]
+    assert pattern.details["window_bars"] == 101
+    assert pattern.details["fit_window_bars"] == 100
+    assert pattern.details["quad_r2"] > 0.99
 
 
 def test_detect_rounding_keeps_windows_that_overlap_below_the_threshold():
@@ -1812,22 +1814,25 @@ def test_detect_rounding_keeps_windows_that_overlap_below_the_threshold():
     # when the shorter span is under the dedupe threshold of the longer one.
     # Exercised directly here: two real nested saucers of these scales cannot
     # coexist, because the fit and turn-width gates reject the wider window.
-    def _rounding(window_bars: int) -> ClassicPatternResult:
+    def _rounding(fit_window_bars: int) -> ClassicPatternResult:
         return ClassicPatternResult(
             name="Rounding Bottom",
             status="completed",
             confidence=0.9,
-            start_index=319 - window_bars,
+            start_index=319 - fit_window_bars,
             end_index=319,
-            start_time=float(319 - window_bars),
+            start_time=float(319 - fit_window_bars),
             end_time=319.0,
-            details={"window_bars": window_bars},
+            details={
+                "window_bars": fit_window_bars + 1,
+                "fit_window_bars": fit_window_bars,
+            },
         )
 
     kept = _dedupe_overlapping_patterns(
         [_rounding(100), _rounding(220)], overlap_threshold=0.75
     )
-    assert {pattern.details["window_bars"] for pattern in kept} == {100, 220}
+    assert {pattern.details["fit_window_bars"] for pattern in kept} == {100, 220}
 
     collapsed = _dedupe_overlapping_patterns(
         [_rounding(200), _rounding(220)], overlap_threshold=0.75
@@ -1847,7 +1852,10 @@ def test_detect_rounding_uses_a_post_structure_confirmation_bar(monkeypatch):
     forming = reversal.detect_rounding(
         close,
         np.arange(close.size, dtype=float),
-        ClassicDetectorConfig(rounding_window_sizes=[100]),
+        ClassicDetectorConfig(
+            rounding_window_sizes=[100],
+            max_pattern_span_bars=100,
+        ),
     )
 
     assert forming
@@ -1856,12 +1864,29 @@ def test_detect_rounding_uses_a_post_structure_confirmation_bar(monkeypatch):
     # matches breakout_index on the completed case rather than trailing it.
     assert forming[0].end_index == 100
     assert forming[0].details["breakout_index"] is None
+    assert forming[0].details["confirmation_index"] == 100
+    assert forming[0].details["window_bars"] == 101
+    assert forming[0].details["fit_start_index"] == 0
+    assert forming[0].details["fit_end_index"] == 99
+    assert forming[0].details["fit_window_bars"] == 100
+    assert forming[0].details["geometry_span_bars"] == 100
+    assert forming[0].details["window_bars"] == (
+        forming[0].end_index - forming[0].start_index + 1
+    )
+    assert forming[0].details["fit_window_bars"] == (
+        forming[0].details["fit_end_index"]
+        - forming[0].details["fit_start_index"]
+        + 1
+    )
 
     close[-1] = rim_level + 1.0
     completed = reversal.detect_rounding(
         close,
         np.arange(close.size, dtype=float),
-        ClassicDetectorConfig(rounding_window_sizes=[100]),
+        ClassicDetectorConfig(
+            rounding_window_sizes=[100],
+            max_pattern_span_bars=100,
+        ),
     )
 
     assert completed[0].status == "completed"

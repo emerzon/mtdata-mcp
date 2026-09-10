@@ -105,6 +105,13 @@ the detector reports the availability index and omits the availability time.
 | **Wedge** | Rising or falling wedge |
 | **Rectangle** | Horizontal consolidation |
 
+Rounding tops and bottoms reserve the final consumed candle as a
+post-structure confirmation bar. Their `start_index`, `end_index`, and
+`window_bars` cover the fitted structure plus that confirmation candle.
+`fit_start_index`, `fit_end_index`, and `fit_window_bars` identify only the
+quadratic fit; `confirmation_index` identifies the extra candle. The
+`geometry_*` fields repeat the fitted bounds used by geometry-span filtering.
+
 ### Harmonic Patterns
 
 Fibonacci-ratio patterns built from alternating pivot legs.
@@ -277,9 +284,12 @@ are present at every detail level, including `summary`.
 
 Classic detector config values `max_pattern_age_bars` and
 `max_pattern_span_bars` bound all detector results, including completed
-patterns. `--include-completed true` adds completed structures that remain
-inside those detection bounds; it does not request an unbounded historical
-scan.
+patterns. The span limit counts inclusive structure geometry. When a detector
+publishes separate `geometry_start_index` and `geometry_end_index` bounds, a
+later confirmation bar does not consume the geometry budget; for rounding
+patterns this span equals `fit_window_bars`. `--include-completed true` adds
+completed structures that remain inside those detection bounds; it does not
+request an unbounded historical scan.
 
 **By name:**
 ```bash
