@@ -545,7 +545,22 @@ def _attach_forming_candle_update_freshness(
         return
     if not np.isfinite(tick_epoch) or tick_epoch <= 0:
         return
-    update_age = max(0.0, float(time.time()) - tick_epoch)
+    now_epoch = float(time.time())
+    tick_freshness = build_tick_freshness_context(
+        request.symbol,
+        tick_epoch=tick_epoch,
+        now_epoch=now_epoch,
+        item="market tick",
+        stale_after_seconds=QUOTE_STALE_SECONDS,
+        age_rounder=lambda value: round(value, 3),
+    )
+    try:
+        update_age = max(
+            0.0,
+            float(tick_freshness.get("data_age_seconds")),
+        )
+    except (TypeError, ValueError):
+        update_age = max(0.0, now_epoch - tick_epoch)
     bar_open_age = payload.get("data_age_seconds")
     try:
         bar_open_age_value = max(0.0, float(bar_open_age))
@@ -556,29 +571,45 @@ def _attach_forming_candle_update_freshness(
         data_window["latest_bar_open_age_seconds"] = round(bar_open_age_value, 3)
     payload["market_tick_age_seconds"] = round(update_age, 3)
     data_window["market_tick_age_seconds"] = round(update_age, 3)
-    update_text = _format_age_seconds(update_age)
+    for key in (
+        "timestamp_ahead_of_wall_clock",
+        "timestamp_in_future",
+        "timestamp_skew_seconds",
+        "timestamp_skew_tolerance_seconds",
+        "timestamp_warning",
+    ):
+        if tick_freshness.get(key) is not None:
+            payload[key] = tick_freshness[key]
+            data_window[key] = tick_freshness[key]
+    future_skew = tick_freshness.get("timestamp_skew_seconds")
+    tick_is_ahead = tick_freshness.get("timestamp_ahead_of_wall_clock") is True
+    update_text = (
+        f"timestamp {_format_age_seconds(future_skew)} ahead of wall clock"
+        if tick_is_ahead
+        else f"{_format_age_seconds(update_age)} ago"
+    )
     if bar_open_age_value is not None:
         payload["data_age_seconds"] = round(bar_open_age_value, 3)
         payload["data_age_metric"] = "latest_forming_bar_open_age_seconds"
         payload["freshness"] = (
             f"forming bar open {_format_age_seconds(bar_open_age_value)} ago; "
-            f"market tick {update_text} ago; forming-bar update time unverified"
+            f"market tick {update_text}; forming-bar update time unverified"
         )
     else:
         payload["freshness"] = (
-            f"forming bar; market tick {update_text} ago; "
+            f"forming bar; market tick {update_text}; "
             "forming-bar update time unverified"
         )
     payload["data_age_anchor"] = FRESHNESS_ANCHOR_WALL_CLOCK
     payload["forming_bar_update_verified"] = False
-    if update_age > float(QUOTE_STALE_SECONDS):
+    if tick_freshness.get("data_stale") is True:
         payload["data_stale"] = True
     warning = {
         "code": "forming_bar_unverified",
         "scope": "candles",
         "message": (
             "The forming bar is included; its last update time could not be "
-            f"verified, but the market tick is {update_text} old."
+            f"verified; the market tick is {update_text}."
         ),
         "market_tick_age_seconds": round(update_age, 3),
     }
@@ -715,6 +746,12 @@ def _normalize_candle_query_error(  # noqa: C901
         for key in (
             "market_status",
             "market_status_reason",
+            "market_status_source",
+            "market_venue",
+            "session_calendar",
+            "holiday",
+            "assumed_closure_start",
+            "assumed_closure_end",
             "note",
             "requested_range",
             "available_range",
@@ -816,6 +853,11 @@ def _normalize_candle_query_error(  # noqa: C901
         "symbol": request.symbol,
         "timeframe": request.timeframe,
     }
+    original_details = result.get("details")
+    if isinstance(original_details, dict):
+        original_diagnostics = original_details.get("diagnostics")
+        if isinstance(original_diagnostics, dict):
+            details["diagnostics"] = original_diagnostics
     if dst_issue is not None:
         field, issue = dst_issue
         details.update(dict(issue.get("details") or {}))
@@ -854,6 +896,8 @@ def _normalize_candle_query_error(  # noqa: C901
     for key in ("warnings", "diagnostics"):
         if key in result:
             payload[key] = result[key]
+    if "diagnostics" in details and "diagnostics" not in payload:
+        payload["diagnostics"] = details["diagnostics"]
     return payload
 
 
@@ -1509,6 +1553,17 @@ def _compact_candles_payload(
         "market_status",
         "market_status_reason",
         "market_status_source",
+        "market_venue",
+        "session_calendar",
+        "holiday",
+        "assumed_closure_start",
+        "assumed_closure_end",
+        "timestamp_ahead_of_wall_clock",
+        "timestamp_in_future",
+        "timestamp_skew_seconds",
+        "timestamp_skew_tolerance_seconds",
+        "timestamp_skew_basis",
+        "timestamp_warning",
         "note",
         "query_end_gap_seconds",
         "query_end_gap",
@@ -1801,6 +1856,17 @@ def _standard_candles_payload(result: Dict[str, Any]) -> Dict[str, Any]:
         "market_status",
         "market_status_reason",
         "market_status_source",
+        "market_venue",
+        "session_calendar",
+        "holiday",
+        "assumed_closure_start",
+        "assumed_closure_end",
+        "timestamp_ahead_of_wall_clock",
+        "timestamp_in_future",
+        "timestamp_skew_seconds",
+        "timestamp_skew_tolerance_seconds",
+        "timestamp_skew_basis",
+        "timestamp_warning",
         "note",
         "query_end_gap_seconds",
         "query_end_gap",
@@ -1831,6 +1897,12 @@ def _attach_candle_machine_freshness(payload: Dict[str, Any]) -> None:
         "usable_for_live_trading",
         "usable_for_live_trading_basis",
         "freshness_policy_relaxed",
+        "timestamp_ahead_of_wall_clock",
+        "timestamp_in_future",
+        "timestamp_skew_seconds",
+        "timestamp_skew_tolerance_seconds",
+        "timestamp_skew_basis",
+        "timestamp_warning",
         "query_end_gap_seconds",
         "query_end_gap",
     ):
@@ -2019,6 +2091,16 @@ def _public_candle_diagnostics(result: Dict[str, Any]) -> Dict[str, Any]:  # noq
     freshness = diagnostics.get("freshness")
     if isinstance(freshness, dict):
         public["freshness_basis"] = "bar_policy"
+        for key in (
+            "timestamp_ahead_of_wall_clock",
+            "timestamp_in_future",
+            "timestamp_skew_seconds",
+            "timestamp_skew_tolerance_seconds",
+            "timestamp_skew_basis",
+            "timestamp_warning",
+        ):
+            if freshness.get(key) is not None:
+                public[key] = freshness[key]
         historical_page = _is_paginated_historical_candle_page(result, query_mode)
         if historical_page:
             public["freshness_applicability"] = "historical_page"
@@ -2096,23 +2178,45 @@ def _public_candle_diagnostics(result: Dict[str, Any]) -> Dict[str, Any]:  # noq
                         public["market_status_source"] = freshness[
                             "market_session_source"
                         ]
+                    for source_key, target_key in (
+                        ("market_venue", "market_venue"),
+                        ("session_calendar", "session_calendar"),
+                        ("market_session_holiday", "holiday"),
+                        ("assumed_closure_start", "assumed_closure_start"),
+                        ("assumed_closure_end", "assumed_closure_end"),
+                    ):
+                        if freshness.get(source_key) is not None:
+                            public[target_key] = freshness[source_key]
                     note = freshness.get("freshness_note")
                     if note:
                         public["note"] = note
                 stale = (
                     within_policy is not None
                     and not bool(within_policy)
-                )
+                ) or freshness.get("timestamp_in_future") is True
                 history_policy_ok = not stale and not relaxed_policy
                 public["history_policy_ok"] = history_policy_ok
                 public["data_stale"] = stale
-                freshness_label = format_freshness_label(
-                    data_stale=stale,
-                    market_status=public.get("market_status"),
-                    market_status_reason=public.get("market_status_reason"),
-                    age_seconds=seconds,
-                    item="bar",
-                )
+                if freshness.get("timestamp_in_future") is True:
+                    freshness_label = (
+                        "clock skew, candle timestamp "
+                        f"{_format_age_seconds(freshness.get('timestamp_skew_seconds'))} "
+                        "ahead of wall clock"
+                    )
+                elif freshness.get("timestamp_ahead_of_wall_clock") is True:
+                    freshness_label = (
+                        "fresh with tolerated clock skew, candle timestamp "
+                        f"{_format_age_seconds(freshness.get('timestamp_skew_seconds'))} "
+                        "ahead of wall clock"
+                    )
+                else:
+                    freshness_label = format_freshness_label(
+                        data_stale=stale,
+                        market_status=public.get("market_status"),
+                        market_status_reason=public.get("market_status_reason"),
+                        age_seconds=seconds,
+                        item="bar",
+                    )
                 if freshness_label:
                     public["freshness"] = freshness_label
                 if stale:

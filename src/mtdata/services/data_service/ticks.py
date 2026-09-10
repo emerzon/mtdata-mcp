@@ -364,6 +364,8 @@ def _fetch_ticks_forward(
 
 def _live_tick_spread_reference(
     symbol: str,
+    *,
+    symbol_info: Any = None,
 ) -> Tuple[Optional[float], Dict[str, Any]]:
     now_epoch = time.time()
     try:
@@ -396,6 +398,7 @@ def _live_tick_spread_reference(
         now_epoch=time.time(),
         item="spread reference",
         age_rounder=lambda value: round(value, 3),
+        symbol_info=symbol_info,
     )
     live_usable = (
         context.get("usable_for_live_trading") is True
@@ -1248,6 +1251,7 @@ def fetch_ticks(  # noqa: C901
                 now_epoch=time.time(),
                 item="tick",
                 age_rounder=lambda value: round(value, 3),
+                symbol_info=_info or _info_before,
             )
             payload.update(freshness_context)
             quote_for_gate = last_quote

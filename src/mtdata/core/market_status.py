@@ -21,7 +21,7 @@ from ..shared.market_sessions import (
 from ..shared.schema import DetailLiteral
 from ..shared.symbols import is_probably_crypto_symbol, is_probably_forex_symbol
 from ..utils.coercion import UNPARSED_BOOL, coerce_optional_bool, parse_bool_like
-from ..utils.freshness import is_standard_weekend_closure
+from ..utils.freshness import closed_session_context
 from ..utils.market_metadata import build_tick_freshness_context
 from ..utils.mt5 import (
     MT5ConnectionError,
@@ -391,7 +391,11 @@ def _check_market_status(market_id: str, now_local: datetime) -> Dict[str, Any]:
     # A shortened session can end exactly when the normal lunch interval starts.
     # Resolve the effective close before considering a midday break.
     if now_norm >= close_time:
-        after_hours_close = market.get("after_hours_close")
+        after_hours_close = (
+            market.get("early_after_hours_close")
+            if is_early_close
+            else market.get("after_hours_close")
+        )
         if after_hours_close:
             after_hours_close_time = now_local.replace(
                 hour=after_hours_close[0],
@@ -720,6 +724,7 @@ def _symbol_tick_snapshot(
     *,
     now_utc: datetime,
     source_metadata: Optional[Dict[str, Any]] = None,
+    symbol_info: Any = None,
 ) -> Dict[str, Any]:
     if tick is None:
         return {
@@ -746,6 +751,7 @@ def _symbol_tick_snapshot(
                 now_epoch=now_utc.timestamp(),
                 item="tick",
                 age_rounder=lambda value: round(value, 3),
+                symbol_info=symbol_info,
             )
             if freshness:
                 out["data_age_seconds"] = freshness["data_age_seconds"]
@@ -1024,6 +1030,7 @@ def _check_symbol_market_status(
         tick,
         now_utc=now_utc,
         source_metadata=quote_source,
+        symbol_info=info,
     )
     schedule_status = _infer_symbol_schedule_from_recent_candles(
         symbol_name,
@@ -1050,16 +1057,33 @@ def _check_symbol_market_status(
         local_session_open = True
     else:
         local_session_open = None
-    weekend_closed_now = is_standard_weekend_closure(now_utc)
+    scheduled_closure = closed_session_context(
+        symbol_name,
+        now_epoch=now_utc.timestamp(),
+        item="tick",
+        symbol_info=info,
+    )
     if (
         can_open is True
-        and weekend_closed_now
+        and scheduled_closure is not None
         and not is_crypto_symbol
-        and not recent_schedule_allows_now
+        and (
+            scheduled_closure.get("session_calendar") is not None
+            or not recent_schedule_allows_now
+        )
     ):
-        open_state = "weekend_closed"
+        reason = str(
+            scheduled_closure.get("market_status_reason")
+            or "scheduled_closure"
+        )
+        open_state = (
+            "weekend_closed"
+            if reason == "weekend"
+            else "holiday_closed"
+            if reason == "holiday"
+            else "session_closed"
+        )
         can_open = False
-        reason = "weekend"
     elif can_open is True and live_ready is not True:
         can_open = False
         if schedule_match is False:
@@ -1085,11 +1109,10 @@ def _check_symbol_market_status(
     else:
         open_state = "unknown"
 
-    if reason == "weekend":
+    if scheduled_closure is not None and reason:
         message = (
-            f"{symbol_name}: closed for the standard Friday 17:00 through Sunday "
-            "17:00 America/New_York weekend window even though MT5 trade_mode "
-            "allows opening."
+            f"{symbol_name}: closed for the scheduled {reason.replace('_', ' ')} "
+            "window even though MT5 trade_mode allows opening."
         )
     else:
         message = (
@@ -1144,6 +1167,19 @@ def _check_symbol_market_status(
         result["symbol_input"] = symbol_input
     if reason:
         result["reason"] = reason
+    if scheduled_closure:
+        for key in (
+            "market_status",
+            "market_status_reason",
+            "market_status_source",
+            "market_venue",
+            "session_calendar",
+            "holiday",
+            "assumed_closure_start",
+            "assumed_closure_end",
+        ):
+            if scheduled_closure.get(key) is not None:
+                result[key] = scheduled_closure[key]
     if detail == "full":
         result["trade_mode"] = trade_mode
         result["symbol_info"] = {
@@ -1306,6 +1342,14 @@ def _compact_symbol_market_status(row: Dict[str, Any], *, detail: str) -> Dict[s
         "timestamp_skew_seconds",
         "timestamp_skew_tolerance_seconds",
         "timestamp_warning",
+        "market_status",
+        "market_status_reason",
+        "market_status_source",
+        "market_venue",
+        "session_calendar",
+        "holiday",
+        "assumed_closure_start",
+        "assumed_closure_end",
         "market_clock",
         "market_clock_timezone",
         "authoritative_clock",

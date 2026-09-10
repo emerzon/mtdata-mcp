@@ -20,6 +20,7 @@ from mtdata.services.data_service.candles import (
     _build_rates_df,
     _candle_query_applied,
     _fetch_rates_with_warmup,
+    _latest_candle_freshness_cutoff,
     _trim_df_to_target,
 )
 from mtdata.services.data_service.errors import _build_no_data_error_with_context
@@ -59,7 +60,7 @@ def test_build_candle_headers_tolerates_missing_volume_fields() -> None:
     assert headers == ["time", "open", "high", "low", "close"]
 
 
-def test_candle_freshness_diagnostics_never_reports_negative_freshness() -> None:
+def test_candle_freshness_diagnostics_flags_future_timestamp() -> None:
     diagnostics = _build_candle_freshness_diagnostics(
         last_bar_epoch=200.0,
         expected_end_epoch=100.0,
@@ -67,7 +68,69 @@ def test_candle_freshness_diagnostics_never_reports_negative_freshness() -> None
     )
 
     assert diagnostics["data_freshness_seconds"] == 0.0
+    assert diagnostics["last_bar_within_policy_window"] is False
+    assert diagnostics["timestamp_ahead_of_wall_clock"] is True
+    assert diagnostics["timestamp_in_future"] is True
+    assert diagnostics["timestamp_skew_seconds"] == 100.0
+    assert diagnostics["timestamp_skew_basis"] == "latest_completed_bar_close"
+
+
+def test_candle_freshness_diagnostics_discloses_tolerated_skew() -> None:
+    diagnostics = _build_candle_freshness_diagnostics(
+        last_bar_epoch=108.0,
+        expected_end_epoch=100.0,
+        freshness_cutoff_epoch=50.0,
+    )
+
     assert diagnostics["last_bar_within_policy_window"] is True
+    assert diagnostics["timestamp_ahead_of_wall_clock"] is True
+    assert diagnostics.get("timestamp_in_future") is not True
+    assert diagnostics["timestamp_skew_seconds"] == 8.0
+
+
+def test_latest_freshness_cutoff_uses_current_broker_grid(monkeypatch) -> None:
+    reference = datetime(2026, 1, 5, 12, 30, tzinfo=timezone.utc).timestamp()
+    last_open = datetime(2026, 1, 5, 10, 0, tzinfo=timezone.utc).timestamp()
+    monkeypatch.setattr(
+        "mtdata.utils.time._broker_calendar_timezone",
+        lambda _at_time: timezone.utc,
+    )
+
+    cutoff = _latest_candle_freshness_cutoff(
+        reference_epoch=reference,
+        timeframe="H1",
+        seconds_per_bar=3600,
+    )
+    diagnostics = _build_candle_freshness_diagnostics(
+        last_bar_epoch=bar_close_epoch(last_open, "H1"),
+        expected_end_epoch=reference,
+        freshness_cutoff_epoch=cutoff,
+    )
+
+    assert cutoff == datetime(
+        2026, 1, 5, 12, 0, tzinfo=timezone.utc
+    ).timestamp()
+    assert diagnostics["last_bar_within_policy_window"] is False
+
+
+def test_latest_h4_freshness_cutoff_uses_non_utc_broker_grid(
+    monkeypatch,
+) -> None:
+    reference = datetime(2026, 1, 5, 22, 30, tzinfo=timezone.utc).timestamp()
+    monkeypatch.setattr(
+        "mtdata.utils.time._broker_calendar_timezone",
+        lambda _at_time: timezone(timedelta(hours=3)),
+    )
+
+    cutoff = _latest_candle_freshness_cutoff(
+        reference_epoch=reference,
+        timeframe="H4",
+        seconds_per_bar=4 * 60 * 60,
+    )
+
+    assert cutoff == datetime(
+        2026, 1, 5, 21, 0, tzinfo=timezone.utc
+    ).timestamp()
 
 
 def test_recent_tick_chunks_overlap_without_duplicate_boundary_ticks(monkeypatch) -> None:
@@ -246,7 +309,29 @@ def test_no_data_context_explains_bounded_weekend_closure(monkeypatch) -> None:
     assert "no candles are expected" in result["details"]["note"]
 
 
-def test_no_data_context_labels_date_only_saturday_sunday_range(monkeypatch) -> None:
+def test_no_data_context_explains_us_equity_holiday(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "mtdata.services.data_service.errors._mt5_copy_rates_from_pos",
+        lambda *args, **kwargs: None,
+    )
+
+    result = _build_no_data_error_with_context(
+        "AAPL.NAS",
+        "H1",
+        1,
+        "2026-07-03 10:00",
+        "2026-07-03 18:00",
+    )
+
+    details = result["details"]
+    assert details["no_data_reason"] == "market_closed_holiday"
+    assert details["market_status_reason"] == "holiday"
+    assert details["market_venue"] == "NASDAQ"
+    assert details["session_calendar"] == "XNYS"
+    assert "Independence Day" in details["holiday"]
+
+
+def test_no_data_context_does_not_hide_sunday_fx_reopen(monkeypatch) -> None:
     monkeypatch.setattr(
         "mtdata.services.data_service.errors._mt5_copy_rates_from_pos",
         lambda *args, **kwargs: None,
@@ -260,8 +345,7 @@ def test_no_data_context_labels_date_only_saturday_sunday_range(monkeypatch) -> 
         "2026-08-23",
     )
 
-    assert result["details"]["no_data_reason"] == "market_closed_weekend"
-    assert result["details"]["market_status"] == "closed"
+    assert "no_data_reason" not in result["details"]
 
 
 def test_no_data_context_does_not_label_continuous_crypto_weekend(monkeypatch) -> None:
@@ -759,7 +843,16 @@ class TestFetchRatesWithWarmup(unittest.TestCase):
     @patch(_RATES_FROM)
     def test_sanity_check_pass(self, mock_from):
         """Sanity check passes when last bar is recent."""
-        rates = _make_rates(5)
+        current_hour = datetime.now(_UTC).replace(
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        rates = _make_rates(
+            5,
+            base_ts=current_hour.timestamp(),
+            step=60 * 60,
+        )
         mock_from.return_value = rates
         result, err = _fetch_rates_with_warmup(
             'EURUSD', 16385, 'H1', 5, 0, None, None,
@@ -896,8 +989,100 @@ class TestFetchRatesWithWarmup(unittest.TestCase):
         self.assertEqual(mock_from.call_count, 2)
         self.assertEqual(
             diagnostics['freshness']['freshness_cutoff_epoch'],
-            11 * 60 * 60,
+            12 * 60 * 60,
         )
+
+    @patch(_RATES_FROM)
+    def test_latest_h1_rejects_exactly_one_missing_completed_bar(self, mock_from):
+        now = datetime(2026, 1, 5, 12, 30, tzinfo=_UTC)
+        latest_open = datetime(2026, 1, 5, 10, 0, tzinfo=_UTC)
+        stale_rates = _make_rates(
+            5,
+            base_ts=latest_open.timestamp(),
+            step=60 * 60,
+        )
+        mock_from.return_value = stale_rates
+        diagnostics = {}
+
+        with (
+            patch(f"{_DS}.FETCH_RETRY_ATTEMPTS", 1),
+            patch(f"{_DS}._utc_epoch_seconds", return_value=now.timestamp()),
+            patch(
+                "mtdata.utils.time._broker_calendar_timezone",
+                return_value=_UTC,
+            ),
+        ):
+            result, err = _fetch_rates_with_warmup(
+                "EURUSD",
+                16385,
+                "H1",
+                5,
+                0,
+                None,
+                None,
+                retry=False,
+                sanity_check=True,
+                diagnostics=diagnostics,
+            )
+
+        self.assertIsNone(result)
+        self.assertIn("allow_stale=true", err)
+        self.assertEqual(
+            diagnostics["freshness"]["freshness_cutoff_epoch"],
+            datetime(2026, 1, 5, 12, 0, tzinfo=_UTC).timestamp(),
+        )
+        self.assertEqual(
+            diagnostics["freshness"]["last_bar_epoch"],
+            datetime(2026, 1, 5, 11, 0, tzinfo=_UTC).timestamp(),
+        )
+        self.assertFalse(
+            diagnostics["freshness"]["last_bar_within_policy_window"]
+        )
+
+    @patch(_RATES_FROM)
+    def test_future_forming_bar_open_cannot_pass_freshness(self, mock_from):
+        now = datetime(2026, 1, 5, 12, 0, tzinfo=_UTC)
+        future_open = now + timedelta(minutes=10)
+        mock_from.return_value = [
+            *_make_rates(
+                2,
+                base_ts=datetime(2026, 1, 5, 11, 0, tzinfo=_UTC).timestamp(),
+                step=60 * 60,
+            ),
+            {
+                **_make_rates(1, base_ts=future_open.timestamp())[0],
+                "time": future_open.timestamp(),
+            },
+        ]
+        diagnostics = {}
+
+        with (
+            patch(f"{_DS}.FETCH_RETRY_ATTEMPTS", 1),
+            patch(f"{_DS}._utc_epoch_seconds", return_value=now.timestamp()),
+            patch(
+                "mtdata.utils.time._broker_calendar_timezone",
+                return_value=_UTC,
+            ),
+        ):
+            result, err = _fetch_rates_with_warmup(
+                "EURUSD",
+                16385,
+                "H1",
+                3,
+                0,
+                None,
+                None,
+                retry=False,
+                sanity_check=True,
+                diagnostics=diagnostics,
+            )
+
+        self.assertIsNone(result)
+        self.assertIn("600.0s ahead of the wall clock", err)
+        freshness = diagnostics["freshness"]
+        self.assertTrue(freshness["timestamp_in_future"])
+        self.assertEqual(freshness["timestamp_skew_seconds"], 600.0)
+        self.assertFalse(freshness["last_bar_within_policy_window"])
 
     @patch(_RATES_FROM)
     def test_weekend_completed_bars_report_closed_weekend(self, mock_from):
@@ -953,7 +1138,13 @@ class TestFetchRatesWithWarmup(unittest.TestCase):
         mock_from.return_value = rates
         diagnostics = {}
 
-        with patch(f"{_DS}._utc_epoch_seconds", return_value=now.timestamp()):
+        with (
+            patch(f"{_DS}._utc_epoch_seconds", return_value=now.timestamp()),
+            patch(
+                "mtdata.utils.time._broker_calendar_timezone",
+                return_value=timezone(timedelta(hours=3)),
+            ),
+        ):
             result, err = _fetch_rates_with_warmup(
                 "EURUSD",
                 16408,

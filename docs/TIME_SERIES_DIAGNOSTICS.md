@@ -52,7 +52,8 @@ Its `data_as_of` is the close of the last completed input candle; `last_bar_open
 identifies that candle's opening time. With an included forming candle,
 `data_as_of_basis=forming_bar_snapshot` identifies the observation time instead.
 Full output carries the same availability under `meta.time`; the analysis
-window's `period_end` remains a bar-open timestamp.
+window's `period_end` matches `data_as_of`, and `period_end_basis` states
+whether that bound is a completed-bar close or a forming-bar snapshot.
 
 ```bash
 mtdata-cli volatility_term_structure EURUSD --timeframe H1 --lookback 1000 --horizons 1,5,10,20,60 --percentiles 10,25,50,75,90 --json

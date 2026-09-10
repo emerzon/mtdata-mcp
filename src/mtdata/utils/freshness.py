@@ -1,12 +1,22 @@
 from __future__ import annotations
 
 import math
+import re
 from datetime import datetime, time, timedelta, timezone
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
 from ..shared.constants import SANITY_BARS_TOLERANCE, TIMEFRAME_SECONDS
-from ..shared.symbols import is_probably_crypto_symbol
+from ..shared.market_sessions import (
+    MARKET_SESSIONS,
+    exchange_holidays,
+    is_early_close_session,
+)
+from ..shared.symbols import (
+    EQUITY_BROKER_SUFFIXES,
+    is_probably_crypto_symbol,
+    is_probably_fx_session_symbol,
+)
 from .time import bar_close_epoch, format_epoch_utc
 
 # Keep market-data readiness aligned with the pre-trade validator so the same
@@ -14,7 +24,41 @@ from .time import bar_close_epoch, format_epoch_utc
 QUOTE_LIVE_SECONDS = 10
 QUOTE_RECENT_SECONDS = 60
 QUOTE_STALE_SECONDS = 300
+TIMESTAMP_FUTURE_TOLERANCE_SECONDS = 10
 _NEW_YORK = ZoneInfo("America/New_York")
+_EQUITY_VENUE_SUFFIXES = {
+    "AMEX": "NYSE",
+    "ARCA": "NYSE",
+    "ASE": "NYSE",
+    "BATS": "NYSE",
+    "L": "LSE",
+    "NAS": "NASDAQ",
+    "NASDAQ": "NASDAQ",
+    "NQ": "NASDAQ",
+    "NY": "NYSE",
+    "NYSE": "NYSE",
+    "NYS": "NYSE",
+    "NYQ": "NYSE",
+    "O": "NASDAQ",
+    "US": "NYSE",
+}
+_VENUE_TEXT_HINTS = {
+    "NASDAQ": "NASDAQ",
+    "NYSE": "NYSE",
+    "NEW YORK STOCK EXCHANGE": "NYSE",
+    "LONDON STOCK EXCHANGE": "LSE",
+    "LSE": "LSE",
+    "XETRA": "XETRA",
+    "EURONEXT": "EURONEXT",
+    "TOKYO STOCK EXCHANGE": "TSE",
+    "TSE": "TSE",
+    "HONG KONG": "HKEX",
+    "HKEX": "HKEX",
+    "SHANGHAI": "SSE",
+    "SSE": "SSE",
+    "AUSTRALIAN SECURITIES": "ASX",
+    "ASX": "ASX",
+}
 
 COMPLETED_BAR_FRESHNESS_KEYS = (
     "data_as_of",
@@ -26,9 +70,18 @@ COMPLETED_BAR_FRESHNESS_KEYS = (
     "freshness_age_metric",
     "history_policy_ok",
     "freshness",
+    "timestamp_ahead_of_wall_clock",
+    "timestamp_in_future",
+    "timestamp_skew_seconds",
+    "timestamp_skew_tolerance_seconds",
+    "timestamp_skew_basis",
+    "timestamp_warning",
     "market_status",
     "market_status_reason",
     "market_status_source",
+    "market_venue",
+    "session_calendar",
+    "holiday",
     "freshness_policy_relaxed",
     "assumed_closure_start",
     "assumed_closure_end",
@@ -107,6 +160,236 @@ def standard_weekend_overlap_seconds(start_epoch: float, end_epoch: float) -> fl
     return overlap
 
 
+def _symbol_info_text(symbol_info: Any, field: str) -> str:
+    try:
+        value = (
+            symbol_info.get(field)
+            if isinstance(symbol_info, dict)
+            else getattr(symbol_info, field, None)
+        )
+    except Exception:
+        value = None
+    return str(value or "").strip()
+
+
+def _equity_venue_for_symbol(
+    symbol: Any,
+    *,
+    symbol_info: Any = None,
+) -> Optional[str]:
+    metadata_text = " ".join(
+        (
+            _symbol_info_text(symbol_info, "path"),
+            _symbol_info_text(symbol_info, "description"),
+            _symbol_info_text(symbol_info, "exchange"),
+        )
+    ).upper()
+    for hint, venue in _VENUE_TEXT_HINTS.items():
+        if hint in metadata_text:
+            return venue
+
+    normalized = re.sub(
+        r"(?:[._-]24)$",
+        "",
+        str(symbol or "").strip().upper(),
+    )
+    suffix_match = re.fullmatch(r".+[._-]([A-Z0-9]+)", normalized)
+    if suffix_match is not None:
+        suffix = suffix_match.group(1)
+        venue = _EQUITY_VENUE_SUFFIXES.get(suffix)
+        if venue:
+            return venue
+        if suffix in EQUITY_BROKER_SUFFIXES:
+            return "NYSE"
+
+    explicit_equity = any(
+        hint in metadata_text
+        for hint in ("STOCK", "EQUITY", "SHARE", "ETF")
+    )
+    if explicit_equity or re.fullmatch(r"[A-Z]{1,5}(?:[./-][A-Z])?", normalized):
+        # A bare ticker cannot identify its listing venue. XNYS supplies the
+        # shared US cash-session and holiday calendar used by both US venues.
+        return "NYSE"
+    return None
+
+
+def _symbol_session_profile(
+    symbol: Any,
+    *,
+    symbol_info: Any = None,
+) -> tuple[str, Optional[str], Optional[dict[str, Any]]]:
+    path = _symbol_info_text(symbol_info, "path")
+    description = _symbol_info_text(symbol_info, "description")
+    metadata = f"{path} {description}".lower()
+    if is_probably_crypto_symbol(symbol) or "crypto" in metadata:
+        return "continuous_24_7", None, None
+    if is_probably_fx_session_symbol(symbol, path=path) or any(
+        hint in metadata
+        for hint in ("forex", "foreign exchange", "metal", "commodity", "index")
+    ):
+        return "fx", None, None
+    venue = _equity_venue_for_symbol(symbol, symbol_info=symbol_info)
+    if venue and venue in MARKET_SESSIONS:
+        return "equity", venue, MARKET_SESSIONS[venue]
+    # Preserve the established near-24/5 fallback for unclassified broker CFDs.
+    return "fx", None, None
+
+
+def _exchange_holiday(
+    market: dict[str, Any],
+    session_value: Any,
+) -> tuple[bool, Optional[str]]:
+    exchange = str(market.get("exchange_calendar") or "").strip()
+    if not exchange:
+        return False, None
+    session_date = (
+        session_value.date()
+        if isinstance(session_value, datetime)
+        else session_value
+    )
+    try:
+        calendar = exchange_holidays(exchange, int(session_date.year))
+        if session_date in calendar:
+            return True, str(calendar[session_date])
+    except Exception:
+        return False, None
+    return False, None
+
+
+def _market_active_intervals(
+    market: dict[str, Any],
+    session_date: Any,
+) -> list[tuple[datetime, datetime]]:
+    if session_date.weekday() >= 5:
+        return []
+    is_holiday, _ = _exchange_holiday(market, session_date)
+    if is_holiday:
+        return []
+
+    market_tz = ZoneInfo(str(market["timezone"]))
+    session_dt = datetime.combine(session_date, time(12), tzinfo=market_tz)
+    early_close = is_early_close_session(
+        market,
+        str(market.get("country") or ""),
+        session_dt,
+        holiday_resolver=lambda _country, value, _exchange=None: (
+            _exchange_holiday(market, value)
+        ),
+    )
+    open_hour, open_minute = market["open"]
+    close_value = (
+        market.get("early_close")
+        if early_close and market.get("early_close")
+        else market["close"]
+    )
+    close_hour, close_minute = close_value
+    opened = datetime.combine(
+        session_date,
+        time(int(open_hour), int(open_minute)),
+        tzinfo=market_tz,
+    )
+    closed = datetime.combine(
+        session_date,
+        time(int(close_hour), int(close_minute)),
+        tzinfo=market_tz,
+    )
+    if closed <= opened:
+        return []
+
+    lunch_start = market.get("lunch_start")
+    lunch_end = market.get("lunch_end")
+    if lunch_start and lunch_end:
+        pause = datetime.combine(
+            session_date,
+            time(int(lunch_start[0]), int(lunch_start[1])),
+            tzinfo=market_tz,
+        )
+        resume = datetime.combine(
+            session_date,
+            time(int(lunch_end[0]), int(lunch_end[1])),
+            tzinfo=market_tz,
+        )
+        if opened < pause < resume < closed:
+            return [(opened, pause), (resume, closed)]
+    return [(opened, closed)]
+
+
+def _equity_closure_window(
+    market: dict[str, Any],
+    now_utc: datetime,
+) -> Optional[tuple[datetime, datetime, str, Optional[str]]]:
+    market_tz = ZoneInfo(str(market["timezone"]))
+    now_local = now_utc.astimezone(market_tz)
+    intervals: list[tuple[datetime, datetime]] = []
+    for offset in range(-14, 15):
+        intervals.extend(
+            _market_active_intervals(
+                market,
+                now_local.date() + timedelta(days=offset),
+            )
+        )
+    if any(opened <= now_local < closed for opened, closed in intervals):
+        return None
+
+    previous_closes = [
+        closed for _opened, closed in intervals if closed <= now_local
+    ]
+    next_opens = [
+        opened for opened, _closed in intervals if opened > now_local
+    ]
+    if not previous_closes or not next_opens:
+        return None
+
+    holiday, holiday_name = _exchange_holiday(market, now_local)
+    if holiday:
+        reason = "holiday"
+    elif now_local.weekday() >= 5:
+        reason = "weekend"
+    elif any(
+        closed <= now_local < next_open
+        for (_opened, closed), (next_open, _next_closed) in zip(
+            intervals,
+            intervals[1:],
+        )
+        if closed.date() == next_open.date()
+    ):
+        reason = "midday_break"
+    else:
+        reason = "outside_regular_session"
+    return (
+        max(previous_closes).astimezone(timezone.utc),
+        min(next_opens).astimezone(timezone.utc),
+        reason,
+        holiday_name,
+    )
+
+
+def _equity_closed_overlap_seconds(
+    market: dict[str, Any],
+    start_epoch: float,
+    end_epoch: float,
+) -> float:
+    start_utc = datetime.fromtimestamp(float(start_epoch), tz=timezone.utc)
+    end_utc = datetime.fromtimestamp(float(end_epoch), tz=timezone.utc)
+    duration = (end_utc - start_utc).total_seconds()
+    if duration <= 0 or duration > 62 * 86_400:
+        return 0.0
+
+    market_tz = ZoneInfo(str(market["timezone"]))
+    first_date = start_utc.astimezone(market_tz).date() - timedelta(days=1)
+    last_date = end_utc.astimezone(market_tz).date() + timedelta(days=1)
+    open_seconds = 0.0
+    day = first_date
+    while day <= last_date:
+        for opened, closed in _market_active_intervals(market, day):
+            overlap_start = max(start_utc, opened.astimezone(timezone.utc))
+            overlap_end = min(end_utc, closed.astimezone(timezone.utc))
+            if overlap_end > overlap_start:
+                open_seconds += (overlap_end - overlap_start).total_seconds()
+        day += timedelta(days=1)
+    return max(0.0, duration - open_seconds)
+
+
 def freshness_hole_explained_by_weekend(
     *,
     last_completed_epoch: float,
@@ -138,48 +421,117 @@ def freshness_hole_explained_by_weekend(
     return unexplained <= slack
 
 
+def freshness_hole_explained_by_session(
+    symbol: Any,
+    *,
+    last_completed_epoch: float,
+    cutoff_epoch: float,
+    bar_seconds: float,
+    symbol_info: Any = None,
+) -> bool:
+    """True when scheduled closed time explains a latest-bar freshness hole."""
+    try:
+        last_epoch = float(last_completed_epoch)
+        cutoff = float(cutoff_epoch)
+        seconds_per_bar = float(bar_seconds)
+    except (TypeError, ValueError):
+        return False
+    if not (
+        math.isfinite(last_epoch)
+        and math.isfinite(cutoff)
+        and math.isfinite(seconds_per_bar)
+        and seconds_per_bar > 0
+        and cutoff > last_epoch
+    ):
+        return False
+
+    session_kind, _venue, market = _symbol_session_profile(
+        symbol,
+        symbol_info=symbol_info,
+    )
+    if session_kind == "continuous_24_7":
+        return False
+    if session_kind == "equity" and market is not None:
+        overlap = _equity_closed_overlap_seconds(market, last_epoch, cutoff)
+    else:
+        overlap = standard_weekend_overlap_seconds(last_epoch, cutoff)
+    if overlap <= 0:
+        return False
+    unexplained = cutoff - last_epoch - overlap
+    slack = min(3600.0, max(1.0, seconds_per_bar * 0.25))
+    return unexplained <= slack
+
+
 def closed_session_context(
     symbol: Any,
     *,
     now_epoch: Any,
     item: str = "tick",
     data_age_seconds: Any = None,
+    symbol_info: Any = None,
 ) -> Optional[dict[str, Any]]:
-    if (
-        not str(symbol or "").strip()
-        or is_probably_crypto_symbol(symbol)
-    ):
+    if not str(symbol or "").strip():
         return None
     try:
         now_utc = datetime.fromtimestamp(float(now_epoch), tz=timezone.utc)
     except Exception:
         return None
-    closure_window = standard_weekend_window(now_utc)
-    if closure_window is None:
+
+    session_kind, venue, market = _symbol_session_profile(
+        symbol,
+        symbol_info=symbol_info,
+    )
+    if session_kind == "continuous_24_7":
         return None
+    holiday_name: Optional[str] = None
+    if session_kind == "equity" and market is not None:
+        equity_closure = _equity_closure_window(market, now_utc)
+        if equity_closure is None:
+            return None
+        close_utc, open_utc, reason, holiday_name = equity_closure
+        source = "exchange_calendar"
+    else:
+        closure_window = standard_weekend_window(now_utc)
+        if closure_window is None:
+            return None
+        close_utc, open_utc = closure_window
+        reason = "weekend"
+        source = "standard_weekend_hours"
+
     item_label = str(item or "data").strip() or "data"
     out = {
         "market_status": "closed",
-        "market_status_reason": "weekend",
-        "market_status_source": "standard_weekend_hours",
+        "market_status_reason": reason,
+        "market_status_source": source,
         "note": f"Market is closed; showing the latest completed session {item_label}.",
+        "assumed_closure_start": close_utc.isoformat().replace("+00:00", "Z"),
+        "assumed_closure_end": open_utc.isoformat().replace("+00:00", "Z"),
+        "assumed_closure_seconds": round_age_seconds(
+            (open_utc - close_utc).total_seconds()
+        ),
     }
+    if venue and market is not None:
+        out["market_venue"] = venue
+        out["session_calendar"] = market.get("exchange_calendar") or venue
+    if holiday_name:
+        out["holiday"] = holiday_name
     if data_age_seconds is not None:
         try:
-            age_seconds = max(0.0, float(data_age_seconds))
+            raw_age_seconds = float(data_age_seconds)
+            age_seconds = max(0.0, raw_age_seconds)
         except (TypeError, ValueError):
+            raw_age_seconds = float("inf")
             age_seconds = float("inf")
-        close_utc, open_utc = closure_window
-        closure_seconds = (open_utc - close_utc).total_seconds()
+        data_epoch = now_utc.timestamp() - raw_age_seconds
         rounded_age = round_age_seconds(age_seconds)
         out.update(
             {
                 "data_age_seconds": rounded_age,
-                "assumed_closure_start": close_utc.isoformat().replace("+00:00", "Z"),
-                "assumed_closure_end": open_utc.isoformat().replace("+00:00", "Z"),
-                "assumed_closure_seconds": round_age_seconds(closure_seconds),
                 "freshness_policy_relaxed": (
-                    math.isfinite(age_seconds) and age_seconds <= closure_seconds
+                    math.isfinite(data_epoch)
+                    and raw_age_seconds >= 0
+                    and data_epoch
+                    >= close_utc.timestamp() - float(QUOTE_STALE_SECONDS)
                 ),
             }
         )
@@ -326,13 +678,19 @@ def completed_bar_freshness_fields(
     except (KeyError, TypeError, ValueError, OverflowError, OSError):
         return {}
 
-    age_seconds = max(0, int(round(observed_at - completed_at)))
+    signed_age_seconds = observed_at - completed_at
+    age_seconds = max(0, int(round(signed_age_seconds)))
+    future_skew_seconds = max(0.0, -signed_age_seconds)
+    timestamp_ahead = future_skew_seconds > 0.0
+    timestamp_in_future = (
+        future_skew_seconds >= float(TIMESTAMP_FUTURE_TOLERANCE_SECONDS)
+    )
     try:
         policy_bars = max(1, int(tolerance_bars))
     except (TypeError, ValueError, OverflowError):
         policy_bars = max(1, int(SANITY_BARS_TOLERANCE))
     stale_after = int(step_seconds * policy_bars)
-    data_stale = age_seconds > stale_after
+    data_stale = age_seconds > stale_after or timestamp_in_future
     out: dict[str, Any] = {
         "data_as_of": format_epoch_utc(completed_at),
         "data_as_of_epoch": completed_at,
@@ -342,25 +700,49 @@ def completed_bar_freshness_fields(
         "freshness_basis": "last_completed_bar_close",
         "freshness_age_metric": "latest_completed_bar_close_age_seconds",
     }
+    if timestamp_ahead:
+        out["timestamp_ahead_of_wall_clock"] = True
+        out["timestamp_skew_seconds"] = round(future_skew_seconds, 3)
+        out["timestamp_skew_tolerance_seconds"] = int(
+            TIMESTAMP_FUTURE_TOLERANCE_SECONDS
+        )
+        out["timestamp_skew_basis"] = "latest_completed_bar_close"
+    if timestamp_in_future:
+        out["timestamp_in_future"] = True
+        out["timestamp_warning"] = (
+            "Latest completed-bar timestamp is ahead of the wall clock; "
+            "the history is not safe for live decisions."
+        )
     closed_session = closed_session_context(
         symbol,
         now_epoch=observed_at,
         item=item,
-        data_age_seconds=age_seconds,
+        data_age_seconds=None if timestamp_in_future else age_seconds,
     )
     if closed_session:
         out.update(closed_session)
     out["history_policy_ok"] = not data_stale and not bool(closed_session)
     policy_relaxed = out.get("freshness_policy_relaxed") is not False
-    label = format_freshness_label(
-        data_stale=data_stale,
-        market_status=out.get("market_status") if policy_relaxed else None,
-        market_status_reason=(
-            out.get("market_status_reason") if policy_relaxed else None
-        ),
-        age_seconds=age_seconds,
-        item=item,
-    )
+    if timestamp_in_future:
+        label = (
+            f"clock skew, {item} timestamp "
+            f"{format_age_seconds(future_skew_seconds)} ahead of wall clock"
+        )
+    elif timestamp_ahead:
+        label = (
+            f"fresh with tolerated clock skew, {item} timestamp "
+            f"{format_age_seconds(future_skew_seconds)} ahead of wall clock"
+        )
+    else:
+        label = format_freshness_label(
+            data_stale=data_stale,
+            market_status=out.get("market_status") if policy_relaxed else None,
+            market_status_reason=(
+                out.get("market_status_reason") if policy_relaxed else None
+            ),
+            age_seconds=age_seconds,
+            item=item,
+        )
     if label:
         out["freshness"] = label
     if data_stale:

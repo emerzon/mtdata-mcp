@@ -12,7 +12,11 @@ from ...bootstrap.settings import mt5_config
 from ...shared.constants import TIMEFRAME_SECONDS
 from ...shared.validators import unsupported_timeframe_seconds_error
 from ...utils.freshness import closed_session_context
-from ...utils.time import format_datetime_utc, format_epoch_utc
+from ...utils.time import (
+    format_datetime_utc,
+    format_epoch_utc,
+    next_timeframe_bar_close_epoch,
+)
 
 ExpirationValue = Union[int, float, str, datetime]
 _GTC_EXPIRATION_TOKENS = {"GTC"}
@@ -228,35 +232,11 @@ def _next_candle_close_utc(
     else:
         current_utc = current_utc.astimezone(timezone.utc)
 
-    if tf not in {"D1", "W1", "MN1"}:
-        interval_seconds = int(TIMEFRAME_SECONDS[tf])
-        if interval_seconds <= 0:
-            raise ValueError(unsupported_timeframe_seconds_error(tf))
-        current_epoch = current_utc.timestamp()
-        next_epoch = (
-            math.floor(current_epoch / float(interval_seconds)) + 1
-        ) * interval_seconds
-        next_utc = datetime.fromtimestamp(next_epoch, tz=timezone.utc)
-    else:
-        server_now = _to_server_time_naive(current_utc).replace(tzinfo=None)
-        if tf == "MN1":
-            if server_now.month == 12:
-                result = server_now.replace(year=server_now.year + 1, month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-            else:
-                result = server_now.replace(month=server_now.month + 1, day=1, hour=0, minute=0, second=0, microsecond=0)
-        elif tf == "W1":
-            days_until_next_monday = (7 - server_now.weekday()) % 7
-            if days_until_next_monday == 0:
-                days_until_next_monday = 7
-            result = (server_now + timedelta(days=days_until_next_monday)).replace(
-                hour=0,
-                minute=0,
-                second=0,
-                microsecond=0,
-            )
-        else:
-            result = (server_now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-        next_utc = _server_time_naive_to_utc(result)
+    interval_seconds = int(TIMEFRAME_SECONDS[tf])
+    if interval_seconds <= 0:
+        raise ValueError(unsupported_timeframe_seconds_error(tf))
+    next_epoch = next_timeframe_bar_close_epoch(current_utc.timestamp(), tf)
+    next_utc = datetime.fromtimestamp(next_epoch, tz=timezone.utc)
     if symbol:
         closed = closed_session_context(
             symbol,

@@ -43,7 +43,7 @@ from ...utils.denoise.base import DenoiseExecutionError, DenoiseParameterError
 from ...utils.denoise.filters.moving_average import ema_alpha
 from ...utils.freshness import (
     closed_session_context,
-    freshness_hole_explained_by_weekend,
+    freshness_hole_explained_by_session,
 )
 from ...utils.indicators import (
     _apply_ta_indicators,
@@ -57,6 +57,7 @@ from ...utils.market_metadata import (
     FRESHNESS_ANCHOR_WALL_CLOCK,
     FRESHNESS_METRIC_LAST_COMPLETED_BAR_AGE,
     FRESHNESS_METRIC_REQUESTED_RANGE_END_GAP,
+    TICK_FUTURE_TOLERANCE_SECONDS,
     TICK_VOLUME_COMPARISON_NOTE,
     TICK_VOLUME_EVENT_BASIS,
     TICK_VOLUME_TAPE_EQUIVALENT,
@@ -95,6 +96,7 @@ from ...utils.time import (
     bar_close_epoch,
     display_timezone_label,
     format_epoch_utc,
+    timeframe_bar_open_epoch,
 )
 from ...utils.utils import (
     _format_numeric_rows_from_df,
@@ -397,6 +399,7 @@ def _build_candle_freshness_diagnostics(
     expected_end_epoch: Any,
     freshness_cutoff_epoch: Any,
     data_freshness_reference_epoch: Any = None,
+    timestamp_reference_epoch: Any = None,
 ) -> Dict[str, Any]:
     def _coerce_epoch(value: Any) -> Optional[float]:
         return coerce_finite_float(value)
@@ -406,6 +409,9 @@ def _build_candle_freshness_diagnostics(
     reference_epoch = _coerce_epoch(data_freshness_reference_epoch)
     if reference_epoch is None:
         reference_epoch = expected_epoch
+    timestamp_reference = _coerce_epoch(timestamp_reference_epoch)
+    if timestamp_reference is None:
+        timestamp_reference = reference_epoch
     cutoff_epoch = _coerce_epoch(freshness_cutoff_epoch)
     data_freshness_seconds: Optional[float] = None
     last_bar_within_policy_window: Optional[bool] = None
@@ -425,23 +431,56 @@ def _build_candle_freshness_diagnostics(
         "data_freshness_seconds": data_freshness_seconds,
         "last_bar_within_policy_window": last_bar_within_policy_window,
     }
+    if last_epoch is not None and timestamp_reference is not None:
+        _attach_candle_timestamp_skew(
+            diagnostics,
+            observed_epoch=last_epoch,
+            reference_epoch=timestamp_reference,
+            basis="latest_completed_bar_close",
+        )
     if reference_epoch != expected_epoch:
         diagnostics["data_freshness_reference_epoch"] = reference_epoch
     return diagnostics
 
 
+def _attach_candle_timestamp_skew(
+    diagnostics: Dict[str, Any],
+    *,
+    observed_epoch: Any,
+    reference_epoch: Any,
+    basis: str,
+) -> None:
+    observed = coerce_finite_float(observed_epoch)
+    reference = coerce_finite_float(reference_epoch)
+    if observed is None or reference is None:
+        return
+    signed_skew = float(observed - reference)
+    if signed_skew <= 0:
+        return
+    diagnostics["timestamp_ahead_of_wall_clock"] = True
+    diagnostics["timestamp_skew_seconds"] = round(signed_skew, 3)
+    diagnostics["timestamp_skew_tolerance_seconds"] = int(
+        TICK_FUTURE_TOLERANCE_SECONDS
+    )
+    diagnostics["timestamp_skew_basis"] = basis
+    if signed_skew >= float(TICK_FUTURE_TOLERANCE_SECONDS):
+        diagnostics["timestamp_in_future"] = True
+        diagnostics["last_bar_within_policy_window"] = False
+        diagnostics["timestamp_warning"] = (
+            "Latest candle timestamp is ahead of the wall clock; the bar is not "
+            "safe for live decisions until MT5 time alignment is corrected."
+        )
+
+
 def _latest_candle_freshness_cutoff(
     *,
     reference_epoch: float,
-    last_bar_open_epoch: Any,
+    timeframe: TimeframeLiteral,
     seconds_per_bar: int,
 ) -> float:
-    """Align the latest-query freshness window to the provider's bar grid."""
-    last_open = float(last_bar_open_epoch)
-    bar_seconds = float(seconds_per_bar)
-    elapsed = max(0.0, float(reference_epoch) - last_open)
-    current_bar_open = last_open + math.floor(elapsed / bar_seconds) * bar_seconds
-    return current_bar_open - bar_seconds
+    """Return the close expected for the latest completed broker-grid bar."""
+    del seconds_per_bar
+    return timeframe_bar_open_epoch(float(reference_epoch), timeframe)
 
 
 def _relax_live_completed_bar_freshness(
@@ -453,6 +492,7 @@ def _relax_live_completed_bar_freshness(
     start_datetime: Optional[str],
     end_datetime: Optional[str],
     freshness_meta: Dict[str, Any],
+    symbol_info: Any = None,
 ) -> bool:
     if start_datetime or end_datetime:
         return False
@@ -462,11 +502,14 @@ def _relax_live_completed_bar_freshness(
         current_time_epoch=float(expected_end_ts),
     ):
         return False
+    if freshness_meta.get("timestamp_in_future") is True:
+        return False
     closed_session = closed_session_context(
         symbol,
         now_epoch=expected_end_ts,
         item="bar",
         data_age_seconds=freshness_meta.get("data_freshness_seconds"),
+        symbol_info=symbol_info,
     )
     if not closed_session or not bool(
         closed_session.get("freshness_policy_relaxed")
@@ -483,6 +526,15 @@ def _relax_live_completed_bar_freshness(
         "market_status_source"
     )
     freshness_meta["freshness_note"] = closed_session.get("note")
+    for source_key, target_key in (
+        ("market_venue", "market_venue"),
+        ("session_calendar", "session_calendar"),
+        ("holiday", "market_session_holiday"),
+        ("assumed_closure_start", "assumed_closure_start"),
+        ("assumed_closure_end", "assumed_closure_end"),
+    ):
+        if closed_session.get(source_key) is not None:
+            freshness_meta[target_key] = closed_session[source_key]
     return True
 
 
@@ -497,11 +549,15 @@ def _session_break_explains_latest_n_freshness(
     start_datetime: Optional[str],
     end_datetime: Optional[str],
     freshness_meta: Dict[str, Any],
+    symbol_info: Any = None,
 ) -> bool:
     """True when an unbounded latest-N hole is a weekend/session break, not a feed gap."""
     if start_datetime or end_datetime:
         return False
-    if is_probably_crypto_symbol(symbol):
+    if (
+        is_probably_crypto_symbol(symbol)
+        or freshness_meta.get("timestamp_in_future") is True
+    ):
         return False
     if last_completed_epoch is None or freshness_cutoff is None:
         return False
@@ -515,10 +571,12 @@ def _session_break_explains_latest_n_freshness(
     bar_seconds = float(TIMEFRAME_SECONDS.get(timeframe, 0) or 0)
     if bar_seconds <= 0:
         return False
-    if not freshness_hole_explained_by_weekend(
+    if not freshness_hole_explained_by_session(
+        symbol,
         last_completed_epoch=last_epoch,
         cutoff_epoch=cutoff_epoch,
         bar_seconds=bar_seconds,
+        symbol_info=symbol_info,
     ):
         return False
     previous_open = (
@@ -559,6 +617,7 @@ def _fetch_rates_with_warmup(  # noqa: C901
     sanity_check: bool = True,
     diagnostics: Optional[Dict[str, Any]] = None,
     range_selection: Optional[str] = None,
+    symbol_info: Any = None,
 ):
     """Fetch MT5 rates with optional warmup, retry, and end-bar sanity checks."""
     trailing_range = bool(
@@ -931,7 +990,7 @@ def _fetch_rates_with_warmup(  # noqa: C901
             else:
                 freshness_cutoff = _latest_candle_freshness_cutoff(
                     reference_epoch=freshness_reference_ts,
-                    last_bar_open_epoch=last_t,
+                    timeframe=timeframe,
                     seconds_per_bar=seconds_per_bar,
                 )
             tail_is_forming = _is_last_bar_forming(
@@ -959,8 +1018,15 @@ def _fetch_rates_with_warmup(  # noqa: C901
                 expected_end_epoch=expected_end_ts,
                 freshness_cutoff_epoch=freshness_cutoff,
                 data_freshness_reference_epoch=freshness_reference_ts,
+                timestamp_reference_epoch=wall_clock_ts,
             )
             freshness_meta["last_bar_open_epoch"] = last_completed_open
+            _attach_candle_timestamp_skew(
+                freshness_meta,
+                observed_epoch=last_t,
+                reference_epoch=wall_clock_ts,
+                basis="latest_bar_open",
+            )
             if live_range:
                 if last_completed_epoch is not None:
                     freshness_meta["query_end_gap_seconds"] = round(
@@ -1006,6 +1072,7 @@ def _fetch_rates_with_warmup(  # noqa: C901
                 start_datetime=start_datetime,
                 end_datetime=end_datetime,
                 freshness_meta=freshness_meta,
+                symbol_info=symbol_info,
             ):
                 stale_last_t = None
                 stale_forming_t = None
@@ -1020,11 +1087,16 @@ def _fetch_rates_with_warmup(  # noqa: C901
                 start_datetime=start_datetime,
                 end_datetime=end_datetime,
                 freshness_meta=freshness_meta,
+                symbol_info=symbol_info,
             ):
                 stale_last_t = None
                 stale_forming_t = None
                 break
-            stale_last_t = last_completed_open
+            stale_last_t = (
+                last_completed_open
+                if last_completed_open is not None
+                else float(last_t)
+            )
             stale_forming_t = float(last_t) if tail_is_forming else None
         if retry and idx < (attempts - 1):
             time.sleep(FETCH_RETRY_DELAY)
@@ -1041,6 +1113,21 @@ def _fetch_rates_with_warmup(  # noqa: C901
             "set allow_stale=true to retrieve the latest "
             "available completed historical bars."
         )
+        freshness_meta = (
+            diagnostics.get("freshness")
+            if isinstance(diagnostics, dict)
+            else None
+        )
+        if (
+            isinstance(freshness_meta, dict)
+            and freshness_meta.get("timestamp_in_future") is True
+        ):
+            message = (
+                f"Data appears stale for {symbol} {timeframe}: the latest candle "
+                f"timestamp is {freshness_meta.get('timestamp_skew_seconds')}s ahead "
+                "of the wall clock. Correct MT5 time alignment before using the feed; "
+                "set allow_stale=true only to inspect the anomalous history."
+            )
         if stale_forming_t is not None:
             message += (
                 f" A forming bar at {_format_time_minimal(stale_forming_t)} was "
@@ -2323,6 +2410,7 @@ def fetch_candles(  # noqa: C901
                 sanity_check=not bool(allow_stale) and not historical_bounds_requested,
                 diagnostics=rate_fetch_diagnostics,
                 range_selection=range_selection,
+                symbol_info=_info or _info_before,
             )
             freshness_diagnostics = rate_fetch_diagnostics.get("freshness")
             time_normalization = describe_mt5_time_normalization(symbol=symbol)
@@ -3167,7 +3255,8 @@ def fetch_candles(  # noqa: C901
             if spread_available_count == 0:
                 try:
                     live_spread, reference_freshness = _live_tick_spread_reference(
-                        symbol
+                        symbol,
+                        symbol_info=_info or _info_before,
                     )
                     if live_spread is not None:
                         estimate = float(live_spread)
@@ -3266,7 +3355,7 @@ def fetch_candles(  # noqa: C901
         }
 
 
-def _live_tick_spread_reference(symbol: str):
+def _live_tick_spread_reference(symbol: str, *, symbol_info: Any = None):
     from .ticks import _live_tick_spread_reference as resolve_live_tick_spread
 
-    return resolve_live_tick_spread(symbol)
+    return resolve_live_tick_spread(symbol, symbol_info=symbol_info)

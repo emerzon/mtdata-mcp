@@ -149,7 +149,7 @@ def _diagnostic_history_metadata(
         if len(times)
         else None
     )
-    period_end = (
+    last_bar_open = (
         format_datetime_utc(datetime.fromtimestamp(float(times.iloc[-1]), tz=timezone.utc))
         if len(times)
         else None
@@ -175,7 +175,7 @@ def _diagnostic_history_metadata(
         "forming_candle_status": frame.attrs.get(
             "forming_candle_status", "not_reported"
         ),
-        "last_bar_open": period_end,
+        "last_bar_open": last_bar_open,
         "data_as_of": data_as_of,
         "data_as_of_basis": (
             "forming_bar_snapshot" if forming_included else "completed_bar_close"
@@ -184,7 +184,10 @@ def _diagnostic_history_metadata(
             "requested_as_of": frame.attrs.get("requested_as_of"),
             "resolved_as_of": frame.attrs.get("resolved_as_of"),
             "period_start": period_start,
-            "period_end": period_end,
+            "period_end": data_as_of,
+            "period_end_basis": (
+                "forming_bar_snapshot" if forming_included else "completed_bar_close"
+            ),
             "timezone": "UTC",
             "bar_timestamp_basis": "open_time",
             "bars_used": int(len(frame)),

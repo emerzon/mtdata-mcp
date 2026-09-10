@@ -26,6 +26,11 @@ Boundary-only waits do not poll: they sleep directly to the calculated boundary.
 When explicit market or account watchers are present, the engine polls only as
 needed to observe those events.
 
+Intraday boundaries are calculated on the configured broker-server candle
+grid and then converted to UTC. This matters for frames such as H4 when broker
+midnight is not UTC midnight. An IANA `MT5_SERVER_TZ` also keeps those
+boundaries aligned when the broker zone changes daylight-saving offset.
+
 ---
 
 ## Example 1 — wait for the next H1 close

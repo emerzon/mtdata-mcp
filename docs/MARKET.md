@@ -127,10 +127,11 @@ session, quote, and open or pending exposure. It does not send orders.
 
 For “is this equity venue open?” vs “can I open a *new* position on this
 broker symbol?", `market_status` reports both. `can_open_new_positions` needs
-a live-ready quote and, for non-crypto symbols, is forced false during the
-standard FX weekend unless the inferred M1 schedule says the session is
-active. Inferred session (`current_time_in_recent_session`) is otherwise
-advisory; 24h CFD quotes can still report `true` off cash hours.
+a live-ready quote and a matching market session. Recognized equities use
+their venue's regular session and holiday calendar; FX keeps the Friday 17:00
+through Sunday 17:00 America/New_York weekend; crypto remains continuous.
+Inferred session (`current_time_in_recent_session`) remains advisory for
+unclassified broker CFDs.
 
 The symbol forms of `market_ticker`, `market_status`, and `market_snapshot`
 share `quote_as_of` as the UTC tick join key. They also expose root

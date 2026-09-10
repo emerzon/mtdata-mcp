@@ -54,7 +54,7 @@ class TestEdgeCases(unittest.TestCase):
     def test_single_candle(self, mock_warmup, mock_ctz, mock_info, mock_from, mock_cfg):
         mock_cfg.get_time_offset_seconds.return_value = 0
         mock_from.return_value = _make_rates(1, base_ts=_NOW_TS - 7200, step=3600)
-        result = fetch_candles('EURUSD', limit=1)
+        result = fetch_candles('EURUSD', limit=1, allow_stale=True)
         self.assertTrue(result.get('success'))
         self.assertEqual(result['candles'], 1)
 
@@ -67,7 +67,7 @@ class TestEdgeCases(unittest.TestCase):
     def test_limit_larger_than_data(self, mock_warmup, mock_ctz, mock_info, mock_from, mock_cfg):
         mock_cfg.get_time_offset_seconds.return_value = 0
         mock_from.return_value = _make_rates(3, base_ts=_NOW_TS - 7200, step=3600)
-        result = fetch_candles('EURUSD', limit=100)
+        result = fetch_candles('EURUSD', limit=100, allow_stale=True)
         self.assertTrue(result.get('success'))
         self.assertEqual(result['candles'], 3)
 

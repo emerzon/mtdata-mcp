@@ -1,5 +1,6 @@
 """Canonical time formatting and client-timezone helpers."""
 
+import math
 import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Optional
@@ -15,8 +16,9 @@ MAX_TRADING_MINUTES_BACK = 20 * 365 * 24 * 60
 def bar_close_epoch(open_epoch: Any, timeframe: str) -> float:
     """Return the UTC end epoch for a bar opened at *open_epoch*.
 
-    Daily, weekly, and monthly bars close on broker-calendar boundaries so a
-    configured broker timezone remains correct across daylight-saving changes.
+    Broker-grid-aligned bars close on the next broker boundary, including
+    daylight-saving transitions. Off-grid timestamps retain the fixed-duration
+    fallback so malformed or synthetic input is not silently re-anchored.
     """
     opened = float(open_epoch)
     normalized_timeframe = str(timeframe).upper()
@@ -46,6 +48,9 @@ def bar_close_epoch(open_epoch: Any, timeframe: str) -> float:
     seconds = TIMEFRAME_SECONDS.get(normalized_timeframe)
     if seconds is None:
         raise ValueError(f"Unknown timeframe: {timeframe}")
+    expected_open = timeframe_bar_open_epoch(opened, normalized_timeframe)
+    if abs(expected_open - opened) <= 1e-6:
+        return next_timeframe_bar_close_epoch(opened, normalized_timeframe)
     return opened + float(seconds)
 
 
@@ -58,7 +63,12 @@ def _broker_calendar_timezone(at_time: datetime):
     server_tz = mt5_config.get_server_tz()
     if server_tz is not None:
         return server_tz
-    offset_seconds = int(mt5_config.get_time_offset_seconds(at_time=at_time) or 0)
+    try:
+        offset_seconds = int(
+            mt5_config.get_time_offset_seconds(at_time=at_time) or 0
+        )
+    except TypeError:
+        offset_seconds = int(mt5_config.get_time_offset_seconds() or 0)
     return timezone(timedelta(seconds=offset_seconds))
 
 
@@ -66,6 +76,133 @@ def _localize_broker_calendar_time(broker_tz: Any, value: datetime) -> datetime:
     if value.tzinfo is not None:
         return value
     return value.replace(tzinfo=broker_tz)
+
+
+def _broker_offset_seconds(broker_tz: Any, epoch: float) -> int:
+    value = datetime.fromtimestamp(float(epoch), tz=timezone.utc).astimezone(broker_tz)
+    offset = value.utcoffset()
+    return int(offset.total_seconds()) if offset is not None else 0
+
+
+def _intraday_broker_offsets(
+    broker_tz: Any,
+    *,
+    reference_epoch: float,
+    interval_seconds: int,
+) -> set[int]:
+    """Return offsets that can apply before the next intraday boundary."""
+    horizon = max(float(interval_seconds), 2 * 60 * 60.0)
+    probes = (
+        max(0.0, reference_epoch - 2 * 86_400.0),
+        reference_epoch,
+        reference_epoch + horizon,
+        reference_epoch + horizon + 2 * 60 * 60.0,
+        reference_epoch + 2 * 86_400.0,
+    )
+    return {_broker_offset_seconds(broker_tz, probe) for probe in probes}
+
+
+def timeframe_bar_open_epoch(reference_epoch: Any, timeframe: str) -> float:
+    """Return the broker-grid bar open containing ``reference_epoch``."""
+    reference = float(reference_epoch)
+    normalized_timeframe = str(timeframe).upper()
+    broker_tz = _broker_calendar_timezone(
+        datetime.fromtimestamp(reference, tz=timezone.utc)
+    )
+    if normalized_timeframe in CALENDAR_TIMEFRAMES:
+        local = datetime.fromtimestamp(reference, tz=timezone.utc).astimezone(
+            broker_tz
+        )
+        if normalized_timeframe == "D1":
+            opened_local = local.replace(hour=0, minute=0, second=0, microsecond=0)
+        elif normalized_timeframe == "W1":
+            opened_local = (
+                local - timedelta(days=local.weekday())
+            ).replace(hour=0, minute=0, second=0, microsecond=0)
+        else:
+            opened_local = local.replace(
+                day=1,
+                hour=0,
+                minute=0,
+                second=0,
+                microsecond=0,
+            )
+        return float(opened_local.astimezone(timezone.utc).timestamp())
+
+    interval = TIMEFRAME_SECONDS.get(normalized_timeframe)
+    if interval is None or int(interval) <= 0:
+        raise ValueError(f"Unknown timeframe: {timeframe}")
+    step = int(interval)
+    candidates: list[float] = []
+    offsets = _intraday_broker_offsets(
+        broker_tz,
+        reference_epoch=reference,
+        interval_seconds=step,
+    )
+    for offset in offsets:
+        grid_index = math.floor((reference + float(offset)) / float(step))
+        for shift in range(-2, 3):
+            candidate = (
+                float(grid_index + shift) * float(step) - float(offset)
+            )
+            if (
+                candidate <= reference
+                and _broker_offset_seconds(broker_tz, candidate) == offset
+            ):
+                candidates.append(candidate)
+    if candidates:
+        return max(candidates)
+
+    offset = _broker_offset_seconds(broker_tz, reference)
+    return (
+        math.floor((reference + float(offset)) / float(step)) * float(step)
+        - float(offset)
+    )
+
+
+def next_timeframe_bar_close_epoch(reference_epoch: Any, timeframe: str) -> float:
+    """Return the next broker-grid close strictly after ``reference_epoch``."""
+    reference = float(reference_epoch)
+    normalized_timeframe = str(timeframe).upper()
+    if normalized_timeframe in CALENDAR_TIMEFRAMES:
+        return bar_close_epoch(
+            timeframe_bar_open_epoch(reference, normalized_timeframe),
+            normalized_timeframe,
+        )
+
+    interval = TIMEFRAME_SECONDS.get(normalized_timeframe)
+    if interval is None or int(interval) <= 0:
+        raise ValueError(f"Unknown timeframe: {timeframe}")
+    step = int(interval)
+    broker_tz = _broker_calendar_timezone(
+        datetime.fromtimestamp(reference, tz=timezone.utc)
+    )
+    candidates: list[float] = []
+    offsets = _intraday_broker_offsets(
+        broker_tz,
+        reference_epoch=reference,
+        interval_seconds=step,
+    )
+    for offset in offsets:
+        grid_index = math.floor((reference + float(offset)) / float(step)) + 1
+        for shift in range(-2, 3):
+            candidate = (
+                float(grid_index + shift) * float(step) - float(offset)
+            )
+            if (
+                candidate > reference
+                and _broker_offset_seconds(broker_tz, candidate) == offset
+            ):
+                candidates.append(candidate)
+    if candidates:
+        return min(candidates)
+
+    offset = _broker_offset_seconds(broker_tz, reference)
+    return (
+        (math.floor((reference + float(offset)) / float(step)) + 1)
+        * float(step)
+        - float(offset)
+    )
 
 
 def format_epoch_utc(value: Any, *, timespec: str = "seconds") -> Optional[str]:

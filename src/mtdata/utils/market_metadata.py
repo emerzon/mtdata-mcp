@@ -7,6 +7,7 @@ from .freshness import (
     QUOTE_LIVE_SECONDS,
     QUOTE_RECENT_SECONDS,
     QUOTE_STALE_SECONDS,
+    TIMESTAMP_FUTURE_TOLERANCE_SECONDS,
     closed_session_context,
     format_age_seconds,
     format_freshness_label,
@@ -35,7 +36,7 @@ FRESHNESS_ANCHOR_WALL_CLOCK = "wall_clock"
 FRESHNESS_METRIC_LAST_COMPLETED_BAR_AGE = "last_completed_bar_age_seconds"
 FRESHNESS_METRIC_LAST_TICK_AGE = "last_tick_age_seconds"
 FRESHNESS_METRIC_REQUESTED_RANGE_END_GAP = "requested_range_end_gap_seconds"
-TICK_FUTURE_TOLERANCE_SECONDS = 10.0
+TICK_FUTURE_TOLERANCE_SECONDS = float(TIMESTAMP_FUTURE_TOLERANCE_SECONDS)
 
 
 def attach_candle_volume_semantics(payload: Dict[str, Any]) -> None:
@@ -95,6 +96,7 @@ def build_tick_freshness_context(
     item: str = "tick",
     stale_after_seconds: Any = QUOTE_STALE_SECONDS,
     age_rounder: Callable[[float], Any] | None = None,
+    symbol_info: Any = None,
 ) -> Dict[str, Any]:
     try:
         current_epoch = float(now_epoch)
@@ -121,6 +123,7 @@ def build_tick_freshness_context(
         now_epoch=current_epoch,
         item=item,
         data_age_seconds=None if timestamp_in_future else age_seconds,
+        symbol_info=symbol_info,
     )
     data_stale = age_seconds > threshold or timestamp_in_future
 

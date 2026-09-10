@@ -858,7 +858,7 @@ def test_latest_candles_inherit_stale_quote_readiness(monkeypatch):
         "mtdata.core.data.use_cases.resolve_quote_tick",
         lambda *_args, **_kwargs: (SimpleNamespace(time=1_000.0), {}),
     )
-    request = DataFetchCandlesRequest(symbol="AAPL.NAS", timeframe="H1", limit=1)
+    request = DataFetchCandlesRequest(symbol="EURUSD", timeframe="H1", limit=1)
 
     result = run_data_fetch_candles(
         request,
@@ -1115,6 +1115,95 @@ def test_run_data_fetch_candles_forming_bar_marks_stale_when_tick_is_old(monkeyp
     assert result["forming_bar_update_verified"] is False
     assert result["data_stale"] is True
     assert result["warnings"][0]["code"] == "forming_bar_unverified"
+
+
+def test_run_data_fetch_candles_forming_bar_flags_future_tick(monkeypatch):
+    monkeypatch.setattr(
+        "mtdata.core.data.use_cases.time.time",
+        lambda: 1_700_000_100.0,
+    )
+    request = DataFetchCandlesRequest(
+        symbol="EURUSD",
+        timeframe="H1",
+        include_incomplete=True,
+    )
+    gateway = SimpleNamespace(
+        ensure_connection=lambda: None,
+        symbol_info_tick=lambda _symbol: SimpleNamespace(time=1_700_000_700),
+    )
+
+    result = run_data_fetch_candles(
+        request,
+        gateway=gateway,
+        fetch_candles_impl=lambda **_kwargs: {
+            "success": True,
+            "data": [{"time": "2026-01-01T12:00:00Z", "close": 1.2}],
+            "data_window": {
+                "latest_bar_complete": False,
+                "latest_bar_age_seconds": 900.0,
+            },
+            "meta": {
+                "diagnostics": {
+                    "query": {"mode": "latest"},
+                    "freshness": {
+                        "data_freshness_seconds": 900.0,
+                        "last_bar_within_policy_window": True,
+                    },
+                }
+            },
+        },
+    )
+
+    assert result["market_tick_age_seconds"] == 0.0
+    assert result["timestamp_ahead_of_wall_clock"] is True
+    assert result["timestamp_in_future"] is True
+    assert result["timestamp_skew_seconds"] == 600.0
+    assert result["data_stale"] is True
+    assert "10m 0s ahead of wall clock" in result["freshness"]
+    assert result["data_window"]["timestamp_in_future"] is True
+
+
+def test_candle_diagnostics_publish_future_bar_skew() -> None:
+    request = DataFetchCandlesRequest(
+        symbol="EURUSD",
+        timeframe="H1",
+        limit=1,
+        allow_stale=True,
+    )
+
+    result = run_data_fetch_candles(
+        request,
+        gateway=SimpleNamespace(ensure_connection=lambda: None),
+        fetch_candles_impl=lambda **_kwargs: {
+            "success": True,
+            "candles": 1,
+            "data": [{"time": "2026-01-01T12:00:00Z", "close": 1.2}],
+            "meta": {
+                "diagnostics": {
+                    "query": {"mode": "latest"},
+                    "freshness": {
+                        "data_freshness_seconds": 0.0,
+                        "last_bar_within_policy_window": False,
+                        "timestamp_ahead_of_wall_clock": True,
+                        "timestamp_in_future": True,
+                        "timestamp_skew_seconds": 600.0,
+                        "timestamp_skew_tolerance_seconds": 10,
+                        "timestamp_skew_basis": "latest_bar_open",
+                        "timestamp_warning": "future bar",
+                    },
+                }
+            },
+        },
+    )
+
+    assert result["timestamp_in_future"] is True
+    assert result["timestamp_skew_seconds"] == 600.0
+    assert result["timestamp_skew_basis"] == "latest_bar_open"
+    assert result["data_stale"] is True
+    assert result["history_policy_ok"] is False
+    assert result["freshness"] == (
+        "clock skew, candle timestamp 10m 0s ahead of wall clock"
+    )
 
 
 def test_bounded_provider_window_omits_available_count():

@@ -98,6 +98,24 @@ class TestUsProductionEarlyCloseCalendar:
         assert result["early_close"] is True
 
     @pytest.mark.parametrize("market_id", ["NYSE", "NASDAQ"])
+    def test_early_close_uses_shortened_after_hours(self, market_id):
+        now = datetime(2025, 7, 3, 14, 0, tzinfo=ZoneInfo("America/New_York"))
+
+        result = ms_mod._check_market_status(market_id, now)
+
+        assert result["status"] == "after_hours"
+        assert result["early_close"] is True
+        assert result["next_after_hours_close"].endswith("T17:00:00-04:00")
+        assert result["minutes_until_after_hours_close"] == 180
+
+        closed = ms_mod._check_market_status(
+            market_id,
+            now.replace(hour=18),
+        )
+        assert closed["status"] == "closed"
+        assert closed["early_close"] is True
+
+    @pytest.mark.parametrize("market_id", ["NYSE", "NASDAQ"])
     def test_observed_independence_day_2026_remains_closed(self, market_id):
         now = datetime(2026, 7, 3, 12, 0, tzinfo=ZoneInfo("America/New_York"))
 

@@ -1150,7 +1150,9 @@ def test_market_status_symbol_mode_prefers_closed_session_over_stale_age(
     result = raw(symbol="TSLA.NAS")
 
     assert result["status"] == "session_closed"
-    assert result["reason"] == "not_in_recent_session"
+    assert result["reason"] == "outside_regular_session"
+    assert result["market_venue"] == "NASDAQ"
+    assert result["session_calendar"] == "XNYS"
 
 
 def test_recent_sunday_reopen_is_not_classified_as_weekend_trading() -> None:
@@ -1252,7 +1254,7 @@ def test_market_status_symbol_mode_marks_weekend_snapshot_freshness(monkeypatch)
 
         def symbol_info_tick(self, symbol: str):
             assert symbol == "EURUSD"
-            return SimpleNamespace(time=now_epoch - (36 * 60 * 60), bid=1.1, ask=1.2)
+            return SimpleNamespace(time=now_epoch - (15 * 60 * 60), bid=1.1, ask=1.2)
 
         def copy_rates_range(self, symbol: str, timeframe: int, start, end):
             return []

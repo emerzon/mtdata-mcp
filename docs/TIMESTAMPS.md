@@ -59,6 +59,12 @@ measured lead in `timestamp_skew_seconds`. A lead of 10 seconds or more is unsaf
 `symbol_info_tick` snapshot with the latest tick stream before applying this
 single policy.
 
+Candles use the same disclosure threshold. A future completed-bar close,
+forming-bar open, or forming-bar market tick sets the timestamp-skew fields;
+unsafe skew also sets `data_stale=true` and cannot satisfy the candle freshness
+policy. The nonnegative display age remains `0`, while
+`timestamp_skew_seconds` carries the measured positive lead.
+
 The trading send path adds one bounded exception for a synchronously acquired
 broker tick. When the workstation clock trails that tick by 10–30 seconds,
 freshness is evaluated against the broker tick at acquisition and the quote
@@ -96,6 +102,11 @@ possibly stale tick:
 ```ini
 MT5_SERVER_TZ=Europe/Athens
 ```
+
+Intraday candle grids use this broker clock too. For example, an H4 grid at
+00:00/04:00 broker time need not align to 00:00/04:00 UTC, and its UTC
+boundaries can shift when the configured IANA zone enters or leaves daylight
+saving time.
 
 The adapter also checks fresh live ticks before caching that UTC assumption. If
 a quote tracks the current minute and seconds but is in the future by an
@@ -165,6 +176,13 @@ discontinuity in `session_gaps` and `gap_after_last_bar`. In that case,
 remain true because it describes the dominant interval, while
 `spacing_complete=false` describes the missing session interval.
 
+Latest-N freshness is anchored to the completed bar expected on the current
+broker/timeframe grid, not to the last bar returned by the feed. A missing
+completed bar is therefore stale unless a scheduled closure explains the gap.
+Closure handling keeps the FX Friday 17:00–Sunday 17:00 New York window,
+uses exchange sessions and holidays for recognized equities, and treats crypto
+as continuous.
+
 For completed-bar analytics, `data_as_of` is the latest completed-bar close.
 MT5 row timestamps stay bar-open and are exposed as `last_bar_open` (forecast
 and barrier payloads) or the candle `time` column. Freshness ages are measured
@@ -222,6 +240,11 @@ by that instant. For D1/W1/MN1 the day uses the configured broker calendar.
 This differs from raw candle browsing, where a calendar label can select the
 weekly or monthly period containing that date. A historical analysis never
 uses the eventual close of an unfinished week or month.
+
+Diagnostic `analysis_window.period_end` is the close of the last completed
+input bar and matches `data_as_of`. The source row's earlier MT5 open timestamp
+is retained separately as `last_bar_open`. When a forming bar is explicitly
+included, `period_end_basis=forming_bar_snapshot` identifies the snapshot bound.
 
 W1/MN1 forecast timestamps preserve the observed broker period anchor, even
 when it falls on a weekend. These keys identify calendar bars, not the first

@@ -221,6 +221,7 @@ def _quote_staleness_fields(
     tick_time: Optional[float],
     *,
     symbol: Any = None,
+    symbol_info: Any = None,
 ) -> Dict[str, Any]:
     if tick_time is None:
         return {}
@@ -236,6 +237,7 @@ def _quote_staleness_fields(
         item="tick",
         stale_after_seconds=_MARKET_SCAN_STALE_QUOTE_SECONDS,
         age_rounder=lambda value: _market_scan_round(value, digits=3),
+        symbol_info=symbol_info,
     )
     fields["data_age"] = (
         f"{format_age_seconds(-signed_age_seconds)} ahead of wall clock"
@@ -288,12 +290,17 @@ def _market_scan_quote_freshness_fields(
     tick_time: Optional[float],
     *,
     symbol: Any = None,
+    symbol_info: Any = None,
 ) -> Dict[str, Any]:
     if tick_time is None:
         return {}
     return {
         "tick_time": _format_time_second_explicit(tick_time),
-        **_quote_staleness_fields(tick_time, symbol=symbol),
+        **_quote_staleness_fields(
+            tick_time,
+            symbol=symbol,
+            symbol_info=symbol_info,
+        ),
     }
 
 def _market_scan_points_per_pip(symbol: Any, *, point: float, digits: int) -> Optional[float]:
@@ -358,6 +365,7 @@ def _build_market_scan_spread_row(
     quote_freshness = _market_scan_quote_freshness_fields(
         tick_time,
         symbol=symbol.name,
+        symbol_info=symbol,
     )
     quote_freshness.update(quote_source)
     enforce_quote_execution_readiness(

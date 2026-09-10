@@ -281,6 +281,7 @@ def find_live_extended_session_symbols(
                 tick_epoch=tick_epoch(resolved_tick),
                 now_epoch=now_epoch,
                 item="tick",
+                symbol_info=info,
             )
             freshness.update(quote_meta)
             enforce_quote_execution_readiness(

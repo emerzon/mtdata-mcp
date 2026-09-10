@@ -156,11 +156,43 @@ def test_diagnostic_history_metadata_describes_effective_window() -> None:
         "requested_as_of": "2023-11-15T01:00:00Z",
         "resolved_as_of": "2023-11-15T01:00:00Z",
         "period_start": "2023-11-14T22:13:20Z",
-        "period_end": "2023-11-15T00:13:20Z",
+        "period_end": "2023-11-15T01:13:20Z",
+        "period_end_basis": "completed_bar_close",
         "timezone": "UTC",
         "bar_timestamp_basis": "open_time",
         "bars_used": 3,
     }
+    assert metadata["last_bar_open"] == "2023-11-15T00:13:20Z"
+    assert metadata["analysis_window"]["period_end"] == metadata["data_as_of"]
+
+
+def test_daily_diagnostic_period_end_is_completed_bar_close(monkeypatch) -> None:
+    last_open = datetime(2026, 1, 5, tzinfo=timezone.utc).timestamp()
+    frame = pd.DataFrame(
+        {
+            "time": [last_open - 86_400, last_open],
+            "close": [1.1, 1.2],
+        }
+    )
+    monkeypatch.setattr(
+        diagnostics,
+        "bar_close_epoch",
+        lambda opened, _timeframe: float(opened) + 86_400,
+    )
+
+    metadata = diagnostics._diagnostic_history_metadata(
+        frame,
+        timeframe="D1",
+        include_incomplete=False,
+    )
+
+    assert metadata["last_bar_open"] == "2026-01-05T00:00:00Z"
+    assert metadata["data_as_of"] == "2026-01-06T00:00:00Z"
+    assert metadata["analysis_window"]["period_end"] == metadata["data_as_of"]
+    assert (
+        metadata["analysis_window"]["period_end_basis"]
+        == "completed_bar_close"
+    )
 
 
 def test_diagnostics_reject_pre_epoch_as_of_with_actionable_error(monkeypatch):
@@ -359,6 +391,8 @@ def test_seasonality_detect_finds_known_period(monkeypatch):
 
     assert result["success"] is True
     assert result["analysis_window"]["bars_used"] == len(frame)
+    assert result["analysis_window"]["period_end"] == result["data_as_of"]
+    assert result["last_bar_open"] != result["analysis_window"]["period_end"]
     assert result["dominant_period_bars"] == 12
     assert result["signal_quality"] in {"moderate", "strong"}
     assert result["detection_status"] in {"candidate", "detected"}

@@ -402,7 +402,11 @@ class TestFetchCandlesCore(unittest.TestCase):
             if 'include_spread requested' in item
         ]
         self.assertEqual(len(spread_warnings), 1)
-        mock_live_spread.assert_called_once_with('EURUSD')
+        mock_live_spread.assert_called_once()
+        self.assertEqual(mock_live_spread.call_args.args, ('EURUSD',))
+        self.assertIsNotNone(
+            mock_live_spread.call_args.kwargs.get('symbol_info')
+        )
 
     @patch(_MT5_CONFIG)
     @patch(_RATES_FROM)
@@ -545,7 +549,13 @@ class TestFetchCandlesCore(unittest.TestCase):
         mock_cfg.get_time_offset_seconds.return_value = 0
         mock_from.return_value = _make_rates(6, base_ts=base_ts, step=3600)
         with patch(f'{_DS}._utc_epoch_seconds', return_value=base_ts - 60):
-            result = fetch_candles('EURUSD', timeframe='H1', limit=5, time_as_epoch=True)
+            result = fetch_candles(
+                'EURUSD',
+                timeframe='H1',
+                limit=5,
+                time_as_epoch=True,
+                allow_stale=True,
+            )
         self.assertTrue(result.get('success'))
         returned_times = [row['time'] for row in result.get('data', [])]
         self.assertNotIn(base_ts, returned_times)
@@ -568,7 +578,13 @@ class TestFetchCandlesCore(unittest.TestCase):
         mock_cfg.get_time_offset_seconds.return_value = 0
         mock_from.return_value = _make_rates_array(7, base_ts=base_ts, step=3600)
         with patch(f'{_DS}._utc_epoch_seconds', return_value=base_ts - 60):
-            result = fetch_candles('EURUSD', timeframe='H1', limit=5, time_as_epoch=True)
+            result = fetch_candles(
+                'EURUSD',
+                timeframe='H1',
+                limit=5,
+                time_as_epoch=True,
+                allow_stale=True,
+            )
         self.assertTrue(result.get('success'))
         returned_times = [row['time'] for row in result.get('data', [])]
         self.assertEqual(len(returned_times), 5)
@@ -627,7 +643,13 @@ class TestFetchCandlesCore(unittest.TestCase):
         mock_cfg.get_time_offset_seconds.return_value = 0
         mock_from.return_value = _make_rates(6, base_ts=base_ts, step=3600)
         with patch(f'{_DS}._utc_epoch_seconds', return_value=base_ts + 7200):
-            result = fetch_candles('EURUSD', timeframe='H1', limit=5, time_as_epoch=True)
+            result = fetch_candles(
+                'EURUSD',
+                timeframe='H1',
+                limit=5,
+                time_as_epoch=True,
+                allow_stale=True,
+            )
         self.assertTrue(result.get('success'))
         returned_times = [row['time'] for row in result.get('data', [])]
         self.assertIn(base_ts, returned_times)
@@ -853,7 +875,12 @@ class TestFetchCandlesCore(unittest.TestCase):
         mock_from.return_value = rates
 
         with patch(f'{_DS}._utc_epoch_seconds', return_value=now):
-            result = fetch_candles('XAGUSD', timeframe='H1', limit=5)
+            result = fetch_candles(
+                'XAGUSD',
+                timeframe='H1',
+                limit=5,
+                allow_stale=True,
+            )
 
         self.assertTrue(result.get('success'), result)
         self.assertEqual(result['data'][-1]['time'], '2026-08-13T20:00Z')

@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from ...core.error_envelope import build_error_payload
 from ...shared.schema import TimeframeLiteral
-from ...utils.freshness import closed_session_context, is_standard_weekend_closure
+from ...utils.freshness import closed_session_context
 from ...utils.mt5 import (
     _mt5_copy_rates_from_pos,
     get_symbol_info_cached,
@@ -44,7 +44,7 @@ def _describe_rate_fetch_error(symbol: str, *, info_before: Any = None) -> str:
     return f"Failed to get rates for {symbol}: {error_text}"
 
 
-def _bounded_weekend_no_data_context(
+def _bounded_closed_session_no_data_context(
     symbol: str,
     start_datetime: Optional[str],
     end_datetime: Optional[str],
@@ -72,32 +72,46 @@ def _bounded_weekend_no_data_context(
         if duration.total_seconds() < 0 or duration > timedelta(days=3):
             return {}
         midpoint = start_utc + duration / 2
-        if not (
-            is_standard_weekend_closure(start_utc)
-            and (
-                is_standard_weekend_closure(end_utc)
-                or is_standard_weekend_closure(midpoint)
-            )
-        ):
-            return {}
         item_label = str(item or "data").strip() or "data"
         session = closed_session_context(
             symbol,
             now_epoch=midpoint.timestamp(),
             item=item_label,
+            data_age_seconds=0,
         )
-        if not session or session.get("market_status_reason") != "weekend":
+        if not session:
+            return {}
+        closure_start = datetime.fromisoformat(
+            str(session["assumed_closure_start"]).replace("Z", "+00:00")
+        )
+        closure_end = datetime.fromisoformat(
+            str(session["assumed_closure_end"]).replace("Z", "+00:00")
+        )
+        if start_utc < closure_start or end_utc > closure_end:
             return {}
     except Exception:
         return {}
 
+    reason = str(session.get("market_status_reason") or "scheduled_closure")
+    source = str(session.get("market_status_source") or "market_session")
     return {
-        "no_data_reason": "market_closed_weekend",
+        "no_data_reason": f"market_closed_{reason}",
         "market_status": "closed",
-        "market_status_reason": "weekend",
-        "market_status_source": "standard_weekend_hours",
+        "market_status_reason": reason,
+        "market_status_source": source,
+        **{
+            key: session[key]
+            for key in (
+                "market_venue",
+                "session_calendar",
+                "holiday",
+                "assumed_closure_start",
+                "assumed_closure_end",
+            )
+            if session.get(key) is not None
+        },
         "note": (
-            f"The requested range falls entirely within standard weekend closure "
+            f"The requested range falls entirely within scheduled {reason.replace('_', ' ')} "
             f"hours for {symbol}; no {item_label} are expected."
         ),
         "suggestion": "Choose a range containing an open trading session.",
@@ -112,8 +126,8 @@ def attach_empty_range_weekend_context(
     end: Optional[str],
     item: str = "ticks",
 ) -> Dict[str, Any]:
-    """Copy asset-aware weekend closure fields onto an empty range payload."""
-    context = _bounded_weekend_no_data_context(
+    """Copy asset-aware scheduled-closure fields onto an empty range payload."""
+    context = _bounded_closed_session_no_data_context(
         symbol,
         start,
         end,
@@ -129,6 +143,11 @@ def attach_empty_range_weekend_context(
         "market_status",
         "market_status_reason",
         "market_status_source",
+        "market_venue",
+        "session_calendar",
+        "holiday",
+        "assumed_closure_start",
+        "assumed_closure_end",
         "note",
         "suggestion",
     ):
@@ -154,7 +173,11 @@ def _build_no_data_error_with_context(
             if v is not None
         }
     details.update(
-        _bounded_weekend_no_data_context(symbol, start_datetime, end_datetime)
+        _bounded_closed_session_no_data_context(
+            symbol,
+            start_datetime,
+            end_datetime,
+        )
     )
 
     try:
