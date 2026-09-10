@@ -34,30 +34,52 @@ pytestmark = pytest.mark.usefixtures("_isolate_env")
 
 # We import lazily inside tests where heavy server machinery is needed,
 # but the pure-logic helpers can be imported directly.
+from mtdata.core.cli import api as cli_api
 from mtdata.core.cli.api import (
     _CLI_DESCRIPTION,
     _argparse_color_enabled,
     _build_epilog,
     _build_usage_examples,
-    _coerce_cli_scalar,
     _extract_help_query,
     _first_line,
     _format_cli_literal,
     _format_result_for_cli,
-    _is_typed_dict_type,
     _match_commands,
-    _merge_dict,
-    _normalize_cli_list_value,
-    _parse_set_overrides,
     _print_extended_help,
     _quote_cli_value,
     _sort_subparser_help_choices,
     _suggest_commands,
     _type_name,
-    create_command_function,
-    get_function_info,
     main,
 )
+from mtdata.core.cli.parsing.discovery import get_function_info
+from mtdata.core.cli.runtime.commands import (
+    coerce_cli_scalar as _coerce_cli_scalar,
+)
+from mtdata.core.cli.runtime.commands import (
+    create_command_function as _create_command_function,
+)
+from mtdata.core.cli.runtime.commands import (
+    merge_dict as _merge_dict,
+)
+from mtdata.core.cli.runtime.commands import (
+    normalize_cli_list_value as _normalize_cli_list_value,
+)
+from mtdata.core.cli.runtime.commands import (
+    parse_set_overrides as _parse_set_overrides,
+)
+from mtdata.shared.schema import _is_typed_dict_type
+
+
+def create_command_function(func_info, *, cmd_name):
+    return _create_command_function(
+        func_info,
+        cmd_name=cmd_name,
+        render_cli_result=cli_api._render_cli_result,
+        result_exit_status=cli_api._result_exit_status,
+        invoke_tool_function=cli_api._invoke_cli_tool_function,
+        debug=cli_api._debug,
+    )
 
 # ========================================================================
 # main()
@@ -3160,12 +3182,13 @@ class TestEdgeCases:
 
     def test_resolve_param_kwargs_type_resolution_failure(self):
         # A parameter with a weird type that causes exception
-        from mtdata.core.cli.api import _resolve_param_kwargs
+        from mtdata.core.cli.parsing.discovery import resolve_param_kwargs
+
         class WeirdType:
             pass
 
         param = {"name": "x", "type": WeirdType, "required": False, "default": None}
-        kwargs, is_mapping = _resolve_param_kwargs(param, None)
+        kwargs, is_mapping = resolve_param_kwargs(param, None)
         assert kwargs["type"] is str  # fallback
 
     def test_create_command_mapping_companion_on_none_arg(self, capsys):

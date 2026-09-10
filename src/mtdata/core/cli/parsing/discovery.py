@@ -1,12 +1,35 @@
 import argparse
 import inspect
-from typing import Any, Callable, Dict, Optional, Sequence, Tuple
+import logging
+import types
+from typing import (
+    Annotated,
+    Any,
+    Callable,
+    Dict,
+    Literal,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+    get_args,
+    get_origin,
+)
 
+from pydantic import BaseModel, TypeAdapter, ValidationError
+
+from ....shared.schema import (
+    PARAM_HINTS,
+    _is_typed_dict_type,
+    enrich_schema_with_shared_defs,
+)
+from ....shared.schema import get_function_info as schema_get_function_info
 from ....utils.coercion import UNPARSED_BOOL, parse_bool_like, parse_strict_bool
 from ...param_help import COMMAND_PARAM_HELP_OVERRIDES as _COMMAND_PARAM_HELP_OVERRIDES
 from ..catalog import MULTI_VALUE_SYMBOL_POSITIONAL_COMMANDS
 
 ToolInfo = Dict[str, Any]
+logger = logging.getLogger(__name__)
 
 
 _OPTIONAL_POSITIONAL_PARAMS: set[tuple[str, str]] = {
@@ -104,6 +127,159 @@ _FORECAST_METHOD_LITERAL_MARKERS = {
 
 
 _TRADING_MUTATION_COMMANDS = frozenset({"trade_place", "trade_modify", "trade_close"})
+_NULL_CLI_TOKENS = frozenset({"none", "null"})
+
+
+def _is_pydantic_model_type(value: Any) -> bool:
+    return isinstance(value, type) and issubclass(value, BaseModel)
+
+
+def _iter_request_model_params(model_type: type[BaseModel]) -> list[Dict[str, Any]]:
+    fields = getattr(model_type, "model_fields", None)
+    if not isinstance(fields, dict):
+        return []
+    params: list[Dict[str, Any]] = []
+    for name, field in fields.items():
+        required = (
+            bool(field.is_required())
+            if callable(getattr(field, "is_required", None))
+            else False
+        )
+        default = None if required else getattr(field, "default", None)
+        default_class = getattr(default, "__class__", None)
+        if (
+            default_class is not None
+            and getattr(default_class, "__name__", "") == "PydanticUndefinedType"
+        ):
+            default = None
+        params.append(
+            {
+                "name": name,
+                "required": required,
+                "default": default,
+                "type": getattr(field, "annotation", Any) or Any,
+            }
+        )
+    return params
+
+
+def _flatten_request_model_param(info: Dict[str, Any]) -> Dict[str, Any]:
+    params = info.get("params") or []
+    if len(params) != 1:
+        return info
+    request_param = params[0]
+    request_model = request_param.get("type")
+    if not _is_pydantic_model_type(request_model):
+        return info
+    info["request_model"] = request_model
+    info["request_param_name"] = request_param["name"]
+    info["params"] = _iter_request_model_params(request_model)
+    return info
+
+
+def _is_union_origin(origin: Any) -> bool:
+    return origin in (Union, types.UnionType) or str(origin) in {
+        "typing.Union",
+        "<class 'typing.Union'>",
+    }
+
+
+def _is_literal_origin(origin: Any) -> bool:
+    return origin is Literal or str(origin) in {
+        "typing.Literal",
+        "<class 'typing.Literal'>",
+    }
+
+
+def _unwrap_optional_type(ptype: Any) -> Tuple[Any, Any]:
+    """Unwrap Annotated/Optional wrappers to ``(base, origin(base))``."""
+    while True:
+        origin = get_origin(ptype)
+        if origin is Annotated:
+            args_t = get_args(ptype)
+            if not args_t:
+                break
+            ptype = args_t[0]
+            continue
+        if _is_union_origin(origin):
+            args_t = [arg for arg in get_args(ptype) if arg is not type(None)]
+            if len(args_t) == 1:
+                ptype = args_t[0]
+                continue
+        break
+    return ptype, get_origin(ptype)
+
+
+def _annotation_is_mapping_type(ptype: Any) -> bool:
+    """Return whether an annotation accepts an object-shaped CLI value."""
+    base_type, origin = _unwrap_optional_type(ptype)
+    if (
+        base_type in (dict, Dict)
+        or origin in (dict, Dict)
+        or _is_typed_dict_type(base_type)
+        or _is_pydantic_model_type(base_type)
+    ):
+        return True
+    if _is_union_origin(origin):
+        members = [member for member in get_args(base_type) if member is not type(None)]
+        return bool(members) and all(_annotation_is_mapping_type(member) for member in members)
+    return False
+
+
+def _annotation_has_metadata(ptype: Any) -> bool:
+    origin = get_origin(ptype)
+    if origin is Annotated:
+        return True
+    if _is_union_origin(origin):
+        return any(_annotation_has_metadata(member) for member in get_args(ptype))
+    return False
+
+
+def _annotation_allows_none(ptype: Any) -> bool:
+    origin = get_origin(ptype)
+    if origin is Annotated:
+        args_t = get_args(ptype)
+        return bool(args_t) and _annotation_allows_none(args_t[0])
+    if _is_union_origin(origin):
+        return any(member is type(None) for member in get_args(ptype))
+    return False
+
+
+def _nullable_cli_scalar(inner: Any):
+    """Wrap a scalar argparse converter so documented none/null tokens become None."""
+
+    def _parse(value: Any) -> Any:
+        if isinstance(value, str) and value.strip().casefold() in _NULL_CLI_TOKENS:
+            return None
+        if inner in (int, float, str):
+            return inner(value)
+        return inner(value)
+
+    _parse.__name__ = getattr(inner, "__name__", "value")
+    return _parse
+
+
+def _validated_cli_scalar(ptype: Any, base_type: type):
+    """Build an argparse scalar converter that preserves Annotated bounds."""
+    adapter = TypeAdapter(ptype)
+
+    def _parse(value: str) -> Any:
+        if isinstance(value, str) and value.strip().casefold() in _NULL_CLI_TOKENS:
+            try:
+                return adapter.validate_python(None)
+            except ValidationError as exc:
+                errors = exc.errors()
+                message = str(errors[0].get("msg") or exc) if errors else str(exc)
+                raise argparse.ArgumentTypeError(message) from exc
+        try:
+            return adapter.validate_python(value)
+        except ValidationError as exc:
+            errors = exc.errors()
+            message = str(errors[0].get("msg") or exc) if errors else str(exc)
+            raise argparse.ArgumentTypeError(message) from exc
+
+    _parse.__name__ = getattr(base_type, "__name__", "value")
+    return _parse
 
 
 def _parse_cli_bool_value(value: Any) -> str:
@@ -241,14 +417,11 @@ def should_expose_cli_param(*, cmd_name: Optional[str], param_name: str) -> bool
 
 def get_function_info(
     func: Any,
-    *,
-    schema_get_function_info: Callable[[Any], Dict[str, Any]],
-    flatten_request_model_param: Callable[[Dict[str, Any]], Dict[str, Any]],
 ) -> Dict[str, Any]:
     """Attach the underlying callable to schema introspection data."""
     info = schema_get_function_info(func)
     info["func"] = func
-    info = flatten_request_model_param(info)
+    info = _flatten_request_model_param(info)
     if not info.get("doc"):
         info["doc"] = f"Execute {info.get('name') or getattr(func, '__name__', 'function')}"
     for param in info.get("params", []):
@@ -262,8 +435,6 @@ def get_function_info(
 def apply_schema_overrides(
     tool: ToolInfo,
     func_info: Dict[str, Any],
-    *,
-    enrich_schema_with_shared_defs: Callable[[Dict[str, Any], Dict[str, Any]], Dict[str, Any]],
 ) -> Dict[str, Any]:
     """Apply JSON schema defaults and required flags to CLI parameter metadata."""
     meta = tool.setdefault("meta", {})
@@ -417,21 +588,18 @@ def discover_tools(
     return tools
 
 
-def resolve_param_kwargs(
+def resolve_param_kwargs(  # noqa: C901
     param: Dict[str, Any],
     param_docs: Optional[Dict[str, str]],
     *,
-    cmd_name: Optional[str],
-    param_names: Optional[set],
-    param_hints: Dict[str, str],
-    debug: Callable[[str], None],
-    is_literal_origin: Callable[[Any], bool],
-    unwrap_optional_type: Callable[[Any], Tuple[Any, Any]],
-    get_origin: Callable[[Any], Any],
-    get_args: Callable[[Any], Tuple[Any, ...]],
-    is_mapping_annotation: Callable[[Any], bool],
+    cmd_name: Optional[str] = None,
+    param_names: Optional[set] = None,
+    param_hints: Optional[Dict[str, str]] = None,
+    debug: Optional[Callable[[str], None]] = None,
 ) -> Tuple[Dict[str, Any], bool]:
     """Resolve argparse kwargs for a single CLI parameter."""
+    effective_param_hints = PARAM_HINTS if param_hints is None else param_hints
+    debug_log = logger.debug if debug is None else debug
 
     def _escape_argparse_help(text: Optional[str]) -> Optional[str]:
         return text.replace("%", "%%") if isinstance(text, str) else text
@@ -439,7 +607,7 @@ def resolve_param_kwargs(
     desc = None
     if param_docs and param["name"] in param_docs:
         desc = param_docs[param["name"]]
-    hint = desc or param_hints.get(param["name"])
+    hint = desc or effective_param_hints.get(param["name"])
     override_help = _COMMAND_PARAM_HELP_OVERRIDES.get((str(cmd_name or ""), str(param["name"])))
     if override_help:
         hint = override_help
@@ -453,7 +621,7 @@ def resolve_param_kwargs(
         (cmd_name in {"forecast_generate", "forecast_conformal_intervals", "forecast_tune_genetic", "forecast_tune_optuna"})
         or _is_forecast_method_literal(
             param.get("type"),
-            is_literal_origin=is_literal_origin,
+            is_literal_origin=_is_literal_origin,
             get_origin_func=get_origin,
             get_args_func=get_args,
         )
@@ -466,9 +634,9 @@ def resolve_param_kwargs(
     else:
         try:
             ptype = param.get("type")
-            base_type, origin = unwrap_optional_type(ptype)
+            base_type, origin = _unwrap_optional_type(ptype)
 
-            is_mapping_type = is_mapping_annotation(ptype)
+            is_mapping_type = _annotation_is_mapping_type(ptype)
 
             kwargs["type"] = str
 
@@ -485,7 +653,7 @@ def resolve_param_kwargs(
             if origin in (list, tuple):
                 inner = get_args(ptype)[0] if get_args(ptype) else None
                 inner_origin = get_origin(inner)
-                if is_literal_origin(inner_origin):
+                if _is_literal_origin(inner_origin):
                     choices = [str(v) for v in get_args(inner)]
                     if choices:
                         kwargs["type"] = _comma_aware_choice_parser(choices)
@@ -499,17 +667,17 @@ def resolve_param_kwargs(
             else:
                 choices = _collect_literal_choices(
                     base_type,
-                    is_literal_origin=is_literal_origin,
+                    is_literal_origin=_is_literal_origin,
                     get_origin_func=get_origin,
                     get_args_func=get_args,
                 )
                 if choices:
                     kwargs["choices"] = choices
                     kwargs["type"] = _case_insensitive_choice_parser(choices)
-                elif is_literal_origin(origin):
+                elif _is_literal_origin(origin):
                     kwargs["type"] = str
         except Exception as exc:
-            debug(f"Type resolution failed for param '{param['name']}': {exc}")
+            debug_log(f"Type resolution failed for param '{param['name']}': {exc}")
             kwargs["type"] = str
 
     if not param["required"] and not (param["type"] is bool and param["default"] is None):
@@ -552,6 +720,23 @@ def resolve_param_kwargs(
     if (str(cmd_name or ""), str(param["name"])) == ("indicators_list", "category"):
         kwargs["type"] = lambda value: str(value or "").strip().lower()
 
+    ptype = param.get("type")
+    try:
+        base_type, _origin = _unwrap_optional_type(ptype)
+        if (
+            not is_mapping_type
+            and base_type in (int, float, str)
+            and _annotation_has_metadata(ptype)
+        ):
+            kwargs["type"] = _validated_cli_scalar(ptype, base_type)
+        elif (
+            not is_mapping_type
+            and base_type in (int, float, str)
+            and _annotation_allows_none(ptype)
+        ):
+            kwargs["type"] = _nullable_cli_scalar(kwargs.get("type") or base_type)
+    except Exception:
+        pass
     return kwargs, is_mapping_type
 
 
@@ -559,9 +744,10 @@ def add_dynamic_arguments(  # noqa: C901
     parser: Any,
     param_info: Dict[str, Any],
     *,
-    resolve_param_kwargs: Callable[..., Tuple[Dict[str, Any], bool]],
     param_docs: Optional[Dict[str, str]] = None,
     cmd_name: Optional[str] = None,
+    param_hints: Optional[Dict[str, str]] = None,
+    debug: Optional[Callable[[str], None]] = None,
 ) -> None:
     """Add CLI arguments for an introspected function schema."""
     has_mapping_param = False
@@ -623,6 +809,8 @@ def add_dynamic_arguments(  # noqa: C901
             param_docs,
             cmd_name=cmd_name,
             param_names=param_names,
+            param_hints=param_hints,
+            debug=debug,
         )
         is_required_option = (
             param["required"] and param != param_info["params"][0]

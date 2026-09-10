@@ -52,17 +52,32 @@ def _isolate_env(monkeypatch):
 # but the pure-logic helpers can be imported directly.
 from mtdata.core.cli.api import (
     _add_forecast_generate_args,
-    _coerce_cli_scalar,
     _example_value,
-    _merge_dict,
     _normalize_cli_argv_aliases,
-    _normalize_cli_list_value,
-    _parse_kv_string,
-    _parse_set_overrides,
-    _resolve_param_kwargs,
     _resolve_raw_cli_command,
+)
+from mtdata.core.cli.parsing.discovery import (
     add_dynamic_arguments,
+    apply_schema_overrides,
     get_function_info,
+)
+from mtdata.core.cli.parsing.discovery import (
+    resolve_param_kwargs as _resolve_param_kwargs,
+)
+from mtdata.core.cli.runtime.commands import (
+    coerce_cli_scalar as _coerce_cli_scalar,
+)
+from mtdata.core.cli.runtime.commands import (
+    merge_dict as _merge_dict,
+)
+from mtdata.core.cli.runtime.commands import (
+    normalize_cli_list_value as _normalize_cli_list_value,
+)
+from mtdata.core.cli.runtime.commands import (
+    parse_kv_string as _parse_kv_string,
+)
+from mtdata.core.cli.runtime.commands import (
+    parse_set_overrides as _parse_set_overrides,
 )
 
 _ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -194,9 +209,9 @@ def test_required_symbol_help_shows_positional_and_flag_forms() -> None:
         prog="mtdata-cli sample_tool",
         formatter_class=cli_api._CLIHelpFormatter,
     )
-    cli_api.add_dynamic_arguments(
+    add_dynamic_arguments(
         parser,
-        cli_api.get_function_info(sample_tool),
+        get_function_info(sample_tool),
         cmd_name="sample_tool",
     )
 
@@ -261,9 +276,9 @@ def test_disabled_market_depth_help_is_available(monkeypatch):
         prog="mtdata-cli market_depth_fetch",
         formatter_class=cli_api._CLIHelpFormatter,
     )
-    cli_api.add_dynamic_arguments(
+    add_dynamic_arguments(
         parser,
-        cli_api.get_function_info(sample_tool),
+        get_function_info(sample_tool),
         cmd_name="market_depth_fetch",
     )
     help_text = parser.format_help()
@@ -431,9 +446,9 @@ def test_missing_required_reports_unrecognized_direction_flag(monkeypatch, capsy
         pass
 
     parser = cli_api._CLIArgumentParser(prog="mtdata-cli trade_place")
-    cli_api.add_dynamic_arguments(
+    add_dynamic_arguments(
         parser,
-        cli_api.get_function_info(tool),
+        get_function_info(tool),
         cmd_name="trade_place",
     )
 
@@ -488,8 +503,8 @@ def test_dynamic_cli_help_has_no_placeholder_param_text():
 
     for cmd_name, tool in sorted(functions.items()):
         func = tool["func"]
-        func_info = tool.setdefault("_cli_func_info", cli_api.get_function_info(func))
-        cli_api._apply_schema_overrides(tool, func_info)
+        func_info = tool.setdefault("_cli_func_info", get_function_info(func))
+        apply_schema_overrides(tool, func_info)
         if cmd_name == "forecast_generate":
             forecast_tool = (tool, func_info)
             continue
@@ -511,10 +526,10 @@ def test_dynamic_cli_help_has_no_placeholder_param_text():
             exclude_params=exclude_globals,
             suppress_defaults=True,
         )
-        cli_api.add_dynamic_arguments(
+        add_dynamic_arguments(
             cmd_parser,
             func_info,
-            (tool.get("meta") or {}).get("param_docs"),
+            param_docs=(tool.get("meta") or {}).get("param_docs"),
             cmd_name=cmd_name,
         )
         command_parsers[cmd_name] = cmd_parser

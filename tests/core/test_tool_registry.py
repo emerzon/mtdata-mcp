@@ -393,7 +393,8 @@ def test_tools_list_full_includes_parser_only_controls_and_aliases():
 def test_tools_list_cli_inventory_matches_built_command_parsers():
     import argparse
 
-    from mtdata.core.cli.api import _add_tool_command_arguments, get_function_info
+    from mtdata.core.cli.api import _add_tool_command_arguments
+    from mtdata.core.cli.parsing.discovery import get_function_info
 
     bootstrap_tools()
     full = registered_tool_catalog(detail="full")

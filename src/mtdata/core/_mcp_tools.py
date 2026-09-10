@@ -358,7 +358,8 @@ def _tool_catalog_cli_contract(  # noqa: C901
 ) -> Dict[str, Any]:
     import argparse
 
-    from .cli.api import _add_tool_command_arguments, get_function_info
+    from .cli.api import _add_tool_command_arguments
+    from .cli.parsing.discovery import get_function_info
 
     parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
     func_info = get_function_info(func)

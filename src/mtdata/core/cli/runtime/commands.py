@@ -1,5 +1,6 @@
 import ast
 import json
+import logging
 import sys
 from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, get_args
 
@@ -14,6 +15,9 @@ from ....utils.coercion import (
 )
 from ...error_envelope import build_error_payload
 from ..catalog import MULTI_VALUE_SYMBOL_POSITIONAL_COMMANDS, display_program_name
+from ..parsing.discovery import _annotation_is_mapping_type, _unwrap_optional_type
+
+logger = logging.getLogger(__name__)
 
 
 def join_cli_symbol_values(cmd_name: str, arg_value: Any) -> Any:
@@ -70,7 +74,11 @@ def missing_argument_guidance(
     return None, None
 
 
-def parse_kv_string(s: str, *, debug: Callable[[str], None]) -> Optional[Dict[str, Any]]:
+def parse_kv_string(
+    s: str,
+    *,
+    debug: Optional[Callable[[str], None]] = None,
+) -> Optional[Dict[str, Any]]:
     """Parse 'k=v,k2=v2' or JSON into a dict."""
     try:
         from ....utils.utils import parse_kv_or_json
@@ -78,7 +86,7 @@ def parse_kv_string(s: str, *, debug: Callable[[str], None]) -> Optional[Dict[st
         result = parse_kv_or_json(s)
         return result
     except Exception as exc:
-        debug(f"Failed to parse kv string '{s}': {exc}")
+        (debug or logger.debug)(f"Failed to parse kv string '{s}': {exc}")
         return None
 
 
@@ -167,8 +175,6 @@ def normalize_cli_list_value(value: Any) -> Any:  # noqa: C901
 
 def parse_set_overrides(
     items: Optional[List[str]],
-    *,
-    coerce_cli_scalar: Callable[[str], Any],
 ) -> Dict[str, Dict[str, Any]]:
     """Parse repeated --set entries like 'method.sp=24' into nested dicts."""
     out: Dict[str, Dict[str, Any]] = {}
@@ -403,11 +409,8 @@ def create_command_function(  # noqa: C901
     cmd_name: str,
     render_cli_result: Callable[..., Any],
     result_exit_status: Callable[[Any], int],
-    normalize_cli_list_value: Callable[[Any], Any],
-    parse_kv_string: Callable[[str], Optional[Dict[str, Any]]],
-    unwrap_optional_type: Callable[[Any], Tuple[Any, Any]],
-    is_mapping_annotation: Callable[[Any], bool],
     invoke_tool_function: Optional[Callable[..., Any]] = None,
+    debug: Optional[Callable[[str], None]] = None,
 ) -> Callable[[Any], int]:
     """Build a CLI command callable for a tool function."""
 
@@ -470,7 +473,7 @@ def create_command_function(  # noqa: C901
         if not isinstance(param, dict):
             return None
         try:
-            ptype, origin = unwrap_optional_type(param.get("type"))
+            ptype, origin = _unwrap_optional_type(param.get("type"))
         except Exception:
             return None
         if origin is Literal or str(origin) in {"typing.Literal", "<class 'typing.Literal'>"}:
@@ -512,7 +515,7 @@ def create_command_function(  # noqa: C901
                 "or KV form: type=price_touch_level,symbol=EURUSD,level=1.16."
             )
         if "=" in s:
-            parsed_map = parse_kv_string(s)
+            parsed_map = parse_kv_string(s, debug=debug)
             if parsed_map is not None:
                 return [parsed_map]
         parsed_tokens = normalize_cli_list_value(s)
@@ -562,15 +565,12 @@ def create_command_function(  # noqa: C901
         mapping_param_names: set[str] = set()
         for param in func_info["params"]:
             try:
-                if is_mapping_annotation(param.get("type")):
+                if _annotation_is_mapping_type(param.get("type")):
                     mapping_param_names.add(param["name"])
             except Exception:
                 continue
         try:
-            set_overrides = parse_set_overrides(
-                getattr(args, "set_overrides", None),
-                coerce_cli_scalar=coerce_cli_scalar,
-            )
+            set_overrides = parse_set_overrides(getattr(args, "set_overrides", None))
         except ValueError as exc:
             render_cli_result(_build_cli_error(str(exc)), args=args, cmd_name=cmd_name)
             return 2
@@ -636,9 +636,9 @@ def create_command_function(  # noqa: C901
 
             try:
                 ptype = param.get("type")
-                base_type, origin = unwrap_optional_type(ptype)
+                base_type, origin = _unwrap_optional_type(ptype)
 
-                is_mapping = is_mapping_annotation(ptype)
+                is_mapping = _annotation_is_mapping_type(ptype)
                 is_list_like = origin in (list, tuple)
             except Exception:
                 ptype = param.get("type")
@@ -703,7 +703,7 @@ def create_command_function(  # noqa: C901
                             return 2
                         arg_value = parsed_structured
                     if isinstance(arg_value, str):
-                        parsed = parse_kv_string(arg_value)
+                        parsed = parse_kv_string(arg_value, debug=debug)
                         if parsed is not None:
                             arg_value = parsed
                         elif (
@@ -731,7 +731,7 @@ def create_command_function(  # noqa: C901
                 extra_param_name = f"{param_name}_params"
                 extra_val = getattr(args, extra_param_name, None)
                 if isinstance(extra_val, str) and extra_val.strip():
-                    extra = parse_kv_string(extra_val)
+                    extra = parse_kv_string(extra_val, debug=debug)
                     if extra is None:
                         render_cli_result(
                             _build_cli_error(

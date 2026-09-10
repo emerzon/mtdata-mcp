@@ -11,35 +11,29 @@ import logging
 import os
 import shlex
 import sys
-import types
 from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from typing import (
-    Annotated,
     Any,
     Dict,
     List,
-    Literal,
     Optional,
     Sequence,
     Tuple,
-    Union,
     cast,
     get_args,
-    get_origin,
 )
 
-from pydantic import BaseModel, TypeAdapter, ValidationError
+from pydantic import ValidationError
 
 from ...bootstrap.settings import load_environment
 from ...bootstrap.tools import bootstrap_tools, cli_tool_module_names
 from ...forecast.requests import ForecastGenerateRequest
-from ...shared.schema import _is_typed_dict_type
 from ...utils.coercion import UNPARSED_BOOL, parse_bool_like
 from ...utils.security import redact_url_credentials
 from .._mcp_instance import mcp
 from .._mcp_tools import (
-    _get_pydantic_model_fields,
+    _normalize_output_fields,
     shape_public_tool_output,
 )
 from .._mcp_tools import get_tool_registry as get_registered_tools
@@ -63,34 +57,11 @@ from .output_format import (
     _invalid_output_format_payload,
     resolve_cli_output_format_env,
 )
+from .parsing import discovery as cli_discovery
 from .parsing.discovery import (
     _COMMAND_PARAM_CHOICE_OVERRIDES,
     _COMMAND_PARAM_HELP_OVERRIDES,
     _case_insensitive_choice_parser,
-)
-from .parsing.discovery import (
-    add_dynamic_arguments as _add_dynamic_arguments_impl,
-)
-from .parsing.discovery import (
-    apply_schema_overrides as _apply_schema_overrides_impl,
-)
-from .parsing.discovery import (
-    discover_tools as _discover_tools_impl,
-)
-from .parsing.discovery import (
-    extract_function_from_tool_obj as _extract_function_from_tool_obj_impl,
-)
-from .parsing.discovery import (
-    extract_metadata_from_tool_obj as _extract_metadata_from_tool_obj_impl,
-)
-from .parsing.discovery import (
-    get_function_info as _get_function_info_impl,
-)
-from .parsing.discovery import (
-    resolve_param_kwargs as _resolve_param_kwargs_impl,
-)
-from .parsing.discovery import (
-    should_expose_cli_param as _should_expose_cli_param_impl,
 )
 from .runtime import (
     _argparse_color_enabled,
@@ -100,29 +71,12 @@ from .runtime import (
     _debug_enabled,
     _suppress_cli_side_output,
 )
+from .runtime import commands as cli_commands
 from .runtime.commands import (
     LIVE_TRADE_MUTATION_TOOLS,
     LIVE_TRADE_MUTATION_WARNING,
     friendly_validation_error,
     missing_argument_guidance,
-)
-from .runtime.commands import (
-    coerce_cli_scalar as _coerce_cli_scalar_impl,
-)
-from .runtime.commands import (
-    create_command_function as _create_command_function_impl,
-)
-from .runtime.commands import (
-    merge_dict as _merge_dict_impl,
-)
-from .runtime.commands import (
-    normalize_cli_list_value as _normalize_cli_list_value_impl,
-)
-from .runtime.commands import (
-    parse_kv_string as _parse_kv_string_impl,
-)
-from .runtime.commands import (
-    parse_set_overrides as _parse_set_overrides_impl,
 )
 
 logger = logging.getLogger(__name__)
@@ -150,80 +104,6 @@ class _CLIHelpFormatter(
                 help_text = help_text.rstrip() + " (default: true for one-shot CLI)"
             return help_text
         return super()._get_help_string(action)
-
-def _annotation_is_mapping_type(ptype: Any) -> bool:
-    """Return whether an annotation accepts an object-shaped CLI value."""
-    base_type, origin = _unwrap_optional_type(ptype)
-    if (
-        base_type in (dict, Dict)
-        or origin in (dict, Dict)
-        or _is_typed_dict_type(base_type)
-        or _is_pydantic_model_type(base_type)
-    ):
-        return True
-    if _is_union_origin(origin):
-        members = [member for member in get_args(base_type) if member is not type(None)]
-        return bool(members) and all(_annotation_is_mapping_type(member) for member in members)
-    return False
-
-
-def _annotation_has_metadata(ptype: Any) -> bool:
-    origin = get_origin(ptype)
-    if origin is Annotated:
-        return True
-    if _is_union_origin(origin):
-        return any(_annotation_has_metadata(member) for member in get_args(ptype))
-    return False
-
-
-_NULL_CLI_TOKENS = frozenset({"none", "null"})
-
-
-def _annotation_allows_none(ptype: Any) -> bool:
-    origin = get_origin(ptype)
-    if origin is Annotated:
-        args_t = get_args(ptype)
-        return bool(args_t) and _annotation_allows_none(args_t[0])
-    if _is_union_origin(origin):
-        return any(member is type(None) for member in get_args(ptype))
-    return False
-
-
-def _nullable_cli_scalar(inner: Any):
-    """Wrap a scalar argparse converter so documented none/null tokens become None."""
-
-    def _parse(value: Any) -> Any:
-        if isinstance(value, str) and value.strip().casefold() in _NULL_CLI_TOKENS:
-            return None
-        if inner in (int, float, str):
-            return inner(value)
-        return inner(value)
-
-    _parse.__name__ = getattr(inner, "__name__", "value")
-    return _parse
-
-
-def _validated_cli_scalar(ptype: Any, base_type: type):
-    """Build an argparse scalar converter that preserves Annotated bounds."""
-    adapter = TypeAdapter(ptype)
-
-    def _parse(value: str) -> Any:
-        if isinstance(value, str) and value.strip().casefold() in _NULL_CLI_TOKENS:
-            try:
-                return adapter.validate_python(None)
-            except ValidationError as exc:
-                errors = exc.errors()
-                message = str(errors[0].get("msg") or exc) if errors else str(exc)
-                raise argparse.ArgumentTypeError(message) from exc
-        try:
-            return adapter.validate_python(value)
-        except ValidationError as exc:
-            errors = exc.errors()
-            message = str(errors[0].get("msg") or exc) if errors else str(exc)
-            raise argparse.ArgumentTypeError(message) from exc
-
-    _parse.__name__ = getattr(base_type, "__name__", "value")
-    return _parse
 
 
 def _invoke_cli_tool_function(
@@ -317,8 +197,6 @@ def _invoke_cli_tool_function(
 
 from ...shared.constants import TIMEFRAME_MAP
 from ...shared.schema import PARAM_HINTS as _PARAM_HINTS
-from ...shared.schema import enrich_schema_with_shared_defs
-from ...shared.schema import get_function_info as _schema_get_function_info
 from .._mcp_tools import get_mcp_registry
 from ..unified_params import add_global_args_to_parser
 
@@ -338,53 +216,6 @@ def _cli_version() -> str:
     from .version import cli_version
 
     return cli_version()
-
-
-def _is_pydantic_model_type(value: Any) -> bool:
-    return isinstance(value, type) and issubclass(value, BaseModel)
-
-
-def _iter_request_model_params(model_type: type[BaseModel]) -> List[Dict[str, Any]]:
-    fields = _get_pydantic_model_fields(model_type)
-    if not fields:
-        return []
-    params: List[Dict[str, Any]] = []
-    for name, field in fields.items():
-        required = (
-            bool(field.is_required())
-            if callable(getattr(field, "is_required", None))
-            else False
-        )
-        default = None if required else getattr(field, "default", None)
-        default_class = getattr(default, "__class__", None)
-        if (
-            default_class is not None
-            and getattr(default_class, "__name__", "") == "PydanticUndefinedType"
-        ):
-            default = None
-        params.append(
-            {
-                "name": name,
-                "required": required,
-                "default": default,
-                "type": getattr(field, "annotation", Any) or Any,
-            }
-        )
-    return params
-
-
-def _flatten_request_model_param(info: Dict[str, Any]) -> Dict[str, Any]:
-    params = info.get("params") or []
-    if len(params) != 1:
-        return info
-    request_param = params[0]
-    request_model = request_param.get("type")
-    if not _is_pydantic_model_type(request_model):
-        return info
-    info["request_model"] = request_model
-    info["request_param_name"] = request_param["name"]
-    info["params"] = _iter_request_model_params(request_model)
-    return info
 
 
 def _argv_option_present_after_command(
@@ -618,10 +449,10 @@ def _literal_choices_for_cli_param(
         return list(choice_override)
     try:
         ptype = param.get("type")
-        base_type, origin = _unwrap_optional_type(ptype)
+        base_type, origin = cli_discovery._unwrap_optional_type(ptype)
     except Exception:
         return None
-    if not _is_literal_origin(origin):
+    if not cli_discovery._is_literal_origin(origin):
         return None
     choices = [str(value) for value in get_args(base_type) if value is not None]
     return choices or None
@@ -1085,51 +916,7 @@ def _resolve_cli_output_contract_or_error(parser: argparse.ArgumentParser, args:
         parser.error(str(exc))
 
 
-def get_function_info(func):
-    """Thin wrapper around schema.get_function_info that attaches the callable.
-
-    This avoids duplicating introspection logic while preserving the CLI's
-    expectation that the returned dict contains a 'func' key for invocation.
-    """
-    return _get_function_info_impl(
-        func,
-        schema_get_function_info=_schema_get_function_info,
-        flatten_request_model_param=_flatten_request_model_param,
-    )
-
-
-def _apply_schema_overrides(
-    tool: ToolInfo, func_info: Dict[str, Any]
-) -> Dict[str, Any]:
-    """Apply schema metadata to the introspected CLI param info."""
-    return _apply_schema_overrides_impl(
-        tool,
-        func_info,
-        enrich_schema_with_shared_defs=enrich_schema_with_shared_defs,
-    )
-
-
-_extract_function_from_tool_obj = _extract_function_from_tool_obj_impl
-
-
-_extract_metadata_from_tool_obj = _extract_metadata_from_tool_obj_impl
-
-
 _DISCOVERY_ERRORS: List[str] = []
-
-
-def _is_union_origin(origin: Any) -> bool:
-    return origin in (Union, types.UnionType) or str(origin) in {
-        "typing.Union",
-        "<class 'typing.Union'>",
-    }
-
-
-def _is_literal_origin(origin: Any) -> bool:
-    return origin is Literal or str(origin) in {
-        "typing.Literal",
-        "<class 'typing.Literal'>",
-    }
 
 
 def discover_tools(module_names: Optional[Tuple[str, ...]] = None):
@@ -1141,116 +928,17 @@ def discover_tools(module_names: Optional[Tuple[str, ...]] = None):
     3) Fallback to scanning bootstrapped tool modules
     """
     _DISCOVERY_ERRORS.clear()
-    return _discover_tools_impl(
+    return cli_discovery.discover_tools(
         bootstrap_tools=lambda: bootstrap_tools(module_names),
         get_registered_tools=get_registered_tools,
         mcp=mcp,
         get_mcp_registry=get_mcp_registry,
         debug=_debug,
-        extract_function_from_tool_obj=_extract_function_from_tool_obj,
-        extract_metadata_from_tool_obj=_extract_metadata_from_tool_obj,
+        extract_function_from_tool_obj=cli_discovery.extract_function_from_tool_obj,
+        extract_metadata_from_tool_obj=cli_discovery.extract_metadata_from_tool_obj,
         errors=_DISCOVERY_ERRORS,
     )
 
-
-def _resolve_param_kwargs(
-    param: Dict[str, Any],
-    param_docs: Optional[Dict[str, str]],
-    cmd_name: Optional[str] = None,
-    param_names: Optional[set] = None,
-) -> Tuple[Dict[str, Any], bool]:
-    """Resolve CLI argument kwargs and determine if parameter is a mapping type."""
-    kwargs, is_mapping = _resolve_param_kwargs_impl(
-        param,
-        param_docs,
-        cmd_name=cmd_name,
-        param_names=param_names,
-        param_hints=_PARAM_HINTS,
-        debug=_debug,
-        is_literal_origin=_is_literal_origin,
-        unwrap_optional_type=_unwrap_optional_type,
-        get_origin=get_origin,
-        get_args=get_args,
-        is_mapping_annotation=_annotation_is_mapping_type,
-    )
-    ptype = param.get("type")
-    try:
-        base_type, _origin = _unwrap_optional_type(ptype)
-        if (
-            not is_mapping
-            and base_type in (int, float, str)
-            and _annotation_has_metadata(ptype)
-        ):
-            kwargs["type"] = _validated_cli_scalar(ptype, base_type)
-        elif (
-            not is_mapping
-            and base_type in (int, float, str)
-            and _annotation_allows_none(ptype)
-        ):
-            kwargs["type"] = _nullable_cli_scalar(kwargs.get("type") or base_type)
-    except Exception:
-        pass
-    return kwargs, is_mapping
-
-
-def add_dynamic_arguments(
-    parser,
-    param_info,
-    param_docs: Optional[Dict[str, str]] = None,
-    cmd_name: Optional[str] = None,
-):
-    """Add arguments to parser based on parameter info.
-
-    Adds both hyphen and underscore long-option aliases and sets dest to the
-    original param name (snake_case) so downstream mapping works.
-    Also casts Optional[int|float|bool] to their base types for argparse.
-    """
-    _add_dynamic_arguments_impl(
-        parser,
-        param_info,
-        resolve_param_kwargs=_resolve_param_kwargs,
-        param_docs=param_docs,
-        cmd_name=cmd_name,
-    )
-
-
-def _parse_kv_string(s: str) -> Optional[Dict[str, Any]]:
-    """Parse 'k=v,k2=v2' (commas or spaces) into a dict. Delegates to utils implementation."""
-    return _parse_kv_string_impl(s, debug=_debug)
-
-
-def _unwrap_optional_type(ptype: Any) -> Tuple[Any, Any]:
-    """Unwrap Annotated/Optional wrappers to ``(base, origin(base))``."""
-    while True:
-        origin = get_origin(ptype)
-        if origin is Annotated:
-            args_t = get_args(ptype)
-            if not args_t:
-                break
-            ptype = args_t[0]
-            continue
-        if _is_union_origin(origin):
-            args_t = [a for a in get_args(ptype) if a is not type(None)]
-            if len(args_t) == 1:
-                ptype = args_t[0]
-                continue
-        break
-    origin = get_origin(ptype)
-    return ptype, origin
-
-
-_normalize_cli_list_value = _normalize_cli_list_value_impl
-
-
-_coerce_cli_scalar = _coerce_cli_scalar_impl
-
-
-def _parse_set_overrides(items: Optional[List[str]]) -> Dict[str, Dict[str, Any]]:
-    """Parse repeated --set entries like 'method.sp=24' into nested dicts."""
-    return _parse_set_overrides_impl(items, coerce_cli_scalar=_coerce_cli_scalar)
-
-
-_merge_dict = _merge_dict_impl
 
 def _apply_denoise_companion_params(
     denoise: Optional[Dict[str, Any]],
@@ -1262,7 +950,7 @@ def _apply_denoise_companion_params(
 
     if not isinstance(denoise_params, str) or not denoise_params.strip():
         return denoise
-    extra = _parse_kv_string(denoise_params)
+    extra = cli_commands.parse_kv_string(denoise_params, debug=_debug)
     if extra is None:
         parser.error(
             "Invalid --denoise-params value. "
@@ -1274,9 +962,9 @@ def _apply_denoise_companion_params(
         return apply_denoise_companion_params(
             denoise,
             extra,
-            coerce_scalar=_coerce_cli_scalar,
-            normalize_columns=_normalize_cli_list_value,
-            merge=_merge_dict,
+            coerce_scalar=cli_commands.coerce_cli_scalar,
+            normalize_columns=cli_commands.normalize_cli_list_value,
+            merge=cli_commands.merge_dict,
         )
     except ValueError as exc:
         parser.error(str(exc))
@@ -1661,20 +1349,15 @@ def _add_forecast_generate_args(cmd_parser: argparse.ArgumentParser) -> None:
     )
 
 
-def create_command_function(
-    func_info, cmd_name: str = "", cmd_parser: Optional[argparse.ArgumentParser] = None
-):
-    """Create a command function that calls the MCP function dynamically"""
-    command_func = _create_command_function_impl(
+def _create_command_handler(func_info: Dict[str, Any], *, cmd_name: str):
+    """Build a CLI command handler and apply one-shot training policy."""
+    command_func = cli_commands.create_command_function(
         func_info,
         cmd_name=cmd_name,
         render_cli_result=_render_cli_result,
         result_exit_status=_result_exit_status,
-        normalize_cli_list_value=_normalize_cli_list_value,
-        parse_kv_string=_parse_kv_string,
-        unwrap_optional_type=_unwrap_optional_type,
-        is_mapping_annotation=_annotation_is_mapping_type,
         invoke_tool_function=_invoke_cli_tool_function,
+        debug=_debug,
     )
     if cmd_name != "forecast_train":
         return command_func
@@ -1722,22 +1405,21 @@ def _first_line(text: Optional[str]) -> str:
     return ""
 
 
-def _should_expose_cli_param(*, cmd_name: str, param_name: str) -> bool:
-    return _should_expose_cli_param_impl(cmd_name=cmd_name, param_name=param_name)
-
-
 def _format_epilog_param_usage(
     param: Dict[str, Any], *, cmd_name: str, index: int
 ) -> Optional[str]:
     name = str(param.get("name") or "").strip()
-    if not name or not _should_expose_cli_param(cmd_name=cmd_name, param_name=name):
+    if not name or not cli_discovery.should_expose_cli_param(
+        cmd_name=cmd_name,
+        param_name=name,
+    ):
         return None
     choices = _literal_choices_for_cli_param(param, cmd_name=cmd_name)
     if choices:
         type_token = "{" + ",".join(choices) + "}"
     else:
         try:
-            base_type, _ = _unwrap_optional_type(param.get("type"))
+            base_type, _ = cli_discovery._unwrap_optional_type(param.get("type"))
         except Exception:
             base_type = param.get("type")
         type_token = f"<{_type_name(base_type or str)}>"
@@ -1843,8 +1525,11 @@ def _build_epilog(functions: Dict[str, ToolInfo]) -> str:
         lines.append(f"{category}:")
         for cmd_name, tool in rows:
             func = tool["func"]
-            func_info = tool.setdefault("_cli_func_info", get_function_info(func))
-            _apply_schema_overrides(tool, func_info)
+            func_info = tool.setdefault(
+                "_cli_func_info",
+                cli_discovery.get_function_info(func),
+            )
+            cli_discovery.apply_schema_overrides(tool, func_info)
             arg_strs = []
             for index, param in enumerate(func_info["params"]):
                 rendered = _format_epilog_param_usage(param, cmd_name=cmd_name, index=index)
@@ -2139,11 +1824,12 @@ def _add_tool_command_arguments(
         exclude_params=exclude_globals,
         suppress_defaults=True,
     )
-    add_dynamic_arguments(
+    cli_discovery.add_dynamic_arguments(
         parser,
         func_info,
-        param_docs,
+        param_docs=param_docs,
         cmd_name=cmd_name,
+        debug=_debug,
     )
 
 
@@ -2269,8 +1955,11 @@ def _match_commands(
     scored_matches: List[Tuple[int, str, ToolInfo, Dict[str, Any]]] = []
     for name, tool in sorted(functions.items()):
         func = tool["func"]
-        func_info = tool.setdefault("_cli_func_info", get_function_info(func))
-        _apply_schema_overrides(tool, func_info)
+        func_info = tool.setdefault(
+            "_cli_func_info",
+            cli_discovery.get_function_info(func),
+        )
+        cli_discovery.apply_schema_overrides(tool, func_info)
         meta = tool.get("meta") or {}
         param_docs = meta.get("param_docs") or {}
         param_terms: List[str] = []
@@ -2660,8 +2349,11 @@ def _main():  # noqa: C901
     forecast_tool_info = None
     for cmd_name, tool in sorted(functions.items()):
         func = tool["func"]
-        func_info = tool.setdefault("_cli_func_info", get_function_info(func))
-        _apply_schema_overrides(tool, func_info)
+        func_info = tool.setdefault(
+            "_cli_func_info",
+            cli_discovery.get_function_info(func),
+        )
+        cli_discovery.apply_schema_overrides(tool, func_info)
         meta = tool.get("meta") or {}
         if cmd_name == "forecast_generate":
             forecast_tool = tool
@@ -2702,14 +2394,14 @@ def _main():  # noqa: C901
 
         # Set the command function
         cmd_parser.set_defaults(
-            func=create_command_function(func_info, cmd_name, cmd_parser=cmd_parser)
+            func=_create_command_handler(func_info, cmd_name=cmd_name)
         )
 
     # Custom forecast_generate parser (grouped UX)
     if forecast_tool is not None:
         cmd_name = "forecast_generate"
         func = forecast_tool["func"]
-        func_info = forecast_tool_info or get_function_info(func)
+        func_info = forecast_tool_info or cli_discovery.get_function_info(func)
         meta = forecast_tool.get("meta") or {}
         summary = (
             meta.get("description")
@@ -2763,7 +2455,7 @@ def _main():  # noqa: C901
                 )
                 return 2
             try:
-                overrides = _parse_set_overrides(args.set_overrides)
+                overrides = cli_commands.parse_set_overrides(args.set_overrides)
             except ValueError as exc:
                 cmd_parser.error(str(exc))
             allowed_override_sections = {"method", "denoise", "features", "dimred", "target"}
@@ -2779,7 +2471,7 @@ def _main():  # noqa: C901
                     return value
                 if not value.strip():
                     return None
-                parsed = _parse_kv_string(value)
+                parsed = cli_commands.parse_kv_string(value, debug=_debug)
                 if parsed is None:
                     cmd_parser.error(
                         f"Invalid --{option_name.replace('_', '-')} value. "
@@ -2847,11 +2539,14 @@ def _main():  # noqa: C901
             target_spec = _parse_mapping_value(target_spec_raw, option_name="target_spec")
 
             # --set overrides (sections: method/denoise/features/dimred/target)
-            params = _merge_dict(params, overrides.get("method"))
-            denoise = _merge_dict(denoise, overrides.get("denoise"))
-            features = _merge_dict(features, overrides.get("features"))
-            dimred = _merge_dict(dimred, overrides.get("dimred"))
-            target_spec = _merge_dict(target_spec, overrides.get("target"))
+            params = cli_commands.merge_dict(params, overrides.get("method"))
+            denoise = cli_commands.merge_dict(denoise, overrides.get("denoise"))
+            features = cli_commands.merge_dict(features, overrides.get("features"))
+            dimred = cli_commands.merge_dict(dimred, overrides.get("dimred"))
+            target_spec = cli_commands.merge_dict(
+                target_spec,
+                overrides.get("target"),
+            )
 
             try:
                 request = ForecastGenerateRequest(
@@ -3099,7 +2794,9 @@ def _shell_timeframe_commands(functions: Dict[str, ToolInfo]) -> set[str]:
     }
     for name, tool in functions.items():
         normalized_name = str(name).replace("-", "_")
-        func_info = tool.get("_cli_func_info") or get_function_info(tool["func"])
+        func_info = tool.get(
+            "_cli_func_info",
+        ) or cli_discovery.get_function_info(tool["func"])
         param_names = {
             str(param.get("name") or "")
             for param in (func_info.get("params") or [])

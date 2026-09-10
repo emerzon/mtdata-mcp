@@ -5,10 +5,8 @@ from typing import List, Optional
 
 import pytest
 
-from mtdata.core.cli.api import (
-    _normalize_cli_list_value,
-    add_dynamic_arguments,
-)
+from mtdata.core.cli.parsing.discovery import add_dynamic_arguments
+from mtdata.core.cli.runtime.commands import normalize_cli_list_value
 
 ANCHOR_ONE = "2026-08-01T00:00:00Z"
 ANCHOR_TWO = "2026-08-01T12:00:00Z"
@@ -66,7 +64,7 @@ def test_explicit_anchors_accept_cli_multi_token_and_json_array_forms(
 ) -> None:
     parsed = _anchors_parser().parse_args(tokens)
 
-    assert _normalize_cli_list_value(parsed.anchors) == expected
+    assert normalize_cli_list_value(parsed.anchors) == expected
 
 
 def test_explicit_anchor_cli_help_explains_order_and_rolling_fields() -> None:

@@ -44,20 +44,44 @@ def _isolate_env(monkeypatch):
 
 # We import lazily inside tests where heavy server machinery is needed,
 # but the pure-logic helpers can be imported directly.
+from mtdata.core.cli import api as cli_api
 from mtdata.core.cli.api import (
-    _apply_schema_overrides,
-    _extract_function_from_tool_obj,
-    _extract_metadata_from_tool_obj,
-    _is_literal_origin,
-    _is_typed_dict_type,
-    _is_union_origin,
     _type_name,
-    _unwrap_optional_type,
-    create_command_function,
     discover_tools,
+)
+from mtdata.core.cli.parsing.discovery import (
+    _is_literal_origin,
+    _is_union_origin,
+    _unwrap_optional_type,
     get_function_info,
 )
-from mtdata.core.cli.runtime.commands import friendly_validation_error
+from mtdata.core.cli.parsing.discovery import (
+    apply_schema_overrides as _apply_schema_overrides,
+)
+from mtdata.core.cli.parsing.discovery import (
+    extract_function_from_tool_obj as _extract_function_from_tool_obj,
+)
+from mtdata.core.cli.parsing.discovery import (
+    extract_metadata_from_tool_obj as _extract_metadata_from_tool_obj,
+)
+from mtdata.core.cli.runtime.commands import (
+    create_command_function as _create_command_function,
+)
+from mtdata.core.cli.runtime.commands import (
+    friendly_validation_error,
+)
+from mtdata.shared.schema import _is_typed_dict_type
+
+
+def create_command_function(func_info, *, cmd_name):
+    return _create_command_function(
+        func_info,
+        cmd_name=cmd_name,
+        render_cli_result=cli_api._render_cli_result,
+        result_exit_status=cli_api._result_exit_status,
+        invoke_tool_function=cli_api._invoke_cli_tool_function,
+        debug=cli_api._debug,
+    )
 
 # ========================================================================
 # get_function_info
@@ -159,7 +183,8 @@ class TestGetFunctionInfo:
 
 class TestApplySchemaOverrides:
     @patch(
-        "mtdata.core.cli.api.enrich_schema_with_shared_defs", side_effect=lambda s, fi: s
+        "mtdata.core.cli.parsing.discovery.enrich_schema_with_shared_defs",
+        side_effect=lambda s, fi: s,
     )
     def test_basic_override(self, mock_enrich):
         tool = {
@@ -175,7 +200,8 @@ class TestApplySchemaOverrides:
         assert func_info["params"][0]["required"] is True
 
     @patch(
-        "mtdata.core.cli.api.enrich_schema_with_shared_defs", side_effect=lambda s, fi: s
+        "mtdata.core.cli.parsing.discovery.enrich_schema_with_shared_defs",
+        side_effect=lambda s, fi: s,
     )
     def test_no_schema(self, mock_enrich):
         tool = {"meta": {}}
@@ -186,7 +212,8 @@ class TestApplySchemaOverrides:
         assert isinstance(schema, dict)
 
     @patch(
-        "mtdata.core.cli.api.enrich_schema_with_shared_defs", side_effect=lambda s, fi: s
+        "mtdata.core.cli.parsing.discovery.enrich_schema_with_shared_defs",
+        side_effect=lambda s, fi: s,
     )
     def test_schema_with_parameters_key(self, mock_enrich):
         tool = {
