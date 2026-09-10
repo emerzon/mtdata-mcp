@@ -1,9 +1,14 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+import weakref
+from typing import Any, Dict, List, Optional
 
 _ABBREVIATIONS = {"SL", "TP", "SO", "IOC", "FOK", "BOC", "GTC", "EA", "DMA"}
-_PREFIX_CONSTANTS_CACHE: Dict[Tuple[int, str], Dict[int, str]] = {}
+# Keyed weakly by module so a recycled id() can never serve stale constants
+# from a previous (already collected) module instance.
+_PREFIX_CONSTANTS_CACHE: "weakref.WeakKeyDictionary[Any, Dict[str, Dict[int, str]]]" = (
+    weakref.WeakKeyDictionary()
+)
 _CANONICAL_ENUM_NAMES: Dict[str, Dict[int, str]] = {
     "SYMBOL_TRADE_EXECUTION_": {
         0: "SYMBOL_TRADE_EXECUTION_REQUEST",
@@ -44,10 +49,19 @@ def _prettify_constant_name(name: str, prefix: str) -> str:
 
 
 def _constants_by_prefix(mt5_module: Any, prefix: str) -> Dict[int, str]:
-    cache_key = (id(mt5_module), str(prefix))
-    cached = _PREFIX_CONSTANTS_CACHE.get(cache_key)
-    if cached is not None:
-        return cached
+    prefix = str(prefix)
+    per_module: Optional[Dict[str, Dict[int, str]]] = None
+    try:
+        per_module = _PREFIX_CONSTANTS_CACHE.get(mt5_module)
+        if per_module is None:
+            per_module = {}
+            _PREFIX_CONSTANTS_CACHE[mt5_module] = per_module
+    except TypeError:
+        per_module = None
+    if per_module is not None:
+        cached = per_module.get(prefix)
+        if cached is not None:
+            return cached
     out: Dict[int, str] = {}
     sources = [mt5_module]
     adapter = getattr(mt5_module, "adapter", None)
@@ -63,7 +77,8 @@ def _constants_by_prefix(mt5_module: Any, prefix: str) -> Dict[int, str]:
                 continue
             if isinstance(value, int):
                 out[int(value)] = str(attr)
-    _PREFIX_CONSTANTS_CACHE[cache_key] = out
+    if per_module is not None:
+        per_module[prefix] = out
     return out
 
 

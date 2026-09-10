@@ -173,7 +173,7 @@ def fit_gaussian_mixture_1d(
     if N < K:
         # Degenerate, fall back to single Gaussian
         mu = np.array([float(np.mean(x))]) if N else np.array([0.0])
-        sigma = np.array([float(np.std(x)) + 1e-6])
+        sigma = np.array([float(np.std(x)) + 1e-6]) if N else np.array([1e-6])
         w = np.array([1.0])
         gamma = np.ones((N, 1), dtype=float)
         ll = float(-0.5 * N * (np.log(2.0 * np.pi) + 2.0 * np.log(max(sigma[0], 1e-12))))

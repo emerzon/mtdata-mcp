@@ -1065,10 +1065,10 @@ def run_trade_history(  # noqa: C901
                 ]
             )
 
-            df = df.replace([float("inf"), float("-inf")], pd.NA)
-            records = (
-                df.astype(object).where(df.notna(), None).to_dict(orient="records")
-            )
+            df = df.astype(object)
+            inf_mask = df.map(lambda v: isinstance(v, float) and math.isinf(v))
+            df = df.mask(inf_mask, None)
+            records = df.where(df.notna(), None).to_dict(orient="records")
             timestamp_anomaly_count = sum(
                 1
                 for row in records

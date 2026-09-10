@@ -459,7 +459,7 @@ def _coerce_time_epoch(values: Any) -> np.ndarray:
     ser = pd.Series(values)
     numeric = pd.to_numeric(ser, errors='coerce')
     if not numeric.notna().all():
-        dt = pd.to_datetime(ser, utc=True, errors='coerce')
+        dt = pd.to_datetime(ser, utc=True, errors='coerce', format='mixed')
         if dt.isna().any():
             raise ValueError(
                 "history DataFrame must provide numeric or datetime-convertible 'time' values"

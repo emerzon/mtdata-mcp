@@ -1117,7 +1117,7 @@ def _format_rate_times(epoch_series: pd.Series, *, use_client_tz: bool) -> pd.Se
 
     formatted = dt_series.map(
         lambda value: (
-            _format_datetime_minute_explicit(value.to_pydatetime())
+            _format_datetime_minute_explicit(value.to_pydatetime(warn=False))
             if pd.notna(value)
             else None
         )

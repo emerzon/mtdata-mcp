@@ -587,7 +587,9 @@ def _reconstruct_price_intervals_from_target(
 
 def _inverse_log_return(anchor: float, value: float) -> float:
     """log_return: price = anchor * exp(value)"""
-    return anchor * float(np.exp(value))
+
+    with np.errstate(over="ignore"):
+        return anchor * float(np.exp(value))
 
 
 def _inverse_return(anchor: float, value: float) -> float:
