@@ -21,11 +21,6 @@ def _get_registered_capabilities() -> List[Dict[str, Any]]:
     return _forecast_capabilities_module().get_registered_capabilities()
 
 
-def get_forecast_methods_data() -> Dict[str, Any]:
-    """Get comprehensive data about available forecast methods."""
-    return _registry_methods_data()
-
-
 def _build_method_category_lookup(method_data: Dict[str, Any]) -> Dict[str, str]:
     lookup: Dict[str, str] = {}
     categories = method_data.get("categories") if isinstance(method_data.get("categories"), dict) else {}
@@ -116,7 +111,7 @@ def get_forecast_methods_snapshot(
     capabilities: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Return registry-backed methods enriched with capability metadata."""
-    data = method_data if isinstance(method_data, dict) else get_forecast_methods_data()
+    data = method_data if isinstance(method_data, dict) else _registry_methods_data()
     if not isinstance(data, dict):
         data = {}
 

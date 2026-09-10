@@ -683,6 +683,7 @@ def _lazy_module(module_name: str):
 _forecast_module = _lazy_module("mtdata.forecast.forecast")
 _forecast_backtest_module = _lazy_module("mtdata.forecast.backtest")
 _forecast_use_cases_module = _lazy_module("mtdata.forecast.use_cases")
+_forecast_registry_module = _lazy_module("mtdata.forecast.forecast_registry")
 _forecast_methods_module = _lazy_module("mtdata.forecast.forecast_methods")
 _forecast_volatility_module = _lazy_module("mtdata.forecast.volatility")
 _forecast_tune_module = _lazy_module("mtdata.forecast.tune")
@@ -711,7 +712,7 @@ def _forecast_volatility_impl(**kwargs):
 
 
 def _get_forecast_methods_data():
-    return _forecast_module().get_forecast_methods_data()
+    return _forecast_registry_module().get_forecast_methods_data()
 
 
 def _get_forecast_methods_snapshot():

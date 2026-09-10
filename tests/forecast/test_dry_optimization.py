@@ -6,7 +6,6 @@ This script validates that the refactored code produces the same results
 as the original code while being more maintainable.
 """
 
-import inspect
 import os
 import sys
 
@@ -15,42 +14,6 @@ import pytest
 
 # Add the src directory to Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
-
-def compare_function_signatures():
-    """Compare function signatures between original and refactored versions."""
-    print("Comparing function signatures...")
-    
-    # Import both modules
-    from mtdata.forecast.methods import pretrained, pretrained_refactored
-    
-    functions_to_check = ['forecast_chronos_bolt', 'forecast_timesfm', 'forecast_moirai']
-    
-    for func_name in functions_to_check:
-        original_func = getattr(pretrained, func_name, None)
-        refactored_func = getattr(pretrained_refactored, func_name + '_refactored', None)
-        
-        if original_func and refactored_func:
-            orig_sig = inspect.signature(original_func)
-            ref_sig = inspect.signature(refactored_func)
-            
-            print(f"  {func_name}:")
-            print(f"    Original params: {list(orig_sig.parameters.keys())}")
-            print(f"    Refactored params: {list(ref_sig.parameters.keys())}")
-            
-            # Check parameters match
-            orig_params = set(orig_sig.parameters.keys())
-            ref_params = set(ref_sig.parameters.keys())
-            
-            if orig_params != ref_params:
-                print("    ⚠️  Parameter mismatch!")
-                print(f"      Missing in refactored: {orig_params - ref_params}")
-                print(f"      Extra in refactored: {ref_params - orig_params}")
-            else:
-                print("    ✓ Parameters match")
-        else:
-            print(f"    ⚠️  Could not find {func_name} in both modules")
-    
-    print()
 
 def test_helper_functions():
     """Test the DRY helper functions independently."""
@@ -116,21 +79,11 @@ def analyze_code_reduction():
     
     # Count lines in original pretrained.py
     original_file = os.path.join(os.path.dirname(__file__), '..', 'src', 'mtdata', 'forecast', 'methods', 'pretrained.py')
-    refactored_file = os.path.join(os.path.dirname(__file__), '..', 'src', 'mtdata', 'forecast', 'methods', 'pretrained_refactored.py')
     
     if os.path.exists(original_file):
         with open(original_file, 'r') as f:
             original_lines = len(f.readlines())
         print(f"  Original pretrained.py: {original_lines} lines")
-    
-    if os.path.exists(refactored_file):
-        with open(refactored_file, 'r') as f:
-            refactored_lines = len(f.readlines())
-        print(f"  Refactored pretrained_refactored.py: {refactored_lines} lines")
-        
-        if original_lines > 0:
-            reduction = ((original_lines - refactored_lines) / original_lines) * 100
-            print(f"  Code reduction: {reduction:.1f}%")
     
     # Count duplicate patterns
     patterns_found = {
@@ -195,7 +148,6 @@ def main():
     print()
     
     try:
-        compare_function_signatures()
         test_helper_functions()
         analyze_code_reduction()
         success = test_end_to_end()

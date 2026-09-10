@@ -1,5 +1,6 @@
 """Tests for the durable SQLite order idempotency store."""
 
+import sqlite3
 import threading
 import time
 
@@ -50,19 +51,16 @@ def test_record_none_key_is_noop(tmp_path):
 
 
 def test_expired_entry_returns_none(tmp_path):
-    # Generous TTL so the "still present" assert never races wall-clock
-    # stalls on loaded CI runners; expiry itself is forced deterministically
-    # by backdating updated_at instead of sleeping.
+    # Keep TTL far above CI scheduling jitter so the first check cannot
+    # lose the race that 50ms TTLs still lose on loaded Windows runners.
     store = _store(tmp_path, ttl_seconds=60.0)
     store.record("exp-key", {"success": True})
     assert store.check("exp-key") is not None
-    import sqlite3
-    import time as _time
 
     with sqlite3.connect(tmp_path / "idempotency.sqlite3") as connection:
         connection.execute(
             "UPDATE trade_idempotency SET updated_at = ? WHERE key = ?",
-            (_time.time() - 120.0, "exp-key"),
+            (time.time() - 120.0, "exp-key"),
         )
         connection.commit()
     assert store.check("exp-key") is None
