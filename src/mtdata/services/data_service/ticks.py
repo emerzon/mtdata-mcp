@@ -5,6 +5,7 @@ from datetime import timezone as dt_timezone
 from numbers import Real
 from typing import Any, Dict, List, Literal, Optional, Tuple
 
+import numpy as np
 import pandas as pd
 
 from ...shared.constants import (
@@ -21,6 +22,7 @@ from ...utils.coercion import coerce_finite_float as _finite_or_none
 from ...utils.market_metadata import build_tick_freshness_context
 from ...utils.mt5 import (
     _mt5_copy_ticks_range,
+    _symbol_info_from_source,
     _symbol_ready_guard,
     describe_mt5_time_normalization,
     get_symbol_info_cached,
@@ -54,7 +56,7 @@ from ...utils.simplify import (
     _select_indices_for_timeseries,
     _simplify_dataframe_rows_ext,
 )
-from ...utils.tick_flags import _mt5_flag_value, is_mt5_trade_event
+from ...utils.tick_flags import _mt5_flag_value, bid_ask_flags, is_mt5_trade_event
 from ...utils.time import _resolve_client_tz, display_timezone_label, format_epoch_utc
 from ...utils.utils import (
     _format_numeric_rows_from_df,
@@ -179,14 +181,194 @@ def _fetch_ticks_range_with_retry(
     symbol: str,
     from_date: datetime,
     to_date: datetime,
+    *,
+    gateway: Any = None,
+    retry: bool = True,
 ) -> Any:
     ticks = None
-    for _ in range(FETCH_RETRY_ATTEMPTS):
-        ticks = _mt5_copy_ticks_range(symbol, from_date, to_date, mt5.COPY_TICKS_ALL)
+    attempts = FETCH_RETRY_ATTEMPTS if retry else 1
+    tick_source = gateway if gateway is not None else mt5
+    for attempt in range(attempts):
+        if gateway is None:
+            ticks = _mt5_copy_ticks_range(
+                symbol,
+                from_date,
+                to_date,
+                mt5.COPY_TICKS_ALL,
+            )
+        else:
+            ticks = gateway.copy_ticks_range(
+                symbol,
+                from_date,
+                to_date,
+                getattr(tick_source, "COPY_TICKS_ALL", 0),
+            )
         if ticks is not None and len(ticks) > 0:
             break
-        time.sleep(FETCH_RETRY_DELAY)
+        if attempt < attempts - 1:
+            time.sleep(FETCH_RETRY_DELAY)
     return ticks
+
+
+def _empty_analysis_tick_frame() -> pd.DataFrame:
+    return pd.DataFrame(
+        {
+            column: pd.Series(dtype=float)
+            for column in (
+                "epoch",
+                "bid",
+                "ask",
+                "last",
+                "volume",
+                "volume_real",
+                "flags",
+                "spread_valid",
+                "spread_quality",
+                "mid",
+                "spread",
+            )
+        }
+    )
+
+
+def fetch_tick_frame(
+    symbol: str,
+    start: datetime,
+    end: datetime,
+    max_ticks: int,
+    *,
+    gateway: Any = None,
+    retry: bool = True,
+) -> Tuple[pd.DataFrame, bool]:
+    """Return validated, chronological ticks for analytics engines."""
+    requested_limit = int(max_ticks)
+    if requested_limit <= 0:
+        raise ValueError("max_ticks must be greater than 0.")
+    if start > end:
+        raise ValueError("start must be before or equal to end.")
+
+    resolved_symbol = (
+        resolve_broker_symbol_name(symbol)
+        if gateway is None
+        else resolve_broker_symbol_name(symbol, gateway=gateway)
+    )
+    info_before = (
+        get_symbol_info_cached(resolved_symbol)
+        if gateway is None
+        else _symbol_info_from_source(gateway, resolved_symbol)
+    )
+    ready_kwargs: Dict[str, Any] = {"info_before": info_before}
+    if gateway is not None:
+        ready_kwargs["gateway"] = gateway
+    with _symbol_ready_guard(resolved_symbol, **ready_kwargs) as (error, _info):
+        if error:
+            raise RuntimeError(error)
+        rows = _fetch_ticks_range_with_retry(
+            resolved_symbol,
+            start,
+            end,
+            gateway=gateway,
+            retry=retry,
+        )
+
+    if rows is None:
+        tick_source = gateway if gateway is not None else mt5
+        last_error = getattr(tick_source, "last_error", lambda: None)()
+        raise RuntimeError(
+            f"Failed to get tick history for {resolved_symbol}: {last_error}"
+        )
+    if isinstance(rows, pd.DataFrame):
+        frame = rows.copy()
+    else:
+        frame = pd.DataFrame(rows)
+    if frame.empty:
+        return _empty_analysis_tick_frame(), False
+
+    time_msc = pd.to_numeric(
+        frame.get("time_msc", pd.Series(index=frame.index, dtype=float)),
+        errors="coerce",
+    )
+    epoch = pd.to_numeric(
+        frame.get("time", pd.Series(index=frame.index, dtype=float)),
+        errors="coerce",
+    )
+    frame["epoch"] = np.where(time_msc > 0, time_msc / 1000.0, epoch)
+    start_epoch = float(start.timestamp())
+    end_epoch = min(float(end.timestamp()), float(time.time()))
+    frame = frame.loc[
+        np.isfinite(frame["epoch"])
+        & (frame["epoch"] >= start_epoch)
+        & (frame["epoch"] <= end_epoch)
+    ]
+    if frame.empty:
+        return _empty_analysis_tick_frame(), False
+
+    dedupe_columns = [
+        column
+        for column in (
+            "epoch",
+            "bid",
+            "ask",
+            "last",
+            "volume",
+            "volume_real",
+            "flags",
+        )
+        if column in frame.columns
+    ]
+    frame = frame.sort_values("epoch", kind="stable").drop_duplicates(
+        subset=dedupe_columns,
+        keep="last",
+    )
+    truncated = len(frame) > requested_limit
+    if truncated:
+        frame = frame.tail(requested_limit).copy()
+
+    for column in ("bid", "ask", "last", "volume", "volume_real", "flags"):
+        if column not in frame:
+            frame[column] = 0.0
+        frame[column] = pd.to_numeric(frame[column], errors="coerce").replace(
+            [np.inf, -np.inf],
+            np.nan,
+        ).fillna(0.0)
+
+    tick_source = gateway if gateway is not None else mt5
+    bid_flag, ask_flag = bid_ask_flags(tick_source)
+    flag_values = frame["flags"].astype(np.int64)
+    one_sided_update = ((flag_values & bid_flag) != 0) != (
+        (flag_values & ask_flag) != 0
+    )
+    two_sided_quote = (frame["bid"] > 0) & (frame["ask"] > frame["bid"])
+    incomplete_one_sided_update = one_sided_update & ~two_sided_quote
+    locked_quote = (frame["bid"] > 0) & (frame["ask"] == frame["bid"])
+    inverted_quote = (
+        (frame["bid"] > 0)
+        & (frame["ask"] > 0)
+        & (frame["ask"] < frame["bid"])
+    )
+    frame["spread_quality"] = np.select(
+        [incomplete_one_sided_update, locked_quote, inverted_quote],
+        ["one_sided_update", "locked", "inverted"],
+        default="two_sided",
+    )
+    frame.loc[
+        (frame["bid"] <= 0) | (frame["ask"] <= 0),
+        "spread_quality",
+    ] = "one_sided"
+    frame["spread_valid"] = two_sided_quote
+    frame["spread_sample_eligible"] = two_sided_quote
+    frame["mid"] = np.where(
+        two_sided_quote,
+        (frame["bid"] + frame["ask"]) / 2.0,
+        np.nan,
+    )
+    frame["spread"] = np.where(
+        np.isfinite(frame["mid"]),
+        frame["ask"] - frame["bid"],
+        np.nan,
+    )
+    frame.attrs["resolved_symbol"] = resolved_symbol
+    return frame.reset_index(drop=True), truncated
 
 
 def _fetch_recent_ticks_backwards(

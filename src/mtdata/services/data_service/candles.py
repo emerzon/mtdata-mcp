@@ -75,6 +75,7 @@ from ...utils.mt5 import (
     _mt5_copy_rates_from,
     _mt5_copy_rates_range,
     _rates_to_df,
+    _symbol_info_from_source,
     _symbol_ready_guard,
     describe_mt5_time_normalization,
     get_cached_mt5_time_alignment,
@@ -208,6 +209,11 @@ def _normalize_provider_rate_rows(
             return [], None
     except TypeError:
         return None, _provider_rates_missing_time_error()
+
+    if isinstance(rates, pd.DataFrame):
+        if "time" not in rates.columns:
+            return None, _provider_rates_missing_time_error()
+        return rates.to_dict("records"), None
 
     names = getattr(getattr(rates, "dtype", None), "names", None)
     if names:
@@ -562,8 +568,54 @@ def _fetch_rates_with_warmup(  # noqa: C901
     diagnostics: Optional[Dict[str, Any]] = None,
     range_selection: Optional[str] = None,
     symbol_info: Any = None,
+    gateway: Any = None,
 ):
     """Fetch MT5 rates with optional warmup, retry, and end-bar sanity checks."""
+
+    def _copy_rates_from(
+        to_date: datetime,
+        count: int,
+    ) -> Any:
+        if gateway is None:
+            return _mt5_copy_rates_from(
+                symbol,
+                mt5_timeframe,
+                to_date,
+                count,
+            )
+        copy_rates_from = getattr(gateway, "copy_rates_from", None)
+        if callable(copy_rates_from):
+            return copy_rates_from(
+                symbol,
+                mt5_timeframe,
+                to_date,
+                count,
+            )
+        return gateway.copy_rates_from_pos(
+            symbol,
+            mt5_timeframe,
+            0,
+            count,
+        )
+
+    def _copy_rates_range(
+        from_date: datetime,
+        to_date: datetime,
+    ) -> Any:
+        if gateway is None:
+            return _mt5_copy_rates_range(
+                symbol,
+                mt5_timeframe,
+                from_date,
+                to_date,
+            )
+        return gateway.copy_rates_range(
+            symbol,
+            mt5_timeframe,
+            from_date,
+            to_date,
+        )
+
     trailing_range = bool(
         (start_datetime or end_datetime)
         and (
@@ -638,9 +690,7 @@ def _fetch_rates_with_warmup(  # noqa: C901
 
         def _fetch():
             if str(range_selection or "").strip().lower() == "last_n":
-                trailing = _mt5_copy_rates_from(
-                    symbol,
-                    mt5_timeframe,
+                trailing = _copy_rates_from(
                     to_date,
                     requested_rows,
                 )
@@ -676,9 +726,7 @@ def _fetch_rates_with_warmup(  # noqa: C901
             )
             result = None
             for _ in range(20):
-                result = _mt5_copy_rates_range(
-                    symbol,
-                    mt5_timeframe,
+                result = _copy_rates_range(
                     from_date_internal,
                     candidate_end,
                 )
@@ -764,9 +812,7 @@ def _fetch_rates_with_warmup(  # noqa: C901
 
         def _fetch():
             if last_n_requested:
-                trailing = _mt5_copy_rates_from(
-                    symbol,
-                    mt5_timeframe,
+                trailing = _copy_rates_from(
                     now_utc,
                     max(1, candles + warmup_bars + extra_bars),
                 )
@@ -805,9 +851,7 @@ def _fetch_rates_with_warmup(  # noqa: C901
             candidate_end = to_date
             result = None
             while True:
-                result = _mt5_copy_rates_range(
-                    symbol, mt5_timeframe, from_date_internal, candidate_end
-                )
+                result = _copy_rates_range(from_date_internal, candidate_end)
                 if result is None:
                     return None
                 qualifying = sum(
@@ -865,7 +909,7 @@ def _fetch_rates_with_warmup(  # noqa: C901
 
         def _fetch():
             requested_rows = candles + warmup_bars + extra_bars
-            trailing = _mt5_copy_rates_from(symbol, mt5_timeframe, to_date, requested_rows)
+            trailing = _copy_rates_from(to_date, requested_rows)
             if trailing is None:
                 return None
             normalized, shape_error = _normalize_provider_rate_rows(trailing)
@@ -892,7 +936,10 @@ def _fetch_rates_with_warmup(  # noqa: C901
         expected_end_ts = _utc_epoch_seconds(utc_now)
 
         def _fetch():
-            return _mt5_copy_rates_from(symbol, mt5_timeframe, utc_now, candles + warmup_bars + extra_bars)
+            return _copy_rates_from(
+                utc_now,
+                candles + warmup_bars + extra_bars,
+            )
 
     wall_clock_ts = _utc_epoch_seconds(datetime.now(dt_timezone.utc))
     range_query = bool(start_datetime or end_datetime)
@@ -2092,7 +2139,7 @@ def _history_spacing_quality(
     }
 
 
-def fetch_history_frame(
+def fetch_history_frame(  # noqa: C901
     symbol: str,
     timeframe: str,
     count: int,
@@ -2102,6 +2149,7 @@ def fetch_history_frame(
     end: Optional[str] = None,
     include_incomplete: bool = False,
     retry: bool = True,
+    gateway: Any = None,
 ) -> pd.DataFrame:
     """Return analysis-ready MT5 candles with native UTC epoch timestamps.
 
@@ -2125,7 +2173,11 @@ def fetch_history_frame(
         if parsed_as_of.timestamp() > time.time() + 1.0:
             raise RuntimeError("as_of must not be in the future.")
 
-    resolved_symbol = resolve_broker_symbol_name(symbol)
+    resolved_symbol = (
+        resolve_broker_symbol_name(symbol)
+        if gateway is None
+        else resolve_broker_symbol_name(symbol, gateway=gateway)
+    )
     resolved_end = as_of or end
     parsed_start = parsed_end = None
     for value, end_bound in ((start, False), (resolved_end, True)):
@@ -2149,10 +2201,24 @@ def fetch_history_frame(
             int(math.ceil(span_seconds / max(1, seconds_per_bar))) + 2,
         )
 
-    info_before = get_symbol_info_cached(resolved_symbol)
-    with _symbol_ready_guard(resolved_symbol, info_before=info_before) as (error, _info):
+    info_before = (
+        get_symbol_info_cached(resolved_symbol)
+        if gateway is None
+        else _symbol_info_from_source(gateway, resolved_symbol)
+    )
+    ready_kwargs: Dict[str, Any] = {"info_before": info_before}
+    if gateway is not None:
+        ready_kwargs["gateway"] = gateway
+    with _symbol_ready_guard(resolved_symbol, **ready_kwargs) as (error, _info):
         if error:
             raise RuntimeError(error)
+        fetch_kwargs: Dict[str, Any] = {
+            "include_incomplete": include_incomplete,
+            "retry": retry,
+            "sanity_check": False,
+        }
+        if gateway is not None:
+            fetch_kwargs["gateway"] = gateway
         rates, rates_error = _fetch_rates_with_warmup(
             resolved_symbol,
             TIMEFRAME_MAP[timeframe],
@@ -2161,15 +2227,18 @@ def fetch_history_frame(
             0,
             start,
             resolved_end,
-            include_incomplete=include_incomplete,
-            retry=retry,
-            sanity_check=False,
+            **fetch_kwargs,
         )
     if rates_error:
         if isinstance(rates_error, dict):
             raise RuntimeError(str(rates_error.get("error") or "data_shape_invalid"))
         raise RuntimeError(rates_error)
     if rates is None:
+        if gateway is not None:
+            last_error = getattr(gateway, "last_error", lambda: None)()
+            raise RuntimeError(
+                f"Failed to get candle history for {resolved_symbol}: {last_error}"
+            )
         raise RuntimeError(
             _describe_rate_fetch_error(resolved_symbol, info_before=info_before)
         )

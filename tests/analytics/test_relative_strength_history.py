@@ -19,7 +19,16 @@ class HistoricalGateway:
         self.frames = {}
         for idx, symbol in enumerate(["EURUSD", "GBPUSD", "USDJPY"]):
             close = 100 * np.exp(np.cumsum(np.random.default_rng(idx).normal(.0001 * idx, .002, 240)))
-            self.frames[symbol] = pd.DataFrame({"time": self.cutoff + (np.arange(240) - 220) * 3600, "close": close, "tick_volume": 100})
+            self.frames[symbol] = pd.DataFrame(
+                {
+                    "time": self.cutoff + (np.arange(240) - 220) * 3600,
+                    "open": close,
+                    "high": close,
+                    "low": close,
+                    "close": close,
+                    "tick_volume": 100,
+                }
+            )
         self.symbol_info_tick = Mock(side_effect=AssertionError("Historical ranking must not query live quotes"))
         self.copy_rates_from_pos = Mock(side_effect=AssertionError("Historical ranking must not fetch latest history"))
 

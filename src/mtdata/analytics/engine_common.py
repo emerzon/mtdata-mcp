@@ -9,9 +9,8 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
-from ..shared.constants import TIMEFRAME_MAP
-from ..utils.tick_flags import bid_ask_flags
-from ..utils.time import MAX_TRADING_MINUTES_BACK, bar_close_epoch, format_datetime_utc
+from ..services.data_service import fetch_history_frame, fetch_tick_frame
+from ..utils.time import MAX_TRADING_MINUTES_BACK, format_datetime_utc
 from ..utils.utils import (
     _parse_end_datetime,
     _parse_start_datetime,
@@ -24,19 +23,12 @@ def _mapping(row: Any) -> Dict[str, Any]:
     converter = getattr(row, "_asdict", None)
     if callable(converter):
         return dict(converter())
-    return {name: getattr(row, name) for name in dir(row) if not name.startswith("_") and not callable(getattr(row, name, None))}
-
-
-
-def _frame(rows: Any) -> pd.DataFrame:
-    if rows is None:
-        return pd.DataFrame()
-    if isinstance(rows, pd.DataFrame):
-        return rows.copy()
-    if isinstance(rows, np.ndarray) and rows.dtype.names:
-        return pd.DataFrame(rows)
-    return pd.DataFrame([_mapping(row) for row in list(rows)])
-
+    return {
+        name: getattr(row, name)
+        for name in dir(row)
+        if not name.startswith("_")
+        and not callable(getattr(row, name, None))
+    }
 
 
 def _parse_time(
@@ -198,77 +190,13 @@ def _round_execution_stat(value: Any, *, significant_digits: int = 6) -> Any:
 
 
 def _tick_frame(gateway: Any, symbol: str, start: datetime, end: datetime, max_ticks: int) -> Tuple[pd.DataFrame, bool]:
-    flags = getattr(gateway, "COPY_TICKS_ALL", 0)
-    df = _frame(gateway.copy_ticks_range(symbol, start, end, flags))
-    if df.empty:
-        return pd.DataFrame(
-            {
-                column: pd.Series(dtype=float)
-                for column in (
-                    "epoch",
-                    "bid",
-                    "ask",
-                    "last",
-                    "volume",
-                    "volume_real",
-                    "flags",
-                    "spread_valid",
-                    "spread_quality",
-                    "mid",
-                    "spread",
-                )
-            }
-        ), False
-    time_msc = _finite(df.get("time_msc", pd.Series(index=df.index, dtype=float)))
-    epoch = _finite(df.get("time", pd.Series(index=df.index, dtype=float)))
-    df["epoch"] = np.where(time_msc > 0, time_msc / 1000.0, epoch)
-    dedupe_columns = [
-        column
-        for column in ("epoch", "bid", "ask", "last", "volume", "volume_real", "flags")
-        if column in df.columns
-    ]
-    df = (
-        df[np.isfinite(df["epoch"])]
-        .sort_values("epoch", kind="stable")
-        .drop_duplicates(
-            subset=dedupe_columns,
-            keep="last",
-        )
+    return fetch_tick_frame(
+        symbol,
+        start,
+        end,
+        max_ticks,
+        gateway=gateway,
     )
-    truncated = len(df) > int(max_ticks)
-    if truncated:
-        df = df.tail(int(max_ticks)).copy()
-    for column in ("bid", "ask", "last", "volume", "volume_real", "flags"):
-        if column not in df:
-            df[column] = 0.0
-        df[column] = _finite(df[column]).fillna(0.0)
-    bid_flag, ask_flag = bid_ask_flags(gateway)
-    flag_values = df["flags"].astype(np.int64)
-    one_sided_update = ((flag_values & bid_flag) != 0) != (
-        (flag_values & ask_flag) != 0
-    )
-    two_sided_quote = (df["bid"] > 0) & (df["ask"] > df["bid"])
-    # MqlTick flags identify changed fields; bid and ask remain a complete quote
-    # snapshot even when only one side changed in this event.
-    spread_sample_eligible = two_sided_quote
-    incomplete_one_sided_update = one_sided_update & ~two_sided_quote
-    locked_quote = (df["bid"] > 0) & (df["ask"] == df["bid"])
-    inverted_quote = (df["bid"] > 0) & (df["ask"] > 0) & (df["ask"] < df["bid"])
-    df["spread_quality"] = np.select(
-        [incomplete_one_sided_update, locked_quote, inverted_quote],
-        ["one_sided_update", "locked", "inverted"],
-        default="two_sided",
-    )
-    df.loc[(df["bid"] <= 0) | (df["ask"] <= 0), "spread_quality"] = "one_sided"
-    df["spread_valid"] = two_sided_quote
-    df["spread_sample_eligible"] = spread_sample_eligible
-    df["mid"] = np.where(
-        two_sided_quote,
-        (df["bid"] + df["ask"]) / 2.0,
-        np.nan,
-    )
-    df["spread"] = np.where(np.isfinite(df["mid"]), df["ask"] - df["bid"], np.nan)
-    return df.reset_index(drop=True), truncated
 
 
 
@@ -281,26 +209,17 @@ def _rates(
     start: Optional[str] = None,
     end: Optional[str] = None,
 ) -> pd.DataFrame:
-    if start and end:
-        from_dt, to_dt = _window(start, end, 1)
-        raw = gateway.copy_rates_range(symbol, TIMEFRAME_MAP[timeframe], from_dt, to_dt)
-    elif end:
-        _, to_dt = _window(None, end, 1)
-        raw = gateway.copy_rates_from(symbol, TIMEFRAME_MAP[timeframe], to_dt, int(count) + 2)
-    else:
-        raw = gateway.copy_rates_from_pos(symbol, TIMEFRAME_MAP[timeframe], 0, int(count) + 2)
-    df = _frame(raw)
-    if df.empty or "close" not in df or "time" not in df:
+    try:
+        return fetch_history_frame(
+            symbol,
+            timeframe,
+            int(count),
+            start=start,
+            end=end,
+            include_incomplete=False,
+            gateway=gateway,
+        )
+    except ValueError as exc:
+        if "No data is available" not in str(exc):
+            raise
         return pd.DataFrame()
-    df = df.sort_values("time", kind="stable").drop_duplicates("time", keep="last")
-    for column in ("open", "high", "low", "close", "tick_volume", "real_volume", "spread"):
-        if column not in df:
-            df[column] = 0.0
-        df[column] = _finite(df[column])
-    now = datetime.now(timezone.utc).timestamp()
-    information_cutoff = min(now, to_dt.timestamp()) if end else now
-    close_epochs = df["time"].map(lambda value: bar_close_epoch(float(value), timeframe))
-    df = df[close_epochs <= information_cutoff]
-    if not (start and end):
-        df = df.tail(int(count))
-    return df.reset_index(drop=True)

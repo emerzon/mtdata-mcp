@@ -1700,8 +1700,8 @@ def resolve_public_symbol(
     return canonical, requested
 
 
-def _symbol_suggestion_suffix(symbol: str) -> str:
-    suggestions = symbol_suggestions_from_gateway(mt5, symbol)
+def _symbol_suggestion_suffix(symbol: str, *, gateway: Any = None) -> str:
+    suggestions = symbol_suggestions_from_gateway(gateway or mt5, symbol)
     names = [str(item.get("symbol") or "").strip() for item in suggestions]
     names = [name for name in names if name]
     if not names:
@@ -1709,41 +1709,82 @@ def _symbol_suggestion_suffix(symbol: str) -> str:
     return " Closest broker symbols: " + ", ".join(names) + "."
 
 
-def _ensure_symbol_ready(symbol: str) -> Optional[str]:
+def _symbol_info_from_source(symbol_source: Any, symbol: str) -> Any:
+    symbol_info = getattr(symbol_source, "symbol_info", None)
+    if callable(symbol_info):
+        return symbol_info(symbol)
+    symbols_get = getattr(symbol_source, "symbols_get", None)
+    if not callable(symbols_get):
+        return None
+    target = str(symbol).casefold()
+    return next(
+        (
+            item
+            for item in (symbols_get() or [])
+            if str(getattr(item, "name", "") or "").casefold() == target
+        ),
+        None,
+    )
+
+
+def _ensure_symbol_ready(symbol: str, *, gateway: Any = None) -> Optional[str]:
     """Ensure a symbol is selected and its tick data is initialized.
 
     Returns an error string if selection or data readiness fails, else None.
     """
     try:
+        symbol_source = gateway if gateway is not None else mt5
         data_ready_timeout, data_poll_interval = _data_ready_timing()
-        info_before = mt5.symbol_info(symbol)
-        was_visible = bool(info_before.visible) if info_before is not None else None
-        if not mt5.symbol_select(symbol, True):
+        info_before = _symbol_info_from_source(symbol_source, symbol)
+        was_visible = (
+            bool(getattr(info_before, "visible", False))
+            if info_before is not None
+            and getattr(info_before, "visible", None) is not None
+            else None
+        )
+        select_symbol = getattr(symbol_source, "symbol_select", None)
+        if not callable(select_symbol):
             if info_before is None:
                 return (
                     f"Symbol '{symbol}' was not found in MT5. "
                     f"Use symbols_list(search_term='{symbol}') to find broker-specific names and suffixes."
-                    f"{_symbol_suggestion_suffix(symbol)}"
+                    f"{_symbol_suggestion_suffix(symbol, gateway=symbol_source)}"
                 )
+            # Lightweight injected analysis gateways may be read-only and omit
+            # symbol selection. Catalog membership is their readiness contract.
+            return None
+        elif not select_symbol(symbol, True):
+            if info_before is None:
+                return (
+                    f"Symbol '{symbol}' was not found in MT5. "
+                    f"Use symbols_list(search_term='{symbol}') to find broker-specific names and suffixes."
+                    f"{_symbol_suggestion_suffix(symbol, gateway=symbol_source)}"
+                )
+            last_error = getattr(symbol_source, "last_error", lambda: None)()
             return (
                 f"Symbol '{symbol}' exists but could not be selected in MT5. "
-                f"MT5 error: {mt5.last_error()}"
+                f"MT5 error: {last_error}"
             )
         # If we just made it visible, wait briefly for fresh tick data
-        if was_visible is False:
+        if was_visible is False and callable(select_symbol):
             deadline = time.time() + data_ready_timeout
             while time.time() < deadline:
-                tick = _raw_symbol_info_tick(symbol)
+                tick = (
+                    _raw_symbol_info_tick(symbol)
+                    if gateway is None
+                    else symbol_source.symbol_info_tick(symbol)
+                )
                 if tick and (getattr(tick, 'time', 0) or getattr(tick, 'bid', 0) or getattr(tick, 'ask', 0)):
                     break
                 time.sleep(data_poll_interval)
         # Final check
-        tick = mt5.symbol_info_tick(symbol)
+        tick = symbol_source.symbol_info_tick(symbol)
         if tick is None:
+            last_error = getattr(symbol_source, "last_error", lambda: None)()
             return (
                 f"Symbol '{symbol}' was selected but no tick data is available. "
                 f"The market may be closed or the broker may not be streaming this symbol. "
-                f"MT5 error: {mt5.last_error()}"
+                f"MT5 error: {last_error}"
             )
         return None
     except Exception as e:
@@ -1754,18 +1795,33 @@ def _ensure_symbol_ready(symbol: str) -> Optional[str]:
 def _symbol_ready_guard(
     symbol: str,
     info_before: Optional[Any] = None,
+    *,
+    gateway: Any = None,
 ) -> Iterator[Tuple[Optional[str], Optional[Any]]]:
     """Ensure symbol readiness and restore original visibility on exit."""
     with _symbol_visibility_snapshot_guard():
-        info = info_before if info_before is not None else mt5.symbol_info(symbol)
-        was_visible = bool(info.visible) if info is not None else None
-        err = _ensure_symbol_ready(symbol)
+        symbol_source = gateway if gateway is not None else mt5
+        info = (
+            info_before
+            if info_before is not None
+            else _symbol_info_from_source(symbol_source, symbol)
+        )
+        was_visible = (
+            bool(getattr(info, "visible", False))
+            if info is not None and getattr(info, "visible", None) is not None
+            else None
+        )
+        err = (
+            _ensure_symbol_ready(symbol)
+            if gateway is None
+            else _ensure_symbol_ready(symbol, gateway=symbol_source)
+        )
         try:
             yield err, info
         finally:
             if was_visible is False:
                 try:
-                    mt5.symbol_select(symbol, False)
+                    symbol_source.symbol_select(symbol, False)
                 except Exception:
                     pass
 
