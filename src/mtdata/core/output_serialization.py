@@ -2,37 +2,13 @@ from __future__ import annotations
 
 import json
 import math
-import re
 import types
 from datetime import datetime
 from typing import Any
 
-from ..utils.formatting import format_number
 from ..utils.freshness import is_derived_age_seconds_key, round_age_seconds
 
 _JSON_UNSET = object()
-_SCIENTIFIC_JSON_NUMBER = re.compile(
-    r"(?<=[:\[,])(\s*)(-?(?:0|[1-9]\d*)(?:\.\d+)?)[eE][+-]?\d+"
-)
-
-
-class JsonFixedFloat(float):
-    """Float that JSON-encodes in fixed decimal form, never scientific notation."""
-
-    def __repr__(self) -> str:
-        value = float(self)
-        if value == 0.0:
-            return "0.0" if math.copysign(1.0, value) >= 0.0 else "-0.0"
-        text = format(value, ".15f").rstrip("0").rstrip(".")
-        if text in {"", "-", "-0"}:
-            return "0.0"
-        if "." not in text:
-            return f"{text}.0"
-        return text
-
-
-def _rewrite_scientific_json_number(match: re.Match[str]) -> str:
-    return f"{match.group(1)}{JsonFixedFloat(float(match.group(0)))!r}"
 
 
 def dumps_json(
@@ -42,29 +18,20 @@ def dumps_json(
     compact_numbers: bool = False,
     separators: tuple[str, str] | None = None,
 ) -> str:
-    """Serialize JSON without scientific notation on quantized prices."""
+    """Serialize a JSON-compatible copy without altering finite float values."""
     payload = sanitize_json(value, compact_numbers=compact_numbers)
-    rendered = json.dumps(
+    return json.dumps(
         payload,
         ensure_ascii=False,
         indent=indent,
         allow_nan=False,
         separators=separators,
     )
-    return _SCIENTIFIC_JSON_NUMBER.sub(_rewrite_scientific_json_number, rendered)
 
 
 def _json_float(value: float, *, compact_numbers: bool) -> Any:
     if not math.isfinite(value):
         return None
-    if compact_numbers:
-        try:
-            return float(format_number(value))
-        except Exception:
-            return value
-    rendered = repr(value)
-    if "e" in rendered or "E" in rendered:
-        return JsonFixedFloat(value)
     return value
 
 
