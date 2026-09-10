@@ -101,8 +101,42 @@ class TestCompositeFitnessScore:
         )
 
         assert zero_drawdown == 1.0
-        assert ten_percent_drawdown == 0.9
+        assert ten_percent_drawdown == pytest.approx(1.0 / 1.1)
         assert zero_drawdown > ten_percent_drawdown
+
+    @pytest.mark.parametrize(
+        ("metric", "weight", "old_cap", "beyond_cap"),
+        [
+            ("sharpe_ratio", "sharpe_ratio", 5.0, 10.0),
+            ("win_rate", "win_rate", 0.7, 0.95),
+            ("avg_return_per_trade", "avg_return", 0.1, 0.2),
+        ],
+    )
+    def test_score_remains_monotone_beyond_legacy_caps(
+        self,
+        metric,
+        weight,
+        old_cap,
+        beyond_cap,
+    ):
+        weights = {weight: 1.0}
+
+        capped = composite_fitness_score({metric: old_cap}, weights=weights)
+        better = composite_fitness_score({metric: beyond_cap}, weights=weights)
+
+        assert 0.0 <= capped < better <= 1.0
+
+    def test_extreme_metric_stays_bounded(self):
+        score = composite_fitness_score(
+            {
+                "sharpe_ratio": float.fromhex("0x1.fffffffffffffp+1023"),
+                "win_rate": 0.5,
+                "max_drawdown": 0.1,
+                "avg_return_per_trade": 0.01,
+            }
+        )
+
+        assert 0.0 <= score <= 1.0
 
 
 class TestBuildComprehensiveSearchSpace:
@@ -230,6 +264,24 @@ def test_optimize_hints_rejects_explicit_composite_with_five_steps():
     assert result["error_code"] == "insufficient_tuning_sample"
     assert result["minimum_steps"] == 30
     assert "avg_rmse" in result["remediation"]
+
+
+def test_optimize_hints_rejects_unknown_metric_before_search():
+    from mtdata.forecast.use_cases import run_forecast_optimize_hints
+
+    result = run_forecast_optimize_hints(
+        ForecastOptimizeHintsRequest(
+            symbol="EURUSD",
+            timeframes=["H1"],
+            fitness_metric="not_a_metric",
+        ),
+        optimize_hints_impl=lambda **kwargs: pytest.fail("search must not start"),
+    )
+
+    assert result["success"] is False
+    assert result["error_code"] == "unsupported_metric"
+    assert "composite" in result["supported_metrics"]
+    assert "kelly_fraction" in result["supported_metrics"]
 
 
 def test_genetic_search_optimize_hints_rejects_population_below_two():
@@ -534,6 +586,65 @@ def test_genetic_search_maximizes_higher_is_better_metric():
     assert all(call.kwargs["mode"] == "max" for call in evaluate.call_args_list)
     assert result["hints"][0]["fitness_score"] == 0.8
     assert result["hints"][0]["fitness_score_unit"] == "dimensionless"
+    assert result["hints"][0]["fitness_score_direction"] == "higher_is_better"
+    assert result["search_summary"]["fitness_score_direction"] == "higher_is_better"
+
+
+@pytest.mark.parametrize(
+    "fitness_metric",
+    [
+        "avg_return_per_trade",
+        "avg_win_loss_ratio",
+        "kelly_fraction",
+        "half_kelly_fraction",
+    ],
+)
+def test_genetic_search_uses_canonical_max_direction_and_reports_raw_score(
+    fitness_metric,
+):
+    search_space = {
+        "timeframe": {"choices": ["H1"]},
+        "method": {"choices": ["naive", "theta"]},
+        "_method_spaces": {"naive": {}, "theta": {}},
+    }
+
+    def evaluate(**kwargs):
+        raw_score = 3.0 if kwargs["method"] == "theta" else 1.0
+        objective_score = -raw_score if kwargs["mode"] == "max" else raw_score
+        return objective_score, {
+            "results": {
+                kwargs["method"]: {
+                    "success": True,
+                    "metrics": {fitness_metric: raw_score},
+                }
+            }
+        }
+
+    with patch(
+        "mtdata.forecast.tune._eval_candidate",
+        side_effect=evaluate,
+    ) as candidate:
+        result = genetic_search_optimize_hints(
+            symbol="EURUSD",
+            timeframes=["H1"],
+            methods=["naive", "theta"],
+            search_space=search_space,
+            population=8,
+            generations=1,
+            mutation_rate=0.0,
+            top_n=2,
+            fitness_metric=fitness_metric,
+            seed=7,
+        )
+
+    assert {call.kwargs["method"] for call in candidate.call_args_list} == {
+        "naive",
+        "theta",
+    }
+    assert all(call.kwargs["mode"] == "max" for call in candidate.call_args_list)
+    assert result["hints"][0]["method"] == "theta"
+    assert result["hints"][0]["fitness_score"] == 3.0
+    assert result["hints"][0]["fitness_score_direction"] == "higher_is_better"
     assert result["search_summary"]["fitness_score_direction"] == "higher_is_better"
 
 

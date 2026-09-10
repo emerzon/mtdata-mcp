@@ -26,6 +26,7 @@ from mtdata.forecast.requests import (
 from mtdata.forecast.tuning_contract import (
     ANNUALIZED_TUNING_METRICS,
     MIN_ANNUALIZED_TUNING_TRADES,
+    OPTIMIZE_HINTS_METRIC_DIRECTIONS,
     TRADING_TUNING_METRICS,
     TUNING_METRIC_DIRECTIONS,
     resolve_tuning_mode,
@@ -40,6 +41,7 @@ from mtdata.utils.security import redact_url_credentials
 logger = logging.getLogger("mtdata.forecast.use_cases")
 
 _TUNING_METRICS = frozenset(TUNING_METRIC_DIRECTIONS)
+_OPTIMIZE_HINTS_METRICS = frozenset(OPTIMIZE_HINTS_METRIC_DIRECTIONS)
 _MIN_RELIABLE_TUNING_ANCHORS = MIN_ANNUALIZED_TUNING_TRADES
 _LOW_SAMPLE_SELECTION_WARNING = (
     "Tuning evaluated fewer than 30 rolling-origin anchors per candidate; "
@@ -91,15 +93,27 @@ def _validate_tuning_methods(
     return None
 
 
-def _validate_tuning_metric(metric: Any) -> Optional[Dict[str, Any]]:
+def _validate_tuning_metric(
+    metric: Any,
+    *,
+    optimize_hints: bool = False,
+) -> Optional[Dict[str, Any]]:
     metric_value = str(metric or "").strip()
     metric_key = metric_value.lower()
-    if metric_key in _TUNING_METRICS:
+    supported_metrics = (
+        _OPTIMIZE_HINTS_METRICS if optimize_hints else _TUNING_METRICS
+    )
+    if metric_key in supported_metrics:
         return None
-    suggestions = difflib.get_close_matches(metric_key, sorted(_TUNING_METRICS), n=3, cutoff=0.45)
+    suggestions = difflib.get_close_matches(
+        metric_key,
+        sorted(supported_metrics),
+        n=3,
+        cutoff=0.45,
+    )
     message = (
         f"Unsupported tuning metric: {metric_value or '<empty>'}. "
-        f"Supported metrics: {', '.join(sorted(_TUNING_METRICS))}."
+        f"Supported metrics: {', '.join(sorted(supported_metrics))}."
     )
     if suggestions:
         message += f" Did you mean: {', '.join(suggestions)}?"
@@ -108,7 +122,7 @@ def _validate_tuning_metric(metric: Any) -> Optional[Dict[str, Any]]:
         "error": message,
         "error_code": "unsupported_metric",
         "metric": metric_value,
-        "supported_metrics": sorted(_TUNING_METRICS),
+        "supported_metrics": sorted(supported_metrics),
     }
 
 
@@ -884,7 +898,16 @@ def run_forecast_optimize_hints(
     if invalid_method is not None:
         return _apply_tuning_detail(invalid_method, request.detail)
 
-    invalid_sample = _validate_tuning_sample(request.fitness_metric, request.steps)
+    fitness_metric = str(request.fitness_metric or "").strip().lower()
+    invalid_metric = _validate_tuning_metric(
+        fitness_metric,
+        optimize_hints=True,
+    )
+    if invalid_metric is not None:
+        return _apply_tuning_detail(invalid_metric, request.detail)
+    request.fitness_metric = fitness_metric
+
+    invalid_sample = _validate_tuning_sample(fitness_metric, request.steps)
     if invalid_sample is not None:
         return _apply_tuning_detail(invalid_sample, request.detail)
     invalid_costs = _validate_tuning_costs(request)
@@ -900,7 +923,7 @@ def run_forecast_optimize_hints(
             steps=int(request.steps),
             spacing=int(request.spacing),
             **_analysis_time_kwargs(request),
-            fitness_metric=str(request.fitness_metric or 'composite'),
+            fitness_metric=fitness_metric,
             fitness_weights=request.fitness_weights,
             population=int(request.population),
             generations=int(request.generations),

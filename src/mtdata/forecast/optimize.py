@@ -36,6 +36,30 @@ def scale_metric_to_01(value: Optional[float], vmin: float = 0.0, vmax: float = 
     return max(0.0, min(1.0, scaled))
 
 
+def _bounded_symmetric_score(value: Any, *, scale: float) -> float:
+    """Map a finite unbounded metric monotonically into the open unit interval."""
+    try:
+        metric = float(value)
+        scale_value = float(scale)
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(metric):
+        return 0.0
+    if not math.isfinite(scale_value) or scale_value <= 0.0:
+        return 0.5
+    magnitude = abs(metric)
+    if magnitude == 0.0:
+        return 0.5
+    # This form avoids overflowing ``scale + magnitude`` for large finite
+    # metrics while keeping the transform bounded and strictly monotone at
+    # practical values.
+    signed_ratio = math.copysign(
+        1.0 / (1.0 + (scale_value / magnitude)),
+        metric,
+    )
+    return 0.5 + (0.5 * signed_ratio)
+
+
 def composite_fitness_score(
     backtest_metrics: Dict[str, Any],
     *,
@@ -78,16 +102,19 @@ def composite_fitness_score(
 
     score = 0.0
 
-    # Sharpe ratio: typically -5 to 5; scale to 0-1 with 0 as baseline
+    # Keep unbounded metrics bounded without hard caps. The scale controls how
+    # quickly each component approaches its asymptote; values above the old
+    # fixed windows remain distinguishable.
     if 'sharpe_ratio' in w and w['sharpe_ratio'] > 0:
         sr = backtest_metrics.get('sharpe_ratio')
-        sr_scaled = scale_metric_to_01(sr, vmin=-5.0, vmax=5.0)
+        sr_scaled = _bounded_symmetric_score(sr, scale=5.0)
         score += w['sharpe_ratio'] * sr_scaled
 
-    # Win rate: 0 to 1
+    # Win rate has a real [0, 1] domain, so use that full domain instead of
+    # saturating at the former 30%-70% typical-value window.
     if 'win_rate' in w and w['win_rate'] > 0:
         wr = backtest_metrics.get('win_rate')
-        wr_scaled = scale_metric_to_01(wr, vmin=0.3, vmax=0.7)  # 30-70% is typical
+        wr_scaled = scale_metric_to_01(wr, vmin=0.0, vmax=1.0)
         score += w['win_rate'] * wr_scaled
 
     # Inverse max drawdown: penalize large drawdowns
@@ -98,8 +125,8 @@ def composite_fitness_score(
             try:
                 md_f = float(md)
                 if math.isfinite(md_f) and md_f >= 0:
-                    # Invert: 10% dd → 0.9, 50% dd → 0.5, 100% dd → 0
-                    inv_dd = max(0.0, 1.0 - md_f)
+                    # Bounded and monotone for any non-negative drawdown.
+                    inv_dd = 1.0 / (1.0 + md_f)
                 else:
                     inv_dd = 0.5
             except Exception:
@@ -108,10 +135,11 @@ def composite_fitness_score(
             inv_dd = 0.5
         score += w['inverse_max_drawdown'] * inv_dd
 
-    # Average return per trade: scale -10% to +10%
+    # Average return per trade is unbounded above. A 10% scale preserves useful
+    # resolution near zero without allowing an extreme return to dominate.
     if 'avg_return' in w and w['avg_return'] > 0:
         ar = backtest_metrics.get('avg_return_per_trade')
-        ar_scaled = scale_metric_to_01(ar, vmin=-0.1, vmax=0.1)
+        ar_scaled = _bounded_symmetric_score(ar, scale=0.1)
         score += w['avg_return'] * ar_scaled
 
     return max(0.0, min(1.0, score))

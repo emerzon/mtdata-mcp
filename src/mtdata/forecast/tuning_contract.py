@@ -34,6 +34,11 @@ TUNING_METRIC_DIRECTIONS: dict[str, Literal["min", "max"]] = {
     "half_kelly_fraction": "max",
 }
 
+OPTIMIZE_HINTS_METRIC_DIRECTIONS: dict[str, Literal["min", "max"]] = {
+    **TUNING_METRIC_DIRECTIONS,
+    "composite": "max",
+}
+
 ANNUALIZED_TUNING_METRICS = frozenset(
     {"sharpe_ratio", "calmar_ratio", "annual_return", "composite"}
 )
@@ -61,3 +66,16 @@ def resolve_tuning_mode(metric: str, mode: str = "auto") -> Literal["min", "max"
     if mode_key == "min":
         return "min"
     return TUNING_METRIC_DIRECTIONS.get(metric_key, "min")
+
+
+def resolve_optimize_hints_mode(metric: str) -> Literal["min", "max"]:
+    """Resolve an optimize-hints objective through the canonical contract."""
+    metric_key = str(metric or "").strip().lower()
+    try:
+        return OPTIMIZE_HINTS_METRIC_DIRECTIONS[metric_key]
+    except KeyError as exc:
+        supported = ", ".join(sorted(OPTIMIZE_HINTS_METRIC_DIRECTIONS))
+        raise ValueError(
+            f"Unsupported optimize-hints metric: {metric or '<empty>'}. "
+            f"Supported metrics: {supported}."
+        ) from exc

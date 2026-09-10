@@ -15,6 +15,7 @@ from .backtest import forecast_backtest as _forecast_backtest
 from .tuning_contract import (
     MIN_ANNUALIZED_TUNING_TRADES,
     TRADING_TUNING_METRICS,
+    resolve_optimize_hints_mode,
     resolve_tuning_mode,
 )
 
@@ -1331,16 +1332,13 @@ def genetic_search_optimize_hints(  # noqa: C901
     """
     _suppress_noisy_forecast_tune_loggers()
 
+    fitness_metric = str(fitness_metric or "").strip().lower()
+    metric_mode = resolve_optimize_hints_mode(fitness_metric)
+    fitness_score_direction = (
+        "higher_is_better" if metric_mode == "max" else "lower_is_better"
+    )
     start_time = time.time()
     rng = random.Random(int(seed))
-    maximize_metrics = {
-        'sharpe_ratio',
-        'win_rate',
-        'calmar_ratio',
-        'annual_return',
-        'avg_directional_accuracy',
-    }
-    metric_mode = 'max' if fitness_metric in maximize_metrics else 'min'
     evaluations_attempted = 0
     timed_out = False
 
@@ -1437,7 +1435,7 @@ def genetic_search_optimize_hints(  # noqa: C901
             lookback=lookback,
             candidate_params={'method': method, **params},
             metric=fitness_metric if fitness_metric != 'composite' else 'avg_rmse',
-            mode=metric_mode,
+            mode='min' if fitness_metric == 'composite' else metric_mode,
             denoise=denoise,
             features=features,
             dimred_method=dimred_method,
@@ -1661,6 +1659,7 @@ def genetic_search_optimize_hints(  # noqa: C901
                 else (-fitness if metric_mode == 'max' else fitness)
             ),
             'fitness_score_unit': _optimization_fitness_unit(fitness_metric),
+            'fitness_score_direction': fitness_score_direction,
         }
         if fitness_source:
             hint['fitness_source'] = fitness_source
@@ -1743,11 +1742,7 @@ def genetic_search_optimize_hints(  # noqa: C901
             'elapsed_seconds': round(elapsed, 2),
             'fitness_metric': fitness_metric,
             'fitness_score_unit': _optimization_fitness_unit(fitness_metric),
-            'fitness_score_direction': (
-                'higher_is_better'
-                if fitness_metric == 'composite' or metric_mode == 'max'
-                else 'lower_is_better'
-            ),
+            'fitness_score_direction': fitness_score_direction,
             'history_score_direction': 'lower_is_better_internal_objective',
             'timeframes_searched': list(tf_choices),
             'methods_searched': list(method_choices),
