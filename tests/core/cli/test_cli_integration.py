@@ -2751,7 +2751,7 @@ class TestForecastGenerateIntegration:
                 main()
 
     @patch("mtdata.core.cli.api.discover_tools")
-    def test_forecast_generate_omits_redundant_ci_block_when_bounds_rendered(
+    def test_forecast_generate_preserves_canonical_bounds_without_synthetic_blocks(
         self, mock_discover, capsys
     ):
         mock_fn = MagicMock(
@@ -2780,7 +2780,16 @@ class TestForecastGenerateIntegration:
             result = main()
         assert result == 0
         out = capsys.readouterr().out
-        assert "forecast[1]{time,forecast,lower,upper}:" in out
+        for field in (
+            "times[1]:",
+            "forecast_price[1]:",
+            "lower_price[1]:",
+            "upper_price[1]:",
+            "ci_status: available",
+            "ci_alpha: 0.05",
+        ):
+            assert field in out
+        assert "\nforecast[1]" not in out
         assert "\nci:" not in out
 
     @patch("mtdata.core.cli.api.discover_tools")
@@ -2820,10 +2829,11 @@ class TestForecastGenerateIntegration:
         assert "method: arima" in out
         assert "quantity: price" in out
         assert "detail: compact" in out
-        assert "ci:" in out
-        assert "status: available" in out
+        assert "ci_status: available" in out
+        assert "ci_alpha: 0.05" in out
         assert "interval_summary:" in out
-        assert "forecast[1]{time,forecast}:" in out
+        assert "forecast_time[1]:" in out
+        assert "forecast_price[1]:" in out
 
 
 # ========================================================================
