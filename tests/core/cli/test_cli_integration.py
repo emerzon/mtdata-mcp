@@ -1745,6 +1745,43 @@ class TestMain:
         assert result == 1
 
     @patch("mtdata.core.cli.api.discover_tools")
+    def test_command_invalid_input_result_is_usage_error(
+        self, mock_discover, capsys
+    ):
+        mock_fn = MagicMock(
+            return_value={
+                "success": False,
+                "error": "preset must be one of: gap_up, tight_spread.",
+                "error_code": "invalid_input",
+            }
+        )
+        mock_fn.__module__ = "mtdata.core.server"
+        mock_fn.__name__ = "market_scan"
+        mock_fn.__doc__ = "Scan markets."
+
+        def market_scan(symbols: str):
+            """Scan markets."""
+
+        info = get_function_info(market_scan)
+        info["func"] = mock_fn
+        mock_discover.return_value = {
+            "market_scan": {
+                "func": mock_fn,
+                "meta": {"description": "Scan markets"},
+                "_cli_func_info": info,
+            },
+        }
+
+        with patch(
+            "sys.argv",
+            ["cli.py", "market_scan", "EURUSD", "--json"],
+        ):
+            status = main()
+
+        assert status == 2
+        assert json.loads(capsys.readouterr().out)["error_code"] == "invalid_input"
+
+    @patch("mtdata.core.cli.api.discover_tools")
     def test_command_blocked_trade_preview_returns_nonzero(
         self,
         mock_discover,
@@ -1780,6 +1817,51 @@ class TestMain:
 
         assert result == 1
         assert json.loads(capsys.readouterr().out)["preview_ok"] is False
+
+    @patch("mtdata.core.cli.api.discover_tools")
+    def test_command_nested_trade_idea_preview_failure_returns_nonzero(
+        self,
+        mock_discover,
+        capsys,
+    ):
+        mock_fn = MagicMock(
+            return_value={
+                "success": True,
+                "idea_eligible": False,
+                "overall_gate_status": "fail",
+                "preview": {
+                    "dry_run": True,
+                    "preview_ok": False,
+                    "would_send_order": False,
+                },
+            }
+        )
+        mock_fn.__module__ = "mtdata.core.server"
+        mock_fn.__name__ = "trade_idea_compose"
+        mock_fn.__doc__ = "Compose a trade idea."
+
+        def trade_idea_compose(symbol: str):
+            """Compose a trade idea."""
+
+        info = get_function_info(trade_idea_compose)
+        info["func"] = mock_fn
+        mock_discover.return_value = {
+            "trade_idea_compose": {
+                "func": mock_fn,
+                "meta": {"description": "Compose a trade idea"},
+                "_cli_func_info": info,
+            },
+        }
+
+        with patch(
+            "sys.argv",
+            ["cli.py", "trade_idea_compose", "EURUSD", "--json"],
+        ):
+            status = main()
+
+        payload = json.loads(capsys.readouterr().out)
+        assert status == 1
+        assert payload["preview"]["preview_ok"] is False
 
     @patch("mtdata.core.cli.api.discover_tools")
     def test_command_eligible_trade_preview_returns_zero(
@@ -1980,7 +2062,7 @@ class TestMain:
             result = main()
 
         payload = json.loads(capsys.readouterr().out)
-        assert result != 0
+        assert result == 2
         assert payload["error_code"] == "cli_background_process_required"
         assert "--wait false" in payload["error"]
         assert invoked == []
@@ -2157,7 +2239,7 @@ class TestForecastGenerateIntegration:
             result = main()
 
         payload = json.loads(capsys.readouterr().out)
-        assert result == 1
+        assert result == 2
         assert payload["error_code"] == "cli_background_process_required"
         assert payload["operation"] == "forecast_generate"
         mock_fn.assert_not_called()

@@ -746,6 +746,19 @@ def _result_has_tool_error(result: Any) -> bool:
     if isinstance(result, dict):
         if result.get("preview_ok") is False:
             return True
+        preview = result.get("preview")
+        if isinstance(preview, dict) and preview.get("preview_ok") is False:
+            return True
+        idea = result.get("idea")
+        if isinstance(idea, dict):
+            if idea.get("preview_ok") is False:
+                return True
+            nested_preview = idea.get("preview")
+            if (
+                isinstance(nested_preview, dict)
+                and nested_preview.get("preview_ok") is False
+            ):
+                return True
         if result.get("success") is False:
             return True
         if bool(result.get("no_action", False)) and result.get("success") is not True:
@@ -759,14 +772,37 @@ def _result_has_tool_error(result: Any) -> bool:
     return False
 
 
-def _render_cli_result_status(result: Any, *, args: Any, cmd_name: str) -> int:
-    rendered_result = _render_cli_result(result, args=args, cmd_name=cmd_name)
-    if isinstance(rendered_result, dict) and rendered_result.get("error_code") in {
+_CLI_USAGE_ERROR_CODES = frozenset(
+    {
+        "cli_background_process_required",
         "cli_invalid_arguments",
         "cli_missing_required",
-    }:
-        return 2
-    return int(_result_has_tool_error(rendered_result))
+        "future_date_range",
+        "invalid_date",
+        "invalid_date_range",
+        "invalid_datetime",
+        "invalid_input",
+        "invalid_minutes_back",
+        "report_end_in_future",
+        "trade_idea_as_of_in_future",
+    }
+)
+
+
+def _result_exit_status(result: Any) -> int:
+    if not _result_has_tool_error(result):
+        return 0
+    if isinstance(result, dict):
+        error_category = str(result.get("error_category") or "").strip().lower()
+        error_code = str(result.get("error_code") or "").strip().lower()
+        if error_category == "usage" or error_code in _CLI_USAGE_ERROR_CODES:
+            return 2
+    return 1
+
+
+def _render_cli_result_status(result: Any, *, args: Any, cmd_name: str) -> int:
+    rendered_result = _render_cli_result(result, args=args, cmd_name=cmd_name)
+    return _result_exit_status(rendered_result)
 
 
 def _parse_error_output_format() -> str:
@@ -1627,7 +1663,7 @@ def create_command_function(
         func_info,
         cmd_name=cmd_name,
         render_cli_result=_render_cli_result,
-        result_has_tool_error=_result_has_tool_error,
+        result_exit_status=_result_exit_status,
         normalize_cli_list_value=_normalize_cli_list_value,
         parse_kv_string=_parse_kv_string,
         unwrap_optional_type=_unwrap_optional_type,
