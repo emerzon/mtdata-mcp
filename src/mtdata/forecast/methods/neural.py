@@ -38,30 +38,8 @@ def _neural_resolve_seed(params: Dict[str, Any]) -> Tuple[int, str]:
     return seed, seed_source
 
 
-def _ensure_pytorch_lightning_distributed_compat() -> None:
-    """Provide the legacy Lightning distributed logger expected by old deps."""
-    try:
-        import logging
-        import sys
-        import types
-
-        import pytorch_lightning as _pl  # type: ignore
-
-        utilities = getattr(_pl, 'utilities', None)
-        if utilities is None or hasattr(utilities, 'distributed'):
-            return
-
-        distributed = types.ModuleType('pytorch_lightning.utilities.distributed')
-        distributed.log = logging.getLogger('pytorch_lightning.utilities.distributed')  # type: ignore[attr-defined]
-        utilities.distributed = distributed
-        sys.modules.setdefault('pytorch_lightning.utilities.distributed', distributed)
-    except Exception:
-        pass
-
-
 def _import_neuralforecast_model_classes() -> Dict[str, Any]:
     """Import NeuralForecast model classes from the supported Nixtla API."""
-    _ensure_pytorch_lightning_distributed_compat()
     try:
         from neuralforecast.models import NHITS as _NF_NHITS  # type: ignore
         from neuralforecast.models import TFT as _NF_TFT  # type: ignore

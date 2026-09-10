@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from ..shared.constants import TIMEFRAME_SECONDS
+from ..shared.constants import TIMEFRAME_MAP, TIMEFRAME_SECONDS
 from ..shared.validators import invalid_timeframe_error
 from ..utils.freshness import completed_bar_freshness_fields
 from ..utils.time import (
@@ -66,7 +66,6 @@ def _candlestick_volume_warmup_bars(config: Optional[Dict[str, Any]]) -> int:
 
 
 ta: Any = None
-TIMEFRAME_MAP: Optional[Dict[str, Any]] = None
 _CANDLESTICK_PATTERN_METHOD_CACHE: Optional[Tuple[str, ...]] = None
 _CANDLESTICK_PATTERN_METHOD_CACHE_KEY: Optional[str] = None
 _CANDLESTICK_PATTERN_METHOD_CACHE_LOCK = Lock()
@@ -396,9 +395,9 @@ def _candlestick_span_bars(pattern_name: str) -> int:
 
 
 def _ensure_candlestick_runtime() -> None:
-    global ta, TIMEFRAME_MAP
+    global ta
 
-    if ta is not None and TIMEFRAME_MAP is not None:
+    if ta is not None:
         return
 
     with _CANDLESTICK_PATTERN_METHOD_CACHE_LOCK:
@@ -413,10 +412,6 @@ def _ensure_candlestick_runtime() -> None:
                         "pandas_ta not found. Install 'pandas-ta-classic' (or 'pandas-ta')."
                     ) from e
             ta = ta_mod
-        if TIMEFRAME_MAP is None:
-            from ..shared.constants import TIMEFRAME_MAP as timeframe_map
-
-            TIMEFRAME_MAP = timeframe_map
 
 
 def _discover_candlestick_pattern_methods(ta_accessor: Any) -> Tuple[str, ...]:
@@ -919,7 +914,7 @@ def detect_candlestick_patterns(  # noqa: C901
     except ModuleNotFoundError as exc:
         return {"error": str(exc)}
     if timeframe not in TIMEFRAME_MAP:
-        return {"error": invalid_timeframe_error(timeframe, TIMEFRAME_MAP or {})}
+        return {"error": invalid_timeframe_error(timeframe, TIMEFRAME_MAP)}
     try:
         thr = _parse_min_strength(min_strength)
     except ValueError as exc:

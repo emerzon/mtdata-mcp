@@ -487,18 +487,6 @@ class ForecastMethod(ABC):
             result.params_used = merged
         return result
     
-    def validate_params(self, params: Dict[str, Any]) -> List[str]:
-        """
-        Validate method-specific parameters.
-        
-        Args:
-            params: Dictionary of parameters to validate.
-            
-        Returns:
-            List of error messages (empty if valid).
-        """
-        return []
-
     def prepare_forecast_call(
         self,
         params: Dict[str, Any],

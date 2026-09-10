@@ -565,10 +565,6 @@ class MT5Config:
         """Get server name"""
         return self.server
     
-    def has_credentials(self) -> bool:
-        """Check if all credentials are available"""
-        return self.credential_state() == "complete"
-
     def credential_state(self) -> str:
         """Return ``none``, ``complete``, or ``partial`` credential state."""
         configured = (

@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Literal, Optional
 from urllib.parse import parse_qs, urlparse
 from zoneinfo import ZoneInfo
 
+from ...shared.symbols import normalize_equity_provider_symbol
 from ..news_text import normalize_news_text
 from .client import (
     get_finviz_http_timeout,
@@ -27,7 +28,7 @@ from .dates import (
     resolve_date_range,
 )
 from .pagination import _sanitize_row
-from .symbols import looks_like_non_equity_symbol, normalize_finviz_equity_symbol
+from .symbols import looks_like_non_equity_symbol
 from .utils import (
     apply_finvizfinance_timeout_patch,
     crypto_day_week_identical,
@@ -192,7 +193,7 @@ def _finviz_error_payload(
             "-marketcap, price, volume, or change."
         )
     if symbol:
-        payload["symbol"] = normalize_finviz_equity_symbol(symbol)
+        payload["symbol"] = normalize_equity_provider_symbol(symbol)
     payload.update({key: value for key, value in context.items() if value is not None})
     return payload
 
@@ -344,7 +345,7 @@ def _load_finviz_attr(module_name: str, attr_name: str) -> Any:
 def _get_finviz_stock_quote(symbol: str) -> tuple[str, Any]:
     _apply_finvizfinance_timeout_patch()
     finvizfinance = _load_finviz_attr("finvizfinance.quote", "finvizfinance")
-    symbol_norm = normalize_finviz_equity_symbol(symbol)
+    symbol_norm = normalize_equity_provider_symbol(symbol)
     return symbol_norm, finvizfinance(symbol_norm)
 
 
@@ -480,7 +481,7 @@ def get_stock_fundamentals(symbol: str) -> Dict[str, Any]:
             error_code = "finviz_endpoint_failed"
             message = (
                 f"Finviz fundamentals failed for "
-                f"{normalize_finviz_equity_symbol(symbol)}. Other Finviz endpoints "
+                f"{normalize_equity_provider_symbol(symbol)}. Other Finviz endpoints "
                 "may still be available."
             )
             remediation = (
@@ -502,7 +503,7 @@ def get_stock_fundamentals(symbol: str) -> Dict[str, Any]:
             "provider": "finviz",
             "endpoint": "fundamentals",
             "stage": "ticker_fundament",
-            "symbol": normalize_finviz_equity_symbol(symbol),
+            "symbol": normalize_equity_provider_symbol(symbol),
         }
         if error_code == "finviz_rate_limited":
             payload["retry_after_seconds"] = 60
@@ -931,13 +932,13 @@ def _extract_insider_activity_symbol(ticker_cell: Any) -> Optional[str]:
             else None
         )
     if value:
-        return normalize_finviz_equity_symbol(str(value))
+        return normalize_equity_provider_symbol(str(value))
 
     for anchor in ticker_cell.find_all("a", href=True):
         query = parse_qs(urlparse(str(anchor.get("href"))).query)
         ticker_values = query.get("t")
         if ticker_values and ticker_values[0]:
-            return normalize_finviz_equity_symbol(ticker_values[0])
+            return normalize_equity_provider_symbol(ticker_values[0])
     return None
 
 

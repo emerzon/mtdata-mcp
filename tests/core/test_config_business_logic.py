@@ -20,7 +20,6 @@ def test_mt5_config_credentials_and_login_parsing(monkeypatch):
     assert conf.get_login() == 123456
     assert conf.get_password() == "secret"
     assert conf.get_server() == "Demo-Server"
-    assert conf.has_credentials() is True
     assert conf.credential_state() == "complete"
 
 
@@ -45,7 +44,6 @@ def test_mt5_config_identifies_partial_credentials(monkeypatch, configured):
     conf = cfg.MT5Config(warn_if_timezone_missing=False)
 
     assert conf.credential_state() == "partial"
-    assert conf.has_credentials() is False
 
 
 def test_mt5_config_rejects_invalid_login(monkeypatch):

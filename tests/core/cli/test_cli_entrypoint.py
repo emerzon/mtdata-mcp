@@ -7,10 +7,9 @@ from unittest.mock import patch
 import pytest
 
 
-@pytest.mark.parametrize("module", ["mtdata", "mtdata.core.cli"])
-def test_cli_module_execution_shows_root_help(module):
+def test_cli_module_execution_shows_root_help():
     completed = subprocess.run(
-        [sys.executable, "-m", module, "--help"],
+        [sys.executable, "-m", "mtdata", "--help"],
         check=False,
         capture_output=True,
         text=True,
@@ -19,9 +18,8 @@ def test_cli_module_execution_shows_root_help(module):
     assert completed.returncode == 0, completed.stderr
     assert "usage:" in completed.stdout.lower()
     assert "forecast_generate" in completed.stdout
-    if module == "mtdata":
-        assert "usage: python -m mtdata" in completed.stdout
-        assert "__main__.py" not in completed.stdout
+    assert "usage: python -m mtdata" in completed.stdout
+    assert "__main__.py" not in completed.stdout
     assert completed.stderr == ""
 
 

@@ -24,7 +24,10 @@ from typing import (
 from urllib.parse import urljoin, urlparse
 from zoneinfo import ZoneInfo
 
-from ..shared.symbols import FIAT_CURRENCY_CODES as _CURRENCY_CODES
+from ..shared.symbols import (
+    FIAT_CURRENCY_CODES as _CURRENCY_CODES,
+)
+from ..shared.symbols import normalize_equity_provider_symbol
 from ..utils.mt5 import ensure_mt5_connection_or_raise, get_symbol_info_cached, mt5
 from ..utils.time import parse_relative_time
 from .finviz import (
@@ -41,7 +44,6 @@ from .finviz.dates import (
     parse_finviz_datetime,
     parse_finviz_publication_date,
 )
-from .finviz.symbols import normalize_finviz_equity_symbol
 from .finviz.utils import finviz_percent_value
 from .news_embeddings import get_news_embedding_service
 from .news_service import get_mt5_news
@@ -1443,7 +1445,7 @@ def _build_equity_symbol_candidates(context: InstrumentContext) -> List[str]:
         return []
 
     candidates: List[str] = []
-    provider_symbol = normalize_finviz_equity_symbol(context.symbol)
+    provider_symbol = normalize_equity_provider_symbol(context.symbol)
     if provider_symbol:
         candidates.append(provider_symbol)
         compact_provider = _compact_token(provider_symbol)
@@ -2678,7 +2680,7 @@ class NewsAggregator:
                 payload["warnings"] = warnings_out
             payload["status"] = "partial"
         if context is not None and context.asset_class == "equity":
-            provider_symbol = normalize_finviz_equity_symbol(context.symbol)
+            provider_symbol = normalize_equity_provider_symbol(context.symbol)
             if provider_symbol and provider_symbol != context.symbol:
                 payload["requested_symbol"] = context.symbol
                 payload["finviz_ticker"] = provider_symbol

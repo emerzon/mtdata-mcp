@@ -9,10 +9,8 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 import pytest
 
-from mtdata.services.finviz.symbols import (
-    looks_like_non_equity_symbol,
-    normalize_finviz_equity_symbol,
-)
+from mtdata.services.finviz.symbols import looks_like_non_equity_symbol
+from mtdata.shared.symbols import normalize_equity_provider_symbol
 
 
 @pytest.mark.parametrize(
@@ -30,8 +28,8 @@ from mtdata.services.finviz.symbols import (
         ("BTC/USD", "BTC/USD"),
     ),
 )
-def test_normalize_finviz_equity_symbol(broker_symbol: str, expected: str) -> None:
-    assert normalize_finviz_equity_symbol(broker_symbol) == expected
+def test_normalize_equity_provider_symbol(broker_symbol: str, expected: str) -> None:
+    assert normalize_equity_provider_symbol(broker_symbol) == expected
 
 
 @pytest.mark.parametrize(

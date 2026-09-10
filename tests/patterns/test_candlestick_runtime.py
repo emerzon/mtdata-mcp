@@ -1,14 +1,12 @@
-"""Tests for candlestick lazy-load guards."""
+"""Tests for the candlestick technical-analysis lazy-load guard."""
 
 from mtdata.patterns import candlestick as candlestick_mod
 
 
 class TestEnsureCandlestickRuntime:
-    def test_preserves_existing_globals(self, monkeypatch):
+    def test_preserves_existing_ta_module(self, monkeypatch):
         monkeypatch.setattr(candlestick_mod, "ta", "ta")
-        monkeypatch.setattr(candlestick_mod, "TIMEFRAME_MAP", {"H1": 1})
 
         candlestick_mod._ensure_candlestick_runtime()
 
         assert candlestick_mod.ta == "ta"
-        assert candlestick_mod.TIMEFRAME_MAP == {"H1": 1}
