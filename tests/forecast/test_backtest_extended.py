@@ -696,13 +696,21 @@ class TestForecastBacktest:
         with patch("mtdata.forecast.backtest.forecast") as fc:
             fc.return_value = {"forecast_price": [101.0] * 12}
             with patch("mtdata.forecast.backtest.cleanup_forecast_gpu_runtime") as cleanup:
-                result = forecast_backtest(
-                    "EURUSD",
-                    timeframe="H1",
-                    methods=["chronos2"],
-                )
+                # chronos2 needs foundation extras (torch/chronos) which the
+                # minimal CI backend env does not install. Force it available
+                # so this GPU-cleanup path is hermetic in any env.
+                with patch(
+                    "mtdata.forecast.forecast_validation.forecast_method_resolution_error",
+                    return_value=None,
+                ):
+                    result = forecast_backtest(
+                        "EURUSD",
+                        timeframe="H1",
+                        methods=["chronos2"],
+                    )
 
         assert isinstance(result, dict)
+        assert result.get("success") is True
         cleanup.assert_called_once_with(clear_model_cache=True)
 
     @patch("mtdata.forecast.backtest._fetch_history")
