@@ -533,12 +533,14 @@ def _normalize_forecast_payload(  # noqa: C901
                 out[key] = value
 
         if quantity == "return":
-            out.setdefault("return_unit", "return_fraction")
+            out.setdefault("return_unit", "log_return")
+            quantity_note = (
+                "forecast rows show per-bar log returns; simple_return=expm1(return); "
+                "cumulative horizon return=expm1(sum(returns))."
+            )
             if return_with_price:
-                out.setdefault(
-                    "quantity_note",
-                    "forecast rows show return; price is the reconstructed price path.",
-                )
+                quantity_note += " price is the reconstructed price path."
+            out.setdefault("quantity_note", quantity_note)
 
         ci_diag = _compact_forecast_ci(payload, lower=lower, upper=upper)
         if ci_diag:
@@ -1463,12 +1465,26 @@ def _normalize_barrier_optimize_payload(
 ) -> Optional[Dict[str, Any]]:
     if tool_name != "forecast_barrier_optimize" or verbose:
         return None
+    if payload.get("error") or payload.get("success") is False:
+        return _compact_error_envelope(payload)
 
     out: Dict[str, Any] = {}
     for key in (
         "success",
         "symbol",
         "timeframe",
+        "horizon",
+        "method",
+        "mode",
+        "barrier_unit",
+        "barrier_mode",
+        "probability_unit",
+        "edge_definition",
+        "ev_definition",
+        "metric_interpretation",
+        "units",
+        "trading_costs",
+        "n_sims",
         "direction",
         "reference_price",
         "viable",
@@ -1498,9 +1514,20 @@ def _normalize_barrier_optimize_payload(
             "prob_loss",
             "prob_tp_first",
             "prob_sl_first",
+            "prob_same_bar",
             "prob_no_hit",
             "prob_resolve",
+            "prob_unresolved",
+            "same_bar_policy",
+            "n_sims",
+            "prob_win_ci95",
+            "prob_loss_ci95",
+            "prob_same_bar_ci95",
+            "prob_no_hit_ci95",
             "ev",
+            "ev_ci95",
+            "ev_gross",
+            "ev_net",
             "edge",
             "profit_factor",
             "edge_vs_breakeven",

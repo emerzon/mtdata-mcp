@@ -148,7 +148,7 @@ the default `reuse` policy.
 `forecast_generate` can model different target quantities:
 
 - `price` (default): forecasts the future **close price** (output includes `forecast_price`).
-- `return`: forecasts **log returns** (`ln(close_t / close_{t-1})`). Output includes `forecast_return` and a reconstructed `forecast_price` path when possible.
+- `return`: forecasts **per-bar log returns** (`ln(close_t / close_{t-1})`). Output identifies `return_unit=log_return` and includes a reconstructed price path when possible. Convert one bar to a simple return with `expm1(return)`; convert the full horizon with `expm1(sum(returns))`. For example, a log return of `0.1` is a simple return of about **10.517%**, not 10%.
 - `volatility`: routes to the volatility forecasters (same family as `forecast_volatility_estimate`). When using `--quantity volatility`, set `--method` to a volatility method (e.g., `ewma`, `garch`).
 
 Examples:
@@ -376,7 +376,9 @@ mtdata-cli forecast_generate EURUSD --timeframe H1 --horizon 12 --method ensembl
 | `bar_state_reference_time` | Timestamp used for target-bar state classification |
 | `data_window` | Closed-history anchor plus forecast timestamp/value semantics and first target-bar state |
 | `forecast_price` | Predicted price values |
-| `forecast_return` | Predicted return values when `quantity=return` |
+| `forecast_return` | Predicted per-bar log returns when `quantity=return`; available as `return` in compact/standard rows |
+| `return_unit` | `log_return` for return forecasts, including summary output; endpoints contain individual bar returns, not cumulative horizon returns |
+| `lower_return`, `upper_return` | Bounds in per-bar log-return units; these retain return precision independently of the instrument's price digits |
 | `lower_price` | Lower confidence bound for price forecasts (if available) |
 | `upper_price` | Upper confidence bound for price forecasts (if available) |
 | `forecast_vs_last_price` | Horizon move, volatility-aware threshold, and confirmed or suppressed direction metadata |

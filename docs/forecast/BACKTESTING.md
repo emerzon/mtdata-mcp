@@ -401,7 +401,7 @@ mtdata-cli forecast_backtest_run EURUSD --horizon 12 --methods "mlf_lightgbm mlf
 
 **Foundation models:**
 ```bash
-mtdata-cli forecast_backtest_run EURUSD --horizon 24 --methods "chronos2 chronos_bolt" --steps 15
+mtdata-cli forecast_backtest_run EURUSD --horizon 24 --methods "chronos2 chronos_bolt" --steps 15 --spacing 24
 ```
 
 ---

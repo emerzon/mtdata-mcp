@@ -88,14 +88,24 @@ mtdata-cli data_fetch_candles EURUSD --timeframe H1 --limit 300 --indicators "em
 
 ## 4) Forecast with Valid Intervals (Conformal)
 
-Calibrate per‑step residual quantiles via rolling backtest; then get point + conformal bands.
+Calibrate per-step residual quantiles via rolling backtest, then inspect the
+point forecast and bands. These are empirically calibrated intervals, not a
+guarantee of future coverage.
 
 ```bash
-mtdata-cli forecast_conformal_intervals EURUSD --timeframe H1 --method fourier_ols --horizon 12 --steps 25 --spacing 12 --ci-alpha 0.1 --json
+mtdata-cli forecast_conformal_intervals EURUSD --timeframe H1 --method fourier_ols --horizon 12 --steps 50 --spacing 12 --ci-alpha 0.1 --json
 ```
 
-- Use `lower_price`/`upper_price` (conformal), not model CIs, for entry gating and sizing.
-- Gate: only take longs if `conformal.lower_price[h-1] > pivot` and point forecast trend=up.
+- First require `ci_available=true`, `calibration_complete=true`, and
+  `interval_usage=calibrated`. At least 30 complete residual paths are required;
+  an insufficient or failed calibration leaves bounds diagnostic-only.
+- Compact output puts bounds in `forecast[].lower` / `forecast[].upper`;
+  `--detail full` also exposes top-level `lower_price` / `upper_price` arrays.
+- For a long-side research gate, compare the final lower bound with the last
+  observed price, then assess structural levels separately. A lower bound above
+  a pivot that is below today's price does not establish a positive expected move.
+- Check empirical coverage and warnings. Reported coverage is leave-one-out on
+  calibration residuals, not a held-out performance result.
 
 ---
 
@@ -137,15 +147,19 @@ mtdata-cli labels_triple_barrier EURUSD --timeframe H1 --lookback 2000 --horizon
 `--lookback` controls the labeled history; `--limit` only caps the compact or
 standard sample, while `--detail full` returns the complete labeled series.
 
-- Compute in‑sample precision/recall for your entry rules; adjust thresholds (edge, cp_prob, RSI, EMA alignment) to reach desired trade quality.
+- Use a development window to choose entry thresholds, then evaluate the fixed
+  rule on later held-out data. In-sample precision/recall is a development
+  diagnostic, not evidence that the rule will generalize.
 
 ---
 
 ## 7) Position Sizing & Execution
 
-- Position size (conservative Kelly/VaR):
-  - Kelly_cap = 0.25 × Kelly (from optimizer) or ≤ 1.0% equity, whichever is smaller.
-  - VaR sizing: risk_to_SL ≤ risk_budget, where risk_to_SL uses spread‑adjusted SL and conformal lower.
+- Position size: use `trade_risk_analyze` with fixed-fraction sizing and an
+  explicit stop to translate an account-currency risk budget into broker lots.
+  The optimizer's `kelly` is a barrier-edge proxy, not a lot or equity fraction.
+  Portfolio VaR and eligible forecast intervals are additional risk context;
+  they do not replace the entry-to-stop loss calculation.
 - Stops & targets:
   - TP/SL from optimizer; time stop at horizon if neither is hit.
   - Optional partial TP at 0.5×TP; move stop to breakeven.
@@ -159,24 +173,31 @@ standard sample, while `--detail full` returns the complete labeled series.
 1) Rolling backtest for chosen forecast method(s)
 
 ```bash
-mtdata-cli forecast_backtest_run EURUSD --timeframe H1 --horizon 12 --steps 50 --spacing 5 --methods "theta fourier_ols" --json
+mtdata-cli forecast_backtest_run EURUSD --timeframe H1 --horizon 12 --steps 50 --spacing 12 --methods "theta fourier_ols" --json
 ```
 
-2) Stress‑test entry thresholds
-- Sweep edge minima (0.05→0.15), cp_prob caps, regime sets, and confirm Sharpe/win rate stability.
+This compares forecast methods. Its trading metrics use next-bar-open entry,
+forecast-target-or-horizon exit, and no stop-loss; they do not validate the
+TP/SL strategy above. Supply spread, commission, and slippage assumptions before
+describing its returns as net of modeled costs.
+
+2) Stress-test entry thresholds
+- Choose thresholds on the development sample, then validate the fixed rule
+  chronologically with costs (see [strategy validation](ADVANCED_ANALYTICS.md#fixed-candidate-chronological-validation)).
+  Do not describe a winning in-sample sweep as walk-forward evidence.
 
 ---
 
 ## 9) Trade Plans (Examples)
 
 Plan A – Breakout with pullback filter
-- Gates: regime in {trend}, cp_prob<0.6, price>EMA(20)>EMA(50), conformal.lower>pivot.
+- Gates: regime in {trend}, cp_prob<0.6, price>EMA(20)>EMA(50), eligible final interval lower bound above the last observed price; assess the pivot separately.
 - Targets: TP=0.40%, SL=0.80% (from optimizer); time stop at 12 bars.
-- Size: min(VaR_budget, 0.25×Kelly) with HAR‑RV sigma.
+- Size: fixed-fraction entry-to-stop risk sized by `trade_risk_analyze`, within account caps; use HAR-RV and portfolio VaR as additional context.
 
 Plan B – Mean‑reversion in range regime (reduced size)
 - Gates: regime=range & low cp_prob; RSI>70 near R1 or <30 near S1.
-- Smaller size; tighter SL and 0.20–0.30% TP; MC must show positive edge.
+- Smaller size; tighter SL and 0.20–0.30% TP. Inspect payoff-weighted results after costs, including no-hit outcomes; a positive TP-minus-SL probability difference alone is insufficient.
 
 ---
 
@@ -197,7 +218,7 @@ Plan B – Mean‑reversion in range regime (reduced size)
 4) Forecast with conformal intervals; gate by bands.
 5) Optimize TP/SL via MC; sanity‑check with GBM closed‑form.
 6) (Optional) Label history with triple‑barrier; tune thresholds.
-7) Execute with VaR/Kelly‑capped sizing, time stop, and costs.
+7) Preview with fixed-fraction sizing, account risk caps, a time stop, and costs.
 8) Walk‑forward checks; adjust thresholds and monitoring cadence.
 
 ---

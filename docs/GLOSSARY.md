@@ -216,18 +216,23 @@ A range around the forecast indicating uncertainty. A 95% CI means "if model ass
 **Caution:** Financial data often violates model assumptions (fat tails, regime changes), so intervals may be too narrow.
 
 ### Conformal Intervals
-A distribution-free method to create prediction intervals. Instead of assuming a bell curve, it uses historical forecast errors to calibrate the band width.
+In mtdata, this tool builds residual-quantile prediction bands from rolling
+historical forecast errors. It does not assume a bell curve, but it is not true
+split-conformal prediction and does not guarantee future 90% or 95% coverage.
 
 **How it works:**
 1. Run a small rolling backtest
 2. Collect actual errors at each horizon step
 3. Use error quantiles to set band width
 
-**When to use:** When you don't trust model-based intervals. Conformal intervals are empirically calibrated.
+**When to use:** To inspect uncertainty based on historical forecast errors.
+Require `ci_available=true`, `calibration_complete=true`, and
+`interval_usage=calibrated`. Reported empirical coverage is leave-one-out on
+calibration residuals; it is not coverage on untouched future data.
 
 **Example:**
 ```bash
-mtdata-cli forecast_conformal_intervals EURUSD --timeframe H1 --method theta --horizon 12 --steps 25 --ci-alpha 0.1
+mtdata-cli forecast_conformal_intervals EURUSD --timeframe H1 --method theta --horizon 12 --steps 50 --spacing 12 --ci-alpha 0.1
 ```
 
 ---
@@ -403,7 +408,7 @@ When optimizing TP/SL levels, you must choose what to maximize. Each objective a
 
 **Formula:** `Edge = P(TP first) - P(SL first)`
 
-**Example:** Edge = 0.20 means you win 20% more often than you lose.
+**Example:** Edge = 0.20 means TP-first probability exceeds SL-first probability by 20 percentage points. It is not a 20% return or a relative win-rate increase.
 
 **When to use:**
 - General-purpose objective for consistent advantage
@@ -422,7 +427,10 @@ When optimizing TP/SL levels, you must choose what to maximize. Each objective a
 **Simplified form (even-money-style barrier framing):**
 `Kelly ≈ P(win) − P(loss) / (TP/SL)` when TP/SL are percent distances (net reward/risk).
 
-**Example:** Kelly = 0.25 → full Kelly would risk **25% of equity** per trade. Most people use **fractional Kelly** (e.g. ¼ or ½ Kelly → 6–12% in that example, still large for many accounts).
+**Sizing caution:** In an idealized two-outcome bet, full Kelly is a bankroll
+fraction. The barrier optimizer's `kelly` is an edge proxy; do not convert a
+value such as 0.25 directly to 25% of account equity or to broker lots. Use
+`trade_risk_analyze` with explicit entry, stop, risk limits, and suitable inputs.
 
 **When to use:**
 - Compare TP/SL grids on a growth-oriented objective (`objective=kelly`)
@@ -431,8 +439,8 @@ When optimizing TP/SL levels, you must choose what to maximize. Each objective a
 **Limitation:** Wrong inputs → wrong size. Full Kelly has large drawdowns. Prefer fractional Kelly and hard risk caps (see guardrails).
 
 **Interpretation of barrier output:**
-- `kelly`: from all simulated paths
-- `kelly_cond`: only paths that hit TP or SL (resolved)
+- `kelly`: unconditional two-barrier edge proxy, reduced by no-hit probability
+- `kelly_cond`: two-outcome Kelly fraction conditioned on TP/SL resolution; excludes timeouts
 
 **In mtdata:** barrier optimize/prob metrics; `trade_risk_analyze` Kelly sizing; journal-derived win stats via `trade_journal_analyze`. See [TRADING_RISK.md](TRADING_RISK.md) and [BARRIER_FUNCTIONS.md](BARRIER_FUNCTIONS.md).
 
@@ -446,9 +454,17 @@ Risk a **fixed percent of equity** per trade (e.g. 1% from entry to stop). Simpl
 ### EV (Expected Value)
 **What it measures:** The average profit per trade, accounting for both probability and payoff size.
 
-**Formula:** `EV = P(win) × TP - P(loss) × SL`
+**Optimizer formula:** `EV = mean(net payoff across all simulated paths)`
 
-**Example:** EV = 0.15 means you expect to gain 0.15% per trade on average.
+TP-first and SL-first paths contribute their signed barrier payoffs. Paths
+that reach neither barrier contribute signed horizon mark-to-market payoff.
+Each path incurs configured costs; neutral same-bar ties contribute zero
+gross payoff and therefore a loss equal to those costs. EV is a simulated
+payoff, not observed trading performance.
+
+**Example:** In `mode=pct`, EV = 0.15 means an average simulated payoff of
+0.15 percentage points. In `pips` or `ticks` mode, EV uses those distance units;
+always keep the response's units with the value.
 
 **When to use:**
 - When payoff asymmetry matters (small wins, big losses or vice versa)
@@ -456,15 +472,22 @@ Risk a **fixed percent of equity** per trade (e.g. 1% from entry to stop). Simpl
 - Maximizing total profit over many trades
 
 **Variants:**
-- `ev`: Based on all paths (includes no-hit scenarios as 0)
+- `ev`: All-path payoff, including no-hit horizon mark-to-market
 - `ev_cond`: Based only on resolved paths (ignores trades that never hit TP or SL)
+
+The separate `trade_idea_compose` first-hit contribution gate assigns zero gross
+payoff to no-hit paths and deducts configured costs. Its
+`first_hit_contribution_after_costs_pct` is a partial payoff contribution, not
+the optimizer's full-horizon EV. See [Trade ideas](TRADE_IDEAS.md).
 
 ---
 
 ### EV Per Bar
 **What it measures:** Expected value normalized by how long the trade takes.
 
-**Formula:** `EV_per_bar = EV / mean_time_to_resolution`
+**Formula:** `EV_per_bar = EV / mean_time_in_trade_all_paths`
+
+No-hit paths count for the full requested horizon in the denominator.
 
 **Example:** Setup A has EV=0.30 but takes 20 bars; Setup B has EV=0.15 but takes 5 bars. Setup B has higher EV per bar (0.03 vs 0.015).
 
@@ -696,7 +719,7 @@ Number of best candidates to return from optimization.
 ## Forecast Parameters
 
 ### Quantity
-The target variable for a forecast: `price` (raw closing prices), `return` (log returns), or `volatility` (predicted variance). Most users want `price`; use `return` for stationarity or `volatility` for risk sizing.
+The target variable for a forecast: `price` (raw closing prices), `return` (log returns), or `volatility` (return standard deviation). Volatility estimators may calculate variance internally, but the public volatility fields report its square root. Most users want `price`; use `return` for stationarity or `volatility` for risk sizing.
 
 ### CI Alpha
 Miscoverage rate for confidence intervals. `--ci-alpha 0.1` produces a 90% interval; `--ci-alpha 0.05` produces 95%.

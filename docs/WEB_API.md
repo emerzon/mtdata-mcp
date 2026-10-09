@@ -437,7 +437,7 @@ Run a rolling-origin backtest.
   "timeframe": "H1",
   "horizon": 12,
   "steps": 20,
-  "spacing": 10,
+  "spacing": 12,
   "methods": ["theta", "naive"],
   "params_per_method": null,
   "quantity": "price",

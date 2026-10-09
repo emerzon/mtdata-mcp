@@ -1158,6 +1158,9 @@ _FIELD_SELECTION_META_KEYS = frozenset(
         "truncated",
         "pagination",
         "warnings",
+        "partial_failure",
+        "failed_sections",
+        "section_errors",
         "history_window_truncated",
         "history_window_limit_days",
         "history_window_floor",
@@ -2028,21 +2031,38 @@ def _recording_tool_decorator(*dargs, **dkwargs):  # type: ignore[override]  # n
                     fname in ("forecast_list_methods", "denoise_list_methods")
                     and isinstance(public_out, dict)
                     and not contract_state.verbose
+                    and not _normalize_output_fields(output_fields)
                 ):
                     methods_list = public_out.get("methods") or []
                     if _fmt_methods and isinstance(methods_list, list):
                         s = _fmt_methods(cast(List[Dict[str, Any]], methods_list))
+                        if not s:
+                            return _fmt_min(
+                                public_out,
+                                verbose=False,
+                                precision=precision,
+                                tool_name="",
+                                preserve_payload_shape=True,
+                            )
                         if s:
-                            unavailable = public_out.get("unavailable")
-                            if isinstance(unavailable, list) and unavailable:
-                                unavailable_text = _fmt_min(
-                                    {"unavailable": unavailable},
+                            # The table renders rows only. Keep the already-shaped
+                            # catalog context so clients can discover later pages
+                            # and distinguish filtered or unavailable methods.
+                            catalog_context = {
+                                key: value
+                                for key, value in public_out.items()
+                                if key != "methods"
+                            }
+                            if catalog_context:
+                                context_text = _fmt_min(
+                                    catalog_context,
                                     verbose=False,
                                     precision=precision,
                                     tool_name="",
+                                    preserve_payload_shape=True,
                                 )
-                                if unavailable_text:
-                                    s = f"{s}\n{unavailable_text}"
+                                if context_text:
+                                    s = f"{s}\n{context_text}"
                             return s
                 return _fmt_min(
                     public_out,

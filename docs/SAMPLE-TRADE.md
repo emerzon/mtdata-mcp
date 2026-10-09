@@ -4,7 +4,7 @@
 
 A friendly, step-by-step research walkthrough for **short-term EURUSD analysis** using mtdata. Each step shows **which tool**, **why those inputs**, and **how to read the output** — no quant background required.
 
-This is a **research example**, not financial advice. Numbers below are illustrative of one historical session; re-run the commands on live data for current levels.
+This is a **research example**, not financial advice. The numbers below are hypothetical worked inputs, not a captured market session or evidence of performance. Re-run the tools for current data.
 
 **Terms used:** [EMA / RSI / MACD](GLOSSARY.md#moving-average) · [Pivot points](GLOSSARY.md#pivot-points) · [EWMA vol](GLOSSARY.md#ewma-exponentially-weighted-moving-average) · [Theta](GLOSSARY.md#theta-method) · [Barrier](GLOSSARY.md#barrier) — full [glossary quick find](GLOSSARY.md#quick-find).
 
@@ -29,8 +29,8 @@ That returns a narrative, suggested direction, TP/SL geometry, a sized volume, g
 
 | Tool | Call | Why we used it |
 |------|------|----------------|
-| **`data_fetch_candles`** (H1) | `symbol=EURUSD`, `timeframe=H1`, `limit=200`, `indicators=EMA(20), EMA(50), RSI(14), MACD(12,26,9)` | <ul><li>**H1** = one‑hour bars – the natural granularity for short‑term (intraday) analysis.</li><li>200 bars give us roughly the last 8‑9 days of data, enough to see the current trend.</li><li>Adding **EMA‑20** and **EMA‑50** lets us see whether price is above or below short‑ and medium‑term moving averages (a quick trend check).</li><li>**RSI** (Relative Strength Index) shows if the market is “over‑bought” (>70) or “over‑sold” (<30).</li><li>**MACD** (Moving‑Average Convergence Divergence) tells us whether momentum is positive or negative.</li></ul> |
-| **Result** | A table with columns `time,open,high,low,close,ema_20,ema_50,rsi_14,macd_12_26_9,macd_h_12_26_9,macd_s_12_26_9`. The last few rows (the most recent hours) show: <br>‑ Price ≈ 1.1776 <br>‑ EMA‑20 ≈ 1.1754, EMA‑50 ≈ 1.1739 <br>‑ RSI ≈ 65 <br>‑ MACD line > signal (positive) | **Interpretation** <br>‑ Price is **above both EMAs** → bullish alignment. <br>‑ RSI is in the “strength” zone but not over‑bought. <br>‑ MACD histogram is near zero, meaning momentum is still positive but weakening – a possible short‑term pause. |
+| **`data_fetch_candles`** (H1) | `symbol=EURUSD`, `timeframe=H1`, `limit=200`, `indicators=EMA(20), EMA(50), RSI(14), MACD(12,26,9)` | <ul><li>**H1** means one-hour bars.</li><li>200 completed bars cover about eight trading days; calendar time is longer across weekends and closures.</li><li>EMA-20 and EMA-50 give short- and medium-term price context; RSI and MACD describe momentum.</li></ul> |
+| **Result** | Illustrative values: <br>- Price = 1.1776 <br>- EMA-20 = 1.1754, EMA-50 = 1.1739 <br>- RSI = 65 <br>- MACD line above its signal | **Interpretation** <br>- Price is above both EMAs and momentum is positive. These observations describe the recent past; they do not establish the next move. |
 
 ---
 
@@ -39,7 +39,7 @@ That returns a narrative, suggested direction, TP/SL geometry, a sized volume, g
 | Tool | Call | Why we used it |
 |------|------|----------------|
 | **`data_fetch_candles`** (D1) | `symbol=EURUSD`, `timeframe=D1`, `limit=30`, `ohlcv=ohlc` | <ul><li>Pivot points are traditionally calculated from the **previous day’s** high, low and close.</li><li>30 daily bars give us a recent history to confirm that the most recent day is representative.</li></ul> |
-| **Result** | A table with the last 30 daily bars (open‑high‑low‑close). The most recent day (15 Sep) shows: <br>‑ High = 1.17745, Low = 1.16569, Close = 1.17608 | This daily H‑L‑C will be fed into the next step. |
+| **Result** | Illustrative last completed daily bar: <br>- High = 1.17745, Low = 1.16569, Close = 1.17608 | These are the inputs for the classic pivot calculation below. The live pivot tool fetches its own completed daily bar. |
 
 ---
 
@@ -48,7 +48,7 @@ That returns a narrative, suggested direction, TP/SL geometry, a sized volume, g
 | Tool | Call | Why we used it |
 |------|------|----------------|
 | **`pivot_compute_points`** | `symbol=EURUSD`, `timeframe=D1` | <ul><li>The compact default returns the classic pivot ladder. Use `detail=standard` or `detail=full` to compare classic, Fibonacci, Camarilla, Woodie, and DeMark tables.</li><li>Every method lists **support (S1, S2, …)** and **resistance (R1, R2, …)** tiers that traders monitor.</li></ul> |
-| **Result** | JSON with: <br>‑ Pivot (PP) = 1.17505 <br>‑ R1 = 1.17848 <br>‑ S1 = 1.17264 <br>‑ R2, S2, R3, S3 also provided. | **Interpretation** <br>‑ Current price (≈ 1.1776) sits **just below R1** and **above the pivot** – a classic “test‑and‑break” situation. <br>‑ If price falls, S1 (1.17264) is the first support; if it breaks above R1, the next target is R2 (≈ 1.1809). |
+| **Result** | Classic levels from those inputs: <br>- Pivot (PP) = 1.17307 <br>- R1 = 1.18046 <br>- S1 = 1.16870 <br>- R2 = 1.18483 | **Interpretation** <br>- Price 1.1776 is between PP and R1. The levels describe reference prices; touching or crossing one is not itself a forecast. |
 
 Use **`confluence_levels`** when you want the pivot ladder ranked against data-driven support/resistance and Fibonacci swing levels. It highlights zones where independent methods cluster, such as a daily pivot resistance sitting within a few pips of an H1 resistance retest and a 61.8% Fibonacci retracement.
 
@@ -58,8 +58,8 @@ Use **`confluence_levels`** when you want the pivot ladder ranked against data-d
 
 | Tool | Call | Why we used it |
 |------|------|----------------|
-| **`forecast_volatility_estimate`** | `symbol=EURUSD`, `timeframe=H1`, `horizon=12`, `method=ewma`, `params={lambda:0.94}` | <ul><li>**EWMA** (Exponentially Weighted Moving Average) gives a quick, robust estimate of recent volatility.</li><li>`lambda=0.94` is the standard smoothing factor used in many risk‑models (e.g., RiskMetrics).</li><li>`horizon=12` means we want the volatility for the next 12 hourly bars (≈ ½ day).</li></ul> |
-| **Result** | <ul><li>Hourly σ (standard deviation) ≈ 0.000593 → **≈ 5.9 pips** per hour.</li><li>12‑hour σ ≈ 0.002055 → **≈ 20 pips** (≈ 0.20 %).</li></ul> | **Interpretation** <br>‑ Over the next half‑day we can expect the price to wander about **± 20 pips** (1 σ). <br>‑ This helps us size stops and targets so they are realistic relative to normal market moves. |
+| **`forecast_volatility_estimate`** | `symbol=EURUSD`, `timeframe=H1`, `horizon=12`, `method=ewma`, `params={"lambda_":0.94}` | <ul><li>**EWMA** estimates recent return volatility.</li><li>`lambda_=0.94` is the smoothing factor.</li><li>`horizon=12` means 12 hourly trading bars; a session closure can extend the elapsed time.</li></ul> |
+| **Result** | Illustrative return standard deviations: <br>- Hourly sigma = 0.000593 (0.0593%) <br>- 12-bar sigma = 0.002055 (0.2055%) <br>- At price 1.1776: approximately **7.0 pips** per bar and **24.2 pips** over 12 bars | **Interpretation** <br>- Convert return volatility to a price distance before comparing it with a stop: `pips ≈ return_sigma × price / pip_size`, with EURUSD `pip_size=0.0001`.<br>- One sigma is a scale estimate, not a guaranteed range or an estimate of the maximum excursion. |
 
 ---
 
@@ -67,8 +67,8 @@ Use **`confluence_levels`** when you want the pivot ladder ranked against data-d
 
 | Tool | Call | Why we used it |
 |------|------|----------------|
-| **`forecast_generate`** | `symbol=EURUSD`, `timeframe=H1`, `library=native`, `method=theta`, `horizon=12`, `quantity=price` | <ul><li>The **Theta** method is a fast, reliable forecasting model that works well on short‑term series.</li><li>We ask for a **price forecast** (not returns) for the next 12 hourly bars.</li></ul> |
-| **Result** | JSON with: <br>‑ Forecasted price for each of the next 12 hours (≈ 1.17528 → 1.17543). <br>‑ Point-only uncertainty status for native Theta. <br>‑ Trend flag = **up**. | **Interpretation** <br>‑ The model expects a **small pull‑back** toward the pivot (1.1750) before the up‑trend resumes. <br>‑ This point forecast does not establish a risk band; use `forecast_conformal_intervals` when the workflow requires calibrated intervals. |
+| **`forecast_generate`** | `symbol=EURUSD`, `timeframe=H1`, `library=native`, `method=theta`, `horizon=12`, `quantity=price` | <ul><li>The **Theta** method is a fast baseline.</li><li>We ask for prices over the next 12 trading bars and compare the terminal forecast with the last observed price.</li></ul> |
+| **Result** | Illustrative forecast: first step = 1.17528, terminal step = 1.17543, last observed price = 1.1776. Native Theta supplies a point forecast here. | **Interpretation** <br>- The terminal forecast is **0.1843% below** the observed price: a bearish point estimate, even though the forecast steps slope slightly upward.<br>- Without a qualifying interval, this is an unconfirmed point estimate (`direction_actionable=false`, `signal_status=not_actionable`). Use `forecast_conformal_intervals` to examine calibrated bands. |
 
 ---
 
@@ -94,11 +94,11 @@ mtdata-cli forecast_barrier_prob EURUSD --timeframe H1 --horizon 12 --direction 
 
 | Step | How the previous outputs shaped the idea |
 |------|------------------------------------------|
-| **Current market picture** (Step 1 & 3) | Price is above the 20‑EMA, below R1, and near the daily pivot → likely to **pull back** to the pivot before trying to break R1. |
-| **Volatility check** (Step 4) | 12‑hour σ ≈ 20 pips → a 0.40 % target is in the same neighborhood as a couple of typical hours of movement; a 0.60 % stop is wider than one typical hour but not “across the weekly range.” Re-check these distances if today’s volatility print is very different. |
-| **Forecast** (Step 5) | The Theta forecast expects the price to settle around **1.1753**, i.e., near the pivot, confirming a short‑term pull‑back. |
+| **Current market picture** (Steps 1 & 3) | Price is above both EMAs, above PP (1.17307), and below R1 (1.18046). This locates price relative to past structure; it does not predict a pull-back or breakout. |
+| **Volatility check** (Step 4) | At price 1.1776, the 0.40% target is **47.1 pips** away and the 0.60% stop is **70.7 pips** away: about **1.9** and **2.9** times the illustrative 12-bar sigma of 24.2 pips. These ratios do not determine first-hit probabilities. |
+| **Forecast** (Step 5) | The terminal price of **1.17543** is about **0.1843% below** 1.1776, despite the slight rise within the forecast path. Recent bullish indicators and this bearish point estimate disagree. |
 | **Barrier odds** (Step 6) | One 0.40% / 0.60% pair shows how often a simulated path would hit the target first, the stop first, or neither. Use that to *sanity-check* distance, not to crown a “best” grid. |
-| **Resulting research plan** | • **Primary long idea**: watch a pull-back toward the pivot (≈ 1.1750), with a nearby target under R1 and a stop beyond S1 — then **re-run** `forecast_barrier_prob` on *your* distances. <br>• **If price closes above R1**: the “test-and-break” picture is stale; do not keep the old pair. <br>• Full grid search, Kelly, and EV ranking stay in the [advanced playbook](SAMPLE-TRADE-ADVANCED.md). |
+| **Resulting research plan** | Keep this as an unresolved research hypothesis. Check calibrated intervals and inspect the barrier result before considering a side. Any change to entry, TP, SL, direction, or horizon requires a new barrier calculation; the sample 0.40% / 0.60% pair is not a validated order. |
 
 ---
 
@@ -107,7 +107,7 @@ mtdata-cli forecast_barrier_prob EURUSD --timeframe H1 --horizon 12 --direction 
 1. **Recent prices + a few indicators** (EMAs, RSI, MACD) for short-term trend and momentum.
 2. **Daily high/low/close → pivot levels** so you know nearby support and resistance.
 3. **Volatility** (how far price usually travels over the next half-day).
-4. **A forecast** for the next 12 hours (here: a modest pull-back toward the pivot).
+4. **A forecast** for the next 12 trading bars, measured from the last observed price (here: a lower terminal estimate without a confirmed directional signal).
 5. **Barrier odds** for *one* take-profit / stop-loss pair (hit target, hit stop, or neither).
 6. **Combine** structure, vol, forecast, and those odds into a hypothesis you can stress-test further.
 

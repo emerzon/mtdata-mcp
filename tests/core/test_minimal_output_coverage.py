@@ -248,7 +248,7 @@ class TestNormalizeForecastPayload:
         result = _normalize_forecast_payload(payload, verbose=True)
 
         assert result["quantity"] == "return"
-        assert result["return_unit"] == "return_fraction"
+        assert result["return_unit"] == "log_return"
         assert result["history_policy_ok"] is False
         assert result["trust_level"] == "degraded"
         assert result["trust_blockers"] == ["history_freshness_policy_not_met"]

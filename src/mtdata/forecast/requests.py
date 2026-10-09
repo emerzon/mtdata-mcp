@@ -252,7 +252,7 @@ class ForecastGenerateRequest(_PublicForecastRequest):
     )
     quantity: Literal["price", "return", "volatility"] = Field(
         "price",
-        description="Forecast target: price levels, returns, or volatility.",
+        description="Forecast target: price levels, per-bar log returns, or volatility.",
     )
     proxy: Optional[Literal["squared_return", "abs_return", "log_r2"]] = None
     denoise: DenoiseSpecInput = None

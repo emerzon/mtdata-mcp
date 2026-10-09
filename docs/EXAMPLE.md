@@ -171,7 +171,7 @@ mtdata-cli regime_detect EURUSD --timeframe H1 --fetch-limit 1500 --method hmm -
 Run a rolling-origin backtest to compare a few methods:
 
 ```bash
-mtdata-cli forecast_backtest_run EURUSD --timeframe H1 --horizon 12 --steps 50 --spacing 5 --methods "theta sf_autoarima analog" --json
+mtdata-cli forecast_backtest_run EURUSD --timeframe H1 --horizon 12 --steps 50 --spacing 12 --methods "theta sf_autoarima analog" --json
 ```
 
 ---

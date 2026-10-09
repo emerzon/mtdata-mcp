@@ -1296,7 +1296,7 @@ def test_forecast_generate_compact_return_keeps_price_path_with_labeled_ci():
         "last_high": 0.002,
         "median_width": 0.015,
     }
-    assert out["return_unit"] == "return_fraction"
+    assert out["return_unit"] == "log_return"
     assert "forecast_price" not in out
     assert "forecast_return" not in out
 

@@ -305,19 +305,22 @@ def _round_forecast_generate_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
     if digits is None:
         return payload
     out = dict(payload)
-    for key in (
+    price_keys = (
         "forecast_price",
         "lower_price",
         "upper_price",
-        "lower",
-        "upper",
-    ):
+    )
+    # Generic interval aliases use the forecast target's units. Return and
+    # volatility bounds must not inherit the instrument's price precision.
+    if str(payload.get("quantity") or "price").strip().lower() == "price":
+        price_keys += ("lower", "upper")
+    for key in price_keys:
         if key in out:
             out[key] = _round_forecast_list(out.get(key), digits=digits)
     diagnostic = out.get("diagnostic_bounds")
     if isinstance(diagnostic, dict):
         rounded_bounds = dict(diagnostic)
-        for key in ("lower_price", "upper_price", "lower_return", "upper_return"):
+        for key in ("lower_price", "upper_price"):
             if key in rounded_bounds:
                 rounded_bounds[key] = _round_forecast_list(
                     rounded_bounds.get(key), digits=digits
@@ -1211,6 +1214,8 @@ def _forecast_generate_summary_from_compact(compact: Dict[str, Any]) -> Dict[str
         "method",
         "horizon",
         "quantity",
+        "return_unit",
+        "quantity_note",
         "target",
         "target_quantity",
         "target_units",
@@ -1264,6 +1269,14 @@ def _apply_forecast_generate_detail(  # noqa: C901
         return payload
     payload = dict(payload)
     payload.setdefault("quantity", request.quantity)
+    if str(payload.get("quantity") or "").strip().lower() == "return":
+        payload["return_unit"] = "log_return"
+        payload["quantity_note"] = (
+            "Per-bar log returns; simple_return = expm1(return), "
+            "cumulative_simple_return = expm1(sum(returns))."
+        )
+        if isinstance(payload.get("forecast_price"), list):
+            payload["quantity_note"] += " Price is the reconstructed price path."
     payload = _round_forecast_generate_payload(payload)
     payload = _normalize_forecast_time_fields(payload)
     if str(payload.get("quantity") or request.quantity or "").strip().lower() == "volatility":
@@ -1378,12 +1391,6 @@ def _apply_forecast_generate_detail(  # noqa: C901
         if "last_observation_stale" in data_window:
             stale_nested = True
             compact.pop("last_price_stale", None)
-    if str(compact.get("quantity") or "").strip().lower() == "return":
-        compact["return_unit"] = "return_fraction"
-        if isinstance(payload.get("forecast_price"), list):
-            compact["quantity_note"] = (
-                "forecast rows show return; price is the reconstructed price path."
-            )
     path_flatness = (
         {
             "path_flat": payload.get("path_flat"),
@@ -1552,7 +1559,8 @@ def _forecast_generate_interpretation(payload: Dict[str, Any]) -> Dict[str, str]
         )
     if payload.get("forecast_return") not in (None, "", [], {}):
         interpretation["forecast_return"] = (
-            "Predicted return path as decimal fractions; 0.01 means 1%."
+            "Per-bar log returns. Convert one bar with expm1(return); "
+            "convert the full horizon with expm1(sum(returns))."
         )
     if payload.get("last_price") not in (None, "", [], {}):
         interpretation["last_price"] = (
