@@ -7,13 +7,14 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Optional
 
-from ..utils.mt5 import MT5ConnectionError, ensure_mt5_connection_or_raise, mt5_adapter
-from .error_envelope import build_error_payload
-from .execution_logging import (
+from mtdata.shared.error_envelope import build_error_payload
+from mtdata.shared.execution_logging import (
     log_operation_exception,
     log_operation_finish,
     log_operation_start,
 )
+
+from ..utils.mt5 import MT5ConnectionError, ensure_mt5_connection_or_raise, mt5_adapter
 
 logger = logging.getLogger(__name__)
 

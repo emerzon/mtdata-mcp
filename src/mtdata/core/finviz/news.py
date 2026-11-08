@@ -24,7 +24,6 @@ from mtdata.core.finviz.common import (
     _run_logged_tool,
     _validate_positive_finviz_limit,
 )
-from mtdata.core.output_contract import normalize_output_detail
 from mtdata.services.finviz import (
     get_general_news,
     get_stock_news,
@@ -35,6 +34,7 @@ from mtdata.services.finviz.dates import (
     parse_finviz_publication_date,
 )
 from mtdata.services.news_text import normalize_news_text
+from mtdata.shared.output_contract import normalize_output_detail
 from mtdata.shared.schema import DetailLiteral
 
 

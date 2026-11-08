@@ -593,7 +593,6 @@ class MT5Config:
         offset for that specific instant so historical DST transitions are respected.
         Naive datetimes are interpreted as UTC instants.
         """
-        # 1. Prefer explicit offset in minutes (if set)
         if self.time_offset_minutes != 0:
             global _WARNED_STATIC_OFFSET_OVERRIDE
             if self.server_tz_name and not _WARNED_STATIC_OFFSET_OVERRIDE:
@@ -604,7 +603,6 @@ class MT5Config:
                 )
             return int(self.time_offset_minutes) * 60
             
-        # 2. Derive from MT5_SERVER_TZ if available
         tz = self.get_server_tz()
         if tz is not None:
             try:

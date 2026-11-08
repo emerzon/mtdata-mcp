@@ -8,9 +8,8 @@ from typing import Any, Dict, List
 import numpy as np
 import pandas as pd
 
-from ..core.analytics_requests import (
-    MarketMicrostructureRequest,
-)
+from mtdata.analytics.requests import MarketMicrostructureRequest
+
 from ..shared.market_units import forex_points_per_pip
 from ..utils.freshness import (
     closed_session_context,

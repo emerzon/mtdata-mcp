@@ -89,20 +89,6 @@ def test_training_context_includes_dimensionality_reduction_identity():
     assert pca != none
 
 
-def test_available_methods_filters_dependency_unavailable_registry_entries(monkeypatch):
-    monkeypatch.setattr(
-        fe.ForecastRegistry,
-        "get_all_method_names",
-        lambda: ("naive", "sf_autoarima"),
-    )
-    monkeypatch.setattr(
-        fe,
-        "get_forecast_method_availability_snapshot",
-        lambda: {"naive": True, "sf_autoarima": False},
-    )
-
-    assert fe._get_available_methods() == ("naive",)
-
 
 def test_ensemble_adaptive_lookback_covers_requested_cv_window():
     assert fe._calculate_lookback_bars(

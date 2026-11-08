@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 from ..utils.coercion import coerce_finite_float as _as_float
 from ._mcp_tools import shape_public_tool_output
 from .tool_calling import call_tool_sync_structured
-from .web_api_handlers import _http_error, _raise_tool_error
+from .web_api_errors import http_error, raise_tool_error
 
 _CONFLUENCE_ROLE_TO_TYPE = {
     "below": "support",
@@ -181,7 +181,7 @@ def get_confluence_response(
         sr_timeframe=sr_timeframe,
         detail="compact",
     )
-    _raise_tool_error(
+    raise_tool_error(
         result,
         operation="get_confluence",
         default_code="confluence_failed",
@@ -189,7 +189,7 @@ def get_confluence_response(
     )
     payload = compact_confluence_payload(result)
     if not payload["levels"]:
-        raise _http_error(
+        raise http_error(
             404,
             "No confluence levels returned",
             code="confluence_levels_missing",
@@ -245,7 +245,7 @@ def get_volume_profile_response(
         max_m1_bars=max_m1_bars,
         detail=detail,
     )
-    _raise_tool_error(
+    raise_tool_error(
         result,
         operation="get_volume_profile",
         default_code="volume_profile_failed",
@@ -253,7 +253,7 @@ def get_volume_profile_response(
     )
     payload = compact_volume_profile_payload(result)
     if payload.get("poc") is None and payload.get("vah") is None and payload.get("val") is None:
-        raise _http_error(
+        raise http_error(
             404,
             "No volume-profile levels returned",
             code="volume_profile_levels_missing",
@@ -283,9 +283,9 @@ def get_exposure_response(
         request=TradeGetPendingRequest(symbol=symbol, detail="compact"),
     )
     if isinstance(positions, dict) and positions.get("error"):
-        _raise_tool_error(positions, operation="get_exposure", default_code="exposure_failed")
+        raise_tool_error(positions, operation="get_exposure", default_code="exposure_failed")
     if isinstance(pending, dict) and pending.get("error"):
-        _raise_tool_error(pending, operation="get_exposure", default_code="exposure_failed")
+        raise_tool_error(pending, operation="get_exposure", default_code="exposure_failed")
     payload = compact_exposure_payload(symbol=symbol, positions=positions, pending=pending)
     return shape_public_tool_output(
         payload,

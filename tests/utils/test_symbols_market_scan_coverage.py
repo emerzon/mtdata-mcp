@@ -1269,10 +1269,14 @@ def _ready_guard_ok(symbol: str, info_before=None):
 
 
 @pytest.fixture(autouse=True)
-def _set_disabled_trade_mode(monkeypatch):
+def _mock_market_scan_boundaries(monkeypatch):
     import mtdata.core.symbols as symbols_mod
 
     monkeypatch.setattr(symbols_mod.mt5, "SYMBOL_TRADE_MODE_DISABLED", 0, raising=False)
+    # Historical ranking fixtures can trigger the alternate stale-tail read.
+    # Refresh-specific tests override this boundary with their own responses.
+    monkeypatch.setattr(symbols_mod.scan, "_mt5_copy_rates_from", lambda *_args: None)
+    monkeypatch.setattr(symbols_mod.scan, "FETCH_RETRY_DELAY", 0)
 
 
 class TestSymbolsTopMarkets:
@@ -1610,7 +1614,7 @@ class TestSymbolsTopMarkets:
         assert "tick_volume" not in result["data"][0]
         assert "pricing_basis" not in result["data"][0]
 
-    @patch("mtdata.core.symbols.classify._extract_group_path_util", side_effect=lambda s: s.path)
+    @patch("mtdata.shared.symbol_catalog._extract_group_path", side_effect=lambda s: s.path)
     def test_stock_cfd_group_takes_precedence_over_nasdaq_venue(self, mock_group):
         from mtdata.core.symbols import _symbol_category
 

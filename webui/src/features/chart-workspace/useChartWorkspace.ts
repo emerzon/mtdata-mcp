@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { getErrorMessage, getHistory, getTick } from '../../api/client'
+import { denoiseMethodsQuery, timeframeCatalogQuery } from '../../api/queries'
 import { useConfluenceLevels, useExposureOverlay, useVolumeProfileLevels } from '../../hooks/useGeometry'
 import { useChartOverlays, usePivotLevels, useSupportResistance } from '../../hooks/useForecast'
-import { ensureChartDenoiseCausality } from '../../lib/denoiseSpec'
+import { denoiseNeedsMetadata, ensureChartDenoiseCausality } from '../../lib/denoiseSpec'
 import {
   buildIndicatorOverlays,
   buildIndicatorsQuery,
@@ -20,7 +21,7 @@ import {
   forecastResultFeedback,
   mapCompactForecastToSeries,
 } from '../../lib/compactForecast'
-import { toUtcSec } from '../../lib/time'
+import { formatDateTime, toUtcSec } from '../../lib/time'
 import { chartWorkspaceLivePollMs } from '../../lib/timeframes'
 import { liveQuotePriceLines } from '../../lib/chartPriceLines'
 import { chartQueryActivity, mergeHistoryBars } from '../../lib/historyBars'
@@ -28,7 +29,6 @@ import {
   resolveChartDenoiseFeedback,
   responseWarningMessages,
 } from '../../lib/historyFeedback'
-import { formatDateTime } from '../../lib/utils'
 import {
   confluencePriceLines,
   exposurePriceLines,
@@ -43,9 +43,9 @@ import type {
   DenoiseSpecUI,
   ForecastPayload,
   HistoryBar,
+  PriceLineSpec,
   TradeIdeaPayload,
 } from '../../types'
-import type { PriceLineSpec } from '../../components/OHLCChart'
 
 export type TimezoneMode = 'utc' | 'local' | 'server'
 
@@ -53,12 +53,7 @@ const QUERY_LIMIT = 1000
 
 function loadChartDenoise(symbol: string, timeframe: string): DenoiseSpecUI | undefined {
   if (!symbol || !timeframe) return undefined
-  const saved = loadJSON<DenoiseSpecUI | undefined>(`chart_dn:${symbol}:${timeframe}`)
-  const normalized = ensureChartDenoiseCausality(saved || undefined)
-  if (normalized && (!saved?.causality || saved.causality !== normalized.causality)) {
-    saveJSON(`chart_dn:${symbol}:${timeframe}`, normalized)
-  }
-  return normalized
+  return loadJSON<DenoiseSpecUI>(`chart_dn:${symbol}:${timeframe}`)
 }
 
 function loadChartIndicators(symbol: string, timeframe: string): ChartIndicatorSelection {
@@ -80,9 +75,31 @@ export function useChartWorkspace() {
   const [timezoneMode, setTimezoneMode] = useState<TimezoneMode>('local')
   const [forecastOverlays, setForecastOverlays] = useState<ChartOverlay[]>([])
   const [forecastWarnings, setForecastWarnings] = useState<string[]>([])
-  const [chartDenoise, setChartDenoise] = useState<DenoiseSpecUI | undefined>(() =>
+  const [savedChartDenoise, setChartDenoise] = useState<DenoiseSpecUI | undefined>(() =>
     loadChartDenoise(symbol, timeframe)
   )
+  const denoiseCatalog = useQuery({
+    ...denoiseMethodsQuery,
+    enabled: Boolean(symbol) && denoiseNeedsMetadata(savedChartDenoise),
+  })
+  const chartDenoise = useMemo(
+    () => ensureChartDenoiseCausality(savedChartDenoise, denoiseCatalog.data?.methods),
+    [savedChartDenoise, denoiseCatalog.data]
+  )
+  const denoiseReady = !denoiseNeedsMetadata(chartDenoise)
+  const denoiseMetadataError = denoiseReady
+    ? null
+    : denoiseCatalog.error
+      ? `Denoise methods: ${getErrorMessage(denoiseCatalog.error)}`
+      : denoiseCatalog.data
+        ? `Denoise method '${chartDenoise?.method}' is absent from the server catalog. Choose another filter.`
+        : null
+
+  useEffect(() => {
+    if (!symbol || !timeframe || !denoiseReady || chartDenoise === savedChartDenoise) return
+    setChartDenoise(chartDenoise)
+    saveJSON(`chart_dn:${symbol}:${timeframe}`, chartDenoise)
+  }, [chartDenoise, denoiseReady, savedChartDenoise, symbol, timeframe])
   const [chartIndicators, setChartIndicators] = useState<ChartIndicatorSelection>(() =>
     loadChartIndicators(symbol, timeframe)
   )
@@ -107,7 +124,8 @@ export function useChartWorkspace() {
   const confluenceState = useConfluenceLevels(symbol)
   const volumeProfileState = useVolumeProfileLevels(symbol, timeframe)
   const exposureState = useExposureOverlay(symbol)
-  const livePollMs = chartWorkspaceLivePollMs(timeframe)
+  const { data: timeframeCatalog } = useQuery(timeframeCatalogQuery)
+  const livePollMs = chartWorkspaceLivePollMs(timeframe, timeframeCatalog?.seconds)
 
   const {
     data: histDataResponse,
@@ -136,7 +154,7 @@ export function useChartWorkspace() {
         indicators: indicatorsQuery,
         ohlcv: indicatorsOhlcv,
       }, signal),
-    enabled: queryActivity.history,
+    enabled: queryActivity.history && denoiseReady,
   })
 
   const { data: liveDataResponse, error: liveHistoryError } = useQuery({
@@ -150,7 +168,7 @@ export function useChartWorkspace() {
       indicators: indicatorsQuery,
       ohlcv: indicatorsOhlcv,
     }, signal),
-    enabled: queryActivity.liveHistory,
+    enabled: queryActivity.liveHistory && denoiseReady,
     refetchInterval: livePollMs,
   })
 
@@ -247,13 +265,13 @@ export function useChartWorkspace() {
 
   const handleNeedMoreLeft = useCallback(
     async (earliestDisplayTime: number) => {
-      if (!symbol || isLoadingMore || isFetching) return
+      if (!symbol || !denoiseReady || isLoadingMore || isFetching) return
       const requestedContract = historyContract
       setIsLoadingMore(true)
       setHistoryPageError(null)
       try {
         const utcTime = earliestDisplayTime
-      const before = formatDateTime(utcTime - 1)
+        const before = formatDateTime(utcTime - 1)
         const older = await getHistory({
           symbol,
           timeframe,
@@ -274,12 +292,12 @@ export function useChartWorkspace() {
         setIsLoadingMore(false)
       }
     },
-    [chartDenoise, historyContract, indicatorsOhlcv, indicatorsQuery, isFetching, isLoadingMore, symbol, timeframe]
+    [chartDenoise, denoiseReady, historyContract, indicatorsOhlcv, indicatorsQuery, isFetching, isLoadingMore, symbol, timeframe]
   )
 
   const handleDenoiseChange = useCallback(
     (denoise?: DenoiseSpecUI) => {
-      const normalized = ensureChartDenoiseCausality(denoise)
+      const normalized = ensureChartDenoiseCausality(denoise, denoiseCatalog.data?.methods)
       setChartDenoise(normalized)
       setExtraHistory([])
       setLiveHistory([])
@@ -291,7 +309,7 @@ export function useChartWorkspace() {
         saveJSON(`chart_dn:${symbol}:${timeframe}`, normalized)
       }
     },
-    [symbol, timeframe]
+    [denoiseCatalog.data, symbol, timeframe]
   )
 
   const handleIndicatorsChange = useCallback(
@@ -495,6 +513,7 @@ export function useChartWorkspace() {
 
   const workspaceErrors = useMemo(() => {
     const errors = [
+      denoiseMetadataError,
       historyError ? `History: ${getErrorMessage(historyError)}` : null,
       isLive && liveHistoryError
         ? `Live history: ${getErrorMessage(liveHistoryError)}`
@@ -519,6 +538,7 @@ export function useChartWorkspace() {
   }, [
     bars,
     chartIndicators,
+    denoiseMetadataError,
     histDataResponse?.indicator_columns,
     historyError,
     historyPageError,
@@ -561,8 +581,10 @@ export function useChartWorkspace() {
     isFetching,
     isLoadingMore,
     /** True until the primary history query has settled at least once for the current key. */
-    isInitialHistoryLoading: !!symbol && (isHistoryLoading || (!isHistoryFetched && isFetching)),
-    historyErrorMessage: historyError ? getErrorMessage(historyError) : null,
+    isInitialHistoryLoading: !!symbol && (
+      (!denoiseReady && !denoiseMetadataError) || isHistoryLoading || (!isHistoryFetched && isFetching)
+    ),
+    historyErrorMessage: denoiseMetadataError ?? (historyError ? getErrorMessage(historyError) : null),
     workspaceErrors,
     workspaceWarnings,
     earliest,
@@ -594,7 +616,8 @@ export function useChartWorkspace() {
     reload: () => {
       setExtraHistory([])
       setLiveHistory([])
-      void refetch()
+      if (denoiseReady) void refetch()
+      else void denoiseCatalog.refetch()
     },
     toggleBid: () => setShowBid((value) => !value),
     toggleAsk: () => setShowAsk((value) => !value),

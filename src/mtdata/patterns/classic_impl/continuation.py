@@ -30,7 +30,6 @@ def detect_flags_pennants(
     troughs: Optional[np.ndarray] = None,
 ) -> List[ClassicPatternResult]:
     out: List[ClassicPatternResult] = []
-    # Identify a recent impulse (pole)
     max_len = min(cfg.max_consolidation_bars, n // 3)
     if max_len < 10:
         return out
@@ -104,7 +103,6 @@ def detect_flags_pennants(
     if peaks2.size < 2 or troughs2.size < 2:
         return out
 
-    # build local arrays for consolidation region
     sh, bh, r2h, sl, bl, r2l, top, bot = _fit_lines_and_arrays(
         peaks2,
         troughs2,
@@ -142,9 +140,6 @@ def detect_flags_pennants(
         titled = ("Bull " + name) if ret > 0 else ("Bear " + name)
         status = "forming"
         tol_abs = _tol_abs_from_close(consolidation_seg, cfg.same_level_tol_pct)
-        # A hardcoded 4 saturated _conf's touch term at every call, so the touch
-        # component was always 1.0 regardless of how the boundaries were actually
-        # respected. Measure it instead.
         touches = _count_touches(
             top,
             bot,

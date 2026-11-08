@@ -120,6 +120,7 @@ These are **not** tutorials. They track coverage and dependency work.
 | [DEPENDENCY_MIGRATION.md](DEPENDENCY_MIGRATION.md) | Python 3.14 package snapshot |
 | [PUBLISHING.md](PUBLISHING.md) | PyPI + Official MCP Registry publish sequence (emerzon) |
 | [STYLE.md](STYLE.md) | Docs persona and page contract |
+| [UNTANGLE_DECISIONS.md](UNTANGLE_DECISIONS.md) | Contributor: structural decisions and verification |
 
 ## Common workflows (recipes)
 

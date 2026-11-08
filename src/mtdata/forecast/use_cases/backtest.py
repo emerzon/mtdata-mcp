@@ -5,12 +5,6 @@ import math
 import time
 from typing import Any, Dict, Optional
 
-from mtdata.core.execution_logging import (
-    infer_result_success,
-    log_operation_exception,
-    log_operation_finish,
-    log_operation_start,
-)
 from mtdata.forecast.backtest import (
     execute_forecast_backtest as _forecast_backtest_impl,
 )
@@ -21,6 +15,12 @@ from mtdata.forecast.requests import ForecastBacktestRequest, StrategyBacktestRe
 from mtdata.forecast.use_cases.compact import (
     _attach_analysis_time_window,
     _requested_detail_label,
+)
+from mtdata.shared.execution_logging import (
+    infer_result_success,
+    log_operation_exception,
+    log_operation_finish,
+    log_operation_start,
 )
 from mtdata.utils.coercion import coerce_finite_float as _finite_float
 from mtdata.utils.coercion import is_explicit_false as _is_explicit_false

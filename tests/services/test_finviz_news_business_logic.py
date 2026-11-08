@@ -241,7 +241,14 @@ def test_finviz_news_requires_symbol_for_stock_news() -> None:
         raise AssertionError("finviz_news should require a symbol")
 
 
-def test_finviz_market_news_normalizes_items() -> None:
+def test_finviz_market_news_normalizes_items(monkeypatch) -> None:
+    class FixedClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            instant = datetime(2026, 4, 27, 20, 0, tzinfo=timezone.utc)
+            return instant.astimezone(tz) if tz is not None else instant.replace(tzinfo=None)
+
+    monkeypatch.setattr(core_finviz, "datetime", FixedClock)
     raw = _unwrap(finviz_market_news)
     service_result = {
         "success": True,
@@ -255,7 +262,7 @@ def test_finviz_market_news_normalizes_items() -> None:
     assert out["items"][0]["title"] == "Stocks rise"
     assert out["items"][0]["source"] == "AP"
     assert out["items"][0]["content_type"] == "news"
-    assert "T18:00:00+00:00" in out["items"][0]["published_at"]
+    assert out["items"][0]["published_at"] == "2026-04-27T18:00:00+00:00"
     assert out["row_key"] == "items"
     assert "preferred_tool" not in out
     assert "tool_scope" not in out

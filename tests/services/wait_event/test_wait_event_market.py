@@ -8,9 +8,12 @@ import pytest
 from pydantic import ValidationError
 
 from mtdata.core import data as core_data
-from mtdata.core.data import wait_events as wait_events_mod
 from mtdata.core.data.requests import WaitEventRequest
 from mtdata.core.data.use_cases import _wait_event_needs_gateway, run_wait_event
+from mtdata.core.data.wait_events import account as wait_event_account
+from mtdata.core.data.wait_events import loop as wait_event_loop
+from mtdata.core.data.wait_events import market as wait_event_market
+from mtdata.core.data.wait_events import ticks as wait_event_ticks
 
 
 class FakeClock:
@@ -144,7 +147,7 @@ def test_price_touch_scans_transient_crossing_inside_poll_batch() -> None:
         ],
     }
 
-    match = wait_events_mod._evaluate_price_touch_level(spec, market_data)
+    match = wait_event_market._evaluate_price_touch_level(spec, market_data)
 
     assert match is not None
     assert match["observed"]["previous_price"] == 99.5
@@ -436,7 +439,7 @@ def test_quote_agreement_tolerance_scales_with_market(
     live_row = {"bid": live_mid - half_spread, "ask": live_mid + half_spread}
     symbol_info = SimpleNamespace(point=point, trade_tick_size=tick_size)
 
-    tolerance = wait_events_mod._quote_agreement_tolerance(
+    tolerance = wait_event_loop._quote_agreement_tolerance(
         history_row=history_row,
         live_row=live_row,
         symbol_info=symbol_info,
@@ -586,14 +589,14 @@ def test_wait_event_does_not_splice_when_history_matches_live_quote() -> None:
     ]
     market_state = {
         "EURUSD": {
-            "ticks": wait_events_mod._normalize_tick_rows(ticks),
+            "ticks": wait_event_ticks._normalize_tick_rows(ticks),
             "last_epoch": float(ticks[-1]["time"]),
         }
     }
     tick_count_before = len(market_state["EURUSD"]["ticks"])
     gateway = SequenceGateway(ticks_by_symbol={"EURUSD": ticks})
 
-    wait_events_mod._reconcile_market_state_quotes(
+    wait_event_loop._reconcile_market_state_quotes(
         gateway=gateway,
         market_state=market_state,
         market_specs=[{"symbol": "EURUSD", "type": "price_change"}],
@@ -618,7 +621,7 @@ def test_wait_event_keeps_history_when_live_quote_is_inverted() -> None:
     ]
     market_state = {
         "BTCUSD": {
-            "ticks": wait_events_mod._normalize_tick_rows(ticks),
+            "ticks": wait_event_ticks._normalize_tick_rows(ticks),
             "last_epoch": float(ticks[-1]["time"]),
         }
     }
@@ -630,7 +633,7 @@ def test_wait_event_keeps_history_when_live_quote_is_inverted() -> None:
         def symbol_info(self, symbol):
             return SimpleNamespace(point=0.01, trade_tick_size=0.01)
 
-    wait_events_mod._reconcile_market_state_quotes(
+    wait_event_loop._reconcile_market_state_quotes(
         gateway=InvertedGateway(ticks_by_symbol={"BTCUSD": ticks}),
         market_state=market_state,
         market_specs=[{"symbol": "BTCUSD", "type": "price_touch_level"}],
@@ -1162,7 +1165,7 @@ def test_wait_event_matches_touch_observed_after_start() -> None:
 
 
 def test_snapshot_quote_updates_do_not_repeat_trade_volume() -> None:
-    from mtdata.core.data.wait_events import _volume_metric_for_ticks
+    from mtdata.core.data.wait_events.ticks import _volume_metric_for_ticks
 
     ticks = [
         {"volume": 8.0, "volume_real": 8.0, "flags": 8},
@@ -1177,7 +1180,7 @@ def test_snapshot_quote_updates_do_not_repeat_trade_volume() -> None:
 def test_collect_new_account_history_rows_keeps_same_second_coarse_rows() -> None:
     started = datetime(2026, 3, 15, 12, 0, 0, 500000, tzinfo=timezone.utc)
 
-    rows = wait_events_mod._collect_new_account_history_rows(
+    rows = wait_event_account._collect_new_account_history_rows(
         fetch_impl=lambda dt_from, dt_to: [
             {
                 "ticket": 7001,
@@ -1200,9 +1203,9 @@ def test_collect_new_account_history_rows_keeps_same_second_coarse_rows() -> Non
 
 def test_collect_new_account_history_rows_advances_poll_cursor(monkeypatch) -> None:
     monkeypatch.setattr(
-        wait_events_mod.account,
+        wait_event_account,
         "_to_server_query_dt",
-        lambda dt: wait_events_mod._normalize_utc_datetime(dt),
+        lambda dt: wait_event_ticks._normalize_utc_datetime(dt),
     )
 
     started = datetime(2026, 3, 15, 12, 0, 0, 500000, tzinfo=timezone.utc)
@@ -1216,7 +1219,7 @@ def test_collect_new_account_history_rows_advances_poll_cursor(monkeypatch) -> N
     first_observed = started + timedelta(seconds=0.6)
     second_observed = started + timedelta(seconds=1.2)
 
-    first_rows = wait_events_mod._collect_new_account_history_rows(
+    first_rows = wait_event_account._collect_new_account_history_rows(
         fetch_impl=fetch_impl,
         started_at_utc=started,
         observed_at_utc=first_observed,
@@ -1224,7 +1227,7 @@ def test_collect_new_account_history_rows_advances_poll_cursor(monkeypatch) -> N
         row_kind="order",
         label="order history",
     )
-    second_rows = wait_events_mod._collect_new_account_history_rows(
+    second_rows = wait_event_account._collect_new_account_history_rows(
         fetch_impl=fetch_impl,
         started_at_utc=started,
         observed_at_utc=second_observed,
@@ -1250,7 +1253,7 @@ def test_seed_account_history_keys_tags_server_window_as_utc(monkeypatch) -> Non
     calls = []
 
     monkeypatch.setattr(
-        wait_events_mod.account,
+        wait_event_account,
         "_to_server_query_dt",
         lambda dt: (dt - timedelta(hours=2)).astimezone(timezone.utc),
     )
@@ -1260,7 +1263,7 @@ def test_seed_account_history_keys_tags_server_window_as_utc(monkeypatch) -> Non
         return []
 
     started = datetime(2026, 3, 15, 12, 0, 0, tzinfo=timezone.utc)
-    seen = wait_events_mod._seed_account_history_keys(
+    seen = wait_event_account._seed_account_history_keys(
         fetch_impl=fetch_impl,
         started_at_utc=started,
         row_kind="deal",
@@ -1279,7 +1282,7 @@ def test_fetch_market_ticks_range_tags_server_window_as_utc(monkeypatch) -> None
     captured = {}
 
     monkeypatch.setattr(
-        wait_events_mod.ticks,
+        wait_event_ticks,
         "_to_server_query_dt",
         lambda dt: (dt - timedelta(hours=3)).astimezone(timezone.utc),
     )
@@ -1294,7 +1297,7 @@ def test_fetch_market_ticks_range_tags_server_window_as_utc(monkeypatch) -> None
             captured["args"] = (symbol, dt_from, dt_to, flags)
             return []
 
-    out = wait_events_mod._fetch_market_ticks_range(
+    out = wait_event_ticks._fetch_market_ticks_range(
         gateway=Gateway(),
         symbol="EURUSD",
         from_dt_utc=datetime(2026, 3, 15, 12, 0, 0, tzinfo=timezone.utc),
@@ -1323,7 +1326,7 @@ def test_normalize_tick_rows_keeps_epoch_and_time_msc_on_same_utc_basis() -> Non
         }
     ]
 
-    normalized = wait_events_mod._normalize_tick_rows(rows)
+    normalized = wait_event_ticks._normalize_tick_rows(rows)
 
     assert normalized == [
         {
@@ -1341,12 +1344,12 @@ def test_normalize_tick_rows_keeps_epoch_and_time_msc_on_same_utc_basis() -> Non
 
 
 def test_mt5_millis_to_utc_returns_zero_for_invalid_values() -> None:
-    assert wait_events_mod._mt5_millis_to_utc(None) == 0
-    assert wait_events_mod._mt5_millis_to_utc("not-a-number") == 0
+    assert wait_event_ticks._mt5_millis_to_utc(None) == 0
+    assert wait_event_ticks._mt5_millis_to_utc("not-a-number") == 0
 
 
 def test_format_account_match_uses_millisecond_timestamp_fields() -> None:
-    match = wait_events_mod._format_account_match(
+    match = wait_event_account._format_account_match(
         "order_created",
         {
             "ticket": 7001,
@@ -1360,7 +1363,7 @@ def test_format_account_match_uses_millisecond_timestamp_fields() -> None:
     assert match["observed"]["time_utc"] == "1970-01-01T02:00:01.500000Z"
 
 def test_merge_market_ticks_dedupes_rows_with_missing_volume_fields() -> None:
-    existing = wait_events_mod._normalize_tick_rows(
+    existing = wait_event_ticks._normalize_tick_rows(
         [
             {
                 "time": 100.0,
@@ -1371,7 +1374,7 @@ def test_merge_market_ticks_dedupes_rows_with_missing_volume_fields() -> None:
             }
         ]
     )
-    incoming = wait_events_mod._normalize_tick_rows(
+    incoming = wait_event_ticks._normalize_tick_rows(
         [
             {
                 "time": 100.0,
@@ -1383,14 +1386,14 @@ def test_merge_market_ticks_dedupes_rows_with_missing_volume_fields() -> None:
         ]
     )
 
-    merged = wait_events_mod._merge_market_ticks(existing, incoming)
+    merged = wait_event_ticks._merge_market_ticks(existing, incoming)
 
     assert len(merged) == 1
 
 def test_merge_market_ticks_keeps_older_existing_keys_in_seen_set(monkeypatch) -> None:
-    monkeypatch.setattr(wait_events_mod.ticks, "_MARKET_BUFFER_EXTRA_TICKS", 1)
+    monkeypatch.setattr(wait_event_ticks, "_MARKET_BUFFER_EXTRA_TICKS", 1)
 
-    existing = wait_events_mod._normalize_tick_rows(
+    existing = wait_event_ticks._normalize_tick_rows(
         [
             {
                 "time": 100.0,
@@ -1415,7 +1418,7 @@ def test_merge_market_ticks_keeps_older_existing_keys_in_seen_set(monkeypatch) -
             },
         ]
     )
-    incoming = wait_events_mod._normalize_tick_rows(
+    incoming = wait_event_ticks._normalize_tick_rows(
         [
             {
                 "time": 100.0,
@@ -1434,19 +1437,19 @@ def test_merge_market_ticks_keeps_older_existing_keys_in_seen_set(monkeypatch) -
         ]
     )
 
-    merged = wait_events_mod._merge_market_ticks(existing, incoming)
+    merged = wait_event_ticks._merge_market_ticks(existing, incoming)
 
     assert [tick["time_msc"] for tick in merged] == [100000, 101000, 102000, 103000]
 
 def test_trim_market_ticks_keeps_rows_at_or_after_time_cutoff(monkeypatch) -> None:
-    monkeypatch.setattr(wait_events_mod.ticks, "_MARKET_BUFFER_EXTRA_TICKS", 0)
-    monkeypatch.setattr(wait_events_mod.ticks, "_MARKET_ESTIMATED_SECONDS_PER_TICK", 2.0)
+    monkeypatch.setattr(wait_event_ticks, "_MARKET_BUFFER_EXTRA_TICKS", 0)
+    monkeypatch.setattr(wait_event_ticks, "_MARKET_ESTIMATED_SECONDS_PER_TICK", 2.0)
 
     observed_at = datetime(2026, 3, 15, 12, 0, 10, tzinfo=timezone.utc)
     base_epoch = int(observed_at.timestamp()) - 9
     ticks = [{"epoch": float(base_epoch + idx)} for idx in range(10)]
 
-    trimmed = wait_events_mod._trim_market_ticks(
+    trimmed = wait_event_ticks._trim_market_ticks(
         ticks=ticks,
         specs=[{"required_history_seconds": 3.0, "required_tick_count": 0}],
         observed_at_utc=observed_at,
@@ -1455,14 +1458,14 @@ def test_trim_market_ticks_keeps_rows_at_or_after_time_cutoff(monkeypatch) -> No
     assert [tick["epoch"] for tick in trimmed] == [float(base_epoch + idx) for idx in range(4, 10)]
 
 def test_trim_market_ticks_still_honors_keep_tick_floor(monkeypatch) -> None:
-    monkeypatch.setattr(wait_events_mod.ticks, "_MARKET_BUFFER_EXTRA_TICKS", 1)
-    monkeypatch.setattr(wait_events_mod.ticks, "_MARKET_ESTIMATED_SECONDS_PER_TICK", 2.0)
+    monkeypatch.setattr(wait_event_ticks, "_MARKET_BUFFER_EXTRA_TICKS", 1)
+    monkeypatch.setattr(wait_event_ticks, "_MARKET_ESTIMATED_SECONDS_PER_TICK", 2.0)
 
     observed_at = datetime(2026, 3, 15, 12, 0, 10, tzinfo=timezone.utc)
     base_epoch = int(observed_at.timestamp()) - 9
     ticks = [{"epoch": float(base_epoch + idx)} for idx in range(10)]
 
-    trimmed = wait_events_mod._trim_market_ticks(
+    trimmed = wait_event_ticks._trim_market_ticks(
         ticks=ticks,
         specs=[{"required_history_seconds": 1.0, "required_tick_count": 4}],
         observed_at_utc=observed_at,
@@ -1471,9 +1474,9 @@ def test_trim_market_ticks_still_honors_keep_tick_floor(monkeypatch) -> None:
     assert [tick["epoch"] for tick in trimmed] == [float(base_epoch + idx) for idx in range(5, 10)]
 
 def test_market_tick_retention_error_reports_clear_cap_failure(monkeypatch) -> None:
-    monkeypatch.setattr(wait_events_mod.ticks, "_MARKET_TICK_RETENTION_MAX_TICKS", 4)
+    monkeypatch.setattr(wait_event_ticks, "_MARKET_TICK_RETENTION_MAX_TICKS", 4)
 
-    error = wait_events_mod._market_tick_retention_error(
+    error = wait_event_ticks._market_tick_retention_error(
         symbol="EURUSD",
         ticks=[{"epoch": float(idx)} for idx in range(5)],
         specs=[{"required_history_seconds": 60.0, "required_tick_count": 1}],
@@ -1490,8 +1493,8 @@ def test_market_tick_retention_error_reports_clear_cap_failure(monkeypatch) -> N
         "retention_cap_ticks": 4,
         "required_history_seconds": 60.0,
         "required_tick_count": 1,
-        "retained_tick_floor": 1 + wait_events_mod._MARKET_BUFFER_EXTRA_TICKS,
-        "buffer_extra_ticks": wait_events_mod._MARKET_BUFFER_EXTRA_TICKS,
+        "retained_tick_floor": 1 + wait_event_ticks._MARKET_BUFFER_EXTRA_TICKS,
+        "buffer_extra_ticks": wait_event_ticks._MARKET_BUFFER_EXTRA_TICKS,
         "first_retained_epoch": 0.0,
         "last_retained_epoch": 4.0,
     }

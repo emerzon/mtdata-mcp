@@ -6,8 +6,9 @@ from difflib import get_close_matches
 from io import StringIO
 from typing import Optional, Sequence
 
+from mtdata.shared.error_envelope import build_error_payload
+
 from ...utils.minimal_output_toon import _format_to_toon
-from ..error_envelope import build_error_payload
 from ..output_serialization import dumps_json
 from . import io_safety as cli_io
 from .catalog import (

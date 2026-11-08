@@ -6,9 +6,11 @@ from types import SimpleNamespace
 import pytest
 from pydantic import ValidationError
 
-from mtdata.core.data import wait_events as wait_events_mod
 from mtdata.core.data.requests import WAIT_EVENT_MAX_SYMBOLS, WaitEventRequest
 from mtdata.core.data.use_cases import run_wait_event
+from mtdata.core.data.wait_events import boundary as wait_event_boundary
+from mtdata.core.data.wait_events import compile as wait_event_compile
+from mtdata.core.data.wait_events import loop as wait_event_loop
 
 
 class BasketGateway:
@@ -102,7 +104,7 @@ def test_compile_request_broadcasts_unspecified_watcher_across_basket() -> None:
         watch_for=[{"type": "order_filled"}],
     )
 
-    compiled = wait_events_mod._compile_request(
+    compiled = wait_event_compile._compile_request(
         request,
         started_at_utc=datetime(2026, 8, 12, 12, tzinfo=timezone.utc),
     )
@@ -164,17 +166,17 @@ def test_basket_boundary_returns_available_candles_and_failures(monkeypatch) -> 
         "close": 1.15,
     }
     monkeypatch.setattr(
-        wait_events_mod.boundary,
+        wait_event_boundary,
         "_boundary_closed_candle_for_symbol",
         lambda *, symbol, **_kwargs: candle if symbol == "EURUSD" else None,
     )
 
-    boundary_event = wait_events_mod._boundary_event_payload(
+    boundary_event = wait_event_boundary._boundary_event_payload(
         _boundary(),
         request=request,
         gateway=object(),
     )
-    result = wait_events_mod._build_wait_result(
+    result = wait_event_loop._build_wait_result(
         request=request,
         status="boundary_reached",
         started_at_utc=datetime(2026, 8, 12, 12, tzinfo=timezone.utc),
@@ -202,7 +204,7 @@ def test_symbol_less_boundary_does_not_require_mt5_connection(monkeypatch) -> No
     gateway = BasketGateway()
     request = WaitEventRequest(timeframe="M5")
     monkeypatch.setattr(
-        wait_events_mod.compile,
+        wait_event_compile,
         "_next_candle_wait_payload",
         lambda timeframe, buffer_seconds, now_utc, **_kwargs: {
             "timeframe": timeframe,
@@ -215,7 +217,7 @@ def test_symbol_less_boundary_does_not_require_mt5_connection(monkeypatch) -> No
         },
     )
     monkeypatch.setattr(
-        wait_events_mod.loop,
+        wait_event_loop,
         "_sleep_until_next_candle",
         lambda timeframe, buffer_seconds, sleep_impl, now_utc, **_kwargs: {
             "timeframe": timeframe,

@@ -1351,7 +1351,7 @@ def test_market_ticker_includes_shared_meta_without_dropping_timezone_alias() ->
     with patch("mtdata.core.market_depth.mt5") as mt5, patch(
         "mtdata.core.market_depth._use_client_tz", return_value=False
     ), patch(
-        "mtdata.core.output_contract.build_runtime_timezone_meta",
+        "mtdata.shared.output_contract.build_runtime_timezone_meta",
         return_value=timezone_meta,
     ):
         mt5.symbol_select.return_value = True

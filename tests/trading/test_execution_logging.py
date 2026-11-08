@@ -3,12 +3,12 @@ import time
 
 import pytest
 
-from mtdata.core.execution_logging import (
+from mtdata.shared.execution_logging import (
     log_operation_finish,
     log_operation_start,
     run_logged_operation,
 )
-from mtdata.core.request_context import request_id_scope
+from mtdata.shared.request_context import request_id_scope
 
 
 def test_run_logged_operation_logs_finish_event(caplog):

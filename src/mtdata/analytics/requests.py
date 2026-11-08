@@ -16,7 +16,7 @@ from pydantic import (
     model_validator,
 )
 
-from ..shared.schema import (
+from mtdata.shared.schema import (
     DetailLiteral,
     TimeframeLiteral,
     normalize_optional_symbol,
@@ -24,8 +24,8 @@ from ..shared.schema import (
     reject_removed_field,
     validate_complete_time_window,
 )
-from ..utils.time import MAX_TRADING_MINUTES_BACK
-from ..utils.utils import _parse_end_datetime, _parse_start_datetime
+from mtdata.utils.time import MAX_TRADING_MINUTES_BACK
+from mtdata.utils.utils import _parse_end_datetime, _parse_start_datetime
 
 _MT5_UINT64_MAX = (1 << 64) - 1
 

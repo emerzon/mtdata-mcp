@@ -32,7 +32,7 @@ from mtdata.core.causal.correlation import (
     _rank_correlation_pairs,
 )
 from mtdata.core.causal.cross import _block_bootstrap_correlation_ci
-from mtdata.core.output_contract import related_tools_for
+from mtdata.shared.output_contract import related_tools_for
 
 
 def test_cross_correlation_bootstrap_seed_is_reproducible_and_configurable():

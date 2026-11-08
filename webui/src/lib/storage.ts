@@ -8,11 +8,11 @@ export function loadJSON<T>(key: string): T | undefined {
   }
 }
 
-export function saveJSON(key: string, value: any) {
+export function saveJSON(key: string, value: unknown): void {
   try {
     localStorage.setItem(key, JSON.stringify(value))
   } catch {
-    // ignore
+    // Browser privacy settings and quota limits must not prevent chart use.
   }
 }
 

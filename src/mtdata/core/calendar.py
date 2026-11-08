@@ -7,13 +7,14 @@ from typing import Annotated, Any, Dict, Literal, Optional
 
 from pydantic import Field
 
+from mtdata.shared.error_envelope import build_error_payload
+from mtdata.shared.execution_logging import run_logged_operation
+
 from ..services.research.capabilities import CALENDAR, ResearchSourcePin
 from ..services.research.errors import finviz_only_source_error
 from ..services.research.payload import stamp_provider
 from ..shared.schema import DetailLiteral
 from ._mcp_instance import mcp
-from .error_envelope import build_error_payload
-from .execution_logging import run_logged_operation
 
 logger = logging.getLogger(__name__)
 

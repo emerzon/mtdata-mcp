@@ -9,9 +9,9 @@ from types import SimpleNamespace
 from mtdata.bootstrap.tools import bootstrap_tools, mcp
 from mtdata.core._mcp_tools import get_tool_registry, registered_tool_catalog
 from mtdata.core.cli.api import _invoke_cli_tool_function
-from mtdata.core.error_envelope import build_error_payload
-from mtdata.core.request_context import current_request_id
 from mtdata.core.tools import tools_list
+from mtdata.shared.error_envelope import build_error_payload
+from mtdata.shared.request_context import current_request_id
 
 EXPECTED_TOOL_NAMES = frozenset(
     {
@@ -302,7 +302,7 @@ def test_tools_catalog_standard_detail_includes_parameter_summaries():
 
 
 def test_tools_list_full_exposes_nested_invocation_schema_and_cli_forms():
-    from mtdata.core.analytics_requests import PortfolioRiskDecomposeRequest
+    from mtdata.analytics.requests import PortfolioRiskDecomposeRequest
 
     bootstrap_tools()
     raw_tools_list = getattr(tools_list, "__wrapped__", tools_list)

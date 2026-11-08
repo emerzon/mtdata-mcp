@@ -8,6 +8,19 @@ from typing import Annotated, Any, Dict, List, Literal, Optional
 import numpy as np
 from pydantic import Field
 
+from mtdata.shared.error_envelope import build_error_payload
+from mtdata.shared.execution_logging import (
+    infer_result_success,
+    log_operation_finish,
+    log_operation_start,
+)
+from mtdata.shared.output_contract import (
+    attach_completed_bar_input_policy,
+    normalize_output_detail,
+    normalize_output_verbosity_detail,
+)
+from mtdata.shared.runtime_metadata import attach_mt5_source
+
 from ...forecast.common import fetch_history as _fetch_history
 from ...forecast.common import log_returns_from_prices as _log_returns_from_prices
 from ...shared.schema import DenoiseSpecInput, DetailLiteral, TimeframeLiteral
@@ -22,19 +35,7 @@ from ...utils.mt5 import (
 from ...utils.time import _format_time_minimal
 from ...utils.utils import validate_historical_range
 from .._mcp_instance import mcp
-from ..error_envelope import build_error_payload
-from ..execution_logging import (
-    infer_result_success,
-    log_operation_finish,
-    log_operation_start,
-)
 from ..mt5_gateway import create_mt5_gateway, mt5_connection_error
-from ..output_contract import (
-    attach_completed_bar_input_policy,
-    normalize_output_detail,
-    normalize_output_verbosity_detail,
-)
-from ..runtime_metadata import attach_mt5_source
 from .detect import (
     _BOCPD_UNDERSEG_MIN_BARS,
     _BOCPD_UNDERSEG_PEAK_Z,

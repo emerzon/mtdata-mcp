@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 if TYPE_CHECKING:
     import numpy as np
@@ -43,40 +43,6 @@ def build_dispatch_error(method_name: str, exc: BaseException) -> Dict[str, Any]
         "error": str(exc),
         "error_type": type(exc).__name__,
     }
-
-
-def consume_dispatch_error(dispatch_method: Any, *, method_name: str) -> Optional[Dict[str, Any]]:
-    try:
-        error = getattr(dispatch_method, "_last_error", None)
-    except Exception:
-        return None
-    try:
-        dispatch_method._last_error = None
-    except Exception:
-        pass
-    if not isinstance(error, dict):
-        return None
-    payload = dict(error)
-    payload.setdefault("method", str(method_name))
-    return payload
-
-
-def dispatch_callback_with_error(
-    dispatch_method: Callable[[str, pd.Series, int, Optional[int], Optional[Dict[str, Any]]], Optional[np.ndarray]],
-    method_name: str,
-    series: pd.Series,
-    horizon: int,
-    seasonality: Optional[int],
-    params: Optional[Dict[str, Any]],
-) -> Tuple[Optional[np.ndarray], Optional[Dict[str, Any]]]:
-    method_l = str(method_name).lower().strip()
-    try:
-        forecast = dispatch_method(method_l, series, horizon, seasonality, params)
-    except Exception as ex:
-        return None, build_dispatch_error(method_l, ex)
-    if forecast is None:
-        return None, consume_dispatch_error(dispatch_method, method_name=method_l)
-    return forecast, None
 
 
 def append_failure(

@@ -6,8 +6,8 @@ from fastapi import HTTPException, Query
 from fastapi.testclient import TestClient
 
 from mtdata.bootstrap.runtime import WebApiRuntimeSettings
-from mtdata.core.error_envelope import build_error_payload
 from mtdata.core.web_api_runtime import create_web_api_app
+from mtdata.shared.error_envelope import build_error_payload
 
 
 def _client():

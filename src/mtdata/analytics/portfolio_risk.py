@@ -9,9 +9,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from ..core.analytics_requests import (
-    PortfolioRiskDecomposeRequest,
-)
+from mtdata.analytics.requests import PortfolioRiskDecomposeRequest
+
 from ..core.trading.validation import snapshot_unavailable_error
 from ..utils.market_metadata import build_tick_freshness_context
 from ..utils.quote import (

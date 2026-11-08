@@ -4,7 +4,7 @@ import logging
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
-from mtdata.core.runtime_metadata import (
+from mtdata.shared.runtime_metadata import (
     _attach_exact_trade_identifiers,
     attach_mt5_source,
     build_mt5_source_provenance,

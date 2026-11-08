@@ -21,7 +21,7 @@ def build_mt5_source_provenance(gateway: Any = None) -> Dict[str, Any]:
     adapter = gateway
     if adapter is None:
         try:
-            from ..utils.mt5 import mt5 as adapter
+            from mtdata.utils.mt5 import mt5 as adapter
         except Exception:
             adapter = None
     try:
@@ -137,7 +137,7 @@ def run_mt5_logged_operation(
     **fields: Any,
 ) -> LoggedResultT:
     """Run an MT5-backed operation and guarantee provenance on success."""
-    from .execution_logging import run_logged_operation
+    from mtdata.shared.execution_logging import run_logged_operation
 
     result = run_logged_operation(
         logger,
@@ -265,7 +265,7 @@ def build_runtime_timezone_meta(
     cfg = mt5_config
     if cfg is None:
         try:
-            from ..bootstrap.settings import mt5_config as default_mt5_config
+            from mtdata.bootstrap.settings import mt5_config as default_mt5_config
         except Exception:
             default_mt5_config = None
         cfg = default_mt5_config

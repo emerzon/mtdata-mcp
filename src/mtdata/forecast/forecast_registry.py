@@ -150,10 +150,6 @@ def _build_forecast_methods_snapshot() -> Tuple[List[Dict[str, Any]], Dict[str, 
             cls = ForecastRegistry.get_class(method)
             inst = cls()
         except Exception:
-            if method == "ensemble":
-                entry = _ensemble_metadata()
-                methods.append(entry)
-                categories.setdefault("ensemble", []).append(method)
             continue
 
         supports = dict(inst.supports_features or DEFAULT_METHOD_SUPPORTS)
@@ -220,6 +216,16 @@ def get_forecast_method_availability_snapshot() -> Dict[str, bool]:
         if isinstance(method_def, dict) and method_def.get("method")
     }
 
+
+
+def get_available_forecast_methods() -> tuple[str, ...]:
+    """Return registered methods whose runtime requirements are available."""
+    availability = get_forecast_method_availability_snapshot()
+    return tuple(
+        method
+        for method in ForecastRegistry.get_all_method_names()
+        if availability.get(method, False)
+    )
 
 
 def _extract_description(cls: Any, fallback: str) -> str:
@@ -367,28 +373,9 @@ def _ensure_registry_loaded() -> None:
         _LOADED_FORECAST_METHOD_MODULES.add(module_name)
 
 
-def _ensemble_metadata() -> Dict[str, Any]:
-    return {
-        "method": "ensemble",
-        "category": "ensemble",
-        "available": True,
-        "requires": [],
-        "description": "Adaptive ensemble with averaging, RMSE weighting, or stacking.",
-        "params": [
-            {"name": "methods", "type": "list", "description": "Methods to ensemble (default: naive,theta,fourier_ols)"},
-            {"name": "mode", "type": "str", "description": "average|rmse_weighted|stacking (default: average)"},
-            {"name": "weights", "type": "list", "description": "Manual weights when mode=average"},
-            {"name": "cv_points", "type": "int", "description": "Walk-forward anchors for weighting (default: 2*len(methods))"},
-            {"name": "min_train_size", "type": "int", "description": "Minimum history per CV anchor (default: max(30, horizon*3))"},
-            {"name": "method_params", "type": "dict", "description": "Per-method parameter overrides"},
-            {"name": "expose_components", "type": "bool", "description": "Include component forecasts in response (default: True)"},
-        ],
-        "supports": {"price": True, "return": True, "volatility": True, "ci": False},
-    }
-
-
 __all__ = [
     'ForecastRegistry',
+    'get_available_forecast_methods',
     'get_forecast_methods_data',
     'get_forecast_method_availability_snapshot',
 ]

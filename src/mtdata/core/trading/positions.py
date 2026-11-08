@@ -7,6 +7,9 @@ import math
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Mapping, Optional, Tuple
 
+from mtdata.shared.output_contract import build_pagination_meta, resolve_output_contract
+from mtdata.shared.runtime_metadata import run_mt5_logged_operation
+
 from ...shared.constants import BROKER_VOLUME_UNIT
 from ...utils.market_metadata import build_tick_freshness_context
 from ...utils.mt5 import (
@@ -18,8 +21,6 @@ from ...utils.quote import resolve_quote_tick, tick_epoch
 from ...utils.time import format_datetime_utc, format_epoch_utc
 from ...utils.utils import _normalize_limit
 from .._mcp_instance import mcp
-from ..output_contract import build_pagination_meta, resolve_output_contract
-from ..runtime_metadata import run_mt5_logged_operation
 from . import comments, validation
 from .gateway import create_trading_gateway, resolve_trading_symbol_request
 from .requests import TradeGetOpenRequest, TradeGetPendingRequest
@@ -1070,74 +1071,6 @@ def _trade_history_request_echo(request: Any, *, history_kind: Any) -> Dict[str,
         else:
             echo[field] = value
     return echo
-
-
-def _trade_history_humanized_key(key: str) -> str:
-    overrides = {
-        "sl": "SL",
-        "tp": "TP",
-        "time": "Time",
-        "fill_time": "Fill Time",
-        "placed_time": "Placed Time",
-        "done_time": "Done Time",
-        "time_setup": "Setup Time",
-        "time_done": "Done Time",
-        "time_msc": "Time Msc",
-        "ticket": "Ticket",
-        "deal_ticket": "Deal Ticket",
-        "order": "Order",
-        "order_ticket": "Order Ticket",
-        "deal": "Deal",
-        "position_id": "Position ID",
-        "position_by_id": "Position By ID",
-        "symbol": "Symbol",
-        "type": "Type",
-        "type_code": "Type Code",
-        "position_side": "Position Side",
-        "entry": "Entry",
-        "entry_code": "Entry Code",
-        "deal_effect": "Deal Effect",
-        "reason": "Reason",
-        "reason_code": "Reason Code",
-        "state": "State",
-        "state_code": "State Code",
-        "volume": "Volume",
-        "volume_initial": "Initial Volume",
-        "volume_current": "Current Volume",
-        "price": "Price",
-        "price_open": "Open Price",
-        "price_current": "Current Price",
-        "profit": "Profit",
-        "commission": "Commission",
-        "swap": "Swap",
-        "fee": "Fee",
-        "net_pnl": "Net P&L",
-        "profit_basis": "Profit Basis",
-        "comment": "Comments",
-        "magic": "Magic",
-        "deal_magic": "Deal Magic",
-        "attributed_magic": "Attributed Magic",
-        "attribution_method": "Attribution Method",
-        "exit_trigger": "Exit Trigger",
-        "exit_trigger_price": "Exit Trigger Price",
-        "exit_trigger_source": "Exit Trigger Source",
-    }
-    return overrides.get(key, key.replace("_", " ").title())
-
-
-def _style_trade_history_items(items: List[Any], *, column_style: Any) -> List[Any]:
-    style = str(column_style or "snake_case").strip().lower()
-    if style != "humanized":
-        return items
-    styled: List[Any] = []
-    for item in items:
-        if not isinstance(item, dict):
-            styled.append(item)
-            continue
-        styled.append(
-            {_trade_history_humanized_key(str(key)): value for key, value in item.items()}
-        )
-    return styled
 
 
 def _trade_history_period_context(request: Any) -> Dict[str, Any]:

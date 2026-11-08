@@ -2,16 +2,15 @@
 
 import time
 
+from mtdata.shared.symbol_catalog import _symbol_category
+
 from ...utils.mt5 import mt5
-from . import catalog, classify, scan
+from . import catalog, scan
 from .catalog import (
     _list_symbol_groups,
     _visible_market_watch_note,
     symbols_describe,
     symbols_list,
-)
-from .classify import (
-    _symbol_category,
 )
 from .scan import (
     _MARKET_SCAN_PRESETS,
@@ -37,7 +36,6 @@ __all__ = [
     "time",
     "mt5",
     "catalog",
-    "classify",
     "scan",
     "symbols_list",
     "symbols_describe",

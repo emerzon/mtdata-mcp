@@ -10,6 +10,8 @@ from typing import Annotated, Any, Dict, Literal, Optional
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from mtdata.shared.error_envelope import build_error_payload
+
 from ..bootstrap.runtime import is_loopback_host, load_web_api_runtime_settings
 from ..bootstrap.settings import load_environment, mt5_config
 from ..forecast.forecast_registry import get_forecast_methods_data as _get_methods_impl
@@ -35,7 +37,6 @@ from ..utils.volume_profile import (
     VolumeProfilePriceSourceLiteral,
     VolumeProfileVolumeSourceLiteral,
 )
-from .error_envelope import build_error_payload
 from .forecast import (
     forecast_backtest_run as _forecast_backtest_tool,
 )

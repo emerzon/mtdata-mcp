@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 
+from mtdata.shared.runtime_metadata import run_mt5_logged_operation
+
 from ...utils.mt5 import ensure_mt5_connection_or_raise, mt5_adapter
 from .._mcp_instance import mcp
-from ..runtime_metadata import run_mt5_logged_operation
 from .gateway import create_trading_gateway
 from .requests import (
     TradeRiskAnalyzeRequest,

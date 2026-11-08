@@ -1,6 +1,17 @@
-// ============================================================================
-// Core Data Types
-// ============================================================================
+import type { LineStyle } from 'lightweight-charts'
+
+export type TimeframeCatalog = {
+  timeframes: string[]
+  seconds?: Record<string, number>
+}
+
+export type PriceLineSpec = {
+  price: number
+  color: string
+  title: string
+  lineStyle?: LineStyle
+  lineWidth?: 1 | 2 | 3 | 4
+}
 
 export type Instrument = {
   symbol: string
@@ -79,10 +90,6 @@ export type HistoryResponse = {
     }
   }
 }
-
-// ============================================================================
-// Support/Resistance & Pivot Types
-// ============================================================================
 
 export type SupportResistanceLevel = {
   type: 'support' | 'resistance'
@@ -202,10 +209,6 @@ export type SupportResistanceResponse = {
   resistances?: SupportResistanceLevel[]
 }
 
-// ============================================================================
-// Forecast Types
-// ============================================================================
-
 /** Compact dedicated-panel forecast row from POST /forecast/price (detail defaults to compact). */
 export type CompactForecastRow = {
   time?: string
@@ -257,10 +260,6 @@ export type VolatilityPayload = {
   volatility_annualized?: number
   volatility_horizon?: number
 }
-
-// ============================================================================
-// Method Metadata Types
-// ============================================================================
 
 export type ParamDef = {
   name: string
@@ -353,10 +352,6 @@ export type ReadyResponse = {
   [key: string]: unknown
 }
 
-// ============================================================================
-// Denoise Spec (for UI forms)
-// ============================================================================
-
 export type DenoiseSpecUI = {
   method?: string
   params?: Record<string, unknown>
@@ -370,10 +365,6 @@ export type DimensionalityReductionSpecUI = {
   method: string
   params?: Record<string, unknown>
 }
-
-// ============================================================================
-// API Request Bodies
-// ============================================================================
 
 export type ForecastPriceBody = {
   symbol: string
@@ -462,10 +453,6 @@ export type BacktestMethodResult = {
   error_code?: string
   warnings?: OutputWarningLike[]
 }
-
-// ============================================================================
-// Chart Overlay Types
-// ============================================================================
 
 export type TradeIdeaGate = {
   status: 'pass' | 'fail' | 'skip'
@@ -626,10 +613,6 @@ export type ChartOverlay = {
   kind?: 'line' | 'histogram'
   referenceLines?: Array<{ price: number; color: string; title: string }>
 }
-
-// ============================================================================
-// Metrics
-// ============================================================================
 
 export type AnchorMetrics = {
   overlap: number

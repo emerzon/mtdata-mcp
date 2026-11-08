@@ -279,14 +279,12 @@ def _normalize_forecast_payload(  # noqa: C901
 ) -> Optional[Dict[str, Any]]:
     """Convert forecast payload into meta + tabular rows when possible."""
     try:
-        # Detect time column
         times = None
         if isinstance(payload.get("times"), list):
             times = list(payload.get("times") or [])
         elif isinstance(payload.get("forecast_time"), list):
             times = list(payload.get("forecast_time") or [])
         elif isinstance(payload.get("forecast_epoch"), list):
-            # Fallback to epochs if string times missing
             times = list(payload.get("forecast_epoch") or [])
 
         if not times:
@@ -309,7 +307,6 @@ def _normalize_forecast_payload(  # noqa: C901
         fvals = list(payload.get(main_key) or [])
         n = min(len(times), len(fvals))
 
-        # Check for digits precision
         digits = payload.get("digits")
         if digits is not None:
             try:
@@ -341,8 +338,6 @@ def _normalize_forecast_payload(  # noqa: C901
                 except Exception:
                     return value
             if is_return_col:
-                # Returns are small dimensionless fractions; full float precision
-                # is spurious and wastes tokens. Round to 6 significant figures.
                 try:
                     return float(f"{float(value):.6g}")
                 except Exception:
@@ -825,9 +820,9 @@ def _humanize_trade_history_table_items(
             style = echo.get("column_style")
     if str(style or "").strip().lower() != "humanized":
         return items
-    from ..core.trading.positions import _style_trade_history_items
+    from ..shared.trade_history_output import humanize_trade_history_items
 
-    return _style_trade_history_items(items, column_style="humanized")
+    return humanize_trade_history_items(items)
 
 
 def _normalize_trade_table_payload(
@@ -2411,7 +2406,7 @@ def _normalize_market_status_payload(
         return None
     if "upcoming_holidays" not in payload and "upcoming_holidays_summary" not in payload:
         return None
-    from ..core.market_status import normalize_market_status_output
+    from ..shared.market_status_output import normalize_market_status_output
 
     return normalize_market_status_output(payload, detail="compact")
 

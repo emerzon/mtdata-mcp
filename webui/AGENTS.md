@@ -44,7 +44,8 @@ React + Vite + Tailwind single-page app for chart visualization and forecast int
 | `src/lib/indicatorSpec.ts` | Chart indicator presets, history query, overlay mapping |
 | `src/lib/layout.ts` | Breakpoints + panel placement class helpers |
 | `src/lib/toolCatalog.ts` | Catalog filter, param form defaults, invoke shaping, result format |
-| `src/lib/time.ts` / `timeframes.ts` / `storage.ts` / `utils.ts` | Time, TF, localStorage, coerce helpers |
+| `src/lib/time.ts` / `timeframes.ts` / `storage.ts` | Time formatting, timeframe polling policy, localStorage |
+| `src/api/queries.ts` | Shared timeframe and denoise catalog queries |
 | `src/lib/useEscapeKey.ts` | Escape key dismiss hook |
 
 ## CONVENTIONS

@@ -11,27 +11,28 @@ from typing import Any, Dict, List, Literal, Optional, Sequence, get_args
 from fastapi import HTTPException
 from pydantic import BaseModel, ValidationError
 
+from mtdata.shared.execution_logging import infer_result_success
+from mtdata.shared.output_contract import build_pagination_meta
+
 from ..forecast.exceptions import ForecastError
 from ..shared.feature_flags import MARKET_DEPTH_FETCH_ENV
 from ..shared.tool_categories import TOOL_CATEGORY_IDS
+from ..shared.tool_policy import LIVE_TRADE_MUTATION_TOOLS, LIVE_TRADE_MUTATION_WARNING
 from ..utils.coercion import UNPARSED_BOOL, parse_strict_bool
 from ..utils.denoise import DenoiseCausalityError
 from ..utils.mt5 import MT5ConnectionError
 from ._mcp_tools import (
     TOOL_CATALOG_DETAIL_MODES,
     _prepare_public_tool_call,
-    _shape_public_tool_output,
     get_tool_functions,
     query_tool_catalog,
     registered_tool_catalog,
     registered_tool_catalog_entry,
+    shape_public_tool_output,
 )
-from .cli.runtime.commands import LIVE_TRADE_MUTATION_TOOLS, LIVE_TRADE_MUTATION_WARNING
-from .execution_logging import infer_result_success
-from .output_contract import build_pagination_meta
 from .schema_attach import get_public_tool_schema
 from .tool_calling import resolve_sync_tool_result, unwrap_tool_callable
-from .web_api_handlers import _http_error, _http_status_for_error
+from .web_api_errors import http_error, http_status_for_error
 
 logger = logging.getLogger(__name__)
 
@@ -179,22 +180,22 @@ def _invocation_requires_confirmation(
 
 def _raise_failed_tool_result(result: Any, *, operation: str) -> None:
     """Raise an HTTP error whose success flag matches the domain outcome."""
-    status = _http_status_for_error(result, default=400)
+    status = http_status_for_error(result, default=400)
     if isinstance(result, dict):
         error_text = result.get("error")
         code = str(result.get("error_code") or "tool_error")
         if isinstance(error_text, str) and error_text.strip():
-            raise _http_error(
+            raise http_error(
                 status, result, code=code, operation=operation
             )
-        raise _http_error(
+        raise http_error(
             status,
             "Tool invocation failed.",
             code=code,
             operation=operation,
             details={"result": result},
         )
-    raise _http_error(
+    raise http_error(
         status,
         "Tool invocation failed.",
         code="tool_error",
@@ -249,7 +250,7 @@ def _invalid_catalog_query_error(
     }
     if suggestion:
         details["suggestion"] = suggestion
-    return _http_error(
+    return http_error(
         422,
         message,
         code="tool_param_error",
@@ -288,7 +289,7 @@ def _catalog_limit_value(limit: Any) -> int:
     try:
         value = int(limit)
     except (TypeError, ValueError) as exc:
-        raise _http_error(
+        raise http_error(
             422,
             "limit must be a positive integer.",
             code="tool_param_error",
@@ -296,7 +297,7 @@ def _catalog_limit_value(limit: Any) -> int:
             details={"parameter": "limit", "value": limit},
         ) from exc
     if value < 1 or value > TOOLS_CATALOG_MAX_LIMIT:
-        raise _http_error(
+        raise http_error(
             422,
             (
                 "limit must be between 1 and "
@@ -317,7 +318,7 @@ def _catalog_offset_value(offset: Any) -> int:
     try:
         value = int(offset or 0)
     except (TypeError, ValueError) as exc:
-        raise _http_error(
+        raise http_error(
             422,
             "offset must be a non-negative integer.",
             code="tool_param_error",
@@ -325,7 +326,7 @@ def _catalog_offset_value(offset: Any) -> int:
             details={"parameter": "offset", "value": offset},
         ) from exc
     if value < 0:
-        raise _http_error(
+        raise http_error(
             422,
             "offset must be a non-negative integer.",
             code="tool_param_error",
@@ -411,7 +412,7 @@ def get_tool_for_webapi(
     ensure_tools_bootstrapped()
     name = str(tool_name or "").strip()
     if not name:
-        raise _http_error(
+        raise http_error(
             400,
             "tool_name is required",
             code="tool_param_error",
@@ -421,7 +422,7 @@ def get_tool_for_webapi(
     detail_mode = _catalog_detail_mode(detail, default="compact", operation="tools_get")
     match = registered_tool_catalog_entry(name, detail=detail_mode)
     if match is None:
-        raise _http_error(
+        raise http_error(
             404,
             f"Unknown tool: {name}",
             code="tool_not_found",
@@ -441,7 +442,7 @@ def invoke_tool_for_webapi(
     ensure_tools_bootstrapped()
     name = str(tool_name or "").strip()
     if not name:
-        raise _http_error(
+        raise http_error(
             400,
             "tool_name is required",
             code="tool_param_error",
@@ -449,7 +450,7 @@ def invoke_tool_for_webapi(
         )
 
     if name in INTENTIONAL_OMIT_TOOLS:
-        raise _http_error(
+        raise http_error(
             403,
             f"Tool {name} is not available from the Web UI.",
             code="tool_not_available",
@@ -464,7 +465,7 @@ def invoke_tool_for_webapi(
     fn = funcs.get(name)
     if fn is None:
         # market_depth_fetch may be registered only when env-enabled
-        raise _http_error(
+        raise http_error(
             404,
             f"Tool {name} is not registered or is disabled.",
             code="tool_not_found",
@@ -473,7 +474,6 @@ def invoke_tool_for_webapi(
         )
 
     args = dict(arguments or {})
-    # Strip UI-only keys if callers leak them
     args.pop("confirm", None)
     args.pop("__confirm", None)
     # The HTTP surface is always structured JSON; consume presentation-only
@@ -489,7 +489,7 @@ def invoke_tool_for_webapi(
             json_output=True,
         )
         if _invocation_requires_confirmation(name, args, target=target) and not confirm:
-            raise _http_error(
+            raise http_error(
                 400,
                 f"Tool {name} requires explicit confirmation.",
                 code="confirmation_required",
@@ -504,7 +504,7 @@ def invoke_tool_for_webapi(
                 },
             )
         result = resolve_sync_tool_result(target(**args))
-        result = _shape_public_tool_output(
+        result = shape_public_tool_output(
             result,
             tool_name=name,
             contract_state=contract_state,
@@ -513,27 +513,27 @@ def invoke_tool_for_webapi(
     except HTTPException:
         raise
     except DenoiseCausalityError as exc:
-        raise _http_error(
+        raise http_error(
             400, str(exc), code="tool_domain_error", operation=name
         ) from exc
     except (TypeError, ValueError, ValidationError) as exc:
-        raise _http_error(
+        raise http_error(
             422,
             f"Invalid parameters for {name}: {exc}",
             code="tool_param_error",
             operation=name,
         ) from exc
     except MT5ConnectionError as exc:
-        raise _http_error(
+        raise http_error(
             503, str(exc), code="mt5_connection_error", operation=name
         ) from exc
     except ForecastError as exc:
-        raise _http_error(
+        raise http_error(
             400, str(exc), code="tool_domain_error", operation=name
         ) from exc
     except Exception as exc:
         logger.exception("Web API tool invoke failed for %s", name)
-        raise _http_error(
+        raise http_error(
             500,
             "Tool invocation failed.",
             code="tool_invoke_internal_error",

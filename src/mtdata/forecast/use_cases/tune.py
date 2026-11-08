@@ -5,12 +5,6 @@ import logging
 import time
 from typing import Any, Dict, Iterable, List, Optional
 
-from mtdata.core.execution_logging import (
-    infer_result_success,
-    log_operation_exception,
-    log_operation_finish,
-    log_operation_start,
-)
 from mtdata.forecast.backtest import forecast_cost_assumptions
 from mtdata.forecast.forecast_methods import get_forecast_method_names
 from mtdata.forecast.forecast_registry import ForecastRegistry
@@ -35,6 +29,12 @@ from mtdata.forecast.use_cases.compact import (
     _analysis_time_kwargs,
     _attach_analysis_time_window,
     _requested_detail_label,
+)
+from mtdata.shared.execution_logging import (
+    infer_result_success,
+    log_operation_exception,
+    log_operation_finish,
+    log_operation_start,
 )
 from mtdata.utils.security import redact_url_credentials
 

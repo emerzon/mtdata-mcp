@@ -335,7 +335,7 @@ def test_trade_session_context_compacts_nested_sections_by_default() -> None:
     }
 
     with patch(
-        "mtdata.core.output_contract.build_runtime_timezone_meta",
+        "mtdata.shared.output_contract.build_runtime_timezone_meta",
         return_value=timezone_meta,
     ), patch(
         "mtdata.core.trading.context.trade_account_info",
@@ -599,7 +599,7 @@ def test_trade_session_context_full_detail_keeps_nested_full_payloads() -> None:
     }
 
     with patch(
-        "mtdata.core.output_contract.build_runtime_timezone_meta",
+        "mtdata.shared.output_contract.build_runtime_timezone_meta",
         return_value=timezone_meta,
     ), patch(
         "mtdata.core.trading.context.trade_account_info",

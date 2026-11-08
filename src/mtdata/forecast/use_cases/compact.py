@@ -4,10 +4,10 @@ from datetime import datetime, timezone
 from statistics import median
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
-from mtdata.core.output_contract import attach_collection_contract
 from mtdata.forecast.forecast_methods import get_forecast_methods_snapshot
 from mtdata.forecast.requests import ForecastBarrierProbRequest, ForecastGenerateRequest
 from mtdata.forecast.target_builder import forecast_interval_recovery
+from mtdata.shared.output_contract import attach_collection_contract
 from mtdata.utils.coercion import coerce_finite_float as _finite_float
 from mtdata.utils.coercion import round_finite
 from mtdata.utils.freshness import format_age_seconds as _format_age_seconds

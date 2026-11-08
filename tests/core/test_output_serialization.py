@@ -49,7 +49,7 @@ def test_dumps_json_preserves_tick_spread_value() -> None:
     ],
 )
 def test_dumps_json_round_trips_finite_float_values(value: float) -> None:
-    rendered = dumps_json({"value": value}, indent=None, compact_numbers=True)
+    rendered = dumps_json({"value": value}, indent=None)
 
     assert json.loads(rendered)["value"] == value
 

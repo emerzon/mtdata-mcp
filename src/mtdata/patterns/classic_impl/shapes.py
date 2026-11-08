@@ -336,8 +336,6 @@ def detect_broadening(
         if not _boundaries_are_ordered(top, bot, start_idx=start_idx, end_idx=last_pivot):
             return out
         tol_abs = _tol_abs_from_close(c, cfg.same_level_tol_pct)
-        # Measured rather than the previous hardcoded 4, which always saturated
-        # _conf's touch term and made it a constant.
         touches = _count_touches(
             top,
             bot,

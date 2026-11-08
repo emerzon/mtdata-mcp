@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from mtdata.core.analytics_requests import MarketRelativeStrengthRequest
+from mtdata.analytics.requests import MarketRelativeStrengthRequest
 from mtdata.core.news import news
 from mtdata.core.pivot import confluence_levels, support_resistance_levels
 from mtdata.core.symbols import market_scan

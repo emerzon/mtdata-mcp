@@ -3,7 +3,7 @@
 import os
 from typing import Any, Sequence
 
-from ..error_envelope import build_error_payload
+from mtdata.shared.error_envelope import build_error_payload
 
 CLI_FORMAT_TOON = "toon"
 CLI_FORMAT_JSON = "json"

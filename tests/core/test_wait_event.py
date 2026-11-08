@@ -7,7 +7,7 @@ from unittest.mock import patch
 import pytest
 from pydantic import ValidationError
 
-from mtdata.core.data import _normalize_wait_event_public_specs, wait_events
+from mtdata.core.data import _normalize_wait_event_public_specs
 from mtdata.core.data.requests import WaitEventRequest
 
 

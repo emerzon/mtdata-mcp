@@ -7,7 +7,7 @@ from importlib import metadata as importlib_metadata
 from typing import Any, Dict, Optional
 from uuid import uuid4
 
-from .request_context import current_request_id
+from mtdata.shared.request_context import current_request_id
 
 DOCUMENTATION_REPO_URL = "https://github.com/emerzon/mtdata-mcp"
 

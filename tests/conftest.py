@@ -114,27 +114,11 @@ def _snapshot_mt5_config_state():
         "news_embeddings_config": getattr(settings_mod, "news_embeddings_config", None),
         "trade_guardrails_config": getattr(settings_mod, "trade_guardrails_config", None),
         "env_loaded": getattr(settings_mod, "_ENV_LOADED", None),
-        "warned_server_tz": getattr(settings_mod, "_WARNED_SERVER_TZ", None),
-        "state": {
-            "login": getattr(config_obj, "login", None),
-            "_login_value": getattr(config_obj, "_login_value", None),
-            "password": getattr(config_obj, "password", None),
-            "server": getattr(config_obj, "server", None),
-            "timeout": getattr(config_obj, "timeout", None),
-            "server_tz_name": getattr(config_obj, "server_tz_name", None),
-            "client_tz_name": getattr(config_obj, "client_tz_name", None),
-            "time_offset_minutes": getattr(config_obj, "time_offset_minutes", None),
-            "broker_time_check_enabled": getattr(config_obj, "broker_time_check_enabled", None),
-            "broker_time_check_ttl_seconds": getattr(config_obj, "broker_time_check_ttl_seconds", None),
-        },
-        "news_embeddings_state": {
-            "model_name": getattr(getattr(settings_mod, "news_embeddings_config", None), "model_name", None),
-            "top_n": getattr(getattr(settings_mod, "news_embeddings_config", None), "top_n", None),
-            "weight": getattr(getattr(settings_mod, "news_embeddings_config", None), "weight", None),
-            "truncate_dim": getattr(getattr(settings_mod, "news_embeddings_config", None), "truncate_dim", None),
-            "cache_size": getattr(getattr(settings_mod, "news_embeddings_config", None), "cache_size", None),
-            "hf_token_env_var": getattr(getattr(settings_mod, "news_embeddings_config", None), "hf_token_env_var", None),
-        },
+        "warned_static_offset": settings_mod._WARNED_STATIC_OFFSET_OVERRIDE,
+        "state": copy.deepcopy(vars(config_obj)),
+        "news_embeddings_state": copy.deepcopy(vars(settings_mod.news_embeddings_config)),
+        "options_data_config": settings_mod.options_data_config,
+        "options_data_state": copy.deepcopy(vars(settings_mod.options_data_config)),
         "trade_guardrails_state": copy.deepcopy(
             getattr(getattr(settings_mod, "trade_guardrails_config", None), "model_dump", lambda: {})()
         ),
@@ -152,18 +136,19 @@ def _restore_mt5_config_state(snapshot) -> None:
         module.news_embeddings_config = snapshot["news_embeddings_config"]
     if snapshot.get("trade_guardrails_config") is not None:
         module.trade_guardrails_config = snapshot["trade_guardrails_config"]
-    for name, value in snapshot["state"].items():
-        setattr(config_obj, name, value)
-    news_embeddings_config = snapshot.get("news_embeddings_config")
-    if news_embeddings_config is not None:
-        for name, value in snapshot["news_embeddings_state"].items():
-            setattr(news_embeddings_config, name, value)
+    config_obj.__dict__.clear()
+    config_obj.__dict__.update(snapshot["state"])
+    for name in ("news_embeddings", "options_data"):
+        config = snapshot[f"{name}_config"]
+        setattr(module, f"{name}_config", config)
+        config.__dict__.clear()
+        config.__dict__.update(snapshot[f"{name}_state"])
     trade_guardrails_config = snapshot.get("trade_guardrails_config")
     if trade_guardrails_config is not None:
         for name, value in snapshot["trade_guardrails_state"].items():
             setattr(trade_guardrails_config, name, value)
     module._ENV_LOADED = snapshot["env_loaded"]
-    module._WARNED_SERVER_TZ = snapshot["warned_server_tz"]
+    module._WARNED_STATIC_OFFSET_OVERRIDE = snapshot["warned_static_offset"]
 
 
 # Local developer .env often configures broker timezone and live trade
@@ -211,25 +196,7 @@ def _neutralize_local_runtime_config(mt5_snapshot) -> None:
     guardrails = mt5_snapshot.get("trade_guardrails_config")
     if guardrails is None:
         return
-    # Prefer a full env reload into a disabled policy when available.
-    reload = getattr(guardrails, "reload_from_env", None)
-    if callable(reload):
-        try:
-            reload()
-            return
-        except Exception:
-            pass
-    for name, value in {
-        "enabled": False,
-        "ignore_on_demo": True,
-        "trading_enabled": True,
-        "allowed_symbols": [],
-        "blocked_symbols": [],
-        "max_volume": None,
-        "max_volume_by_symbol": {},
-    }.items():
-        if hasattr(guardrails, name):
-            setattr(guardrails, name, value)
+    guardrails.reload_from_env()
 
 
 @pytest.fixture(autouse=True)

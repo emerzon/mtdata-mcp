@@ -129,34 +129,17 @@ def _expanded_watch_specs(
     return expanded
 
 def _compile_watch_event(spec: Any, *, request: WaitEventRequest) -> Dict[str, Any]:
-    if isinstance(spec, OrderCreatedEventSpec):
+    if isinstance(spec, (
+        OrderCreatedEventSpec,
+        OrderFilledEventSpec,
+        OrderCancelledEventSpec,
+        PositionOpenedEventSpec,
+        PositionClosedEventSpec,
+        TpHitEventSpec,
+        SlHitEventSpec,
+    )):
         return _compile_account_event(spec, request=request)
-    if isinstance(spec, OrderFilledEventSpec):
-        return _compile_account_event(spec, request=request)
-    if isinstance(spec, OrderCancelledEventSpec):
-        return _compile_account_event(spec, request=request)
-    if isinstance(spec, PositionOpenedEventSpec):
-        return _compile_account_event(spec, request=request)
-    if isinstance(spec, PositionClosedEventSpec):
-        return _compile_account_event(spec, request=request)
-    if isinstance(spec, TpHitEventSpec):
-        return _compile_account_event(spec, request=request)
-    if isinstance(spec, SlHitEventSpec):
-        return _compile_account_event(spec, request=request)
-    if isinstance(spec, PendingNearFillEventSpec):
-        compiled = _compile_account_market_event(spec, request=request)
-        if "error" in compiled:
-            return compiled
-        compiled.update(
-            {
-                "distance": float(spec.distance),
-                "price_source": str(spec.price_source),
-                "required_tick_count": 1,
-                "required_history_seconds": _MARKET_BOOTSTRAP_MIN_SECONDS,
-            }
-        )
-        return compiled
-    if isinstance(spec, StopThreatEventSpec):
+    if isinstance(spec, (PendingNearFillEventSpec, StopThreatEventSpec)):
         compiled = _compile_account_market_event(spec, request=request)
         if "error" in compiled:
             return compiled

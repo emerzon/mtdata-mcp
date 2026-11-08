@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from mtdata.analytics.requests import StrategyValidateRequest
 from mtdata.analytics.strategy_validate import validate_strategies
-from mtdata.core.analytics_requests import StrategyValidateRequest
 
 
 @pytest.mark.parametrize("include_failure", [False, True])

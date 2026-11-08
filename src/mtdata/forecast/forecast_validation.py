@@ -14,7 +14,8 @@ _ZERO_PHASE_DENOISE_WARNING = (
 
 def forecast_parameter_error(method: str, params: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Validate constructor keys consistently for generation and strategy research."""
-    from ..core.error_envelope import build_error_payload
+    from mtdata.shared.error_envelope import build_error_payload
+
     from ..shared.validators import unknown_mapping_keys_error
     from .forecast_methods import get_method_param_names
     from .forecast_registry import ForecastRegistry

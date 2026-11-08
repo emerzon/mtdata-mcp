@@ -9,7 +9,7 @@ from pydantic import ValidationError
 
 from mtdata.analytics.engine_common import _rates
 from mtdata.analytics.relative_strength import rank_relative_strength
-from mtdata.core.analytics_requests import MarketRelativeStrengthRequest
+from mtdata.analytics.requests import MarketRelativeStrengthRequest
 from mtdata.utils.time import bar_close_epoch
 
 

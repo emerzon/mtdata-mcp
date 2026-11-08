@@ -2,7 +2,7 @@ from unittest.mock import patch
 
 import pytest
 
-from mtdata.core.output_contract import (
+from mtdata.shared.output_contract import (
     _coerce_json_flag,
     _coerce_optional_verbose_flag,
     apply_output_verbosity,
@@ -96,7 +96,7 @@ def test_resolve_output_contract_prefers_explicit_verbose_when_detail_is_none() 
 def test_ensure_common_meta_adds_tool_and_runtime_timezone() -> None:
     timezone_meta = {"used": {"tz": "UTC"}}
     with patch(
-        "mtdata.core.output_contract.build_runtime_timezone_meta",
+        "mtdata.shared.output_contract.build_runtime_timezone_meta",
         return_value=timezone_meta,
     ):
         out = ensure_common_meta({"success": True}, tool_name="market_ticker")
@@ -107,7 +107,7 @@ def test_ensure_common_meta_adds_tool_and_runtime_timezone() -> None:
 
 def test_ensure_common_meta_preserves_existing_tool_and_timezone() -> None:
     existing_timezone = {"client": {"tz": "US/Central"}}
-    with patch("mtdata.core.output_contract.build_runtime_timezone_meta") as build_meta:
+    with patch("mtdata.shared.output_contract.build_runtime_timezone_meta") as build_meta:
         out = ensure_common_meta(
             {
                 "meta": {

@@ -11,7 +11,6 @@ import numpy as np
 import pandas as pd
 
 from mtdata.core.mt5_gateway import create_mt5_gateway, mt5_connection_error
-from mtdata.core.output_contract import build_pagination_meta
 from mtdata.services.data_service.candles import (
     _drop_incomplete_tail_df,
     _is_last_bar_forming,
@@ -20,18 +19,15 @@ from mtdata.services.data_service.candles import (
 from mtdata.shared.constants import (
     TIMEFRAME_MAP,
 )
+from mtdata.shared.output_contract import build_pagination_meta
+from mtdata.shared.symbol_catalog import _extract_group_path as _extract_group_path_util
+from mtdata.shared.symbol_catalog import _normalize_group_path_query
 from mtdata.utils.mt5 import (
     _ensure_symbol_ready,
     _mt5_copy_rates_from,
     _mt5_copy_rates_range,
     ensure_mt5_connection_or_raise,
     mt5,
-)
-from mtdata.utils.symbol import (
-    _extract_group_path as _extract_group_path_util,
-)
-from mtdata.utils.symbol import (
-    _normalize_group_path_query,
 )
 from mtdata.utils.time import bar_close_epoch, format_datetime_utc, format_epoch_utc
 from mtdata.utils.utils import (

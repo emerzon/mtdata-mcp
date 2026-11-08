@@ -8,18 +8,18 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from mtdata.core.error_envelope import build_error_payload
-from mtdata.core.execution_logging import (
-    infer_result_success,
-    log_operation_finish,
-    log_operation_start,
-)
 from mtdata.core.trading import validation
 from mtdata.core.trading.requests import TradeHistoryRequest
 from mtdata.core.trading.use_cases.common import (
     _epoch_series_to_utc_and_text,
     _trade_rows_to_dataframe,
     logger,
+)
+from mtdata.shared.error_envelope import build_error_payload
+from mtdata.shared.execution_logging import (
+    infer_result_success,
+    log_operation_finish,
+    log_operation_start,
 )
 from mtdata.utils.continuation import (
     check_cursor_issued_at,
@@ -407,7 +407,7 @@ def run_trade_history(  # noqa: C901
         request.minutes_back
     )
     if minutes_back_error:
-        from mtdata.core.error_envelope import invalid_minutes_back_payload
+        from mtdata.shared.error_envelope import invalid_minutes_back_payload
         from mtdata.utils.time import MAX_TRADING_MINUTES_BACK
 
         return _finish(
@@ -565,7 +565,7 @@ def run_trade_history(  # noqa: C901
                 request.minutes_back
             )
             if minutes_back_error:
-                from mtdata.core.error_envelope import invalid_minutes_back_payload
+                from mtdata.shared.error_envelope import invalid_minutes_back_payload
                 from mtdata.utils.time import MAX_TRADING_MINUTES_BACK
 
                 return invalid_minutes_back_payload(

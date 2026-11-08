@@ -4,6 +4,14 @@ import math
 import time
 from typing import Any, Dict, Literal, Optional
 
+from mtdata.shared.error_envelope import build_error_payload
+from mtdata.shared.execution_logging import run_logged_operation
+from mtdata.shared.output_contract import (
+    ensure_common_meta,
+    normalize_output_verbosity_detail,
+)
+from mtdata.shared.runtime_metadata import attach_mt5_source
+
 from ..shared.feature_flags import (
     MARKET_DEPTH_FETCH_ENV,
     MARKET_DEPTH_FETCH_FEATURE,
@@ -60,11 +68,7 @@ from ..utils.time import (
     display_timezone_label,
 )
 from ._mcp_instance import mcp
-from .error_envelope import build_error_payload
-from .execution_logging import run_logged_operation
 from .mt5_gateway import create_mt5_gateway
-from .output_contract import ensure_common_meta, normalize_output_verbosity_detail
-from .runtime_metadata import attach_mt5_source
 
 logger = logging.getLogger(__name__)
 _MARKET_TICKER_STALE_SECONDS = QUOTE_STALE_SECONDS

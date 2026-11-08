@@ -7,6 +7,7 @@ from typing import get_args, get_type_hints
 from zoneinfo import ZoneInfo
 
 import mtdata.core.market_status as market_status_mod
+from mtdata.shared.market_status_output import normalize_market_status_output
 
 
 def _unwrap(fn):
@@ -163,12 +164,12 @@ def test_market_status_standard_and_summary_use_compact_shape() -> None:
         "upcoming_holidays": [{"date": "2031-01-01"}],
     }
 
-    compact = market_status_mod.normalize_market_status_output(payload, detail="compact")
+    compact = normalize_market_status_output(payload, detail="compact")
 
-    assert market_status_mod.normalize_market_status_output(
+    assert normalize_market_status_output(
         payload, detail="standard"
     ) == compact
-    assert market_status_mod.normalize_market_status_output(
+    assert normalize_market_status_output(
         payload, detail="summary"
     ) == compact
 
@@ -1472,8 +1473,8 @@ def test_normalize_market_status_output_compact_hides_messages_and_holidays() ->
         ],
     }
 
-    compact = market_status_mod.normalize_market_status_output(payload, detail="compact")
-    full = market_status_mod.normalize_market_status_output(payload, detail="full")
+    compact = normalize_market_status_output(payload, detail="compact")
+    full = normalize_market_status_output(payload, detail="full")
 
     assert "message" not in compact
     assert "message" not in compact["markets"][0]
@@ -1495,7 +1496,7 @@ def test_normalize_market_status_output_full_detail_keeps_holidays() -> None:
         "upcoming_holidays_count": 1,
     }
 
-    full = market_status_mod.normalize_market_status_output(
+    full = normalize_market_status_output(
         payload,
         detail="full",
     )
@@ -1509,7 +1510,7 @@ def test_normalize_market_status_output_full_detail_keeps_holidays() -> None:
 def test_normalize_market_status_output_handles_payload_without_markets() -> None:
     payload = {"success": True, "message": "human summary"}
 
-    compact = market_status_mod.normalize_market_status_output(payload, detail="compact")
+    compact = normalize_market_status_output(payload, detail="compact")
 
     assert compact == {"success": True}
 

@@ -19,7 +19,7 @@ import type {
 import { mapCompactForecastToSeries } from '../lib/compactForecast'
 import { loadJSON, saveJSON } from '../lib/storage'
 import { createToolRunGate } from '../lib/toolRunState'
-import { formatDateTime } from '../lib/utils'
+import { formatDateTime } from '../lib/time'
 import {
   forecastMethodParams,
   normalizeForecastSettings,
@@ -57,10 +57,6 @@ type SupportResistanceResource = {
 const hasNoPivotLevels = (data: PivotResource) => !data.levels.length
 const hasNoSupportResistanceLevels = (data: SupportResistanceResource) => !data.levels.length
 
-// ============================================================================
-// Forecast Methods Hook
-// ============================================================================
-
 export function useForecastMethods() {
   const query = useQuery({
     queryKey: ['methods'],
@@ -75,10 +71,6 @@ export function useForecastMethods() {
     refetch: query.refetch,
   }
 }
-
-// ============================================================================
-// Pivot Levels Hook
-// ============================================================================
 
 export function usePivotLevels(symbol: string, timeframe: string) {
   const [method, setMethodState] = useState<PivotMethod>(DEFAULT_PIVOT_METHOD)
@@ -126,10 +118,6 @@ export function usePivotLevels(symbol: string, timeframe: string) {
     reset: resource.reset,
   }
 }
-
-// ============================================================================
-// Support/Resistance Hook
-// ============================================================================
 
 export function useSupportResistance(symbol: string, timeframe: string) {
   const [controls, setControlsState] = useState<SupportResistanceControls>(DEFAULT_SR_CONTROLS)
@@ -189,10 +177,6 @@ export function useSupportResistance(symbol: string, timeframe: string) {
   }
 }
 
-// ============================================================================
-// Forecast State Hook
-// ============================================================================
-
 export type { ForecastSettings } from '../lib/forecastContracts'
 
 export function loadForecastSettings(symbol: string, timeframe: string): ForecastSettings {
@@ -219,10 +203,6 @@ export function useForecastSettings(symbol: string, timeframe: string) {
 
   return { settings, setSettings }
 }
-
-// ============================================================================
-// Forecast Execution Hook
-// ============================================================================
 
 export function useForecast(
   symbol: string,
@@ -322,10 +302,6 @@ export function useForecast(
 
   return { run, isLoading, error, result }
 }
-
-// ============================================================================
-// Chart Overlays Builder
-// ============================================================================
 
 export function useChartOverlays(
   bars: HistoryBar[],

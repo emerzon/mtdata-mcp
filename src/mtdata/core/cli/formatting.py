@@ -82,7 +82,6 @@ def _format_result_for_cli(
         return _dumps_json(
             payload,
             indent=2,
-            compact_numbers=precision_policy.simplify_numbers,
             string_normalizer=_normalize_cli_command_hint,
         )
     if isinstance(prepared, str):

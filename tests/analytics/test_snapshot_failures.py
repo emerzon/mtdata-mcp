@@ -4,7 +4,7 @@ import pytest
 
 from mtdata.analytics.execution_quality import analyze_execution_quality
 from mtdata.analytics.portfolio_risk import decompose_portfolio_risk
-from mtdata.core.analytics_requests import (
+from mtdata.analytics.requests import (
     PortfolioRiskDecomposeRequest,
     TradeExecutionQualityRequest,
 )

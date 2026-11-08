@@ -4,6 +4,8 @@ from typing import Any, Dict, List, Optional
 
 from pydantic import ValidationError
 
+from mtdata.shared.execution_logging import run_logged_operation
+
 from ...services.data_service import fetch_candles, fetch_ticks
 from ...shared.constants import TIMEFRAME_SECONDS
 from ...shared.schema import DetailLiteral, TimeframeLiteral
@@ -11,7 +13,6 @@ from ...utils.mt5 import (
     ensure_mt5_connection_or_raise,
 )
 from .._mcp_instance import mcp
-from ..execution_logging import run_logged_operation
 from ..mt5_gateway import create_mt5_gateway
 from .requests import (
     WAIT_EVENT_MAX_SYMBOLS,
@@ -24,7 +25,7 @@ from .use_cases import (
     run_data_fetch_ticks,
     run_wait_event,
 )
-from .wait_events import _WAIT_EVENT_IDENTITY_FIELDS
+from .wait_events.loop import _WAIT_EVENT_IDENTITY_FIELDS
 
 # Explicitly define what should be exported for '*' imports
 __all__ = ['data_fetch_candles', 'data_fetch_ticks', 'wait_event']

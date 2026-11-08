@@ -8,13 +8,14 @@ import pytest
 from pydantic import ValidationError
 
 from mtdata.core import data as core_data
-from mtdata.core.data import wait_events as wait_events_mod
 from mtdata.core.data.requests import WaitEventRequest
 from mtdata.core.data.use_cases import _wait_event_needs_gateway, run_wait_event
+from mtdata.core.data.wait_events import account as wait_event_account
+from mtdata.core.data.wait_events import ticks as wait_event_ticks
 
 
 def test_filled_volume_accumulation_requantizes_to_symbol_step() -> None:
-    accumulated = wait_events_mod._accumulate_filled_volume(
+    accumulated = wait_event_account._accumulate_filled_volume(
         0.1,
         0.2,
         volume_step=0.01,
@@ -532,7 +533,7 @@ def test_evaluate_order_filled_event_uses_ticket_field_when_order_identifier_is_
         "time": 1700000001,
     }
 
-    result = wait_events_mod._evaluate_order_filled_event(
+    result = wait_event_account._evaluate_order_filled_event(
         {"type": "order_filled", "symbol": "EURUSD", "order_ticket": 7001},
         {"history_deals": [row], "order_filled_state": {}},
         gateway=gateway,
@@ -557,7 +558,7 @@ def test_evaluate_order_filled_event_waits_for_cumulative_target_before_matching
         "time": 1700000001,
     }
 
-    result = wait_events_mod._evaluate_order_filled_event(
+    result = wait_event_account._evaluate_order_filled_event(
         {"type": "order_filled", "symbol": "EURUSD", "order_ticket": 7001},
         {
             "history_deals": [row],
@@ -646,9 +647,9 @@ def test_run_wait_event_ignores_replayed_preexisting_order_history() -> None:
 
 def test_run_wait_event_advances_history_poll_cursors_per_stream(monkeypatch) -> None:
     monkeypatch.setattr(
-        wait_events_mod.account,
+        wait_event_account,
         "_to_server_query_dt",
-        lambda dt: wait_events_mod._normalize_utc_datetime(dt),
+        lambda dt: wait_event_ticks._normalize_utc_datetime(dt),
     )
 
     clock = FakeClock(datetime(2026, 3, 15, 12, 0, 0, 500000, tzinfo=timezone.utc))

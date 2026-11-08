@@ -11,6 +11,11 @@ from typing import Annotated, Any, Dict, List, Literal, Optional
 
 from pydantic import Field
 
+from mtdata.shared.error_envelope import build_error_payload
+from mtdata.shared.execution_logging import run_logged_operation
+from mtdata.shared.output_contract import build_pagination_meta
+from mtdata.shared.runtime_metadata import attach_mt5_source
+
 from ..forecast.exceptions import ForecastError, ModelCompatibilityError
 from ..forecast.requests import (
     ForecastBacktestRequest,
@@ -35,11 +40,7 @@ from ..utils.coercion import is_explicit_false as _is_explicit_false
 from ..utils.mt5 import ensure_mt5_connection_or_raise
 from ..utils.utils import parse_kv_or_json as _parse_kv_or_json
 from ._mcp_instance import mcp
-from .error_envelope import build_error_payload
-from .execution_logging import run_logged_operation
 from .mt5_gateway import create_mt5_gateway, mt5_connection_error
-from .output_contract import build_pagination_meta
-from .runtime_metadata import attach_mt5_source
 
 logger = logging.getLogger(__name__)
 

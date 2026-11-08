@@ -10,10 +10,9 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 import numpy as np
 import pandas as pd
 
-from ..core.analytics_requests import (
-    TradeExecutionQualityRequest,
-)
-from ..core.error_envelope import invalid_minutes_back_payload
+from mtdata.analytics.requests import TradeExecutionQualityRequest
+from mtdata.shared.error_envelope import invalid_minutes_back_payload
+
 from ..core.trading.use_cases.common import (
     _linearized_account_currency_notional,
 )

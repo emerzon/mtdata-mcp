@@ -330,7 +330,7 @@ def test_invalid_output_format_is_identical_across_entry_paths(monkeypatch, caps
 
     monkeypatch.setenv("MTDATA_OUTPUT_FORMAT", "jsoon")
     monkeypatch.setattr(
-        "mtdata.core.error_envelope.new_request_id",
+        "mtdata.shared.error_envelope.new_request_id",
         lambda: "fixed-request",
     )
 

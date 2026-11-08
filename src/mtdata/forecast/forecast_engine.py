@@ -89,7 +89,9 @@ class _AsyncTrainingStarted(Exception):
 
 from .forecast_registry import (
     ForecastRegistry,
-    get_forecast_method_availability_snapshot,
+)
+from .forecast_registry import (
+    get_available_forecast_methods as _get_available_methods,
 )
 from .target_builder import (
     build_target_series,
@@ -165,16 +167,6 @@ class TrainingExecutionContext:
     method_params: Dict[str, Any]
     timeframe: str
     exog_used: Optional[np.ndarray]
-
-
-# Supported forecast methods - dynamically fetch from registry
-def _get_available_methods():
-    availability = get_forecast_method_availability_snapshot()
-    return tuple(
-        method
-        for method in ForecastRegistry.get_all_method_names()
-        if availability.get(method, False)
-    )
 
 
 def _feature_method_capability_error(

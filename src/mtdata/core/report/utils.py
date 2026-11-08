@@ -60,7 +60,7 @@ def report_runtime_expired() -> bool:
 
 
 def report_runtime_error(operation: str) -> Dict[str, Any]:
-    from ..error_envelope import build_error_payload
+    from mtdata.shared.error_envelope import build_error_payload
 
     payload = build_error_payload(
         (

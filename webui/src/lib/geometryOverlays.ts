@@ -1,9 +1,9 @@
 import { LineStyle } from 'lightweight-charts'
-import type { PriceLineSpec } from '../components/OHLCChart'
 import type {
   ConfluenceResponse,
   ExposureResponse,
   PivotLevel,
+  PriceLineSpec,
   SupportResistanceLevel,
   TradeIdeaPayload,
   VolumeProfileResponse,

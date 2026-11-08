@@ -8,10 +8,12 @@ import pytest
 from pydantic import ValidationError
 
 from mtdata.core import data as core_data
-from mtdata.core.data import wait_events as wait_events_mod
 from mtdata.core.data.requests import WaitEventRequest
 from mtdata.core.data.use_cases import _wait_event_needs_gateway, run_wait_event
-from mtdata.core.runtime_metadata import build_mt5_source_provenance
+from mtdata.core.data.wait_events import compile as wait_event_compile
+from mtdata.core.data.wait_events import loop as wait_event_loop
+from mtdata.core.data.wait_events import ticks as wait_event_ticks
+from mtdata.shared.runtime_metadata import build_mt5_source_provenance
 
 
 class FakeClock:
@@ -46,7 +48,7 @@ def test_wait_quote_payload_includes_quote_freshness() -> None:
         }
     )
 
-    result = wait_events_mod._wait_result_quote_payload(
+    result = wait_event_loop._wait_result_quote_payload(
         request=WaitEventRequest(symbol="EURUSD", timeframe="M1"),
         watch_for_payload=[],
         market_state=None,
@@ -78,7 +80,7 @@ def test_wait_quote_payload_marks_locked_quote_unusable() -> None:
         }
     )
 
-    result = wait_events_mod._wait_result_quote_payload(
+    result = wait_event_loop._wait_result_quote_payload(
         request=WaitEventRequest(symbol="EURUSD", timeframe="M1"),
         watch_for_payload=[],
         market_state=None,
@@ -1729,7 +1731,7 @@ def test_run_wait_event_waits_across_dst_gap(monkeypatch) -> None:
     assert result["polls"] > 1
 
 def test_run_wait_event_returns_error_when_tick_retention_cap_is_exceeded(monkeypatch) -> None:
-    monkeypatch.setattr(wait_events_mod.ticks, "_MARKET_TICK_RETENTION_MAX_TICKS", 4)
+    monkeypatch.setattr(wait_event_ticks, "_MARKET_TICK_RETENTION_MAX_TICKS", 4)
 
     started = datetime(2026, 3, 15, 12, 0, 0, tzinfo=timezone.utc)
     base_epoch = int(started.timestamp()) - 3
@@ -1872,7 +1874,7 @@ def test_window_ticks_uses_time_window_cutoff() -> None:
         {"epoch": 100.0},
     ]
 
-    out = wait_events_mod._window_ticks(ticks, {"kind": "minutes", "value": 0.5})
+    out = wait_event_ticks._window_ticks(ticks, {"kind": "minutes", "value": 0.5})
 
     assert [tick["epoch"] for tick in out] == [80.0, 100.0]
 
@@ -1885,7 +1887,7 @@ def test_window_prices_uses_time_window_cutoff() -> None:
         (100.0, 103.0),
     ]
 
-    out = wait_events_mod._window_prices(prices, {"kind": "minutes", "value": 0.5})
+    out = wait_event_ticks._window_prices(prices, {"kind": "minutes", "value": 0.5})
 
     assert out == [(80.0, 102.0), (100.0, 103.0)]
 
@@ -1898,7 +1900,7 @@ def test_slice_prices_from_epoch_accepts_explicit_epochs_for_duplicate_timestamp
     ]
     epochs = [10.0, 10.0, 40.0]
 
-    out = wait_events_mod._slice_prices_from_epoch(
+    out = wait_event_ticks._slice_prices_from_epoch(
         prices,
         start_epoch=10.0,
         end_epoch=10.0,
@@ -1923,7 +1925,7 @@ def test_duration_price_change_baseline_samples_preserve_time_window_boundaries(
         (180.0, 106.0),
     ]
 
-    out = wait_events_mod._duration_price_change_baseline_samples(spec, prices)
+    out = wait_event_ticks._duration_price_change_baseline_samples(spec, prices)
 
     assert out[0] == pytest.approx(2.0)
     assert out[1] == pytest.approx(((104.0 - 102.0) / 102.0) * 100.0)
@@ -1949,7 +1951,7 @@ def test_compile_request_precomputes_watcher_requirements() -> None:
         }
     )
 
-    compiled = wait_events_mod._compile_request(
+    compiled = wait_event_compile._compile_request(
         request,
         started_at_utc=datetime(2026, 4, 5, tzinfo=timezone.utc),
     )
@@ -1979,11 +1981,11 @@ def test_collect_snapshot_uses_precomputed_market_specs(monkeypatch) -> None:
         captured["market_specs"] = market_specs
         return {"EURUSD": {"last_epoch": observed_at_utc.timestamp(), "ticks": []}}
 
-    monkeypatch.setattr(wait_events_mod.loop, "_refresh_market_state", fake_refresh_market_state)
+    monkeypatch.setattr(wait_event_loop, "_refresh_market_state", fake_refresh_market_state)
 
     market_specs = [{"type": "price_change", "symbol": "EURUSD"}]
     observed_at_utc = datetime(2026, 4, 5, 13, 0, tzinfo=timezone.utc)
-    snapshot = wait_events_mod._collect_snapshot(
+    snapshot = wait_event_loop._collect_snapshot(
         gateway=Gateway(),
         baseline={},
         history_state={},

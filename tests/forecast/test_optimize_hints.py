@@ -735,25 +735,41 @@ def test_genetic_search_timeout_without_finite_candidate_is_distinct(monkeypatch
     assert result["hints"] == []
 
 
-@pytest.mark.skip(reason="Long-running integration test; run manually")
-class TestGeneticSearchOptimizeHints:
-    """Integration test for genetic search (skipped by default)."""
+@pytest.mark.parametrize("top_n", [1, 2])
+def test_genetic_search_limits_hints_after_multiple_generations(top_n):
+    def evaluate(**kwargs):
+        return 0.12, {
+            "results": {
+                kwargs["method"]: {
+                    "success": True,
+                    "avg_rmse": 0.12,
+                    "metrics": {"avg_rmse": 0.12},
+                }
+            }
+        }
 
-    def test_basic_search(self):
-        """Basic search should complete and return hints."""
+    with patch("mtdata.forecast.tune._eval_candidate", side_effect=evaluate) as backtest:
         result = genetic_search_optimize_hints(
-            symbol='EURUSD',
-            timeframes=['H1'],
-            methods=['theta', 'naive'],
-            horizon=12,
-            steps=3,
-            spacing=10,
+            symbol="EURUSD",
+            timeframes=["H1"],
+            methods=["naive", "theta"],
+            search_space={
+                "timeframe": {"choices": ["H1"]},
+                "method": {"choices": ["naive", "theta"]},
+                "_method_spaces": {"naive": {}, "theta": {}},
+            },
             population=4,
             generations=2,
-            fitness_metric='composite',
-            top_n=2,
+            fitness_metric="avg_rmse",
+            top_n=top_n,
+            seed=6,
         )
-        assert result['success'] is True
-        assert 'hints' in result
-        assert 'search_summary' in result
-        assert len(result['hints']) <= 2
+
+    assert result["success"] is True
+    assert result["stop_reason"] == "completed"
+    assert len(result["hints"]) == top_n
+    assert [hint["rank"] for hint in result["hints"]] == list(range(1, top_n + 1))
+    assert result["search_summary"]["generations_completed"] == 2
+    assert backtest.call_count > 4
+    if top_n == 2:
+        assert {hint["method"] for hint in result["hints"]} == {"naive", "theta"}

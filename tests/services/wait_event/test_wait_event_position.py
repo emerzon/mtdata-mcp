@@ -8,9 +8,9 @@ import pytest
 from pydantic import ValidationError
 
 from mtdata.core import data as core_data
-from mtdata.core.data import wait_events as wait_events_mod
 from mtdata.core.data.requests import WaitEventRequest
 from mtdata.core.data.use_cases import _wait_event_needs_gateway, run_wait_event
+from mtdata.core.data.wait_events import account as wait_event_account
 
 
 class FakeClock:
@@ -264,24 +264,24 @@ def test_exit_trigger_text_matching_ignores_non_hit_mentions() -> None:
     gateway = SequenceGateway()
     row = {"comment": "stop loss hit, no tp set", "reason": "manual"}
 
-    assert wait_events_mod._is_exit_trigger(row, gateway=gateway, trigger="tp") is False
-    assert wait_events_mod._is_exit_trigger(row, gateway=gateway, trigger="sl") is True
+    assert wait_event_account._is_exit_trigger(row, gateway=gateway, trigger="tp") is False
+    assert wait_event_account._is_exit_trigger(row, gateway=gateway, trigger="sl") is True
 
 def test_exit_trigger_text_matching_accepts_explicit_tp_markers() -> None:
     gateway = SequenceGateway()
     row = {"comment": "tp", "reason": ""}
 
-    assert wait_events_mod._is_exit_trigger(row, gateway=gateway, trigger="tp") is True
+    assert wait_event_account._is_exit_trigger(row, gateway=gateway, trigger="tp") is True
 
 def test_exit_trigger_matches_numeric_reason_constants() -> None:
     gateway = SequenceGateway()
 
-    assert wait_events_mod._is_exit_trigger(
+    assert wait_event_account._is_exit_trigger(
         {"comment": "", "reason": gateway.DEAL_REASON_TP},
         gateway=gateway,
         trigger="tp",
     ) is True
-    assert wait_events_mod._is_exit_trigger(
+    assert wait_event_account._is_exit_trigger(
         {"comment": "", "reason": gateway.DEAL_REASON_SL},
         gateway=gateway,
         trigger="sl",
@@ -293,10 +293,10 @@ def test_exit_trigger_prefers_broker_reason_over_conflicting_comment_text() -> N
     tp_row = {"comment": "stop loss hit", "reason": gateway.DEAL_REASON_TP}
     sl_row = {"comment": "take profit hit", "reason": gateway.DEAL_REASON_SL}
 
-    assert wait_events_mod._is_exit_trigger(tp_row, gateway=gateway, trigger="tp") is True
-    assert wait_events_mod._is_exit_trigger(tp_row, gateway=gateway, trigger="sl") is False
-    assert wait_events_mod._is_exit_trigger(sl_row, gateway=gateway, trigger="sl") is True
-    assert wait_events_mod._is_exit_trigger(sl_row, gateway=gateway, trigger="tp") is False
+    assert wait_event_account._is_exit_trigger(tp_row, gateway=gateway, trigger="tp") is True
+    assert wait_event_account._is_exit_trigger(tp_row, gateway=gateway, trigger="sl") is False
+    assert wait_event_account._is_exit_trigger(sl_row, gateway=gateway, trigger="sl") is True
+    assert wait_event_account._is_exit_trigger(sl_row, gateway=gateway, trigger="tp") is False
 
 def test_run_wait_event_ignores_replayed_preexisting_deal_history() -> None:
     clock = FakeClock(datetime(2026, 3, 15, 12, 0, 0, tzinfo=timezone.utc))

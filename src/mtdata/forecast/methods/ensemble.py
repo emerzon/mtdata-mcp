@@ -1,31 +1,24 @@
 from __future__ import annotations
 
-import inspect
 import math
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 
-from ..common import _normalize_weights as _normalize_weights_default
+from ..common import _normalize_weights
 from ..ensemble_dispatch import (
     append_failure as _append_failure,
-)
-from ..ensemble_dispatch import (
-    dispatch_callback_with_error as _dispatch_callback_with_error,
 )
 from ..ensemble_dispatch import (
     dispatch_registered_forecast,
 )
 from ..forecast_registry import (
     ForecastRegistry,
-    get_forecast_method_availability_snapshot,
+    get_available_forecast_methods,
 )
 from ..interface import ForecastMethod, ForecastResult
 
-# Canonical type for component dispatch callables.  Every ensemble dispatch
-# route (engine-injected or standalone default) must conform to this
-# signature: (method_name, series, horizon, seasonality, params) → (forecast, error_detail).
 ComponentDispatchFn = Callable[
     [str, pd.Series, int, Optional[int], Optional[Dict[str, Any]]],
     Tuple[Optional[np.ndarray], Optional[Dict[str, Any]]],
@@ -48,42 +41,6 @@ def _stabilized_rmse_weights(rmse: np.ndarray) -> Optional[np.ndarray]:
     if not np.isfinite(total) or total <= 0.0:
         return None
     return weights / total
-
-
-def _ensemble_dispatch_method_default(
-    method_name: str,
-    series: pd.Series,
-    horizon: int,
-    seasonality: Optional[int],
-    params: Optional[Dict[str, Any]],
-) -> Optional[np.ndarray]:
-    forecast, _ = dispatch_registered_forecast(
-        method_name,
-        series,
-        horizon,
-        seasonality,
-        params,
-    )
-    return forecast
-
-
-_DEFAULT_DISPATCH_METHOD = _ensemble_dispatch_method_default
-
-
-def _ensemble_dispatch_method_default_with_error(
-    method_name: str,
-    series: pd.Series,
-    horizon: int,
-    seasonality: Optional[int],
-    params: Optional[Dict[str, Any]],
-) -> Tuple[Optional[np.ndarray], Optional[Dict[str, Any]]]:
-    return dispatch_registered_forecast(
-        method_name,
-        series,
-        horizon,
-        seasonality,
-        params,
-    )
 
 
 def _prepare_ensemble_cv_default(
@@ -211,64 +168,8 @@ class EnsembleMethod(ForecastMethod):
         exog_future: Optional[pd.DataFrame] = None,
         **kwargs
     ) -> ForecastResult:
-        dispatch_method = kwargs.get("ensemble_dispatch_method")
-        if not callable(dispatch_method):
-            dispatch_method = _ensemble_dispatch_method_default
-        dispatch_with_error = kwargs.get("ensemble_dispatch_with_error")
-        if not callable(dispatch_with_error):
-            if dispatch_method is _DEFAULT_DISPATCH_METHOD:
-                dispatch_with_error = _ensemble_dispatch_method_default_with_error
-            else:
-                def _dispatch_with_error(
-                    method_name: str,
-                    series_in: pd.Series,
-                    horizon_in: int,
-                    seasonality_in: Optional[int],
-                    params_in: Optional[Dict[str, Any]],
-                ) -> Tuple[Optional[np.ndarray], Optional[Dict[str, Any]]]:
-                    return _dispatch_callback_with_error(
-                        dispatch_method,
-                        method_name,
-                        series_in,
-                        horizon_in,
-                        seasonality_in,
-                        params_in,
-                    )
-
-                dispatch_with_error = _dispatch_with_error
-
         cv_failures: List[Dict[str, Any]] = []
         component_failures: List[Dict[str, Any]] = []
-
-        prepare_cv = kwargs.get("prepare_ensemble_cv")
-        if not callable(prepare_cv):
-            def _prepare(series_in, methods, horizon_in, seasonality_in, params_map, cv_points, min_train):
-                return _prepare_ensemble_cv_default(
-                    series_in,
-                    methods,
-                        horizon_in,
-                        seasonality_in,
-                        params_map,
-                        cv_points,
-                        min_train,
-                        dispatch_with_error,
-                        failure_sink=cv_failures,
-                    )
-            prepare_cv = _prepare
-
-        normalize_weights = kwargs.get("normalize_weights")
-        if not callable(normalize_weights):
-            normalize_weights = _normalize_weights_default
-
-        get_available_methods = kwargs.get("get_available_methods")
-        if not callable(get_available_methods):
-            def get_available_methods() -> tuple[str, ...]:
-                availability = get_forecast_method_availability_snapshot()
-                return tuple(
-                    method
-                    for method in ForecastRegistry.get_all_method_names()
-                    if availability.get(method, False)
-                )
 
         base_methods_in = params.get('methods')
         if isinstance(base_methods_in, str):
@@ -278,7 +179,7 @@ class EnsembleMethod(ForecastMethod):
         else:
             base_methods = ['naive', 'theta', 'fourier_ols']
 
-        available_methods = set(get_available_methods())
+        available_methods = set(get_available_forecast_methods())
         unavailable_methods = [
             method for method in base_methods
             if method not in available_methods or method == 'ensemble'
@@ -307,7 +208,7 @@ class EnsembleMethod(ForecastMethod):
         cv_points = int(params.get('cv_points', max(6, len(base_methods) * 2)))
         min_train = int(params.get('min_train_size', max(30, horizon * 3)))
         expose_components = bool(params.get('expose_components', True))
-        weights_vec = normalize_weights(params.get('weights'), len(base_methods))
+        weights_vec = _normalize_weights(params.get('weights'), len(base_methods))
         if params.get('weights') is not None and weights_vec is None:
             raise ValueError(
                 f"Ensemble weights must contain exactly {len(base_methods)} "
@@ -337,13 +238,7 @@ class EnsembleMethod(ForecastMethod):
         stacking_weight_semantics = None
         cv_rows = 0
         if mode in ('rmse_weighted', 'stacking'):
-            prepare_kwargs: Dict[str, Any] = {}
-            try:
-                if "failure_sink" in inspect.signature(prepare_cv).parameters:
-                    prepare_kwargs["failure_sink"] = cv_failures
-            except (TypeError, ValueError):
-                pass
-            X_cv, y_cv = prepare_cv(
+            X_cv, y_cv = _prepare_ensemble_cv_default(
                 series,
                 base_methods,
                 horizon,
@@ -351,7 +246,8 @@ class EnsembleMethod(ForecastMethod):
                 params_map,
                 cv_points,
                 min_train,
-                **prepare_kwargs,
+                dispatch_registered_forecast,
+                failure_sink=cv_failures,
             )
             cv_rows = int(len(y_cv))
             cv_valid_per_method = np.sum(np.isfinite(X_cv), axis=0) if X_cv.size else np.zeros(len(base_methods))
@@ -406,7 +302,7 @@ class EnsembleMethod(ForecastMethod):
         component_params_applied: Dict[str, Dict[str, Any]] = {}
         for method_name in base_methods:
             method_params = params_map.get(method_name, {})
-            fc, error_detail = dispatch_with_error(
+            fc, error_detail = dispatch_registered_forecast(
                 method_name,
                 series,
                 horizon,

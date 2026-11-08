@@ -16,6 +16,25 @@ from typing import (
 
 from pydantic import Field
 
+from mtdata.shared.error_envelope import build_error_payload
+from mtdata.shared.execution_logging import run_logged_operation
+from mtdata.shared.output_contract import (
+    attach_collection_contract,
+    build_pagination_meta,
+    normalize_output_verbosity_detail,
+)
+from mtdata.shared.runtime_metadata import build_mt5_source_provenance
+from mtdata.shared.symbol_catalog import (
+    _case_insensitive_sort_key,
+    _clean_broker_text,
+    _invalid_symbol_category_error,
+    _normalize_group_path_query,
+    _normalize_symbol_category_filter,
+    _symbol_category,
+    _symbol_suggestion_from_info,
+)
+from mtdata.shared.symbol_catalog import _extract_group_path as _extract_group_path_util
+
 from ...shared.constants import (
     FETCH_RETRY_ATTEMPTS,
     FETCH_RETRY_DELAY,
@@ -61,10 +80,6 @@ from ...utils.quote import (
     tick_epoch,
     tick_value,
 )
-from ...utils.symbol import _extract_group_path as _extract_group_path_util
-from ...utils.symbol import (
-    _normalize_group_path_query,
-)
 from ...utils.time import (
     _format_time_minimal,
     _format_time_second_explicit,
@@ -75,23 +90,7 @@ from ...utils.utils import (
     _table_from_rows,
 )
 from .._mcp_instance import mcp
-from ..error_envelope import build_error_payload
-from ..execution_logging import run_logged_operation
 from ..mt5_gateway import create_mt5_gateway
-from ..output_contract import (
-    attach_collection_contract,
-    build_pagination_meta,
-    normalize_output_verbosity_detail,
-)
-from ..runtime_metadata import build_mt5_source_provenance
-from .classify import (
-    _case_insensitive_sort_key,
-    _clean_broker_text,
-    _invalid_symbol_category_error,
-    _normalize_symbol_category_filter,
-    _symbol_category,
-    _symbol_suggestion_from_info,
-)
 
 logger = logging.getLogger("mtdata.core.symbols")
 

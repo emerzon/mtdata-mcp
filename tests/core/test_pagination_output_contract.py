@@ -6,7 +6,7 @@ import pytest
 
 from mtdata.core._mcp_tools import shape_public_tool_output
 from mtdata.core.news import news
-from mtdata.core.output_contract import build_pagination_meta
+from mtdata.shared.output_contract import build_pagination_meta
 
 
 def _rows_for(collection_key: str) -> list[Any]:

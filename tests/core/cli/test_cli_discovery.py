@@ -17,7 +17,7 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 from pydantic import ValidationError
 
-from mtdata.core.analytics_requests import BarrierSpec, StrategyValidateRequest
+from mtdata.analytics.requests import BarrierSpec, StrategyValidateRequest
 from mtdata.core.data.requests import DataFetchCandlesRequest, WaitEventRequest
 from mtdata.core.patterns_requests import PatternsDetectRequest
 from mtdata.core.trading.requests import (
@@ -387,10 +387,10 @@ class TestUnwrapOptionalType:
         assert origin is list
 
     def test_union_multiple(self):
-        # Union[int, str] with more than one non-None type should stay as-is
-        base, origin = _unwrap_optional_type(Union[int, str])
-        # Should not unwrap since there are 2 non-None args
-        assert origin is not None or base is not int
+        annotation = Union[int, str]
+        base, origin = _unwrap_optional_type(annotation)
+        assert base == annotation
+        assert origin is Union
 
 
 # ========================================================================

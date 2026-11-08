@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from inspect import signature
 
 from mtdata.core.news import news, normalize_news_output
-from mtdata.core.output_contract import apply_output_verbosity
+from mtdata.shared.output_contract import apply_output_verbosity
 
 
 def _unwrap(fn):

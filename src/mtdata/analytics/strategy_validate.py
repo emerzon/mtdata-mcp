@@ -9,10 +9,8 @@ import numpy as np
 import pandas as pd
 from scipy.stats import kurtosis, norm, skew
 
-from ..core.analytics_requests import (
-    StrategyCandidate,
-    StrategyValidateRequest,
-)
+from mtdata.analytics.requests import StrategyCandidate, StrategyValidateRequest
+
 from ..utils.barriers import normalize_same_bar_policy
 from ..utils.quote import quote_spread_bps, symbol_info_spread_bps
 from ..utils.time import bar_close_epoch, format_epoch_utc

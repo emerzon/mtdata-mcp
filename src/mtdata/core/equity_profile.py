@@ -7,12 +7,13 @@ from typing import Annotated, Any, Dict, Optional
 
 from pydantic import Field
 
+from mtdata.shared.execution_logging import run_logged_operation
+
 from ..services.research.capabilities import EQUITY_PROFILE, FinvizResearchSourcePin
 from ..services.research.errors import finviz_only_source_error
 from ..services.research.payload import stamp_provider
 from ..shared.schema import DetailLiteral
 from ._mcp_instance import mcp
-from .execution_logging import run_logged_operation
 
 logger = logging.getLogger(__name__)
 

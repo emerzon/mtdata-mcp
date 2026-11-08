@@ -15,6 +15,8 @@ from pydantic import (
     model_validator,
 )
 
+from mtdata.shared.output_contract import normalize_output_detail
+
 from ...shared.constants import TIMEFRAME_SECONDS
 from ...shared.schema import (
     DenoiseSpecInput,
@@ -26,7 +28,6 @@ from ...shared.schema import (
     reject_removed_field,
 )
 from ...utils.coercion import coerce_finite_float, split_top_level_csv
-from ..output_contract import normalize_output_detail
 
 _INDICATOR_FORMAT_HELP = (
     "Prefer compact CLI specs like 'rsi(14),macd(12,26,9)' "

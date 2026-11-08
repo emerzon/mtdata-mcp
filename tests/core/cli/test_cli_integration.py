@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, call, patch
 
 import pytest
 
-from mtdata.core.analytics_requests import (
+from mtdata.analytics.requests import (
     MarketMicrostructureRequest,
     TradeExecutionQualityRequest,
 )
@@ -3380,7 +3380,7 @@ class TestEdgeCases:
         assert _is_typed_dict_type(FakeTD) is True
 
     def test_safe_tz_name_with_zone_none(self):
-        from mtdata.core.runtime_metadata import _safe_tz_name
+        from mtdata.shared.runtime_metadata import _safe_tz_name
 
         class FakeTZ:
             zone = None

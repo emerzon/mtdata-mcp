@@ -4,7 +4,8 @@ from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 from typing import Any, Dict, List, Optional
 
-from ...core.error_envelope import build_error_payload
+from mtdata.shared.error_envelope import build_error_payload
+
 from ...shared.schema import TimeframeLiteral
 from ...utils.freshness import closed_session_context
 from ...utils.mt5 import (

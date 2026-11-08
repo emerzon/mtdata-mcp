@@ -5,7 +5,8 @@ from typing import Any, Dict, List, Literal, Optional, Tuple
 import numpy as np
 import pandas as pd
 
-from ..core.output_contract import normalize_output_verbosity_detail
+from mtdata.shared.output_contract import normalize_output_verbosity_detail
+
 from ..shared.constants import TIMEFRAME_MAP, TIMEFRAME_SECONDS
 from ..shared.schema import DenoiseSpec, DetailLiteral, TimeframeLiteral
 from ..shared.validators import invalid_timeframe_error

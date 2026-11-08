@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useQuery } from '@tanstack/react-query'
-import { getDenoiseMethods, getWavelets } from '../api/client'
+import { getWavelets } from '../api/client'
+import { denoiseMethodsQuery } from '../api/queries'
 import type { DenoiseSpecUI, ParamDef } from '../types'
-import { defaultDenoiseCausality } from '../lib/denoiseSpec'
+import { defaultDenoiseCausality, denoiseNeedsMetadata } from '../lib/denoiseSpec'
 import { coerceParamValue } from '../lib/toolCatalog'
 import { useEscapeKey } from '../lib/useEscapeKey'
 
@@ -17,8 +18,7 @@ type Props = {
 
 export function DenoiseModal({ open, title = 'Configure Denoising', value, onClose, onApply }: Props) {
   const { data: methodData } = useQuery({
-    queryKey: ['denoise_methods'],
-    queryFn: getDenoiseMethods,
+    ...denoiseMethodsQuery,
     enabled: open,
   })
   const methods = (methodData?.methods ?? []).filter(m => m.available)
@@ -28,7 +28,9 @@ export function DenoiseModal({ open, title = 'Configure Denoising', value, onClo
     Array.isArray(value?.columns) ? value?.columns.join(',') : (value?.columns as string) || 'close'
   )
   const [when, setWhen] = useState<'pre_ti' | 'post_ti'>(value?.when || 'post_ti')
-  const [causality, setCausality] = useState<'zero_phase' | 'causal'>('causal')
+  const [causality, setCausality] = useState<'zero_phase' | 'causal' | undefined>(() =>
+    value?.causality ?? defaultDenoiseCausality(methodData?.methods.find(item => item.method === value?.method))
+  )
   const [keepOriginal, setKeepOriginal] = useState<boolean>(value?.keep_original ?? true)
   const [showAdvanced, setShowAdvanced] = useState<boolean>(false)
   useEscapeKey(open, onClose)
@@ -57,7 +59,7 @@ export function DenoiseModal({ open, title = 'Configure Denoising', value, onClo
     const nextCausality =
       value?.causality === 'causal' || value?.causality === 'zero_phase'
         ? value.causality
-        : defaultDenoiseCausality(nextMethod, meta)
+        : defaultDenoiseCausality(meta)
     setMethod(nextMethod)
     setParams(value?.params || {})
     setColumns(Array.isArray(value?.columns) ? value?.columns.join(',') : (value?.columns as string) || 'close')
@@ -67,7 +69,7 @@ export function DenoiseModal({ open, title = 'Configure Denoising', value, onClo
     const advancedActive = Boolean(
       value?.columns ||
         (value?.when && value?.when !== 'post_ti') ||
-        (value?.causality && value.causality !== defaultDenoiseCausality(nextMethod, meta)) ||
+        (value?.causality && value.causality !== defaultDenoiseCausality(meta)) ||
         value?.keep_original === false
     )
     setShowAdvanced(advancedActive)
@@ -76,6 +78,7 @@ export function DenoiseModal({ open, title = 'Configure Denoising', value, onClo
   if (!open) return null
 
   const portalTarget = document.getElementById('modal-root') || document.body
+  const needsMetadata = denoiseNeedsMetadata({ method, causality })
 
   const apply = () => {
     if (!method) {
@@ -83,6 +86,7 @@ export function DenoiseModal({ open, title = 'Configure Denoising', value, onClo
       onClose()
       return
     }
+    if (needsMetadata) return
     const cols = columns?.split(',').map(c => c.trim()).filter(Boolean)
     onApply({
       method,
@@ -135,7 +139,7 @@ export function DenoiseModal({ open, title = 'Configure Denoising', value, onClo
                 const meta = methods.find(item => item.method === next)
                 setMethod(next)
                 setParams({})
-                setCausality(defaultDenoiseCausality(next, meta))
+                setCausality(defaultDenoiseCausality(meta))
                 setShowAdvanced(false)
               }}
             >
@@ -185,7 +189,8 @@ export function DenoiseModal({ open, title = 'Configure Denoising', value, onClo
                     </label>
                     <label className="flex flex-col gap-1">
                       <span className="label">Causality</span>
-                      <select className="select" value={causality} onChange={e => setCausality(e.target.value as 'zero_phase' | 'causal')}>
+                      <select className="select" value={causality ?? ''} onChange={e => setCausality(e.target.value as 'zero_phase' | 'causal')}>
+                        {!causality && <option value="" disabled>Choose causality or wait for method details</option>}
                         <option value="causal">causal</option>
                         <option value="zero_phase">zero_phase</option>
                       </select>
@@ -271,7 +276,7 @@ export function DenoiseModal({ open, title = 'Configure Denoising', value, onClo
             <button className="btn bg-slate-600 hover:bg-slate-500" onClick={onClose}>
               Cancel
             </button>
-            <button className="btn" onClick={apply} disabled={!method}>
+            <button className="btn" onClick={apply} disabled={!method || needsMetadata}>
               Apply
             </button>
           </div>

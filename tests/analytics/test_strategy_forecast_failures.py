@@ -5,8 +5,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from mtdata.analytics.requests import StrategyCandidate, StrategyValidateRequest
 from mtdata.analytics.strategy_validate import _forecast_signal, validate_strategies
-from mtdata.core.analytics_requests import StrategyCandidate, StrategyValidateRequest
 
 
 def _frame():

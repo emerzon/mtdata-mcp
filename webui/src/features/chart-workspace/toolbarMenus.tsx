@@ -2,9 +2,9 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   getErrorMessage,
-  getTimeframes,
   searchInstruments,
 } from '../../api/client'
+import { timeframeCatalogQuery } from '../../api/queries'
 import { DenoiseModal } from '../../components/DenoiseModal'
 import {
   CHART_INDICATOR_IDS,
@@ -189,8 +189,8 @@ export function TimeframeSelector({
 }) {
   const [open, setOpen] = useState(false)
   const ref = useDismissiblePanel(() => setOpen(false), open)
-  const { data } = useQuery({ queryKey: ['timeframes'], queryFn: getTimeframes })
-  const timeframes = data ?? []
+  const { data } = useQuery(timeframeCatalogQuery)
+  const timeframes = data?.timeframes ?? []
 
   return (
     <div ref={ref} className="relative">

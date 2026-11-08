@@ -9,9 +9,9 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 import pandas as pd
 
-from ..core.analytics_requests import (
-    MarketRelativeStrengthRequest,
-)
+from mtdata.analytics.requests import MarketRelativeStrengthRequest
+from mtdata.shared.symbol_catalog import _normalize_group_path_query
+
 from ..shared.constants import TIMEFRAME_SECONDS
 from ..utils.freshness import (
     closed_session_context,
@@ -23,7 +23,6 @@ from ..utils.quote import (
     tick_epoch,
     tick_value,
 )
-from ..utils.symbol import _normalize_group_path_query
 from ..utils.time import bar_close_epoch, format_datetime_utc, format_epoch_utc
 from .engine_common import (
     _log_close_returns,

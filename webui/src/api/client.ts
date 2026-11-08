@@ -1,5 +1,4 @@
 import axios from 'axios'
-import { setTimeframeSeconds } from '../lib/timeframes'
 import type {
   HistoryBar,
   HistoryResponse,
@@ -26,6 +25,7 @@ import type {
   SessionStripResponse,
   TradeIdeaPayload,
   VolumeProfileResponse,
+  TimeframeCatalog,
 } from '../types'
 import type { PivotMethod, SrQueryParams } from '../lib/overlayParams'
 import type { ToolCatalogEntry } from '../lib/toolCatalog'
@@ -102,17 +102,9 @@ function extractErrorText(value: unknown): string | null {
   }
 }
 
-// ============================================================================
-// Timeframes & Instruments
-// ============================================================================
-
-export async function getTimeframes(): Promise<string[]> {
-  const { data } = await api.get<{
-    timeframes: string[]
-    seconds?: Record<string, number>
-  }>('timeframes')
-  setTimeframeSeconds(data.seconds)
-  return data.timeframes ?? []
+export async function getTimeframes(): Promise<TimeframeCatalog> {
+  const { data } = await api.get<TimeframeCatalog>('timeframes')
+  return { ...data, timeframes: data.timeframes ?? [] }
 }
 
 export async function searchInstruments(search?: string, limit?: number, signal?: AbortSignal): Promise<Instrument[]> {
@@ -122,10 +114,6 @@ export async function searchInstruments(search?: string, limit?: number, signal?
   })
   return data.items ?? []
 }
-
-// ============================================================================
-// History Data
-// ============================================================================
 
 export type HistoryParams = {
   symbol: string
@@ -182,10 +170,6 @@ export async function getTick(symbol: string, signal?: AbortSignal): Promise<Tic
   return data
 }
 
-// ============================================================================
-// Forecast Methods Metadata
-// ============================================================================
-
 export async function getMethods(): Promise<MethodsMeta> {
   const { data } = await api.get<MethodsMeta>('methods')
   if (!Array.isArray(data?.methods)) {
@@ -230,10 +214,6 @@ export async function getModels(method?: string, signal?: AbortSignal): Promise<
   }
 }
 
-// ============================================================================
-// Forecasting
-// ============================================================================
-
 export async function forecastPrice(body: ForecastPriceBody): Promise<ForecastPayload> {
   const { data } = await api.post<ForecastPayload>('forecast/price', body)
   return data
@@ -248,10 +228,6 @@ export async function runBacktest(body: BacktestBody): Promise<BacktestResult> {
   const { data } = await api.post<BacktestResult>('backtest', body)
   return data
 }
-
-// ============================================================================
-// Technical Analysis
-// ============================================================================
 
 export type PivotParams = {
   symbol: string
@@ -336,10 +312,6 @@ export async function composeTradeIdea(body: {
   return data
 }
 
-// ============================================================================
-// Readiness
-// ============================================================================
-
 /**
  * MT5 readiness probe. Resolves with the JSON body on HTTP 200 and the
  * intentional 503 (MT5 not ready). Transport errors, 401/403, and unexpected
@@ -354,10 +326,6 @@ export async function readyCheck(signal?: AbortSignal): Promise<{ ok: boolean; p
   const ok = status >= 200 && status < 300
   return { ok, payload }
 }
-
-// ============================================================================
-// MCP tool catalog + generic invoke
-// ============================================================================
 
 export type ToolsListPagination = {
   total?: number

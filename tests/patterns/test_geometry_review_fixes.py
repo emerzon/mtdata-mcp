@@ -452,13 +452,44 @@ class TestMeasuredTouchCounts:
         assert _conf(4, 0.0, 1.0, cfg) == pytest.approx(_conf(9, 0.0, 1.0, cfg))
         assert _conf(2, 0.5, 1.0, cfg) < _conf(4, 0.5, 1.0, cfg)
 
-    def test_detectors_no_longer_hardcode_the_touch_count(self):
-        import inspect
-
+    @pytest.mark.parametrize("pattern", ["flag", "broadening"])
+    def test_detector_confidence_reflects_boundary_touch_tolerance(self, pattern):
         from mtdata.patterns.classic_impl import continuation, shapes
 
-        assert "_conf(4," not in inspect.getsource(continuation.detect_flags_pennants)
-        assert "_conf(4," not in inspect.getsource(shapes.detect_broadening)
+        if pattern == "flag":
+            close = np.full(120, 100.0)
+            close[70:90] = np.linspace(100.0, 110.0, 20)
+            x = np.arange(30, dtype=float)
+            close[90:] = 108.0 - 0.05 * x + (2.0 + 0.3 * np.sin(x)) * np.cos(2 * np.pi * x / 6)
+        else:
+            close = np.full(40, 100.0)
+            peaks = np.array([5, 15, 25, 35])
+            troughs = peaks + 2
+            close[peaks] = [105.0, 107.0, 111.0, 109.0]
+            close[troughs] = [95.0, 93.0, 89.0, 91.0]
+
+        confidence = []
+        for tolerance in (0.001, 3.0):
+            cfg = ClassicDetectorConfig(
+                same_level_tol_pct=tolerance,
+                min_touches=10,
+                use_robust_fit=False,
+                max_consolidation_bars=30,
+                min_pole_return_pct=4.0,
+                min_distance=2,
+                breakout_confidence_bonus=0.0,
+            )
+            times = np.arange(close.size, dtype=float)
+            if pattern == "flag":
+                found = continuation.detect_flags_pennants(
+                    close, close, close, times, close.size, cfg,
+                )
+            else:
+                found = shapes.detect_broadening(close, peaks, troughs, times, cfg)
+            assert len(found) == 1
+            confidence.append(found[0].confidence)
+
+        assert confidence[0] < confidence[1]
 
 
 class TestDiamondSlopeScaling:

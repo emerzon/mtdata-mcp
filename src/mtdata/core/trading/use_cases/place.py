@@ -8,11 +8,6 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from mtdata.bootstrap.settings import mt5_config, trade_guardrails_config
-from mtdata.core.execution_logging import (
-    infer_result_success,
-    log_operation_finish,
-    log_operation_start,
-)
 from mtdata.core.trading import comments, validation
 from mtdata.core.trading.requests import TradePlaceRequest
 from mtdata.core.trading.safety import (
@@ -43,6 +38,11 @@ from mtdata.core.trading.use_cases.common import (
     _standardize_trade_operation_payload,
     _TradeIdempotencyLifecycle,
     logger,
+)
+from mtdata.shared.execution_logging import (
+    infer_result_success,
+    log_operation_finish,
+    log_operation_start,
 )
 from mtdata.utils.mt5 import mt5_adapter
 

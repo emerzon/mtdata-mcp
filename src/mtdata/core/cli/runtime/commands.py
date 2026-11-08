@@ -6,6 +6,12 @@ from typing import Any, Callable, Dict, List, Literal, Optional, Tuple, get_args
 
 from pydantic import ValidationError
 
+from mtdata.shared.error_envelope import build_error_payload
+
+from ....shared.tool_policy import (
+    LIVE_TRADE_MUTATION_TOOLS,
+    LIVE_TRADE_MUTATION_WARNING,
+)
 from ....utils.coercion import (
     UNPARSED_BOOL,
     coerce_cli_scalar,
@@ -13,7 +19,6 @@ from ....utils.coercion import (
     parse_strict_bool,
     split_top_level_csv,
 )
-from ...error_envelope import build_error_payload
 from ..catalog import MULTI_VALUE_SYMBOL_POSITIONAL_COMMANDS, display_program_name
 from ..parsing.discovery import _annotation_is_mapping_type, _unwrap_optional_type
 
@@ -29,12 +34,6 @@ def join_cli_symbol_values(cmd_name: str, arg_value: Any) -> Any:
     symbols = [str(value).strip() for value in arg_value if str(value).strip()]
     return ",".join(symbols) or None
 
-
-LIVE_TRADE_MUTATION_TOOLS = frozenset({"trade_place", "trade_modify", "trade_close"})
-LIVE_TRADE_MUTATION_WARNING = (
-    "LIVE ORDER WARNING: this command can send real MT5 trade requests when "
-    "--dry-run false. Preview mode is the default."
-)
 
 CLI_MISSING_ARGUMENT_REMEDIATIONS: Dict[tuple[str, str], str] = {
     ("labels_triple_barrier", "barrier"): (

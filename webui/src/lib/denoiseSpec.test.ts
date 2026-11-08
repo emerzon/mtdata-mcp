@@ -1,89 +1,87 @@
 import { describe, expect, it } from 'vitest'
-import { chartDenoiseFromMethod, defaultDenoiseCausality } from './denoiseSpec'
+import type { DenoiseMethodInfo, DenoiseSpecUI } from '../types'
+import { defaultDenoiseCausality, denoiseNeedsMetadata, ensureChartDenoiseCausality } from './denoiseSpec'
 
-describe('chartDenoiseFromMethod', () => {
-  it('clears denoise for empty/none', () => {
-    expect(chartDenoiseFromMethod('')).toBeUndefined()
-    expect(chartDenoiseFromMethod('none')).toBeUndefined()
-  })
+const method: DenoiseMethodInfo = {
+  method: 'new_server_filter',
+  available: true,
+  description: 'A method introduced by the server',
+  params: [],
+  supports: { causality: ['zero_phase'] },
+}
 
-  it('opts into zero_phase for non-causal methods like l1_trend', () => {
-    const spec = chartDenoiseFromMethod('l1_trend', {
-      method: 'l1_trend',
-      available: true,
-      description: 'L1 trend',
-      params: [],
-      supports_causal: false,
-      requires_causality_opt_in: true,
-      supports: { causality: ['zero_phase'] },
+describe('denoise causality migration', () => {
+  it('resolves legacy saved specs using server capabilities without a client method registry', () => {
+    const saved: DenoiseSpecUI = { method: method.method, params: { strength: 3 } }
+    const migrated = ensureChartDenoiseCausality(saved, [method])
+    expect(migrated).toEqual({
+      method: method.method,
+      params: { strength: 3 },
+      causality: 'zero_phase',
+      when: 'post_ti',
+      keep_original: true,
     })
-    expect(spec).toEqual(
-      expect.objectContaining({
-        method: 'l1_trend',
-        causality: 'zero_phase',
-        when: 'post_ti',
-        keep_original: true,
-      })
-    )
+    expect(saved.causality).toBeUndefined()
+    expect(denoiseNeedsMetadata(migrated)).toBe(false)
   })
 
-  it('defaults causal methods to causal', () => {
-    const spec = chartDenoiseFromMethod('ema', {
-      method: 'ema',
-      available: true,
-      description: 'EMA',
-      params: [],
-      supports_causal: true,
-      requires_causality_opt_in: false,
-      supports: { causality: ['causal', 'zero_phase'] },
-      defaults: { causality: 'causal' },
-    })
-    expect(spec?.causality).toBe('causal')
+  it('leaves an unresolved saved spec intact until its metadata is available', () => {
+    const saved: DenoiseSpecUI = { method: method.method, params: { strength: 3 } }
+    expect(ensureChartDenoiseCausality(saved)).toBe(saved)
+    expect(denoiseNeedsMetadata(ensureChartDenoiseCausality(saved))).toBe(true)
+    expect(ensureChartDenoiseCausality(saved, [{ ...method, method: 'another_filter' }])).toBe(saved)
   })
 
-  it('without metadata opts into zero_phase so non-causal methods still work', () => {
-    const spec = chartDenoiseFromMethod('l1_trend')
-    expect(spec?.method).toBe('l1_trend')
-    expect(spec?.causality).toBe('zero_phase')
+  it('preserves explicit causality and advanced settings without requiring a catalog', () => {
+    const saved: DenoiseSpecUI = {
+      method: method.method,
+      causality: 'causal',
+      params: { strength: 3 },
+      columns: ['high', 'low'],
+      when: 'pre_ti',
+      keep_original: false,
+    }
+    expect(ensureChartDenoiseCausality(saved)).toBe(saved)
+    expect(ensureChartDenoiseCausality(saved, [method])).toBe(saved)
+    expect(denoiseNeedsMetadata(saved)).toBe(false)
   })
 
-  it('without metadata defaults dual-mode methods to causal', () => {
-    const spec = chartDenoiseFromMethod('ema')
-    expect(spec?.method).toBe('ema')
-    expect(spec?.causality).toBe('causal')
+  it('matches catalog names without changing existing advanced settings', () => {
+    const migrated = ensureChartDenoiseCausality({
+      method: ' NEW_SERVER_FILTER ',
+      columns: ['high'],
+      when: 'pre_ti',
+      keep_original: false,
+    }, [method])
+    expect(migrated?.causality).toBe('zero_phase')
+    expect(migrated?.columns).toEqual(['high'])
+    expect(migrated?.when).toBe('pre_ti')
+    expect(migrated?.keep_original).toBe(false)
+  })
+
+  it('does not require metadata when denoising is disabled', () => {
+    expect(ensureChartDenoiseCausality()).toBeUndefined()
+    expect(ensureChartDenoiseCausality({ method: 'none' })).toBeUndefined()
+    expect(denoiseNeedsMetadata(undefined)).toBe(false)
   })
 })
 
 describe('defaultDenoiseCausality', () => {
-  it('uses causal for dual-mode methods without metadata', () => {
-    expect(defaultDenoiseCausality('kalman')).toBe('causal')
-    expect(defaultDenoiseCausality('savgol')).toBe('causal')
-    expect(defaultDenoiseCausality('supersmoother')).toBe('causal')
-    expect(defaultDenoiseCausality('kama')).toBe('causal')
-    expect(defaultDenoiseCausality('kalman_robust')).toBe('causal')
-    expect(defaultDenoiseCausality('preaverage')).toBe('causal')
+  it('does not invent a default before metadata arrives', () => {
+    expect(defaultDenoiseCausality()).toBeUndefined()
   })
 
-  it('uses zero_phase for known non-causal methods without metadata', () => {
-    expect(defaultDenoiseCausality('wavelet')).toBe('zero_phase')
-  })
-})
-
-describe('ensureChartDenoiseCausality', () => {
-  it('fills missing causality on legacy saved specs', async () => {
-    const { ensureChartDenoiseCausality } = await import('./denoiseSpec')
-    const fixed = ensureChartDenoiseCausality({ method: 'l1_trend', params: {} })
-    expect(fixed?.causality).toBe('zero_phase')
-    expect(fixed?.method).toBe('l1_trend')
+  it.each([
+    { supports_causal: false },
+    { requires_causality_opt_in: true },
+    { supports: { causality: ['zero_phase'] } },
+  ])('honors server non-causal capability metadata: %j', (capability) => {
+    expect(defaultDenoiseCausality({ ...method, supports: undefined, ...capability })).toBe('zero_phase')
   })
 
-  it('preserves explicit causality', async () => {
-    const { ensureChartDenoiseCausality } = await import('./denoiseSpec')
-    const kept = ensureChartDenoiseCausality({
-      method: 'ema',
-      causality: 'causal',
-      params: { alpha: 0.2 },
-    })
-    expect(kept?.causality).toBe('causal')
+  it('honors defaults for dual-mode methods', () => {
+    const dualMode = { ...method, supports: { causality: ['causal', 'zero_phase'] } }
+    expect(defaultDenoiseCausality(dualMode)).toBe('causal')
+    expect(defaultDenoiseCausality({ ...dualMode, defaults: { causality: 'zero_phase' } })).toBe('zero_phase')
   })
 })

@@ -11,6 +11,14 @@ from zoneinfo import ZoneInfo
 
 import holidays
 
+from mtdata.shared.error_envelope import build_error_payload
+from mtdata.shared.execution_logging import run_logged_operation
+from mtdata.shared.output_contract import normalize_output_verbosity_detail
+from mtdata.shared.runtime_metadata import (
+    attach_mt5_source,
+    build_runtime_timezone_meta,
+)
+
 from ..shared.market_sessions import (
     MARKET_SESSIONS,
     exchange_holidays,
@@ -18,6 +26,7 @@ from ..shared.market_sessions import (
 from ..shared.market_sessions import (
     is_early_close_session as evaluate_early_close_session,
 )
+from ..shared.market_status_output import normalize_market_status_output
 from ..shared.schema import DetailLiteral
 from ..shared.symbols import is_probably_crypto_symbol, is_probably_forex_symbol
 from ..utils.coercion import UNPARSED_BOOL, coerce_optional_bool, parse_bool_like
@@ -38,11 +47,7 @@ from ..utils.quote import (
 )
 from ..utils.time import format_datetime_utc, format_epoch_utc
 from ._mcp_instance import mcp
-from .error_envelope import build_error_payload
-from .execution_logging import run_logged_operation
 from .mt5_gateway import create_mt5_gateway
-from .output_contract import normalize_output_verbosity_detail
-from .runtime_metadata import attach_mt5_source, build_runtime_timezone_meta
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +62,6 @@ _WEEKDAY_NAMES = (
     "saturday",
     "sunday",
 )
-
 
 
 VenueLiteral = Literal[
@@ -88,8 +92,6 @@ _VENUE_REGIONS = {
 def _get_holidays(country: str, year: int) -> holidays.HolidayBase:
     """Get the holiday calendar for a country/year pair."""
     return holidays.country_holidays(country, years=[int(year)])
-
-
 
 
 def _is_holiday(
@@ -247,8 +249,6 @@ def _runtime_meta_tzinfo(
     return None, None
 
 
-
-
 def _is_early_close_session(
     market: Dict[str, Any],
     country: str,
@@ -317,7 +317,6 @@ def _check_market_status(market_id: str, now_local: datetime) -> Dict[str, Any]:
     # half-holidays are not treated as full closures.
     is_early_close = _is_early_close_session(market, country, now_local)
 
-    # Full holiday (not a half-day session) → closed
     if is_holiday_result and not is_early_close:
         next_open = _next_market_open_datetime(market, country, now_local)
         minutes_until = int((next_open.astimezone(timezone.utc) - _normalize_time(now_local).astimezone(timezone.utc)).total_seconds() // 60)
@@ -350,7 +349,6 @@ def _check_market_status(market_id: str, now_local: datetime) -> Dict[str, Any]:
         else {}
     )
     
-    # Check pre-market (before open)
     now_norm = _normalize_time(now_local)
     if now_norm < open_time:
         minutes_until_open = int((open_time.astimezone(timezone.utc) - now_norm.astimezone(timezone.utc)).total_seconds() // 60)
@@ -441,7 +439,6 @@ def _check_market_status(market_id: str, now_local: datetime) -> Dict[str, Any]:
             **session_fields,
         }
 
-    # Check if during lunch break.
     if market.get("lunch_start") and market.get("lunch_end"):
         lunch_start = now_local.replace(hour=market["lunch_start"][0], minute=market["lunch_start"][1], second=0, microsecond=0)
         lunch_end = now_local.replace(hour=market["lunch_end"][0], minute=market["lunch_end"][1], second=0, microsecond=0)
@@ -460,7 +457,6 @@ def _check_market_status(market_id: str, now_local: datetime) -> Dict[str, Any]:
                 **session_fields,
             }
     
-    # Check if market is open
     if now_norm < close_time:
         minutes_until_close = int((close_time.astimezone(timezone.utc) - now_norm.astimezone(timezone.utc)).total_seconds() // 60)
         return {
@@ -625,36 +621,6 @@ def _get_upcoming_holidays(
         row["markets_affected"].sort()
     upcoming.sort(key=lambda row: (row["date"], row["country"], row["impact"]))
     return upcoming
-
-
-def normalize_market_status_output(
-    result: Dict[str, Any],
-    *,
-    detail: Any = None,
-) -> Dict[str, Any]:
-    if not isinstance(result, dict):
-        return dict(result)
-
-    detail_mode = normalize_output_verbosity_detail(detail)
-    out = dict(result)
-    if detail_mode == "full":
-        return out
-
-    markets = out.get("markets")
-    if out.get("mode") == "global" and detail_mode in {"compact", "summary"}:
-        out.pop("markets", None)
-    elif isinstance(markets, list):
-        compact_markets = []
-        for market in markets:
-            if isinstance(market, dict):
-                market = {key: value for key, value in market.items() if key != "message"}
-            compact_markets.append(market)
-        out["markets"] = compact_markets
-    out.pop("message", None)
-    out.pop("upcoming_holidays", None)
-    out.pop("upcoming_holidays_count", None)
-    out.pop("upcoming_holidays_summary", None)
-    return out
 
 
 def _symbol_trade_mode_status(gateway: Any, trade_mode: Any) -> Dict[str, Any]:

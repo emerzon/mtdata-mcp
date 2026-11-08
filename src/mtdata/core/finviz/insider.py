@@ -29,15 +29,15 @@ from mtdata.core.finviz.common import (
     _run_logged_tool,
     _validate_finviz_detail,
 )
-from mtdata.core.output_contract import (
-    build_pagination_meta,
-    normalize_output_verbosity_detail,
-)
 from mtdata.services.finviz import (
     get_insider_activity,
     get_stock_insider_trades,
     get_stock_peers,
     get_stock_ratings,
+)
+from mtdata.shared.output_contract import (
+    build_pagination_meta,
+    normalize_output_verbosity_detail,
 )
 from mtdata.shared.schema import DetailLiteral
 

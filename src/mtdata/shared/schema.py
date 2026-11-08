@@ -547,7 +547,6 @@ _CATEGORY_CHOICES = [
 ]
 
 if _CATEGORY_CHOICES:
-    # Create a Literal type alias dynamically
     CategoryLiteral = Literal[tuple(_CATEGORY_CHOICES)]  # type: ignore
 else:
     CategoryLiteral = str  # fallback
@@ -822,7 +821,6 @@ def complex_defs() -> Dict[str, Any]:
 def _ensure_defs(schema: Dict[str, Any]) -> Dict[str, Any]:
     if "$defs" not in schema or not isinstance(schema.get("$defs"), dict):
         schema["$defs"] = {}
-    # Merge shared defs without overwriting existing keys
     defs = schema["$defs"]
     for k, v in shared_defs().items():
         defs.setdefault(k, v)
@@ -951,7 +949,6 @@ def _type_hint_to_schema(type_hint: Any) -> Dict[str, Any]:  # noqa: C901
         args = get_args(type_hint)
         item_type = args[0] if args else Any
         item_schema = _type_hint_to_schema(item_type)
-        # Ensure items schema defaults to accepting any value if empty
         if not item_schema:
             item_schema = {}
         return {"type": "array", "items": item_schema}
@@ -962,7 +959,6 @@ def _type_hint_to_schema(type_hint: Any) -> Dict[str, Any]:  # noqa: C901
         if not value_schema:
             value_schema = {}
         return {"type": "object", "additionalProperties": value_schema or True}
-    # Handle direct builtins and aliases
     if type_hint in (str, bytes):
         return {"type": "string"}
     if type_hint is int:
@@ -1045,7 +1041,6 @@ def get_shared_enum_lists() -> Dict[str, List[str]]:
 
 def get_function_info(func: Any) -> Dict[str, Any]:
     """Extract minimal parameter info from a function for schema building."""
-    # Introspect original function if wrapped
     try:
         target = inspect.unwrap(func)
     except Exception:

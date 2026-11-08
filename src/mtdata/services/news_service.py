@@ -7,7 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ..core.runtime_metadata import build_runtime_timezone_meta
+from mtdata.shared.runtime_metadata import build_runtime_timezone_meta
+
 from ..utils.mt5 import _mt5_epoch_to_utc, mt5
 from ..utils.time import _resolve_client_tz, _use_client_tz, format_relative_time
 from .news_text import normalize_news_text

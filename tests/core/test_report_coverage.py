@@ -1077,7 +1077,7 @@ def test_report_generate_rejects_future_end():
         "error_code": "tool_error",
         "operation": "report_generate",
     }
-    from mtdata.core.error_envelope import normalize_error_payload
+    from mtdata.shared.error_envelope import normalize_error_payload
 
     normalized = normalize_error_payload(payload, operation="report_generate")
     assert normalized["error_code"] == "report_end_in_future"

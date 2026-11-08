@@ -6,7 +6,7 @@ from copy import deepcopy
 import pytest
 
 from mtdata.core._mcp_tools import shape_public_tool_output
-from mtdata.core.output_contract import resolve_output_contract
+from mtdata.shared.output_contract import resolve_output_contract
 from mtdata.utils.minimal_output import format_result_minimal
 
 

@@ -153,8 +153,9 @@ def resolve_trade_period_context(
         minutes_back
     )
     if minutes_back_error:
+        from mtdata.shared.error_envelope import invalid_minutes_back_payload
+
         from ...utils.time import MAX_TRADING_MINUTES_BACK
-        from ..error_envelope import invalid_minutes_back_payload
 
         return invalid_minutes_back_payload(
             minutes_back,

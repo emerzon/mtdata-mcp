@@ -33,7 +33,7 @@ import {
   volatilityProxyForMethod,
   volatilityResultMetrics,
 } from '../lib/volatilityContracts'
-import { formatDateTime } from '../lib/utils'
+import { formatDateTime } from '../lib/time'
 import { createToolRunGate } from '../lib/toolRunState'
 import type { LayoutBreakpoint } from '../lib/layout'
 import { DenoiseModal } from './DenoiseModal'

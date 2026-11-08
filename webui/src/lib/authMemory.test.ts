@@ -32,20 +32,27 @@ describe('API auth token memory-only contract', () => {
     vi.stubGlobal('localStorage', localStorageMock)
     vi.stubGlobal('sessionStorage', sessionStorageMock)
 
-    const { setApiToken } = await import('../api/client')
+    const { api, getApiTokenConfigured, setApiToken, subscribeApiToken } = await import('../api/client')
+    const listener = vi.fn()
+    const unsubscribe = subscribeApiToken(listener)
     setApiToken('secret-token-value')
+    expect(api.defaults.headers.common.Authorization).toBe('Bearer secret-token-value')
+    expect(getApiTokenConfigured()).toBe(true)
     setApiToken('')
+    expect(api.defaults.headers.common.Authorization).toBeUndefined()
+    expect(getApiTokenConfigured()).toBe(false)
+    expect(listener).toHaveBeenCalledTimes(2)
+    unsubscribe()
 
     expect(localSet).not.toHaveBeenCalled()
     expect(sessionSet).not.toHaveBeenCalled()
 
-    // Ensure client source does not reference storage keys for tokens either
-    const fs = await import('node:fs')
-    const path = await import('node:path')
-    const clientSrc = fs.readFileSync(path.join(__dirname, '../api/client.ts'), 'utf8')
-    const authSrc = fs.readFileSync(path.join(__dirname, '../components/ApiAuthControl.tsx'), 'utf8')
-    expect(clientSrc).not.toMatch(/localStorage|sessionStorage/)
-    expect(authSrc).not.toMatch(/localStorage|sessionStorage/)
+    setApiToken('tab-only-token')
+    vi.resetModules()
+    const freshClient = await import('../api/client')
+    expect(freshClient.getApiTokenConfigured()).toBe(false)
+    expect(freshClient.api.defaults.headers.common.Authorization).toBeUndefined()
+    expect(listener).toHaveBeenCalledTimes(2)
   })
 
   it('retries an active failed query after a token is applied', async () => {

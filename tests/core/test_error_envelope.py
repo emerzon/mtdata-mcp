@@ -1,9 +1,9 @@
-from mtdata.core.error_envelope import (
+from mtdata.shared.error_envelope import (
     build_error_payload,
     canonical_documentation_url,
     normalize_error_payload,
 )
-from mtdata.core.request_context import (
+from mtdata.shared.request_context import (
     current_request_id,
     ensure_request_id_scope,
     request_id_scope,

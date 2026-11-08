@@ -217,7 +217,7 @@ class TestWebApiRuntimeHelpers:
         assert any("Web UI dist not found" in record.message for record in caplog.records)
 
     def test_request_id_is_shared_by_header_and_error_envelope(self):
-        from mtdata.core.error_envelope import build_error_payload
+        from mtdata.shared.error_envelope import build_error_payload
 
         runtime_app = create_web_api_app(
             settings=WebApiRuntimeSettings(cors_origins=("http://localhost",))

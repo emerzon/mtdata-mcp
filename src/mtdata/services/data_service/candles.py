@@ -12,8 +12,9 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import pandas as pd
 
+from mtdata.shared.error_envelope import build_error_payload
+
 from ...bootstrap.settings import mt5_config
-from ...core.error_envelope import build_error_payload
 from ...shared.constants import (
     CALENDAR_TIMEFRAMES,
     DEFAULT_ROW_LIMIT,

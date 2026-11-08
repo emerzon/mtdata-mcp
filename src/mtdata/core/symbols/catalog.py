@@ -14,6 +14,43 @@ from typing import (
 
 from pydantic import Field
 
+from mtdata.shared.error_envelope import build_error_payload
+from mtdata.shared.execution_logging import run_logged_operation
+from mtdata.shared.output_contract import (
+    attach_collection_contract,
+    build_pagination_meta,
+    normalize_output_detail,
+    resolve_output_contract,
+)
+from mtdata.shared.runtime_metadata import build_mt5_source_provenance
+from mtdata.shared.symbol_catalog import (
+    _SYMBOL_SEARCH_MODES,
+    _add_symbol_currency_diagnostics,
+    _apply_symbol_currency_diagnostics,
+    _attach_symbol_currency_anomaly_summary,
+    _case_insensitive_sort_key,
+    _clean_broker_text,
+    _currency_filter_basis_summary,
+    _invalid_symbol_category_error,
+    _match_symbols_for_search,
+    _normalize_group_path_query,
+    _normalize_symbol_category_filter,
+    _normalize_symbol_search_term,
+    _symbol_category,
+    _symbol_currency_match_basis,
+    _symbol_currency_matches,
+    _symbol_default_list_sort_key,
+    _symbol_group_matches,
+    _symbol_search_context_for_request,
+    _symbol_search_match_reason,
+    _symbol_search_sort_key,
+    _symbol_session_type,
+    _symbol_top_match,
+    _symbols_empty_search_context,
+)
+from mtdata.shared.symbol_catalog import _extract_group_path as _extract_group_path_util
+from mtdata.utils.symbol import symbol_suggestions_from_gateway
+
 from ...shared.constants import (
     BROKER_VOLUME_UNIT,
     DEFAULT_ROW_LIMIT,
@@ -41,11 +78,6 @@ from ...utils.quote import (
     tick_epoch,
     tick_value,
 )
-from ...utils.symbol import _extract_group_path as _extract_group_path_util
-from ...utils.symbol import (
-    _normalize_group_path_query,
-    symbol_suggestions_from_gateway,
-)
 from ...utils.time import (
     _format_time_second_explicit,
     _format_time_second_explicit_local,
@@ -57,40 +89,7 @@ from ...utils.utils import (
     _table_from_rows,
 )
 from .._mcp_instance import mcp
-from ..error_envelope import build_error_payload
-from ..execution_logging import run_logged_operation
 from ..mt5_gateway import create_mt5_gateway
-from ..output_contract import (
-    attach_collection_contract,
-    build_pagination_meta,
-    normalize_output_detail,
-    resolve_output_contract,
-)
-from ..runtime_metadata import build_mt5_source_provenance
-from .classify import (
-    _SYMBOL_SEARCH_MODES,
-    _add_symbol_currency_diagnostics,
-    _apply_symbol_currency_diagnostics,
-    _attach_symbol_currency_anomaly_summary,
-    _case_insensitive_sort_key,
-    _clean_broker_text,
-    _currency_filter_basis_summary,
-    _invalid_symbol_category_error,
-    _match_symbols_for_search,
-    _normalize_symbol_category_filter,
-    _normalize_symbol_search_term,
-    _symbol_category,
-    _symbol_currency_match_basis,
-    _symbol_currency_matches,
-    _symbol_default_list_sort_key,
-    _symbol_group_matches,
-    _symbol_search_context_for_request,
-    _symbol_search_match_reason,
-    _symbol_search_sort_key,
-    _symbol_session_type,
-    _symbol_top_match,
-    _symbols_empty_search_context,
-)
 from .scan import (
     _MARKET_SCAN_STALE_QUOTE_SECONDS,
     _market_scan_float,

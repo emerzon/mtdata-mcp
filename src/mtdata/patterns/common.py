@@ -7,8 +7,8 @@ import numpy as np
 import pandas as pd
 from scipy.signal import find_peaks
 
-from ..services.data_service.candles import _is_last_bar_forming
 from ..shared.symbols import is_probably_crypto_symbol
+from ..utils.bar_completion import _is_last_bar_forming
 from ..utils.time import bar_close_epoch, coerce_time_epoch_seconds
 from ..utils.utils import _utc_epoch_seconds, to_float_np
 

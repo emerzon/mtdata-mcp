@@ -12,7 +12,7 @@ from .radar import (
     run_market_radar,
 )
 from .tool_calling import call_tool_sync_structured
-from .web_api_handlers import _http_error, _raise_tool_error
+from .web_api_errors import http_error, raise_tool_error
 
 
 def get_radar_response(
@@ -25,7 +25,7 @@ def get_radar_response(
 ) -> Dict[str, Any]:
     requested = parse_radar_symbols(symbols)
     if symbols is not None and str(symbols).strip() and not requested:
-        raise _http_error(
+        raise http_error(
             400,
             "symbols must contain at least one broker name.",
             code="radar_invalid_symbols",
@@ -41,7 +41,7 @@ def get_radar_response(
             detail="compact",
         )
     except Exception as exc:
-        raise _http_error(
+        raise http_error(
             400,
             str(exc),
             code="radar_invalid_request",
@@ -49,7 +49,7 @@ def get_radar_response(
         ) from exc
     result = runner(request)
     if isinstance(result, dict) and result.get("error") and not result.get("rows"):
-        _raise_tool_error(
+        raise_tool_error(
             result,
             operation="get_radar",
             default_code="radar_empty",

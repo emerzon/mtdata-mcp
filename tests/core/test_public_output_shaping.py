@@ -1,5 +1,5 @@
 from mtdata.core._mcp_tools import shape_public_tool_output
-from mtdata.core.output_contract import resolve_output_contract
+from mtdata.shared.output_contract import resolve_output_contract
 
 
 def test_public_shaper_applies_detail_and_projection_together() -> None:

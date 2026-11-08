@@ -4,20 +4,163 @@ import re
 from difflib import SequenceMatcher
 from typing import (
     Any,
+    Callable,
     Dict,
     List,
     Optional,
+    Sequence,
 )
 
-from ...shared.symbols import CRYPTO_SYMBOL_HINTS, is_probably_forex_symbol
-from ...shared.symbols import FOREX_CURRENCY_CODES as _FOREX_CURRENCY_CODES
-from ...utils.symbol import _extract_group_path as _extract_group_path_util
-from ...utils.symbol import (
-    _normalize_group_path_query,
-    catalog_symbol_name_matches_query,
-    symbol_shorthand_rank,
-)
-from ..error_envelope import build_error_payload
+from .error_envelope import build_error_payload
+from .symbols import CRYPTO_QUOTE_CODES, CRYPTO_SYMBOL_HINTS, is_probably_forex_symbol
+from .symbols import FOREX_CURRENCY_CODES as _FOREX_CURRENCY_CODES
+
+
+def _normalize_symbol_token(value: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+
+
+_REVERSE_SYMBOL_MIN_LEN = 4
+_FUZZY_SYMBOL_RATIO = 0.8
+
+
+def catalog_symbol_name_matches_query(
+    name: str,
+    query: str,
+    *,
+    fuzzy: bool = False,
+) -> bool:
+    """Match a catalog symbol to a typed query, including suffix-style typos.
+
+    Exact and forward substring matches stay first. Reverse substring covers
+    broker-suffix typos such as ``EURUSD1`` → ``EURUSD``. Optional fuzzy
+    matching is reserved for suggestion lists, not live search results.
+    """
+    name_text = str(name or "")
+    query_text = str(query or "").strip()
+    if not name_text or not query_text:
+        return False
+    if query_text.upper() in name_text.upper():
+        return True
+    name_token = _normalize_symbol_token(name_text)
+    query_token = _normalize_symbol_token(query_text)
+    if not name_token or not query_token:
+        return False
+    if len(name_token) >= _REVERSE_SYMBOL_MIN_LEN and name_token in query_token:
+        return True
+    if (
+        fuzzy
+        and SequenceMatcher(None, query_token, name_token).ratio() >= _FUZZY_SYMBOL_RATIO
+    ):
+        return True
+    return False
+
+
+def symbol_shorthand_rank(symbol: Any, query: str) -> int:
+    """Prefer an exact crypto base/quote pair for common base shorthands."""
+    query_text = re.sub(r"[^A-Z0-9]", "", str(query or "").upper())
+    if query_text not in CRYPTO_SYMBOL_HINTS:
+        return 0
+    symbol_text = re.sub(
+        r"[^A-Z0-9]",
+        "",
+        str(getattr(symbol, "name", "") or "").upper(),
+    )
+    tail = symbol_text[len(query_text) :] if symbol_text.startswith(query_text) else ""
+    return 0 if tail in CRYPTO_QUOTE_CODES else 1
+
+
+def _normalize_group_path_query(value: str) -> str:
+    text = str(value or "").strip().replace("/", "\\")
+    text = re.sub(r"\\+", r"\\", text)
+    return text.strip("\\")
+
+
+def _extract_group_path(sym) -> str:
+    """Extract pure group path from a symbol, stripping the symbol name if present.
+
+    MT5 sometimes reports `symbol.path` including the symbol at the tail. This trims the
+    last component when it equals the symbol name (case-insensitive).
+    """
+    raw = getattr(sym, 'path', '') or ''
+    name = getattr(sym, 'name', '') or ''
+    if not raw:
+        return 'Unknown'
+    parts = raw.split('\\')
+    tail = parts[-1] if parts else ""
+    tail_norm = _normalize_symbol_token(tail)
+    name_norm = _normalize_symbol_token(name)
+    tail_matches_symbol = bool(
+        tail
+        and name
+        and (
+            tail.lower() == name.lower()
+            or tail_norm == name_norm
+            or (
+                len(name_norm) >= 3
+                and tail_norm.startswith(name_norm)
+                and any(sep in tail for sep in (".", "-", "_"))
+            )
+        )
+    )
+    if parts and tail_matches_symbol:
+        parts = parts[:-1]
+    group = '\\'.join(parts).strip('\\')
+    return group or 'Unknown'
+
+
+def match_symbol_infos(
+    symbols: Sequence[Any],
+    query: str,
+    *,
+    limit: int = 5,
+    group_of: Optional[Callable[[Any], str]] = None,
+    sort_key: Optional[Callable[[Any], Any]] = None,
+) -> list[Any]:
+    """Return symbol infos whose name/description/group contain ``query``."""
+    text = str(query or "").strip()
+    if not text:
+        return []
+    query_upper = text.upper()
+    query_token = _normalize_symbol_token(text)
+    query_tokens = {query_token}
+    # Crypto venues commonly publish USD pairs when users search for the
+    # equivalent USDT convention. This is suggestion-only, never auto-resolution.
+    if query_token.endswith("usdt") and len(query_token) > 4:
+        query_tokens.add(f"{query_token[:-4]}usd")
+    matches: list[Any] = []
+    for info in symbols:
+        name = str(getattr(info, "name", "") or "")
+        description = str(getattr(info, "description", "") or "")
+        if group_of is not None:
+            group = str(group_of(info) or "")
+        else:
+            group = str(getattr(info, "path", "") or "")
+        searchable = f"{name} {description} {group}"
+        searchable_token = _normalize_symbol_token(searchable)
+        if (
+            query_upper in searchable.upper()
+            or any(token and token in searchable_token for token in query_tokens)
+            or catalog_symbol_name_matches_query(name, text, fuzzy=True)
+        ):
+            matches.append(info)
+    if sort_key is None:
+        matches.sort(
+            key=lambda info: (
+                _normalize_symbol_token(str(getattr(info, "name", "") or ""))
+                not in query_tokens,
+                not any(
+                    _normalize_symbol_token(str(getattr(info, "name", "") or "")).startswith(token)
+                    for token in query_tokens
+                ),
+                symbol_shorthand_rank(info, text),
+                str(getattr(info, "name", "") or "").casefold(),
+            )
+        )
+    else:
+        matches.sort(key=sort_key)
+    return list(matches[: max(1, int(limit))])
+
 
 
 def _clean_broker_text(value: Any) -> Any:
@@ -194,7 +337,7 @@ def _symbol_crypto_match(symbol: Any, text: str) -> bool:
 
 def _symbol_category(symbol: Any) -> str:
     name = str(getattr(symbol, "name", "") or "")
-    path = str(_extract_group_path_util(symbol) or "")
+    path = str(_extract_group_path(symbol) or "")
     description = str(getattr(symbol, "description", "") or "")
     text = f"{name} {path} {description}".casefold()
     pair_prefix = _symbol_forex_pair(symbol)
@@ -240,7 +383,7 @@ def _symbol_category(symbol: Any) -> str:
 def _symbol_group_matches(symbol: Any, group_filter: Optional[str]) -> bool:
     if not group_filter:
         return True
-    group_path = _normalize_group_path_query(_extract_group_path_util(symbol))
+    group_path = _normalize_group_path_query(_extract_group_path(symbol))
     return group_filter.casefold() in group_path.casefold()
 
 def _symbol_currency_match_basis(
@@ -283,7 +426,7 @@ def _symbol_search_match_reason(symbol: Any, search_term: str, search_mode: str)
     query = search_term.casefold()
     name = str(getattr(symbol, "name", "") or "")
     description = str(getattr(symbol, "description", "") or "")
-    group = str(_extract_group_path_util(symbol) or "")
+    group = str(_extract_group_path(symbol) or "")
     name_folded = name.casefold()
 
     if search_mode == "exact":
@@ -497,7 +640,7 @@ def _match_symbols_for_search(
     all_field_matches: List[Any] = []
 
     for symbol in all_symbols:
-        group_path = _extract_group_path_util(symbol)
+        group_path = _extract_group_path(symbol)
         groups.setdefault(group_path, []).append(symbol)
 
         symbol_name = str(getattr(symbol, "name", "") or "")
@@ -636,7 +779,7 @@ def _symbol_session_type(
     return None
 
 def _symbol_suggestion_from_info(symbol_info: Any) -> Dict[str, Any]:
-    group = _extract_group_path_util(symbol_info)
+    group = _extract_group_path(symbol_info)
     description = getattr(symbol_info, "description", None)
     suggestion: Dict[str, Any] = {
         "symbol": _clean_broker_text(getattr(symbol_info, "name", None)),

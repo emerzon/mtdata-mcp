@@ -91,8 +91,13 @@ All 82 MCP tools (+1 conditional), CLI commands, web API endpoints, and server t
 | `../shared/constants.py` | SERVICE_NAME, TIMEFRAME_MAP, TIMEFRAME_SECONDS |
 | `../shared/schema.py` | Shared Pydantic schemas |
 | `schema_attach.py` | Schema attachment helpers |
-| `error_envelope.py` | Standardized error response format |
-| `execution_logging.py` | Execution/query logging |
+| `../shared/error_envelope.py` | Standardized error response format |
+| `../shared/execution_logging.py` | Execution/query logging |
+| `../shared/output_contract.py` | Transport-independent output detail and pagination |
+| `../shared/runtime_metadata.py` | Source provenance and runtime timezone metadata |
+| `../shared/request_context.py` | Request correlation context |
+| `../shared/symbol_catalog.py` | Pure symbol classification, matching, and ranking |
+| `../analytics/requests.py` | Validated analytics inputs |
 | `unified_params.py` | Shared parameter definitions |
 | `features.py` | Internal rolling feature extraction helper used by forecast/regime code |
 | `patterns_support.py` (2625) | Complex pattern detection helpers |
@@ -113,4 +118,4 @@ All 82 MCP tools (+1 conditional), CLI commands, web API endpoints, and server t
 
 - **Never** import from `core/__init__.py`. Always `from mtdata.core.data import ...`.
 - **Never** add business logic here — delegate to `forecast/`, `services/`, `utils/`, `patterns/`.
-- **Never** bypass `error_envelope.py` for error responses in tool functions.
+- **Never** bypass `shared/error_envelope.py` for error responses in tool functions.

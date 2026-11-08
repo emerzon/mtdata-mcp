@@ -22,6 +22,13 @@ describe('getModels / readyCheck client surface', () => {
     vi.resetModules()
   })
 
+  it('returns timeframe names and durations together for query consumers', async () => {
+    getMock.mockResolvedValueOnce({ data: { timeframes: ['CUSTOM'], seconds: { CUSTOM: 1800 } } })
+    const { getTimeframes } = await import('./client')
+    expect(await getTimeframes()).toEqual({ timeframes: ['CUSTOM'], seconds: { CUSTOM: 1800 } })
+    expect(getMock).toHaveBeenCalledWith('timeframes')
+  })
+
   it('getModels rejects a malformed models response', async () => {
     getMock.mockResolvedValueOnce({ data: { success: true } })
     const { getModels } = await import('./client')

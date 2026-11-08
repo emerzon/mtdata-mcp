@@ -15,14 +15,12 @@ def dumps_json(
     value: Any,
     *,
     indent: int | None = 2,
-    compact_numbers: bool = False,
     separators: tuple[str, str] | None = None,
     string_normalizer: Callable[[str], str] | None = None,
 ) -> str:
     """Serialize a JSON-compatible copy without altering finite float values."""
     payload = sanitize_json(
         value,
-        compact_numbers=compact_numbers,
         string_normalizer=string_normalizer,
     )
     return json.dumps(
@@ -34,7 +32,7 @@ def dumps_json(
     )
 
 
-def _json_float(value: float, *, compact_numbers: bool) -> Any:
+def _json_float(value: float) -> Any:
     if not math.isfinite(value):
         return None
     return value
@@ -43,7 +41,6 @@ def _json_float(value: float, *, compact_numbers: bool) -> Any:
 def _json_special_value(
     value: Any,
     *,
-    compact_numbers: bool = False,
     string_normalizer: Callable[[str], str] | None = None,
 ) -> Any:
     if isinstance(value, datetime):
@@ -68,7 +65,6 @@ def _json_special_value(
             return [
                 sanitize_json(
                     v,
-                    compact_numbers=compact_numbers,
                     string_normalizer=string_normalizer,
                 )
                 for v in value.tolist()
@@ -78,7 +74,7 @@ def _json_special_value(
         if isinstance(value, np.bool_):
             return bool(value.item())
         if isinstance(value, np.floating):
-            return _json_float(float(value.item()), compact_numbers=compact_numbers)
+            return _json_float(float(value.item()))
     except Exception:
         pass
 
@@ -89,12 +85,10 @@ def _sanitize_mapped_value(
     key: str,
     value: Any,
     *,
-    compact_numbers: bool,
     string_normalizer: Callable[[str], str] | None,
 ) -> Any:
     sanitized = sanitize_json(
         value,
-        compact_numbers=compact_numbers,
         string_normalizer=string_normalizer,
     )
     if not is_derived_age_seconds_key(key):
@@ -107,7 +101,6 @@ def _sanitize_mapped_value(
 def sanitize_json(
     value: Any,
     *,
-    compact_numbers: bool = False,
     string_normalizer: Callable[[str], str] | None = None,
 ) -> Any:
     """Return a JSON-compatible presentation copy without requiring CLI imports."""
@@ -116,13 +109,12 @@ def sanitize_json(
     if value is None or isinstance(value, (int, bool)):
         return value
     if isinstance(value, float):
-        return _json_float(value, compact_numbers=compact_numbers)
+        return _json_float(value)
     if isinstance(value, dict):
         return {
             str(k): _sanitize_mapped_value(
                 str(k),
                 v,
-                compact_numbers=compact_numbers,
                 string_normalizer=string_normalizer,
             )
             for k, v in value.items()
@@ -132,7 +124,6 @@ def sanitize_json(
         try:
             return sanitize_json(
                 asdict(),
-                compact_numbers=compact_numbers,
                 string_normalizer=string_normalizer,
             )
         except Exception:
@@ -141,7 +132,6 @@ def sanitize_json(
         return [
             sanitize_json(
                 v,
-                compact_numbers=compact_numbers,
                 string_normalizer=string_normalizer,
             )
             for v in value
@@ -150,7 +140,6 @@ def sanitize_json(
         return [
             sanitize_json(
                 v,
-                compact_numbers=compact_numbers,
                 string_normalizer=string_normalizer,
             )
             for v in value
@@ -159,14 +148,12 @@ def sanitize_json(
         return [
             sanitize_json(
                 v,
-                compact_numbers=compact_numbers,
                 string_normalizer=string_normalizer,
             )
             for v in value
         ]
     special_value = _json_special_value(
         value,
-        compact_numbers=compact_numbers,
         string_normalizer=string_normalizer,
     )
     if special_value is not _JSON_UNSET:

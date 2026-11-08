@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-# Precision/formatting constants
 PRECISION_REL_TOL = 1e-6
 PRECISION_ABS_TOL = 1e-12
 PRECISION_MAX_LOSS_PCT = 1e-3
@@ -39,7 +38,6 @@ TIMEFRAME_SECONDS = {
 # Bars whose boundaries follow broker trading sessions instead of fixed UTC spans.
 CALENDAR_TIMEFRAMES = frozenset({"D1", "W1", "MN1"})
 
-# Constants (centralize defaults instead of hardcoding inline)
 SERVICE_NAME = "MetaTrader5 Market Data Server"
 TICKS_LOOKBACK_DAYS = 30
 DATA_READY_TIMEOUT = 3.0
@@ -50,11 +48,9 @@ SANITY_BARS_TOLERANCE = 3
 TI_NAN_WARMUP_FACTOR = 2
 TI_NAN_WARMUP_MIN_ADD = 50
 
-# Global parameter defaults
 DEFAULT_TIMEFRAME = "H1"
 DEFAULT_ROW_LIMIT = 50
 
-# Simplification defaults
 SIMPLIFY_DEFAULT_METHOD = "lttb"
 SIMPLIFY_DEFAULT_MODE = "select"
 SIMPLIFY_DEFAULT_POINTS_RATIO_FROM_LIMIT = 0.10

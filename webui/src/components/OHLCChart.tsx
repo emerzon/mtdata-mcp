@@ -10,15 +10,7 @@ import {
   Time,
 } from 'lightweight-charts'
 import { useEffect, useRef } from 'react'
-import type { HistoryBar, ChartOverlay } from '../types'
-
-export type PriceLineSpec = {
-  price: number
-  color: string
-  title: string
-  lineStyle?: LineStyle
-  lineWidth?: 1 | 2 | 3 | 4
-}
+import type { HistoryBar, ChartOverlay, PriceLineSpec } from '../types'
 
 export type OHLCChartProps = {
   data: HistoryBar[]
@@ -69,7 +61,6 @@ export function OHLCChart({
   const timeZoneRef = useRef(timeZone)
   timeZoneRef.current = timeZone
 
-  // Keep refs up to date for event handlers
   const dataRef = useRef(data)
   const onNeedMoreLeftRef = useRef(onNeedMoreLeft)
   const onAnchorRef = useRef(onAnchor)
@@ -129,7 +120,6 @@ export function OHLCChart({
       const from = r.from as number | undefined
       if (from) {
         const earliest = currentData[0].time
-        // Trigger if visible range start is at or before the earliest bar
         if (from <= earliest) {
           needMore(earliest)
         }
@@ -172,7 +162,6 @@ export function OHLCChart({
     }))
     series.setData(points)
 
-    // Adjust seconds visibility based on detected bar spacing
     if (apiRef.current && data.length >= 2) {
       const dt = Math.abs(Math.floor(data[1].time) - Math.floor(data[0].time))
       const secondsVisible = dt < 60
@@ -312,16 +301,13 @@ export function OHLCChart({
     }
   }, [overlays])
 
-  // Manage Price Lines (Bid/Ask)
   useEffect(() => {
     if (!candleRef.current) return
     const series = candleRef.current
     
-    // Clear old lines
     priceLinesRef.current.forEach(l => series.removePriceLine(l))
     priceLinesRef.current = []
 
-    // Add new lines
     priceLines?.forEach(pl => {
       const line = series.createPriceLine({
         price: pl.price,
@@ -342,7 +328,6 @@ export function OHLCChart({
     }
   }, [priceLines])
 
-  // Anchor vertical marker using a 1-candle series with long wick spanning min..max
   useEffect(() => {
     const chart = apiRef.current
     if (!chart) return

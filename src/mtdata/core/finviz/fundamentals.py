@@ -25,11 +25,11 @@ from mtdata.core.finviz.common import (
     _run_logged_tool,
     _validate_finviz_detail,
 )
-from mtdata.core.output_contract import normalize_output_verbosity_detail
 from mtdata.services.finviz import (
     get_stock_description,
     get_stock_fundamentals,
 )
+from mtdata.shared.output_contract import normalize_output_verbosity_detail
 from mtdata.shared.schema import DetailLiteral
 
 _FINVIZ_FUNDAMENTAL_CATEGORIES: Dict[str, tuple[str, ...]] = {

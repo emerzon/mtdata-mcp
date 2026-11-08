@@ -1,7 +1,7 @@
 """Tests for src/mtdata/utils/symbol.py"""
 from types import SimpleNamespace
 
-from mtdata.utils.symbol import (
+from mtdata.shared.symbol_catalog import (
     _extract_group_path,
     catalog_symbol_name_matches_query,
     match_symbol_infos,

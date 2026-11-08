@@ -8,6 +8,8 @@ from typing import Any, Callable, Dict, List, NoReturn, Optional
 
 from fastapi import HTTPException
 
+from mtdata.shared.output_contract import ensure_common_meta
+
 from ..forecast.exceptions import ForecastError
 from ..forecast.forecast_methods import get_forecast_methods_payload
 from ..shared.constants import DEFAULT_ROW_LIMIT
@@ -18,12 +20,9 @@ from ..utils.utils import parse_kv_or_json
 from ._mcp_tools import shape_public_tool_output
 from .data.requests import DATA_FETCH_CANDLES_DEFAULT_LIMIT, DataFetchCandlesRequest
 from .data.use_cases import run_data_fetch_candles
-from .error_envelope import build_error_payload, normalize_error_payload
 from .mt5_gateway import create_mt5_gateway
-from .output_contract import (
-    ensure_common_meta,
-)
 from .tool_calling import resolve_sync_tool_result
+from .web_api_errors import http_error, raise_tool_error
 
 logger = logging.getLogger(__name__)
 _MAX_DENOISE_PARAMS_CHARS = 4096
@@ -32,110 +31,23 @@ _HISTORY_DENOISE_CONTROL_KEYS = frozenset(
 )
 
 
-def _http_status_for_error(payload: Any, *, default: int = 400) -> int:
-    """Map a canonical domain error to HTTP without changing its identity."""
-    if not isinstance(payload, dict):
-        return default
-    code = str(payload.get("error_code") or "").strip().lower()
-    if (
-        "param" in code
-        or "validation" in code
-        or code in {"invalid_params", "invalid_argument", "tool_param_error"}
-    ):
-        return 422
-    if "not_found" in code:
-        return 404
-    if "internal" in code:
-        return 500
-    if code in {
-        "market_ticker_mt5_connection",
-        "market_ticker_tick_unavailable",
-        "market_ticker_quote_unavailable",
-        "mt5_connection_error",
-    } or (
-        "mt5" in code
-        and any(token in code for token in ("connection", "unavailable", "quote"))
-    ):
-        return 503
-    return default
-
-
-def _http_error(
-    status_code: int,
-    message: Any,
-    *,
-    code: str,
-    operation: str,
-    details: Optional[Dict[str, Any]] = None,
-) -> HTTPException:
-    if isinstance(message, dict) and isinstance(message.get("error"), str):
-        payload = normalize_error_payload(
-            message,
-            default_code=code,
-            operation=operation,
-        )
-        if details and "details" not in payload:
-            payload["details"] = dict(details)
-    else:
-        payload = build_error_payload(
-            message,
-            code=code,
-            operation=operation,
-            details=details,
-        )
-    log_fn = logger.error if status_code >= 500 else logger.warning
-    log_fn(
-        "transport=web_api operation=%s request_id=%s status=%s error=%s",
-        operation,
-        payload["request_id"],
-        status_code,
-        payload["error"],
-    )
-    return HTTPException(status_code=status_code, detail=payload)
-
-
-def _raise_tool_error(
-    result: Any,
-    *,
-    operation: str,
-    default_code: str,
-    default_status: int = 400,
-    invalid_message: Optional[str] = None,
-) -> None:
-    """Raise the shared HTTP error for a structured tool failure."""
-    if isinstance(result, dict) and result.get("error"):
-        raise _http_error(
-            _http_status_for_error(result, default=default_status),
-            result,
-            code=str(result.get("error_code") or default_code),
-            operation=operation,
-        )
-    if invalid_message is not None and not isinstance(result, dict):
-        raise _http_error(
-            500,
-            invalid_message,
-            code=default_code,
-            operation=operation,
-        )
-
-
 def _raise_history_fetch_error(exc: Exception) -> NoReturn:
     if isinstance(exc, MT5ConnectionError):
-        raise _http_error(
+        raise http_error(
             503,
             str(exc),
             code="history_mt5_unavailable",
             operation="get_history",
         )
     if isinstance(exc, (ValueError, TypeError, KeyError)):
-        raise _http_error(
+        raise http_error(
             400,
             f"history fetch failed: {exc}",
             code="history_fetch_failed",
             operation="get_history",
         )
     logger.exception("transport=web_api operation=get_history unhandled_exception")
-    raise _http_error(
+    raise http_error(
         500,
         "History fetch failed.",
         code="history_fetch_internal_error",
@@ -145,7 +57,7 @@ def _raise_history_fetch_error(exc: Exception) -> NoReturn:
 
 def _raise_internal_handler_error(*, operation: str, code: str, message: str) -> NoReturn:
     logger.exception("transport=web_api operation=%s unhandled_exception", operation)
-    raise _http_error(500, message, code=code, operation=operation)
+    raise http_error(500, message, code=code, operation=operation)
 
 
 def _require_mt5_connection() -> None:
@@ -153,7 +65,7 @@ def _require_mt5_connection() -> None:
     try:
         mt5.ensure_connection()
     except MT5ConnectionError as exc:
-        raise _http_error(
+        raise http_error(
             503,
             str(exc),
             code="mt5_connection_error",
@@ -164,7 +76,7 @@ def _require_mt5_connection() -> None:
 def _history_denoise_bool(value: Any, *, field_name: str) -> bool:
     parsed = parse_bool_like(value)
     if parsed is UNPARSED_BOOL:
-        raise _http_error(
+        raise http_error(
             400,
             f"denoise_params.{field_name} must be a boolean value.",
             code="denoise_params_invalid",
@@ -175,7 +87,7 @@ def _history_denoise_bool(value: Any, *, field_name: str) -> bool:
 
 def _history_denoise_choice(value: Any, *, field_name: str, allowed: set[str]) -> str:
     if not isinstance(value, str):
-        raise _http_error(
+        raise http_error(
             400,
             f"denoise_params.{field_name} must be a string.",
             code="denoise_params_invalid",
@@ -184,7 +96,7 @@ def _history_denoise_choice(value: Any, *, field_name: str, allowed: set[str]) -
     normalized = value.strip().lower()
     if normalized not in allowed:
         allowed_text = ", ".join(sorted(allowed))
-        raise _http_error(
+        raise http_error(
             400,
             f"denoise_params.{field_name} must be one of: {allowed_text}.",
             code="denoise_params_invalid",
@@ -197,7 +109,7 @@ def _history_denoise_params_dict(value: Any) -> Dict[str, Any]:
     if value is None:
         return {}
     if not isinstance(value, dict):
-        raise _http_error(
+        raise http_error(
             400,
             "denoise_params.params must be a JSON object.",
             code="denoise_params_invalid",
@@ -213,7 +125,7 @@ def _history_denoise_columns(value: Any) -> List[str]:
         columns = []
         for index, item in enumerate(value):
             if not isinstance(item, str):
-                raise _http_error(
+                raise http_error(
                     400,
                     f"denoise_params.columns[{index}] must be a string.",
                     code="denoise_params_invalid",
@@ -223,14 +135,14 @@ def _history_denoise_columns(value: Any) -> List[str]:
             if name:
                 columns.append(name)
     else:
-        raise _http_error(
+        raise http_error(
             400,
             "denoise_params.columns must be a string or list of strings.",
             code="denoise_params_invalid",
             operation="get_history",
         )
     if not columns:
-        raise _http_error(
+        raise http_error(
             400,
             "denoise_params.columns must contain at least one column name.",
             code="denoise_params_invalid",
@@ -279,7 +191,7 @@ def get_instruments_response(
             detail="compact",
         )
     )
-    _raise_tool_error(
+    raise_tool_error(
         result,
         operation="get_instruments",
         default_code="symbols_list_failed",
@@ -327,7 +239,7 @@ def _require_internal_collection(
     label: str,
 ) -> List[Dict[str, Any]]:
     if isinstance(data, dict) and data.get("error"):
-        _raise_tool_error(
+        raise_tool_error(
             data,
             operation=operation,
             default_code=error_code,
@@ -339,7 +251,7 @@ def _require_internal_collection(
         or any(not isinstance(row, dict) for row in rows)
         or data.get("success") is False
     ):
-        raise _http_error(
+        raise http_error(
             500,
             f"Unexpected {label} payload.",
             code=error_code,
@@ -520,7 +432,7 @@ def get_history_response(  # noqa: C901
                 if not method_meta or not bool(method_meta.get("available", True)):
                     req = method_meta.get("requires") if method_meta else ""
                     suffix = f"Requires {req}" if req else ""
-                    raise _http_error(
+                    raise http_error(
                         400,
                         f"Denoise method '{denoise_method_val}' is not available. {suffix}".strip(),
                         code="denoise_method_unavailable",
@@ -533,7 +445,7 @@ def get_history_response(  # noqa: C901
                 "transport=web_api operation=get_history denoise_validation_failed error=%s",
                 exc,
             )
-            raise _http_error(
+            raise http_error(
                 500,
                 "Denoise method validation failed.",
                 code="denoise_validation_failed",
@@ -550,7 +462,7 @@ def get_history_response(  # noqa: C901
         }
         if denoise_params_val:
             if len(denoise_params_val) > _MAX_DENOISE_PARAMS_CHARS:
-                raise _http_error(
+                raise http_error(
                     400,
                     f"denoise_params exceeds {_MAX_DENOISE_PARAMS_CHARS} characters.",
                     code="denoise_params_too_large",
@@ -564,7 +476,7 @@ def get_history_response(  # noqa: C901
                 except (TypeError, ValueError):
                     decoded = None
                 if not isinstance(decoded, dict):
-                    raise _http_error(
+                    raise http_error(
                         400,
                         "denoise_params must be a JSON object or key=value pairs.",
                         code="denoise_params_invalid",
@@ -573,14 +485,14 @@ def get_history_response(  # noqa: C901
             try:
                 payload = parse_kv_or_json(stripped_params)
             except ValueError as exc:
-                raise _http_error(
+                raise http_error(
                     400,
                     str(exc),
                     code="denoise_params_invalid",
                     operation="get_history",
                 ) from exc
             if not payload and stripped_params != "{}":
-                raise _http_error(
+                raise http_error(
                     400,
                     "denoise_params must be a JSON object or key=value pairs.",
                     code="denoise_params_invalid",
@@ -600,7 +512,7 @@ def get_history_response(  # noqa: C901
         except DenoiseCausalityError as exc:
             # Non-causal filters (e.g. l1_trend) require explicit zero_phase opt-in.
             # Surface as a client error, not an unhandled 500.
-            raise _http_error(
+            raise http_error(
                 400,
                 (
                     f"Denoise method '{exc.method}' requires explicit zero-phase "
@@ -649,7 +561,7 @@ def get_history_response(  # noqa: C901
     except Exception as exc:
         _raise_history_fetch_error(exc)
 
-    _raise_tool_error(
+    raise_tool_error(
         result,
         operation="get_history",
         default_code="history_tool_error",
@@ -730,7 +642,7 @@ def get_pivots_response(
             )
         )
     except Exception as exc:
-        raise _http_error(
+        raise http_error(
             500,
             f"pivot compute failed: {exc}",
             code="pivot_compute_failed",
@@ -741,16 +653,16 @@ def get_pivots_response(
         try:
             result = json.loads(result)
         except Exception:
-            raise _http_error(
+            raise http_error(
                 500,
                 "Unexpected pivot output format",
                 code="pivot_output_invalid",
                 operation="get_pivots",
             )
 
-    _raise_tool_error(result, operation="get_pivots", default_code="pivot_tool_error")
+    raise_tool_error(result, operation="get_pivots", default_code="pivot_tool_error")
     if not isinstance(result, dict):
-        raise _http_error(
+        raise http_error(
             500,
             "Pivot tool returned non-JSON payload",
             code="pivot_payload_invalid",
@@ -778,7 +690,7 @@ def get_pivots_response(
             except (TypeError, ValueError):
                 continue
     if not levels:
-        raise _http_error(
+        raise http_error(
             404,
             f"No pivot levels for method {method}",
             code="pivot_levels_missing",
@@ -837,20 +749,20 @@ def get_support_resistance_response(
         message = str(exc)
         status_code = 404 if "No history available" in message else 400
         detail = message if status_code == 404 else f"history fetch failed: {message}"
-        raise _http_error(
+        raise http_error(
             status_code,
             detail,
             code="support_resistance_history_failed" if status_code != 404 else "support_resistance_history_missing",
             operation="get_support_resistance",
         )
 
-    _raise_tool_error(
+    raise_tool_error(
         result,
         operation="get_support_resistance",
         default_code="support_resistance_failed",
     )
     if not _support_resistance_has_levels(result):
-        raise _http_error(
+        raise http_error(
             404,
             "No support/resistance levels detected",
             code="support_resistance_levels_missing",
@@ -886,20 +798,20 @@ def get_tick_response(
     try:
         result = resolve_sync_tool_result(tool(symbol=symbol, detail=detail))
     except Exception as exc:
-        raise _http_error(
+        raise http_error(
             500,
             f"Tick lookup failed: {exc}",
             code="tick_lookup_failed",
             operation="get_tick",
         ) from exc
     if not isinstance(result, dict):
-        raise _http_error(
+        raise http_error(
             500,
             "Unexpected tick payload",
             code="tick_payload_invalid",
             operation="get_tick",
         )
-    _raise_tool_error(result, operation="get_tick", default_code="tick_data_missing")
+    raise_tool_error(result, operation="get_tick", default_code="tick_data_missing")
     shaped = shape_public_tool_output(
         result,
         detail=detail,
@@ -930,14 +842,14 @@ def _post_use_case_response(
     except HTTPException:
         raise
     except ForecastError as exc:
-        raise _http_error(
+        raise http_error(
             400,
             str(exc),
             code=domain_error_code,
             operation=operation,
         )
     except MT5ConnectionError as exc:
-        raise _http_error(
+        raise http_error(
             503,
             str(exc),
             code=mt5_error_code,
@@ -949,7 +861,7 @@ def _post_use_case_response(
             code=internal_error_code,
             message=internal_message,
         )
-    _raise_tool_error(
+    raise_tool_error(
         result,
         operation=operation,
         default_code=result_error_code,

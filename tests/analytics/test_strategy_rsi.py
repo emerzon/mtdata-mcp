@@ -2,8 +2,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from mtdata.analytics.requests import StrategyCandidate
 from mtdata.analytics.strategy_validate import _builtin_signal
-from mtdata.core.analytics_requests import StrategyCandidate
 from mtdata.forecast.backtest import _build_strategy_signal_series
 
 

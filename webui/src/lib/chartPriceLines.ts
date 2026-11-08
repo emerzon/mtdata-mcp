@@ -1,4 +1,4 @@
-import type { PriceLineSpec } from '../components/OHLCChart'
+import type { PriceLineSpec } from '../types'
 import type { Tick } from '../types'
 
 export function liveQuotePriceLines(

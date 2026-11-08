@@ -23,6 +23,20 @@ from typing import (
 
 from pydantic import BaseModel, Field
 
+from mtdata.shared.error_envelope import (
+    build_error_payload,
+    log_transport_exception,
+    normalize_error_payload,
+)
+from mtdata.shared.output_contract import (
+    OutputContractState,
+    apply_output_verbosity,
+    attach_success_guidance,
+    build_pagination_meta,
+    resolve_output_contract,
+)
+from mtdata.shared.request_context import ensure_request_id_scope
+
 from ..shared.annotations import get_runtime_annotations, get_runtime_signature
 from ..shared.feature_flags import (
     MARKET_DEPTH_FETCH_ENV,
@@ -31,20 +45,7 @@ from ..shared.feature_flags import (
 )
 from ..shared.tool_categories import tool_catalog_category
 from ..utils.coercion import UNPARSED_BOOL, coerce_scalar, parse_bool_like
-from .error_envelope import (
-    build_error_payload,
-    log_transport_exception,
-    normalize_error_payload,
-)
-from .output_contract import (
-    OutputContractState,
-    apply_output_verbosity,
-    attach_success_guidance,
-    build_pagination_meta,
-    resolve_output_contract,
-)
 from .output_profiles import apply_public_output_profile
-from .request_context import ensure_request_id_scope
 
 _ORIG_TOOL_DECORATOR: Any = None
 _REGISTRY_UNSET = object()
@@ -781,7 +782,7 @@ def _normalize_catalog_detail(detail: str, *, default: str = "compact") -> str:
 
 
 def _build_registered_catalog_row(name: str, func: Any, *, detail_mode: str) -> Dict[str, Any]:
-    from .output_contract import related_tools_for
+    from mtdata.shared.output_contract import related_tools_for
 
     category = _tool_catalog_category(name, func)
     row: Dict[str, Any] = {
@@ -1882,11 +1883,6 @@ def shape_public_tool_output(
         output_fields,
         tool_name=normalized_tool_name,
     )
-
-
-# Compatibility alias for internal callers that imported the original private
-# helper before public transports were consolidated on one shaping entry point.
-_shape_public_tool_output = shape_public_tool_output
 
 
 def _recording_tool_decorator(*dargs, **dkwargs):  # type: ignore[override]  # noqa: C901

@@ -93,7 +93,7 @@ def _row_map(result):
 
 
 def test_mt5_source_provenance_identifies_broker_without_account_number():
-    from mtdata.core.runtime_metadata import build_mt5_source_provenance
+    from mtdata.shared.runtime_metadata import build_mt5_source_provenance
 
     gateway = SimpleNamespace(
         account_info=lambda: SimpleNamespace(

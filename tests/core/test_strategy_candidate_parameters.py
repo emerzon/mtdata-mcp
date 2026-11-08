@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from mtdata.core.analytics_requests import StrategyCandidate, StrategyValidateRequest
+from mtdata.analytics.requests import StrategyCandidate, StrategyValidateRequest
 
 
 @pytest.mark.parametrize("strategy,params,match", [

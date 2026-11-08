@@ -20,11 +20,11 @@ from mtdata.core.finviz.common import (
     _normalize_finviz_market_payload,
     _run_logged_tool,
 )
-from mtdata.core.output_contract import (
+from mtdata.services.finviz import screen_stocks
+from mtdata.shared.output_contract import (
     build_pagination_meta,
     normalize_output_verbosity_detail,
 )
-from mtdata.services.finviz import screen_stocks
 from mtdata.shared.schema import DetailLiteral
 
 

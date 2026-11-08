@@ -206,6 +206,8 @@ def test_get_forecast_methods_data_assembles_categories_and_skips_broken(monkeyp
         PARAMS = {"invalid": "shape"}
         category = None
 
+    from mtdata.forecast.methods.ensemble import EnsembleMethod
+
     class BrokenMethod:
         def __init__(self):
             raise RuntimeError("construction failed")
@@ -219,6 +221,7 @@ def test_get_forecast_methods_data_assembles_categories_and_skips_broken(monkeyp
         def get_class(name):
             mapping = {
                 "good": GoodMethod,
+                "ensemble": EnsembleMethod,
                 "broken": BrokenMethod,
                 "missing_params": MissingParamsMethod,
             }
@@ -358,3 +361,14 @@ def test_timesfm_versions_report_distinct_names():
     assert t25.name == "timesfm"
     assert t3.name == "timesfm3"
     assert t25.name != t3.name
+
+
+def test_available_methods_excludes_missing_and_unavailable_entries(monkeypatch):
+    monkeypatch.setattr(
+        fr.ForecastRegistry, "get_all_method_names", lambda: ("naive", "missing", "sf_autoarima"),
+    )
+    monkeypatch.setattr(
+        fr, "get_forecast_method_availability_snapshot",
+        lambda: {"naive": True, "sf_autoarima": False},
+    )
+    assert fr.get_available_forecast_methods() == ("naive",)

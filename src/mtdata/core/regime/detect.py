@@ -1861,7 +1861,7 @@ def _detect_garch(  # noqa: C901
     try:
         from arch import arch_model
     except ImportError:
-        from ..error_envelope import build_error_payload
+        from mtdata.shared.error_envelope import build_error_payload
 
         return build_error_payload(
             "arch package required for GARCH regime detection. Install: pip install arch",

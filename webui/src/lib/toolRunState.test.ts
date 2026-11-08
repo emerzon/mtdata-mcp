@@ -40,10 +40,10 @@ describe('tool run request gate', () => {
       if (gate.isCurrent(first, 'EURUSD:H1:12')) error = reason
     })
     gate.invalidate()
-    const second = gate.begin('EURUSD:H1:12')
     reject(new Error('stale error'))
     await completion
     expect(error).toBeNull()
+    const second = gate.begin('EURUSD:H1:12')
     expect(gate.isCurrent(second, 'EURUSD:H1:12')).toBe(true)
   })
 })

@@ -1250,7 +1250,7 @@ class TestFinvizInsiderOutputContract:
             "success": True,
             "symbol": "AAPL",
             "insider_trades": [
-                {"Insider Trading": "Parekh Kevan", "SEC Form 4": "Apr 27 06:30 PM"}
+                {"Insider Trading": "Parekh Kevan", "Date": "2026-04-27", "SEC Form 4": "Apr 27 06:30 PM"}
             ],
         }
 
@@ -1261,6 +1261,8 @@ class TestFinvizInsiderOutputContract:
             {
                 "owner": "Parekh Kevan",
                 "sec_form_4": "Apr 27 06:30 PM",
+                "date": "2026-04-27",
+                "transaction_date": "2026-04-27",
                 "filed_at": "2026-04-27T18:30:00-04:00",
             }
         ]
